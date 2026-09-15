@@ -99,3 +99,6 @@ body{
   .topbar{flex-wrap:wrap;gap:8px;}
   .form-row{grid-template-columns:1fr;}
 }
+
+/* Corrige telas que nao escondiam por causa do .center sobrescrever [hidden] */
+[hidden]{display:none!important;}

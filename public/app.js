@@ -128,19 +128,27 @@
         <span class="tag">${d.access === 'admin' ? 'Acesso admin' : 'Acesso editor'}</span>
         <button>Abrir dashboard →</button>
       `;
-      card.querySelector('button').onclick = () => openDashboard(d.key);
+      card.querySelector('button').onclick = () => openDashboard(d.key, d.label);
       grid.appendChild(card);
     });
   }
 
-  async function openDashboard(key) {
+  async function openDashboard(key, label) {
     try {
       const data = await api('/api/dashboards/launch/' + key);
-      window.open(data.url, '_blank');
+      $('#embedTitle').textContent = label || '';
+      $('#embedFrame').src = data.url;
+      showView('embed');
+      $all('.navlink').forEach((b) => b.classList.toggle('active', b.dataset.view === 'home'));
     } catch (e) {
       alert(e.message);
     }
   }
+
+  $('#embedBack').onclick = () => {
+    $('#embedFrame').src = 'about:blank';
+    showView('home');
+  };
 
   // ---------- orçamento ----------
   function fillMonthSelect(sel) {

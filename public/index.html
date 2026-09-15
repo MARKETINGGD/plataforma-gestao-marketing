@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plataforma de Gestão de Marketing</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div id="screen-loading" class="screen center">
+  <p>Carregando…</p>
+</div>
+
+<div id="screen-setup" class="screen center" hidden>
+  <div class="auth-card">
+    <h1>Plataforma de Gestão de Marketing</h1>
+    <p class="muted">Primeiro acesso — crie o usuário administrador.</p>
+    <label>Seu nome</label>
+    <input id="setupName" type="text" placeholder="Ex: Raquel Daltoé">
+    <label>Usuário</label>
+    <input id="setupUsername" type="text" placeholder="usuario">
+    <label>Senha (mínimo 6 caracteres)</label>
+    <input id="setupPassword" type="password">
+    <div id="setupError" class="error" hidden></div>
+    <button id="setupSubmit" class="btn-primary">Criar administrador</button>
+  </div>
+</div>
+
+<div id="screen-login" class="screen center" hidden>
+  <div class="auth-card">
+    <h1>Plataforma de Gestão de Marketing</h1>
+    <p class="muted">GhelPlus &amp; De Bacco</p>
+    <label>Usuário</label>
+    <input id="loginUsername" type="text" autocomplete="username">
+    <label>Senha</label>
+    <input id="loginPassword" type="password" autocomplete="current-password">
+    <div id="loginError" class="error" hidden></div>
+    <button id="loginSubmit" class="btn-primary">Entrar</button>
+  </div>
+</div>
+
+<div id="screen-app" class="screen" hidden>
+  <header class="topbar">
+    <div class="topbar-title">Plataforma de Gestão de Marketing</div>
+    <nav class="topbar-nav">
+      <button class="navlink" data-view="home">Início</button>
+      <button class="navlink" data-view="budget">Orçamento</button>
+      <button class="navlink" data-view="users" id="navUsers" hidden>Usuários</button>
+    </nav>
+    <div class="topbar-user">
+      <span id="topbarUserName"></span>
+      <button id="logoutBtn" class="btn-link">Sair</button>
+    </div>
+  </header>
+
+  <main class="content">
+
+    <section id="view-home" class="view">
+      <h2>Dashboards</h2>
+      <p class="muted">Clique para abrir — você entra direto, sem precisar logar de novo.</p>
+      <div id="dashboardGrid" class="card-grid"></div>
+    </section>
+
+    <section id="view-budget" class="view" hidden>
+      <h2>Orçamento de Marketing — Planejado x Realizado</h2>
+      <div class="toolbar">
+        <select id="budgetFilterBrand">
+          <option value="">Todas as marcas</option>
+          <option value="ghelplus">GhelPlus</option>
+          <option value="debacco">De Bacco</option>
+        </select>
+        <select id="budgetFilterYear"></select>
+        <button id="budgetNewBtn" class="btn-primary" hidden>+ Novo lançamento</button>
+      </div>
+
+      <div class="summary-cards">
+        <div class="summary-card">
+          <span class="summary-label">Planejado</span>
+          <span id="sumPlanejado" class="summary-value">—</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Realizado</span>
+          <span id="sumRealizado" class="summary-value">—</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Diferença</span>
+          <span id="sumDiferenca" class="summary-value">—</span>
+        </div>
+      </div>
+
+      <div id="budgetFormWrap" class="form-card" hidden>
+        <h3 id="budgetFormTitle">Novo lançamento</h3>
+        <input type="hidden" id="budgetFormId">
+        <div class="form-row">
+          <div>
+            <label>Marca</label>
+            <select id="budgetFormBrand">
+              <option value="ghelplus">GhelPlus</option>
+              <option value="debacco">De Bacco</option>
+            </select>
+          </div>
+          <div>
+            <label>Categoria</label>
+            <input id="budgetFormCategory" type="text" placeholder="Ex: Tráfego Pago, Ações Sazonais, Redes Sociais...">
+          </div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>Ano</label>
+            <input id="budgetFormYear" type="number" placeholder="2026">
+          </div>
+          <div>
+            <label>Mês</label>
+            <select id="budgetFormMonth"></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>Valor planejado (R$)</label>
+            <input id="budgetFormPlanejado" type="number" step="0.01">
+          </div>
+          <div>
+            <label>Valor realizado (R$)</label>
+            <input id="budgetFormRealizado" type="number" step="0.01">
+          </div>
+        </div>
+        <label>Observações</label>
+        <input id="budgetFormNotes" type="text">
+        <div id="budgetFormError" class="error" hidden></div>
+        <div class="form-actions">
+          <button id="budgetFormSave" class="btn-primary">Salvar</button>
+          <button id="budgetFormCancel" class="btn-secondary">Cancelar</button>
+        </div>
+      </div>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Marca</th><th>Categoria</th><th>Mês/Ano</th>
+            <th>Planejado</th><th>Realizado</th><th>Diferença</th>
+            <th>Observações</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="budgetTableBody"></tbody>
+      </table>
+      <p id="budgetEmpty" class="muted" hidden>Nenhum lançamento ainda.</p>
+    </section>
+
+    <section id="view-users" class="view" hidden>
+      <h2>Usuários da plataforma</h2>
+      <p class="muted">Controle quais dashboards e a aba de Orçamento cada pessoa pode acessar.</p>
+      <button id="userNewBtn" class="btn-primary">+ Novo usuário</button>
+
+      <div id="userFormWrap" class="form-card" hidden>
+        <h3 id="userFormTitle">Novo usuário</h3>
+        <input type="hidden" id="userFormId">
+        <div class="form-row">
+          <div>
+            <label>Nome</label>
+            <input id="userFormName" type="text">
+          </div>
+          <div>
+            <label>Usuário (login)</label>
+            <input id="userFormUsername" type="text">
+          </div>
+        </div>
+        <label id="userFormPasswordLabel">Senha (mínimo 6 caracteres)</label>
+        <input id="userFormPassword" type="password">
+        <label class="checkbox-row">
+          <input type="checkbox" id="userFormSuperAdmin">
+          Administrador da plataforma (acesso total a tudo, gerencia usuários)
+        </label>
+
+        <div id="userFormPermissions">
+          <label>Permissões por dashboard</label>
+          <div class="perm-row"><span>Tráfego Pago</span><select data-perm="trafegoPago"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+          <div class="perm-row"><span>Ações Sazonais</span><select data-perm="acoesSazonais"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+          <div class="perm-row"><span>Redes Sociais</span><select data-perm="redesSociais"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+          <div class="perm-row"><span>Orçamento</span><select data-perm="budget"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+        </div>
+
+        <div id="userFormError" class="error" hidden></div>
+        <div class="form-actions">
+          <button id="userFormSave" class="btn-primary">Salvar</button>
+          <button id="userFormCancel" class="btn-secondary">Cancelar</button>
+        </div>
+      </div>
+
+      <table class="data-table">
+        <thead>
+          <tr><th>Nome</th><th>Usuário</th><th>Tipo</th><th>Acessos</th><th></th></tr>
+        </thead>
+        <tbody id="usersTableBody"></tbody>
+      </table>
+    </section>
+
+  </main>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

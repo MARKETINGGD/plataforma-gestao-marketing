@@ -77,6 +77,14 @@
     const [y, m, d] = iso.split('-');
     return `${d}/${m}/${y}`;
   };
+  // Usado pra mostrar quando uma sugestão de alteração foi pedida
+  // (timestamp completo, não só a data em AAAA-MM-DD).
+  const fmtDateTime = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  };
   const fmtBytes = (n) => {
     if (n < 1024) return n + ' B';
     if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
@@ -1350,8 +1358,15 @@
     $('#socialPostFormTime').value = post ? (post.scheduledTime || '') : '';
     $('#socialPostFormCaption').value = post ? (post.caption || '') : '';
     $('#socialPostFormSuggestions').value = post ? (post.changeSuggestions || '') : '';
+    if (post && post.changeSuggestions && post.changeSuggestionsBy) {
+      $('#socialPostFormSuggestionsMeta').textContent = `Pedido por ${post.changeSuggestionsBy}${post.changeSuggestionsAt ? ' em ' + fmtDateTime(post.changeSuggestionsAt) : ''}`;
+      $('#socialPostFormSuggestionsMeta').hidden = false;
+    } else {
+      $('#socialPostFormSuggestionsMeta').hidden = true;
+    }
     $('#socialPostFormLink').value = post ? (post.link || '') : '';
-    $('#socialPostFormBriefingLink').value = post ? (post.briefingLink || '') : '';
+    $('#socialPostFormBriefingText').value = post ? (post.briefingText || '') : '';
+    $('#socialPostFormScriptText').value = post ? (post.scriptText || '') : '';
     $('#socialPostFormScriptLink').value = post ? (post.scriptLink || '') : '';
 
     socialInvolvedIds = new Set(post ? (post.involvedUserIds || []) : []);
@@ -1389,7 +1404,8 @@
       involvedUserIds: Array.from(socialInvolvedIds),
       changeSuggestions: $('#socialPostFormSuggestions').value,
       link: $('#socialPostFormLink').value,
-      briefingLink: $('#socialPostFormBriefingLink').value,
+      briefingText: $('#socialPostFormBriefingText').value,
+      scriptText: $('#socialPostFormScriptText').value,
       scriptLink: $('#socialPostFormScriptLink').value
     };
     if (!payload.scheduledDate) {

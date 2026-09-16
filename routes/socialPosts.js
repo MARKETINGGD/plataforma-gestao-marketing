@@ -50,11 +50,14 @@ function serialize(p) {
     files: p.files || [],
     layoutFiles: p.layoutFiles || [],
     briefingFile: p.briefingFile || null,
-    briefingLink: p.briefingLink || '',
+    briefingText: p.briefingText || '',
     scriptFile: p.scriptFile || null,
+    scriptText: p.scriptText || '',
     scriptLink: p.scriptLink || '',
     involvedUserIds: p.involvedUserIds || [],
     changeSuggestions: p.changeSuggestions || '',
+    changeSuggestionsBy: p.changeSuggestionsBy || '',
+    changeSuggestionsAt: p.changeSuggestionsAt || null,
     link: p.link || '',
     postType: p.postType || 'feed',
     brand: p.brand || 'debacco',
@@ -63,6 +66,16 @@ function serialize(p) {
     approvedByName: p.approvedByName || '',
     approvedAt: p.approvedAt || null
   });
+}
+
+// Sugestões de alteração mostram quem pediu e quando — só atualiza esses
+// dois campos quando o TEXTO muda de verdade (não a cada save do
+// agendamento), e limpa os dois se o campo for esvaziado.
+function changeSuggestionsMeta(newText, previousText, req) {
+  const text = (newText || '').trim();
+  if (text === (previousText || '').trim()) return {};
+  if (!text) return { changeSuggestionsBy: '', changeSuggestionsAt: null };
+  return { changeSuggestionsBy: req.user.username, changeSuggestionsAt: new Date().toISOString() };
 }
 
 // Só gerente, coordenador(a) ou admin da plataforma podem aprovar/reprovar
@@ -179,11 +192,11 @@ function validInvolvedIds(ids) {
 }
 
 router.post('/', requireAuth, (req, res) => {
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingLink, scriptLink } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingText, scriptText, scriptLink } = req.body || {};
   if (!PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Escolha uma rede social válida.' });
   if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco ou GhelPlus).' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
-  const post = {
+  const post = Object.assign({
     id: nanoid(),
     brand,
     platform,
@@ -195,7 +208,8 @@ router.post('/', requireAuth, (req, res) => {
     involvedUserIds: validInvolvedIds(involvedUserIds),
     changeSuggestions: changeSuggestions || '',
     link: link || '',
-    briefingLink: briefingLink || '',
+    briefingText: briefingText || '',
+    scriptText: scriptText || '',
     scriptLink: scriptLink || '',
     files: [],
     layoutFiles: [],
@@ -205,7 +219,7 @@ router.post('/', requireAuth, (req, res) => {
     createdBy: req.user.id,
     createdByName: req.user.username,
     updatedAt: new Date().toISOString()
-  };
+  }, changeSuggestionsMeta(changeSuggestions, '', req));
   db.get('socialPosts').push(post).write();
   createDemandCardsForNewInvolved(post, post.involvedUserIds, req);
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${brand} · ${platform} ${scheduledDate}`, action: 'create' });
@@ -216,7 +230,7 @@ router.put('/:id', requireAuth, (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
   const previousInvolvedIds = post.involvedUserIds || [];
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingLink, scriptLink } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingText, scriptText, scriptLink } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
   if (brand !== undefined && BRANDS.includes(brand)) updates.brand = brand;
@@ -226,9 +240,13 @@ router.put('/:id', requireAuth, (req, res) => {
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
   if (postType !== undefined && POST_TYPES.includes(postType)) updates.postType = postType;
   if (involvedUserIds !== undefined) updates.involvedUserIds = validInvolvedIds(involvedUserIds);
-  if (changeSuggestions !== undefined) updates.changeSuggestions = changeSuggestions;
+  if (changeSuggestions !== undefined) {
+    updates.changeSuggestions = changeSuggestions;
+    Object.assign(updates, changeSuggestionsMeta(changeSuggestions, post.changeSuggestions, req));
+  }
   if (link !== undefined) updates.link = link;
-  if (briefingLink !== undefined) updates.briefingLink = briefingLink;
+  if (briefingText !== undefined) updates.briefingText = briefingText;
+  if (scriptText !== undefined) updates.scriptText = scriptText;
   if (scriptLink !== undefined) updates.scriptLink = scriptLink;
   db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
   const fresh = db.get('socialPosts').find({ id: req.params.id }).value();

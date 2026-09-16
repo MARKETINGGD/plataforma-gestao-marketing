@@ -241,9 +241,6 @@
           <label>Legenda / texto do agendamento</label>
           <textarea id="socialPostFormCaption" rows="3"></textarea>
 
-          <label>Sugestões de alteração do material</label>
-          <textarea id="socialPostFormSuggestions" rows="2" placeholder="Alguma alteração pedida pro material?"></textarea>
-
           <label>Link</label>
           <input id="socialPostFormLink" type="text" placeholder="https://...">
 
@@ -255,17 +252,23 @@
           <div id="socialPostFormFiles" class="file-list"></div>
           <input id="socialPostFormFileInput" type="file">
 
-          <label>Briefing (link ou arquivo)</label>
-          <input id="socialPostFormBriefingLink" type="text" placeholder="Link do briefing (opcional)">
+          <label>Briefing</label>
+          <textarea id="socialPostFormBriefingText" rows="3" placeholder="Escreva o briefing aqui..."></textarea>
           <div id="socialPostFormBriefingFile" class="file-list"></div>
           <input id="socialPostFormBriefingFileInput" type="file">
 
           <div id="socialPostFormScriptWrap" hidden>
-            <label>Roteiro (link ou arquivo) — necessário pra vídeo</label>
-            <input id="socialPostFormScriptLink" type="text" placeholder="Link do roteiro (opcional)">
+            <label>Roteiro — necessário pra vídeo</label>
+            <textarea id="socialPostFormScriptText" rows="4" placeholder="Escreva o roteiro aqui..."></textarea>
+            <label>Link do roteiro (opcional)</label>
+            <input id="socialPostFormScriptLink" type="text" placeholder="https://...">
             <div id="socialPostFormScriptFile" class="file-list"></div>
             <input id="socialPostFormScriptFileInput" type="file">
           </div>
+
+          <label>Sugestões de alteração do material</label>
+          <textarea id="socialPostFormSuggestions" rows="2" placeholder="Alguma alteração pedida pro material?"></textarea>
+          <p id="socialPostFormSuggestionsMeta" class="muted" style="margin:2px 0 0;font-size:12px;" hidden></p>
 
           <div id="socialPostFormError" class="error" hidden></div>
           <div class="form-actions">

@@ -92,7 +92,10 @@ body{
 .form-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;max-width:520px;}
 .form-card h3{margin-top:0;}
 .form-card label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px;}
-.form-card input,.form-card select{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;}
+.form-card input,.form-card select,.form-card textarea{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;}
+.form-card textarea{resize:vertical;line-height:1.45;}
+.carousel-card-field{margin-bottom:10px;}
+.carousel-card-field label{font-weight:600;}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .form-actions{display:flex;gap:8px;margin-top:16px;}
 .checkbox-row{display:flex;align-items:center;gap:8px;font-size:13px;margin-top:14px;}

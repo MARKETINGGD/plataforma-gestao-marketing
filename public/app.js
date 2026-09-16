@@ -37,6 +37,7 @@
   let editingSocialPostId = null;
   let socialTab = 'debacco'; // 'debacco' | 'ghelplus'
   let socialInvolvedIds = new Set();
+  let socialCarouselBriefings = []; // array de textos, um por card do carrossel
 
   let cronogramaTab = 'calendario'; // 'calendario' | 'feed'
   let cronogramaFeedNetwork = 'ig_fb'; // 'ig_fb' | 'linkedin'
@@ -64,10 +65,10 @@
   const UNASSIGNED_COL = { id: '', name: 'Sem responsável' };
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
   const SOCIAL_STATUS_LABEL = { rascunho: 'Rascunho', agendado: 'Agendado', publicado: 'Publicado' };
-  const SOCIAL_POST_TYPE_LABEL = { feed: 'Feed', story: 'Story', reels: 'Reels', carrossel: 'Carrossel', video: 'Vídeo', live: 'Live', g_news: 'G-NEWS', contatto: 'Contatto' };
+  const SOCIAL_POST_TYPE_LABEL = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
   // Tipo de newsletter tem nome diferente por marca — mesma coisa, nomes distintos.
   const NEWSLETTER_TYPE_BY_BRAND = { ghelplus: 'g_news', debacco: 'contatto' };
-  const NORMAL_POST_TYPES = ['feed', 'story', 'reels', 'carrossel', 'video', 'live'];
+  const NORMAL_POST_TYPES = ['estatico', 'carrossel', 'reels', 'storie', 'video_tiktok', 'video_youtube', 'pin'];
   const CARGO_LABEL = { gerente: 'Gerente', analista: 'Analista', auxiliar: 'Auxiliar', coordenador: 'Coordenador(a)', designer: 'Designer', designer3d: 'Designer 3D', videomaker: 'Videomaker' };
   const fmtMoney = (n) => n === null || n === undefined || n === ''
     ? '—'
@@ -1188,6 +1189,7 @@
     sel.innerHTML = options.map((t) => `<option value="${t}">${SOCIAL_POST_TYPE_LABEL[t] || t}</option>`).join('');
     if (keepValue && options.includes(keepValue)) sel.value = keepValue;
     updateScriptVisibility();
+    updateCarouselVisibility();
   }
 
   // Roteiro só faz sentido quando o agendamento é de vídeo (Reels, ou
@@ -1199,9 +1201,52 @@
     $('#socialPostFormScriptWrap').hidden = !isVideo;
   }
 
+  // Briefing por card só faz sentido pra Carrossel — o bloco fica
+  // escondido pros outros tipos de post.
+  const MAX_CAROUSEL_CARDS_UI = 30;
+  function updateCarouselVisibility() {
+    const type = $('#socialPostFormType').value;
+    $('#socialPostFormCarouselWrap').hidden = (type !== 'carrossel');
+  }
+
+  function renderCarouselCards() {
+    const wrap = $('#socialPostFormCarouselCards');
+    wrap.innerHTML = '';
+    socialCarouselBriefings.forEach((text, idx) => {
+      const field = document.createElement('div');
+      field.className = 'carousel-card-field';
+      const label = document.createElement('label');
+      label.textContent = `Card ${idx + 1}`;
+      const ta = document.createElement('textarea');
+      ta.rows = 3;
+      ta.value = text || '';
+      ta.oninput = () => { socialCarouselBriefings[idx] = ta.value; };
+      field.appendChild(label);
+      field.appendChild(ta);
+      wrap.appendChild(field);
+    });
+  }
+
+  // Ajusta o array de briefings conforme o número de cards informado,
+  // mantendo o que já foi digitado nos cards que continuam existindo.
+  function setCarouselCount(count) {
+    const n = Math.max(1, Math.min(MAX_CAROUSEL_CARDS_UI, Number(count) || 1));
+    while (socialCarouselBriefings.length < n) socialCarouselBriefings.push('');
+    socialCarouselBriefings.length = n;
+    $('#socialPostFormCarouselCount').value = n;
+    renderCarouselCards();
+  }
+
   $('#socialPostFormPlatform').onchange = () => updateSocialTypeOptions();
   $('#socialPostFormBrand').onchange = () => updateSocialTypeOptions($('#socialPostFormType').value);
-  $('#socialPostFormType').onchange = () => updateScriptVisibility();
+  $('#socialPostFormType').onchange = () => { updateScriptVisibility(); updateCarouselVisibility(); };
+  // Usa 'oninput' (não 'onchange') de propósito: 'onchange' só dispara no
+  // blur do campo, e como o clique do usuário pra ir digitar no Card 1
+  // TIRA o foco do campo de número, o blur disparava o re-render bem na
+  // hora do clique — destruindo o textarea que o usuário acabou de clicar
+  // e fazendo o clique "sumir". Com 'oninput' o re-render já aconteceu
+  // enquanto o campo de número ainda tinha foco, sem essa corrida.
+  $('#socialPostFormCarouselCount').oninput = () => setCarouselCount($('#socialPostFormCarouselCount').value);
 
   $all('.tab-btn[data-social-tab]').forEach((b) => {
     b.onclick = () => {
@@ -1352,7 +1397,7 @@
     $('#socialPostFormTitle').textContent = post ? 'Editar agendamento' : 'Novo agendamento';
     $('#socialPostFormBrand').value = post ? (post.brand || 'debacco') : socialTab;
     $('#socialPostFormPlatform').value = post ? post.platform : (socialPlatforms[0] || '');
-    updateSocialTypeOptions(post ? (post.postType || 'feed') : 'feed');
+    updateSocialTypeOptions(post ? (post.postType || 'estatico') : 'estatico');
     $('#socialPostFormStatus').value = post ? post.status : 'rascunho';
     $('#socialPostFormDate').value = post ? post.scheduledDate : '';
     $('#socialPostFormTime').value = post ? (post.scheduledTime || '') : '';
@@ -1368,6 +1413,12 @@
     $('#socialPostFormBriefingText').value = post ? (post.briefingText || '') : '';
     $('#socialPostFormScriptText').value = post ? (post.scriptText || '') : '';
     $('#socialPostFormScriptLink').value = post ? (post.scriptLink || '') : '';
+
+    socialCarouselBriefings = post && Array.isArray(post.carouselBriefings) && post.carouselBriefings.length > 0
+      ? [...post.carouselBriefings]
+      : [''];
+    $('#socialPostFormCarouselCount').value = socialCarouselBriefings.length;
+    renderCarouselCards();
 
     socialInvolvedIds = new Set(post ? (post.involvedUserIds || []) : []);
     renderInvolvedChips();
@@ -1406,7 +1457,8 @@
       link: $('#socialPostFormLink').value,
       briefingText: $('#socialPostFormBriefingText').value,
       scriptText: $('#socialPostFormScriptText').value,
-      scriptLink: $('#socialPostFormScriptLink').value
+      scriptLink: $('#socialPostFormScriptLink').value,
+      carouselBriefings: $('#socialPostFormType').value === 'carrossel' ? socialCarouselBriefings : []
     };
     if (!payload.scheduledDate) {
       $('#socialPostFormError').textContent = 'Escolha a data do agendamento.';

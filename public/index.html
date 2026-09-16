@@ -253,9 +253,16 @@
           <input id="socialPostFormFileInput" type="file">
 
           <label>Briefing</label>
-          <textarea id="socialPostFormBriefingText" rows="3" placeholder="Escreva o briefing aqui..."></textarea>
+          <textarea id="socialPostFormBriefingText" rows="7" placeholder="Escreva o briefing aqui..."></textarea>
           <div id="socialPostFormBriefingFile" class="file-list"></div>
           <input id="socialPostFormBriefingFileInput" type="file">
+
+          <div id="socialPostFormCarouselWrap" hidden>
+            <label>Carrossel — briefing por card</label>
+            <p class="muted" style="margin:0 0 6px;font-size:12px;">Número de cards do carrossel:</p>
+            <input id="socialPostFormCarouselCount" type="number" min="1" max="30" step="1" style="max-width:120px;">
+            <div id="socialPostFormCarouselCards" style="margin-top:10px;"></div>
+          </div>
 
           <div id="socialPostFormScriptWrap" hidden>
             <label>Roteiro — necessário pra vídeo</label>
@@ -267,7 +274,7 @@
           </div>
 
           <label>Sugestões de alteração do material</label>
-          <textarea id="socialPostFormSuggestions" rows="2" placeholder="Alguma alteração pedida pro material?"></textarea>
+          <textarea id="socialPostFormSuggestions" rows="5" placeholder="Alguma alteração pedida pro material?"></textarea>
           <p id="socialPostFormSuggestionsMeta" class="muted" style="margin:2px 0 0;font-size:12px;" hidden></p>
 
           <div id="socialPostFormError" class="error" hidden></div>

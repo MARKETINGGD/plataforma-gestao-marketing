@@ -19,19 +19,21 @@ const router = express.Router();
 // POST_TYPES abaixo).
 const PLATFORMS = ['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube', 'pinterest', 'newsletter'];
 const STATUSES = ['rascunho', 'agendado', 'publicado'];
-// Tipo do post — usado no Cronograma de Marketing (aba Calendário mostra
-// o tipo de cada post do dia; aba Prévia do Feed também exibe). g_news e
+// Tipo do post — lista definida pela Raquel (16/09, 7ª rodada). g_news e
 // contatto só fazem sentido com platform 'newsletter' — g_news é o nome
 // usado pela GhelPlus, contatto pela De Bacco (mesma coisa, nomes
-// diferentes por marca).
-const POST_TYPES = ['feed', 'story', 'reels', 'carrossel', 'video', 'live', 'g_news', 'contatto'];
+// diferentes por marca). Os demais valem pra qualquer rede.
+const POST_TYPES = ['g_news', 'contatto', 'estatico', 'carrossel', 'reels', 'storie', 'video_tiktok', 'video_youtube', 'pin'];
 // Vídeo — quando o post é desse tipo (ou dessas redes), o agendamento
 // ganha o campo extra "Roteiro" no formulário.
-const VIDEO_POST_TYPES = ['reels', 'video'];
+const VIDEO_POST_TYPES = ['reels', 'video_tiktok', 'video_youtube'];
 const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
 // Marca — mesmo padrão de separação usado no Orçamento (routes/budget.js),
 // pra manter Agendamento e Cronograma organizados por marca.
 const BRANDS = ['debacco', 'ghelplus'];
+// Limite de cards no briefing por carrossel — só pra evitar um valor
+// absurdo vindo de uma requisição malformada.
+const MAX_CAROUSEL_CARDS = 30;
 
 // Aprovação — usada na Prévia do Feed do Cronograma de Marketing. Todo
 // mundo vê o status; só gerente, coordenador(a) ou admin da plataforma
@@ -42,8 +44,24 @@ const APPROVAL_STATUSES = ['pendente', 'aprovado', 'reprovado'];
 // card de Demanda criado automaticamente quando alguém é marcado como
 // pessoa envolvida num agendamento (ver createDemandCardsForNewInvolved).
 const PLATFORM_LABEL_PT = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
-const POST_TYPE_LABEL_PT = { feed: 'Feed', story: 'Story', reels: 'Reels', carrossel: 'Carrossel', video: 'Vídeo', live: 'Live', g_news: 'G-NEWS', contatto: 'Contatto' };
+const POST_TYPE_LABEL_PT = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
 const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus' };
+
+// Migração de valores antigos de postType (taxonomia usada até a 6ª
+// rodada — feed/story/reels/carrossel/video/live/g_news/contatto,
+// commit ba9814a, já em produção) pra taxonomia nova da 7ª rodada.
+// Aplicada só na leitura (serialize/migratePostType), sem tocar no
+// dado gravado, pra não perder histórico de posts antigos.
+const POST_TYPE_MIGRATION = { feed: 'estatico', story: 'storie', live: 'estatico' };
+function migratePostType(p) {
+  if (POST_TYPES.includes(p.postType)) return p.postType;
+  if (p.postType === 'video') {
+    if (p.platform === 'tiktok') return 'video_tiktok';
+    if (p.platform === 'youtube') return 'video_youtube';
+    return 'reels';
+  }
+  return POST_TYPE_MIGRATION[p.postType] || 'estatico';
+}
 
 function serialize(p) {
   return Object.assign({}, p, {
@@ -59,7 +77,8 @@ function serialize(p) {
     changeSuggestionsBy: p.changeSuggestionsBy || '',
     changeSuggestionsAt: p.changeSuggestionsAt || null,
     link: p.link || '',
-    postType: p.postType || 'feed',
+    postType: migratePostType(p),
+    carouselBriefings: Array.isArray(p.carouselBriefings) ? p.carouselBriefings : [],
     brand: p.brand || 'debacco',
     approvalStatus: p.approvalStatus || 'pendente',
     approvalNotes: p.approvalNotes || '',
@@ -191,8 +210,16 @@ function validInvolvedIds(ids) {
   return ids.filter((id) => users.some((u) => u.id === id));
 }
 
+// Briefing por card do carrossel — array de textos (Card 1, Card 2, ...).
+// Filtra pra string, corta em branco e limita o tamanho contra requisição
+// malformada.
+function validCarouselBriefings(list) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, MAX_CAROUSEL_CARDS).map((s) => (typeof s === 'string' ? s : ''));
+}
+
 router.post('/', requireAuth, (req, res) => {
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingText, scriptText, scriptLink } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
   if (!PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Escolha uma rede social válida.' });
   if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco ou GhelPlus).' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
@@ -204,7 +231,8 @@ router.post('/', requireAuth, (req, res) => {
     scheduledTime: scheduledTime || '',
     caption: caption || '',
     status: STATUSES.includes(status) ? status : 'rascunho',
-    postType: POST_TYPES.includes(postType) ? postType : 'feed',
+    postType: POST_TYPES.includes(postType) ? postType : 'estatico',
+    carouselBriefings: validCarouselBriefings(carouselBriefings),
     involvedUserIds: validInvolvedIds(involvedUserIds),
     changeSuggestions: changeSuggestions || '',
     link: link || '',
@@ -230,7 +258,7 @@ router.put('/:id', requireAuth, (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
   const previousInvolvedIds = post.involvedUserIds || [];
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingText, scriptText, scriptLink } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
   if (brand !== undefined && BRANDS.includes(brand)) updates.brand = brand;
@@ -239,6 +267,7 @@ router.put('/:id', requireAuth, (req, res) => {
   if (caption !== undefined) updates.caption = caption;
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
   if (postType !== undefined && POST_TYPES.includes(postType)) updates.postType = postType;
+  if (carouselBriefings !== undefined) updates.carouselBriefings = validCarouselBriefings(carouselBriefings);
   if (involvedUserIds !== undefined) updates.involvedUserIds = validInvolvedIds(involvedUserIds);
   if (changeSuggestions !== undefined) {
     updates.changeSuggestions = changeSuggestions;

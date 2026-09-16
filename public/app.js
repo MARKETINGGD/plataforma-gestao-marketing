@@ -186,6 +186,14 @@
   };
   $('#loginPassword').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#loginSubmit').click(); });
 
+  // Ainda nao existe fluxo de redefinicao de senha por e-mail (precisaria
+  // de um servico de envio configurado) -- por enquanto so orienta a
+  // pessoa a pedir pra um admin trocar a senha dela pela tela Usuarios.
+  $('#loginForgotBtn').onclick = () => {
+    $('#loginError').textContent = 'Peça para um administrador da plataforma redefinir sua senha em Usuários.';
+    $('#loginError').hidden = false;
+  };
+
   $('#logoutBtn').onclick = () => {
     token = null; currentUser = null;
     localStorage.removeItem('token');

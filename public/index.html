@@ -28,16 +28,23 @@
   </div>
 </div>
 
-<div id="screen-login" class="screen center" hidden>
-  <div class="auth-card">
-    <h1>Seja bem-vindo(a) ao Papoi</h1>
-    <p class="muted">a sua plataforma de gestão de marketing</p>
-    <label>Usuário</label>
-    <input id="loginUsername" type="text" autocomplete="username">
-    <label>Senha</label>
-    <input id="loginPassword" type="password" autocomplete="current-password">
-    <div id="loginError" class="error" hidden></div>
-    <button id="loginSubmit" class="btn-primary">Entrar</button>
+<div id="screen-login" class="screen login-screen" hidden>
+  <div class="login-left">
+    <img class="login-left-logo" src="/img/papoi-logo-white.png" alt="Papoi">
+  </div>
+  <div class="login-right">
+    <div class="login-form">
+      <h1>Papoi! Faça seu login</h1>
+      <label for="loginUsername">Usuário</label>
+      <input id="loginUsername" type="text" autocomplete="username">
+      <div class="login-field-row">
+        <label for="loginPassword">Senha</label>
+        <button type="button" id="loginForgotBtn" class="login-forgot-link">Esqueci minha senha</button>
+      </div>
+      <input id="loginPassword" type="password" autocomplete="current-password">
+      <div id="loginError" class="error" hidden></div>
+      <button id="loginSubmit" class="btn-primary login-submit">Entrar</button>
+    </div>
   </div>
 </div>
 

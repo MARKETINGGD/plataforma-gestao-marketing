@@ -53,10 +53,19 @@ function validLabelIds(ids) {
   return ids.filter((id) => labels.some((l) => l.id === id));
 }
 
+// Cor de fundo opcional do card (pedido da Raquel, 12ª rodada) — mesma ideia
+// das etiquetas coloridas, mas aplicada ao card inteiro em vez de uma tag.
+// null/vazio = sem cor (visual padrão de sempre).
+function validColor(color) {
+  if (!color || typeof color !== 'string') return null;
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
+}
+
 function serialize(d) {
   return Object.assign({}, d, {
     assigneeIds: d.assigneeIds || [],
     labelIds: d.labelIds || [],
+    color: d.color || null,
     overdue: isOverdue(d)
   });
 }
@@ -112,7 +121,7 @@ router.get('/summary', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
   const demanda = {
     id: nanoid(),
@@ -124,6 +133,7 @@ router.post('/', requireAuth, (req, res) => {
     dueDate: dueDate || null,
     assigneeIds: validUserIds(assigneeIds),
     labelIds: validLabelIds(labelIds),
+    color: validColor(color),
     checklist: [],
     files: [],
     createdAt: new Date().toISOString(),
@@ -139,7 +149,7 @@ router.post('/', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
@@ -147,6 +157,7 @@ router.put('/:id', requireAuth, (req, res) => {
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
   if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
   if (labelIds !== undefined) updates.labelIds = validLabelIds(labelIds);
+  if (color !== undefined) updates.color = validColor(color);
   db.get('demandas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'update' });
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });

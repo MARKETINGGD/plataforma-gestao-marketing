@@ -260,6 +260,9 @@ button{font-weight:700;}
 .color-swatches{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
 .color-swatch{width:24px;height:24px;border-radius:6px;cursor:pointer;border:2px solid transparent;}
 .color-swatch.selected{border-color:var(--text);}
+.color-swatch-none{background:#fff;border:2px solid var(--border);position:relative;}
+.color-swatch-none::after{content:'';position:absolute;inset:0;border-radius:4px;background:linear-gradient(to top right,transparent 46%,var(--danger) 48%,var(--danger) 52%,transparent 54%);}
+.color-swatch-none.selected{border-color:var(--text);}
 
 /* ---------- modal (card de Demanda) ---------- */
 .modal-overlay{position:fixed;inset:0;background:rgba(20,25,22,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}

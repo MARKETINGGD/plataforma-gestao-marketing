@@ -19,6 +19,7 @@
   let labelSuggestedColors = [];
   let selectedAssigneeIds = new Set();
   let selectedLabelIds = new Set();
+  let selectedDemColor = null; // cor de fundo do card (opcional, 12ª rodada) — null = sem cor
   let editingLabelColor = null;
   let demandasScope = 'geral'; // 'geral' | 'pessoal'
 
@@ -740,6 +741,14 @@
             ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
           </div>
         `;
+        if (d.color) {
+          // Tom claro (mistura com branco) pra manter o texto legível — a
+          // cor cheia fica só na barra da borda esquerda, como um "aceno"
+          // de cor sem virar um card ilegível.
+          card.style.background = `color-mix(in srgb, ${d.color} 18%, white)`;
+          card.style.borderLeftColor = d.color;
+          card.style.borderLeftWidth = '4px';
+        }
         card.onclick = () => openDemandaModal(d);
         list.appendChild(card);
       });
@@ -882,11 +891,29 @@
     });
   }
 
+  function renderDemColorSwatches() {
+    const wrap = $('#demColorSwatches');
+    wrap.innerHTML = '';
+    const none = document.createElement('div');
+    none.className = 'color-swatch color-swatch-none' + (selectedDemColor === null ? ' selected' : '');
+    none.title = 'Sem cor';
+    none.onclick = () => { selectedDemColor = null; renderDemColorSwatches(); };
+    wrap.appendChild(none);
+    labelSuggestedColors.forEach((c) => {
+      const sw = document.createElement('div');
+      sw.className = 'color-swatch' + (selectedDemColor === c ? ' selected' : '');
+      sw.style.background = c;
+      sw.onclick = () => { selectedDemColor = c; renderDemColorSwatches(); };
+      wrap.appendChild(sw);
+    });
+  }
+
   function openDemandaModal(demanda) {
     editingDemandaId = demanda ? demanda.id : null;
     openDemandaCache = demanda;
     selectedAssigneeIds = new Set(demanda ? (demanda.assigneeIds || []) : []);
     selectedLabelIds = new Set(demanda ? (demanda.labelIds || []) : []);
+    selectedDemColor = demanda ? (demanda.color || null) : null;
     $('#demCardTitle').value = demanda ? demanda.title : '';
     $('#demCardStatus').value = demanda ? demanda.status : 'a_fazer';
     $('#demCardDueDate').value = demanda ? (demanda.dueDate || '') : '';
@@ -896,6 +923,7 @@
     $('#demFileInput').value = '';
     renderAssigneeChips();
     renderLabelChips();
+    renderDemColorSwatches();
     renderChecklist(demanda || { checklist: [] });
     renderFiles(demanda || { files: [] });
     $('#demCardArchive').textContent = demanda && demanda.archived ? 'Desarquivar' : 'Arquivar';
@@ -915,6 +943,7 @@
       dueDate: $('#demCardDueDate').value || null,
       assigneeIds: Array.from(selectedAssigneeIds),
       labelIds: Array.from(selectedLabelIds),
+      color: selectedDemColor,
       visibility: demandasScope
     };
     if (!payload.title) {

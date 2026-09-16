@@ -16,9 +16,12 @@ const router = express.Router();
 
 const PLATFORMS = ['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube', 'pinterest'];
 const STATUSES = ['rascunho', 'agendado', 'publicado'];
+// Tipo do post — usado no Cronograma de Marketing (aba Calendário mostra
+// o tipo de cada post do dia; aba Prévia do Feed também exibe).
+const POST_TYPES = ['feed', 'story', 'reels', 'carrossel', 'video', 'live'];
 
 function serialize(p) {
-  return Object.assign({}, p, { files: p.files || [] });
+  return Object.assign({}, p, { files: p.files || [], postType: p.postType || 'feed' });
 }
 
 const uploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'social');
@@ -46,7 +49,7 @@ function findOr404(req, res) {
 }
 
 router.get('/meta', requireAuth, (req, res) => {
-  res.json({ platforms: PLATFORMS, statuses: STATUSES });
+  res.json({ platforms: PLATFORMS, statuses: STATUSES, postTypes: POST_TYPES });
 });
 
 router.get('/', requireAuth, (req, res) => {
@@ -56,7 +59,7 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { platform, scheduledDate, scheduledTime, caption, status } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType } = req.body || {};
   if (!PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Escolha uma rede social válida.' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
   const post = {
@@ -66,6 +69,7 @@ router.post('/', requireAuth, (req, res) => {
     scheduledTime: scheduledTime || '',
     caption: caption || '',
     status: STATUSES.includes(status) ? status : 'rascunho',
+    postType: POST_TYPES.includes(postType) ? postType : 'feed',
     files: [],
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
@@ -80,13 +84,14 @@ router.post('/', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
-  const { platform, scheduledDate, scheduledTime, caption, status } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
   if (scheduledDate !== undefined) updates.scheduledDate = scheduledDate;
   if (scheduledTime !== undefined) updates.scheduledTime = scheduledTime;
   if (caption !== undefined) updates.caption = caption;
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
+  if (postType !== undefined && POST_TYPES.includes(postType)) updates.postType = postType;
   db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update' });
   res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });

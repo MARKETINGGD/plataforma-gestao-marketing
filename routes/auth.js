@@ -85,6 +85,23 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+// Cada usuário pode trocar a própria senha, sem precisar de um super admin —
+// só exige confirmar a senha atual.
+router.put('/me/password', requireAuth, (req, res) => {
+  const user = db.get('users').find({ id: req.user.id }).value();
+  if (!user) return res.status(401).json({ error: 'Usuário não encontrado. Faça login novamente.' });
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
+    return res.status(400).json({ error: 'Senha atual incorreta.' });
+  }
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'A nova senha precisa ter pelo menos 6 caracteres.' });
+  }
+  db.get('users').find({ id: user.id }).assign({ passwordHash: bcrypt.hashSync(newPassword, 10) }).write();
+  logAudit({ user, entityType: 'user', entityId: user.id, entityLabel: user.username, action: 'update', details: 'Senha alterada pelo próprio usuário' });
+  res.json({ ok: true });
+});
+
 // Lista leve de usuários da plataforma (id/nome), usada para escolher o
 // responsável de uma Demanda. Qualquer pessoa logada pode ver — não expõe
 // senha nem permissões.

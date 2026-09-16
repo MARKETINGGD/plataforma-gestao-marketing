@@ -31,7 +31,12 @@
   let socialPosts = [];
   let socialPlatforms = [];
   let socialStatuses = [];
+  let socialPostTypes = [];
   let editingSocialPostId = null;
+
+  let cronogramaTab = 'calendario'; // 'calendario' | 'feed'
+  let cronogramaFeedNetwork = 'ig_fb'; // 'ig_fb' | 'linkedin'
+  let cronogramaCalMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
   let brindesTab = 'debacco'; // 'debacco' | 'ghelplus' | 'log'
   let brindesCatalog = [];
@@ -42,6 +47,8 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
   const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const MONTHS_FULL = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   const BRAND_LABEL = { ghelplus: 'GhelPlus', debacco: 'De Bacco' };
   const STATUS_COLUMNS = [
     { key: 'a_fazer', label: 'A Fazer' },
@@ -52,6 +59,7 @@
   const UNASSIGNED_COL = { id: '', name: 'Sem responsável' };
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest' };
   const SOCIAL_STATUS_LABEL = { rascunho: 'Rascunho', agendado: 'Agendado', publicado: 'Publicado' };
+  const SOCIAL_POST_TYPE_LABEL = { feed: 'Feed', story: 'Story', reels: 'Reels', carrossel: 'Carrossel', video: 'Vídeo', live: 'Live' };
   const fmtMoney = (n) => n === null || n === undefined || n === ''
     ? '—'
     : 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -166,6 +174,49 @@
     location.reload();
   };
 
+  // ---------- alterar a própria senha ----------
+  $('#changePasswordBtn').onclick = () => {
+    $('#changePasswordCurrent').value = '';
+    $('#changePasswordNew').value = '';
+    $('#changePasswordConfirm').value = '';
+    $('#changePasswordError').hidden = true;
+    $('#changePasswordSuccess').hidden = true;
+    $('#changePasswordModal').hidden = false;
+  };
+  $('#changePasswordClose').onclick = () => { $('#changePasswordModal').hidden = true; };
+  $('#changePasswordSave').onclick = async () => {
+    const currentPassword = $('#changePasswordCurrent').value;
+    const newPassword = $('#changePasswordNew').value;
+    const confirmPassword = $('#changePasswordConfirm').value;
+    $('#changePasswordError').hidden = true;
+    $('#changePasswordSuccess').hidden = true;
+    if (!currentPassword) {
+      $('#changePasswordError').textContent = 'Informe sua senha atual.';
+      $('#changePasswordError').hidden = false;
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      $('#changePasswordError').textContent = 'A nova senha precisa ter pelo menos 6 caracteres.';
+      $('#changePasswordError').hidden = false;
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      $('#changePasswordError').textContent = 'A confirmação não bate com a nova senha.';
+      $('#changePasswordError').hidden = false;
+      return;
+    }
+    try {
+      await api('/api/auth/me/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) });
+      $('#changePasswordCurrent').value = '';
+      $('#changePasswordNew').value = '';
+      $('#changePasswordConfirm').value = '';
+      $('#changePasswordSuccess').hidden = false;
+    } catch (e) {
+      $('#changePasswordError').textContent = e.message;
+      $('#changePasswordError').hidden = false;
+    }
+  };
+
   // ---------- navegação lateral ----------
   $all('.navlink').forEach((b) => {
     b.onclick = () => {
@@ -180,6 +231,7 @@
         if (b.dataset.view === 'users') loadUsers();
         if (b.dataset.view === 'brindes') loadBrindes();
         if (b.dataset.view === 'agendamento') loadSocialPosts();
+        if (b.dataset.view === 'cronograma') loadCronograma();
       }
     };
   });
@@ -1000,15 +1052,20 @@
   };
 
   // ---------- Agendamento para Redes Sociais ----------
+  async function ensureSocialMeta() {
+    if (socialPlatforms.length > 0) return;
+    try {
+      const meta = await api('/api/social-posts/meta');
+      socialPlatforms = meta.platforms;
+      socialStatuses = meta.statuses;
+      socialPostTypes = meta.postTypes;
+      $('#socialPostFormPlatform').innerHTML = socialPlatforms.map((p) => `<option value="${p}">${SOCIAL_PLATFORM_LABEL[p] || p}</option>`).join('');
+      $('#socialPostFormType').innerHTML = socialPostTypes.map((t) => `<option value="${t}">${SOCIAL_POST_TYPE_LABEL[t] || t}</option>`).join('');
+    } catch (e) { /* ignora */ }
+  }
+
   async function loadSocialPosts() {
-    if (socialPlatforms.length === 0) {
-      try {
-        const meta = await api('/api/social-posts/meta');
-        socialPlatforms = meta.platforms;
-        socialStatuses = meta.statuses;
-        $('#socialPostFormPlatform').innerHTML = socialPlatforms.map((p) => `<option value="${p}">${SOCIAL_PLATFORM_LABEL[p] || p}</option>`).join('');
-      } catch (e) { /* ignora */ }
-    }
+    await ensureSocialMeta();
     const data = await api('/api/social-posts');
     socialPosts = data.posts;
     renderSocialPosts();
@@ -1022,6 +1079,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
+        <td>${SOCIAL_POST_TYPE_LABEL[p.postType] || p.postType || ''}</td>
         <td>${fmtDate(p.scheduledDate)}</td>
         <td>${p.scheduledTime || ''}</td>
         <td>${(p.caption || '').slice(0, 60)}${(p.caption || '').length > 60 ? '…' : ''}</td>
@@ -1073,6 +1131,7 @@
     $('#socialPostFormTitle').textContent = post ? 'Editar agendamento' : 'Novo agendamento';
     $('#socialPostFormPlatform').value = post ? post.platform : (socialPlatforms[0] || '');
     $('#socialPostFormStatus').value = post ? post.status : 'rascunho';
+    $('#socialPostFormType').value = post ? (post.postType || 'feed') : 'feed';
     $('#socialPostFormDate').value = post ? post.scheduledDate : '';
     $('#socialPostFormTime').value = post ? (post.scheduledTime || '') : '';
     $('#socialPostFormCaption').value = post ? (post.caption || '') : '';
@@ -1089,6 +1148,7 @@
     const payload = {
       platform: $('#socialPostFormPlatform').value,
       status: $('#socialPostFormStatus').value,
+      postType: $('#socialPostFormType').value,
       scheduledDate: $('#socialPostFormDate').value,
       scheduledTime: $('#socialPostFormTime').value,
       caption: $('#socialPostFormCaption').value
@@ -1132,6 +1192,153 @@
       alert(e.message);
     }
   };
+
+  // ---------- Cronograma de Marketing ----------
+  $all('.tab-btn[data-cronograma-tab]').forEach((b) => {
+    b.onclick = () => {
+      cronogramaTab = b.dataset.cronogramaTab;
+      $all('.tab-btn[data-cronograma-tab]').forEach((x) => x.classList.toggle('active', x === b));
+      $('#cronogramaCalendarioWrap').hidden = cronogramaTab !== 'calendario';
+      $('#cronogramaFeedWrap').hidden = cronogramaTab !== 'feed';
+      renderCronograma();
+    };
+  });
+  $all('.tab-btn[data-feed-network]').forEach((b) => {
+    b.onclick = () => {
+      cronogramaFeedNetwork = b.dataset.feedNetwork;
+      $all('.tab-btn[data-feed-network]').forEach((x) => x.classList.toggle('active', x === b));
+      renderCronogramaFeed();
+    };
+  });
+  $('#cronogramaPrevMonth').onclick = () => {
+    cronogramaCalMonth = new Date(cronogramaCalMonth.getFullYear(), cronogramaCalMonth.getMonth() - 1, 1);
+    renderCronogramaCalendar();
+  };
+  $('#cronogramaNextMonth').onclick = () => {
+    cronogramaCalMonth = new Date(cronogramaCalMonth.getFullYear(), cronogramaCalMonth.getMonth() + 1, 1);
+    renderCronogramaCalendar();
+  };
+
+  async function loadCronograma() {
+    await ensureSocialMeta();
+    const data = await api('/api/social-posts');
+    socialPosts = data.posts;
+    renderCronograma();
+  }
+
+  function renderCronograma() {
+    if (cronogramaTab === 'feed') {
+      renderCronogramaFeed();
+    } else {
+      renderCronogramaCalendar();
+    }
+  }
+
+  // Abre o post direto no Agendamento — clicar num card do calendário ou
+  // da prévia do feed leva pra edição sem precisar procurar na tabela.
+  async function openPostFromCronograma(postId) {
+    setActiveNav('navAgendamento');
+    showView('agendamento');
+    await loadSocialPosts();
+    const post = socialPosts.find((p) => p.id === postId);
+    if (post) openSocialPostForm(post);
+  }
+
+  function renderCronogramaCalendar() {
+    const year = cronogramaCalMonth.getFullYear();
+    const month = cronogramaCalMonth.getMonth();
+    $('#cronogramaMonthLabel').textContent = `${MONTHS_FULL[month]} ${year}`;
+
+    const grid = $('#cronogramaCalGrid');
+    grid.innerHTML = '';
+    WEEKDAYS_SHORT.forEach((w) => {
+      const el = document.createElement('div');
+      el.className = 'cal-weekday';
+      el.textContent = w;
+      grid.appendChild(el);
+    });
+
+    const firstWeekday = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    for (let i = 0; i < totalCells; i++) {
+      const dayOffset = i - firstWeekday + 1;
+      let cellYear = year, cellMonth = month, cellDay = dayOffset, otherMonth = false;
+      if (dayOffset < 1) {
+        cellMonth = month - 1; cellDay = daysInPrevMonth + dayOffset; otherMonth = true;
+        if (cellMonth < 0) { cellMonth = 11; cellYear -= 1; }
+      } else if (dayOffset > daysInMonth) {
+        cellMonth = month + 1; cellDay = dayOffset - daysInMonth; otherMonth = true;
+        if (cellMonth > 11) { cellMonth = 0; cellYear += 1; }
+      }
+      const dateStr = `${cellYear}-${String(cellMonth + 1).padStart(2, '0')}-${String(cellDay).padStart(2, '0')}`;
+
+      const cell = document.createElement('div');
+      cell.className = 'cal-day' + (otherMonth ? ' other-month' : '') + (dateStr === todayStr ? ' today' : '');
+      const num = document.createElement('div');
+      num.className = 'cal-day-num';
+      num.textContent = cellDay;
+      cell.appendChild(num);
+
+      const dayPosts = socialPosts
+        .filter((p) => p.scheduledDate === dateStr)
+        .sort((a, b) => (a.scheduledTime || '').localeCompare(b.scheduledTime || ''));
+      dayPosts.forEach((p) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'cal-post-chip';
+        chip.innerHTML = `<b>${p.scheduledTime || '--:--'} · ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</b>${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}`;
+        chip.onclick = () => openPostFromCronograma(p.id);
+        cell.appendChild(chip);
+      });
+
+      grid.appendChild(cell);
+    }
+  }
+
+  function renderCronogramaFeed() {
+    const list = $('#cronogramaFeedList');
+    list.innerHTML = '';
+    const isLinkedin = cronogramaFeedNetwork === 'linkedin';
+    const posts = socialPosts
+      .filter((p) => (isLinkedin ? p.platform === 'linkedin' : (p.platform === 'instagram' || p.platform === 'facebook')))
+      .sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || '') || (a.scheduledTime || '').localeCompare(b.scheduledTime || ''));
+    $('#cronogramaFeedEmpty').hidden = posts.length > 0;
+
+    posts.forEach((p) => {
+      const card = document.createElement('div');
+      card.className = 'feed-preview-card' + (isLinkedin ? ' linkedin' : '');
+      card.style.cursor = 'pointer';
+
+      const file = (p.files || [])[0];
+      const isVideo = !!file && /\.(mp4|mov|webm|avi|mkv)$/i.test(file.name || file.url || '');
+      const mediaHtml = file
+        ? (isVideo ? `<video src="${file.url}" controls></video>` : `<img src="${file.url}" alt="">`)
+        : `<div class="feed-preview-noimg">Sem criativo anexado ainda</div>`;
+
+      const accountLabel = SOCIAL_PLATFORM_LABEL[p.platform] || p.platform;
+      const initial = ((currentUser && (currentUser.name || currentUser.username)) || 'P').slice(0, 1).toUpperCase();
+      const header = `
+        <div class="feed-preview-header">
+          <div class="feed-preview-avatar">${initial}</div>
+          <div class="feed-preview-headtext">
+            <span class="feed-preview-account">${p.createdByName || accountLabel}</span>
+            <span class="feed-preview-meta">${fmtDate(p.scheduledDate)}${p.scheduledTime ? ' · ' + p.scheduledTime : ''} · ${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}</span>
+          </div>
+        </div>`;
+      const captionHtml = `<div class="feed-preview-caption"><b>${p.createdByName || accountLabel}</b> ${p.caption || '(sem legenda)'}</div>`;
+
+      card.innerHTML = isLinkedin
+        ? header + captionHtml + `<div class="feed-preview-media">${mediaHtml}</div>`
+        : header + `<div class="feed-preview-media">${mediaHtml}</div><div class="feed-preview-actions">♡ ⤳ ✉</div>` + captionHtml;
+
+      card.onclick = () => openPostFromCronograma(p.id);
+      list.appendChild(card);
+    });
+  }
 
   // ---------- Brindes ----------
   $all('.tab-btn[data-brindes-tab]').forEach((b) => {

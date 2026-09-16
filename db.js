@@ -15,6 +15,11 @@ db.defaults({
   users: [],
   // Orçamento planejado x realizado (aba "Orçamento" da plataforma)
   budgetEntries: [],
+  // Acompanhamento de Demandas (quadro estilo Trello)
+  demandas: [],
+  // Brindes — catálogo/estoque e registro de saídas por representante
+  brindesCatalog: [],
+  brindesLog: [],
   auditLog: []
 }).write();
 

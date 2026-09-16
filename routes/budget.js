@@ -11,6 +11,24 @@ const router = express.Router();
 // das APIs do Tráfego Pago (investimento mensal) e da Ações Sazonais
 // (orçamento aprovado x investido), em vez de digitar de novo aqui.
 
+// Fluxos de lançamento fixos (mesma estrutura usada na planilha de orçamento
+// anual) — usados como opções da "categoria" de cada lançamento.
+const FLUXOS = [
+  'Institucional',
+  'Ações Sociais',
+  'Relacionamento',
+  'Immersiones',
+  'Redes Sociais',
+  'Cenografia',
+  'Brindes',
+  'PDV',
+  'Feiras/Eventos',
+  'Showroom',
+  'Expositores Padrão',
+  'Expositores Especiais',
+  'Equipamentos'
+];
+
 function accessOf(req) {
   const user = db.get('users').find({ id: req.user.id }).value();
   return user ? (user.permissions || {}).budget || 'none' : 'none';
@@ -26,6 +44,10 @@ function requireBudgetEdit(req, res, next) {
   if (access !== 'editor' && access !== 'admin') return res.status(403).json({ error: 'Você não tem permissão para editar o Orçamento.' });
   next();
 }
+
+router.get('/meta', requireAuth, requireBudgetView, (req, res) => {
+  res.json({ fluxos: FLUXOS });
+});
 
 router.get('/', requireAuth, requireBudgetView, (req, res) => {
   const { brand, year } = req.query;

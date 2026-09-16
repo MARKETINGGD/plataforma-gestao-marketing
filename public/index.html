@@ -41,171 +41,366 @@
 </div>
 
 <div id="screen-app" class="screen" hidden>
-  <header class="topbar">
-    <div class="topbar-title">Plataforma de Gestão de Marketing</div>
-    <nav class="topbar-nav">
-      <button class="navlink" data-view="home">Início</button>
-      <button class="navlink" data-view="budget">Orçamento</button>
-      <button class="navlink" data-view="users" id="navUsers" hidden>Usuários</button>
-    </nav>
-    <div class="topbar-user">
-      <span id="topbarUserName"></span>
-      <button id="logoutBtn" class="btn-link">Sair</button>
+  <div class="app-shell">
+
+    <aside class="sidebar">
+      <div class="sidebar-brand">Plataforma de Gestão<br>de Marketing</div>
+      <nav class="sidebar-nav">
+        <button class="navlink" id="navHome" data-view="home">Início</button>
+        <button class="navlink" id="navDemandas" data-view="demandas">Acompanhamento de Demandas</button>
+        <button class="navlink" id="navDashTrafego" data-view="embed" data-dash="trafegoPago">Gerenciamento de Tráfego Pago</button>
+        <button class="navlink" id="navDashMidias" data-view="embed" data-dash="redesSociais">Gerenciamento de Mídias</button>
+        <button class="navlink" id="navDashAcoes" data-view="embed" data-dash="acoesSazonais">Gerenciamento de Ações Sazonais</button>
+        <button class="navlink" id="navBudgetDebacco" data-view="budget" data-brand="debacco">Budget De Bacco</button>
+        <button class="navlink" id="navBudgetGhelplus" data-view="budget" data-brand="ghelplus">Budget GhelPlus</button>
+        <button class="navlink" id="navBrindes" data-view="brindes">Brindes</button>
+        <button class="navlink" id="navProdutos" data-view="produtos">Produtos</button>
+        <button class="navlink" id="navExpositores" data-view="expositores">Expositores</button>
+        <button class="navlink" id="navUsers" data-view="users" hidden>Usuários</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="sidebar-user-name" id="topbarUserName"></div>
+          <button id="logoutBtn" class="btn-link">Sair</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+
+      <section id="view-home" class="view">
+        <h2>Início</h2>
+        <p class="muted" id="homeGreeting">Resumo geral</p>
+
+        <div class="home-grid">
+          <div class="home-card">
+            <h3>Demandas</h3>
+            <div class="stat-row">
+              <div class="stat-box stat-danger">
+                <span class="stat-value" id="statAtrasada">—</span>
+                <span class="stat-label">Atrasadas</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="statAndamento">—</span>
+                <span class="stat-label">Em andamento</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="statAprovacao">—</span>
+                <span class="stat-label">Em aprovação</span>
+              </div>
+              <div class="stat-box stat-success">
+                <span class="stat-value" id="statConcluida">—</span>
+                <span class="stat-label">Concluídas</span>
+              </div>
+            </div>
+            <button class="btn-secondary" id="homeGoDemandas">Ver quadro de demandas →</button>
+          </div>
+
+          <div class="home-card">
+            <h3>Orçamento — resumo do ano</h3>
+            <div class="stat-row">
+              <div class="stat-box">
+                <span class="stat-value" id="statBudgetPlanejado">—</span>
+                <span class="stat-label">Planejado</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="statBudgetRealizado">—</span>
+                <span class="stat-label">Realizado</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="statBudgetDiferenca">—</span>
+                <span class="stat-label">Diferença</span>
+              </div>
+            </div>
+            <div class="home-links">
+              <button class="btn-secondary" data-open-budget="debacco">Budget De Bacco →</button>
+              <button class="btn-secondary" data-open-budget="ghelplus">Budget GhelPlus →</button>
+            </div>
+          </div>
+
+          <div class="home-card home-card-muted">
+            <h3>Tráfego Pago</h3>
+            <p class="muted">Resumo das campanhas em breve por aqui — por enquanto, acompanhe pelo dashboard completo.</p>
+            <button class="btn-secondary" data-open-dash="trafegoPago">Abrir dashboard →</button>
+          </div>
+
+          <div class="home-card home-card-muted">
+            <h3>Mídias Sociais</h3>
+            <p class="muted">Resumo das redes em breve por aqui — por enquanto, acompanhe pelo dashboard completo.</p>
+            <button class="btn-secondary" data-open-dash="redesSociais">Abrir dashboard →</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-demandas" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Acompanhamento de Demandas</h2>
+          <div class="view-toolbar-actions">
+            <button class="btn-secondary" id="demandasToggleArchived">Ver arquivadas</button>
+            <button class="btn-primary" id="demandasNewBtn">+ Nova demanda</button>
+          </div>
+        </div>
+        <div class="kanban" id="kanbanBoard"></div>
+        <div id="archivedWrap" hidden>
+          <h3>Demandas arquivadas</h3>
+          <table class="data-table">
+            <thead><tr><th>Título</th><th>Responsável</th><th>Status</th><th></th></tr></thead>
+            <tbody id="archivedTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-embed" class="view" hidden>
+        <div class="embed-toolbar">
+          <button id="embedBack" class="btn-secondary">← Voltar</button>
+          <h2 id="embedTitle"></h2>
+        </div>
+        <div class="iframe-wrap">
+          <iframe id="embedFrame" title="Dashboard"></iframe>
+        </div>
+      </section>
+
+      <section id="view-budget" class="view" hidden>
+        <h2 id="budgetTitle">Orçamento — Planejado x Realizado</h2>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="geral">Visão Geral</button>
+          <button class="tab-btn" data-tab="planejado">Planejado</button>
+          <button class="tab-btn" data-tab="realizado">Realizado</button>
+          <button class="tab-btn" data-tab="comparativo">Comparativo por Fluxo</button>
+        </div>
+
+        <div class="toolbar">
+          <select id="budgetFilterYear"></select>
+          <button id="budgetNewBtn" class="btn-primary" hidden>+ Novo lançamento</button>
+        </div>
+
+        <div class="summary-cards">
+          <div class="summary-card">
+            <span class="summary-label">Planejado</span>
+            <span id="sumPlanejado" class="summary-value">—</span>
+          </div>
+          <div class="summary-card">
+            <span class="summary-label">Realizado</span>
+            <span id="sumRealizado" class="summary-value">—</span>
+          </div>
+          <div class="summary-card">
+            <span class="summary-label">Diferença</span>
+            <span id="sumDiferenca" class="summary-value">—</span>
+          </div>
+        </div>
+
+        <div id="budgetFormWrap" class="form-card" hidden>
+          <h3 id="budgetFormTitle">Novo lançamento</h3>
+          <input type="hidden" id="budgetFormId">
+          <input type="hidden" id="budgetFormBrand">
+          <div class="form-row">
+            <div>
+              <label>Fluxo</label>
+              <select id="budgetFormCategory"></select>
+            </div>
+            <div>
+              <label>Ano</label>
+              <input id="budgetFormYear" type="number" placeholder="2026">
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Mês</label>
+              <select id="budgetFormMonth"></select>
+            </div>
+            <div>
+              <label>Fornecedor / observações curtas</label>
+              <input id="budgetFormNotes" type="text">
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Valor planejado (R$)</label>
+              <input id="budgetFormPlanejado" type="number" step="0.01">
+            </div>
+            <div>
+              <label>Valor realizado (R$)</label>
+              <input id="budgetFormRealizado" type="number" step="0.01">
+            </div>
+          </div>
+          <div id="budgetFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="budgetFormSave" class="btn-primary">Salvar</button>
+            <button id="budgetFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <div id="budgetTableWrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Fluxo</th><th>Mês/Ano</th>
+                <th>Planejado</th><th>Realizado</th><th>Diferença</th>
+                <th>Observações</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="budgetTableBody"></tbody>
+          </table>
+          <p id="budgetEmpty" class="muted" hidden>Nenhum lançamento ainda.</p>
+        </div>
+
+        <div id="budgetComparativoWrap" hidden>
+          <table class="data-table">
+            <thead>
+              <tr><th>Fluxo</th><th>Planejado</th><th>Realizado</th><th>Diferença</th><th>% Utilizado</th></tr>
+            </thead>
+            <tbody id="budgetComparativoBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-brindes" class="view" hidden>
+        <h2>Brindes</h2>
+        <div class="tabs">
+          <button class="tab-btn active" data-brindes-tab="debacco">Catálogo De Bacco</button>
+          <button class="tab-btn" data-brindes-tab="ghelplus">Catálogo GhelPlus</button>
+          <button class="tab-btn" data-brindes-tab="log">Registro de Saídas</button>
+        </div>
+
+        <div id="brindesCatalogWrap">
+          <div class="view-toolbar-actions" style="margin:12px 0;">
+            <button class="btn-primary" id="brindesCatalogNewBtn">+ Novo item</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr><th>Código</th><th>Item</th><th>Múltiplo</th><th>Valor</th><th>Estoque PR</th><th>Estoque SP</th><th>Estoque PE</th><th>Total</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody id="brindesCatalogBody"></tbody>
+          </table>
+        </div>
+
+        <div id="brindesLogWrap" hidden>
+          <div class="view-toolbar-actions" style="margin:12px 0;">
+            <button class="btn-primary" id="brindesLogNewBtn">+ Registrar saída</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr><th>Marca</th><th>Data</th><th>Representante</th><th>Cliente</th><th>Qtd</th><th>Item</th><th>Motivo</th><th></th></tr>
+            </thead>
+            <tbody id="brindesLogBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-produtos" class="view" hidden>
+        <h2>Produtos</h2>
+        <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar o catálogo de produtos por aqui — me conta o que precisa ter nela.</p>
+      </section>
+
+      <section id="view-expositores" class="view" hidden>
+        <h2>Expositores</h2>
+        <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar expositores por aqui — me conta o que precisa ter nela.</p>
+      </section>
+
+      <section id="view-users" class="view" hidden>
+        <h2>Usuários da plataforma</h2>
+        <p class="muted">Controle quais dashboards e a aba de Orçamento cada pessoa pode acessar. Demandas e Brindes ficam liberados para qualquer pessoa logada.</p>
+        <button id="userNewBtn" class="btn-primary">+ Novo usuário</button>
+
+        <div id="userFormWrap" class="form-card" hidden>
+          <h3 id="userFormTitle">Novo usuário</h3>
+          <input type="hidden" id="userFormId">
+          <div class="form-row">
+            <div>
+              <label>Nome</label>
+              <input id="userFormName" type="text">
+            </div>
+            <div>
+              <label>Usuário (login)</label>
+              <input id="userFormUsername" type="text">
+            </div>
+          </div>
+          <label id="userFormPasswordLabel">Senha (mínimo 6 caracteres)</label>
+          <input id="userFormPassword" type="password">
+          <label class="checkbox-row">
+            <input type="checkbox" id="userFormSuperAdmin">
+            Administrador da plataforma (acesso total a tudo, gerencia usuários)
+          </label>
+
+          <div id="userFormPermissions">
+            <label>Permissões por dashboard</label>
+            <div class="perm-row"><span>Tráfego Pago</span><select data-perm="trafegoPago"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+            <div class="perm-row"><span>Ações Sazonais</span><select data-perm="acoesSazonais"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+            <div class="perm-row"><span>Redes Sociais</span><select data-perm="redesSociais"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+            <div class="perm-row"><span>Orçamento</span><select data-perm="budget"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+          </div>
+
+          <div id="userFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="userFormSave" class="btn-primary">Salvar</button>
+            <button id="userFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr><th>Nome</th><th>Usuário</th><th>Tipo</th><th>Acessos</th><th></th></tr>
+          </thead>
+          <tbody id="usersTableBody"></tbody>
+        </table>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div id="demandaModal" class="modal-overlay" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <input id="demCardTitle" class="modal-title-input" type="text" placeholder="Título da demanda">
+      <button id="demCardClose" class="btn-link">Fechar ✕</button>
     </div>
-  </header>
 
-  <main class="content">
-
-    <section id="view-home" class="view">
-      <h2>Dashboards</h2>
-      <p class="muted">Clique para abrir — você entra direto, sem precisar logar de novo.</p>
-      <div id="dashboardGrid" class="card-grid"></div>
-    </section>
-
-    <section id="view-budget" class="view" hidden>
-      <h2>Orçamento de Marketing — Planejado x Realizado</h2>
-      <div class="toolbar">
-        <select id="budgetFilterBrand">
-          <option value="">Todas as marcas</option>
-          <option value="ghelplus">GhelPlus</option>
-          <option value="debacco">De Bacco</option>
-        </select>
-        <select id="budgetFilterYear"></select>
-        <button id="budgetNewBtn" class="btn-primary" hidden>+ Novo lançamento</button>
-      </div>
-
-      <div class="summary-cards">
-        <div class="summary-card">
-          <span class="summary-label">Planejado</span>
-          <span id="sumPlanejado" class="summary-value">—</span>
+    <div class="modal-body">
+      <div class="modal-row">
+        <div>
+          <label>Status</label>
+          <select id="demCardStatus">
+            <option value="a_fazer">A Fazer</option>
+            <option value="andamento">Em Andamento</option>
+            <option value="aprovacao">Em Aprovação</option>
+            <option value="concluida">Concluída</option>
+          </select>
         </div>
-        <div class="summary-card">
-          <span class="summary-label">Realizado</span>
-          <span id="sumRealizado" class="summary-value">—</span>
+        <div>
+          <label>Data de entrega</label>
+          <input id="demCardDueDate" type="date">
         </div>
-        <div class="summary-card">
-          <span class="summary-label">Diferença</span>
-          <span id="sumDiferenca" class="summary-value">—</span>
+        <div>
+          <label>Responsável</label>
+          <select id="demCardAssignee"><option value="">Sem responsável</option></select>
         </div>
       </div>
 
-      <div id="budgetFormWrap" class="form-card" hidden>
-        <h3 id="budgetFormTitle">Novo lançamento</h3>
-        <input type="hidden" id="budgetFormId">
-        <div class="form-row">
-          <div>
-            <label>Marca</label>
-            <select id="budgetFormBrand">
-              <option value="ghelplus">GhelPlus</option>
-              <option value="debacco">De Bacco</option>
-            </select>
-          </div>
-          <div>
-            <label>Categoria</label>
-            <input id="budgetFormCategory" type="text" placeholder="Ex: Tráfego Pago, Ações Sazonais, Redes Sociais...">
-          </div>
-        </div>
-        <div class="form-row">
-          <div>
-            <label>Ano</label>
-            <input id="budgetFormYear" type="number" placeholder="2026">
-          </div>
-          <div>
-            <label>Mês</label>
-            <select id="budgetFormMonth"></select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div>
-            <label>Valor planejado (R$)</label>
-            <input id="budgetFormPlanejado" type="number" step="0.01">
-          </div>
-          <div>
-            <label>Valor realizado (R$)</label>
-            <input id="budgetFormRealizado" type="number" step="0.01">
-          </div>
-        </div>
-        <label>Observações</label>
-        <input id="budgetFormNotes" type="text">
-        <div id="budgetFormError" class="error" hidden></div>
-        <div class="form-actions">
-          <button id="budgetFormSave" class="btn-primary">Salvar</button>
-          <button id="budgetFormCancel" class="btn-secondary">Cancelar</button>
-        </div>
+      <label>Descrição / observações</label>
+      <textarea id="demCardDescription" rows="3"></textarea>
+
+      <label>Checklist</label>
+      <div id="demChecklist" class="checklist"></div>
+      <div class="checklist-add">
+        <input id="demChecklistInput" type="text" placeholder="Novo item do checklist">
+        <button id="demChecklistAdd" class="btn-secondary">Adicionar</button>
       </div>
 
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Marca</th><th>Categoria</th><th>Mês/Ano</th>
-            <th>Planejado</th><th>Realizado</th><th>Diferença</th>
-            <th>Observações</th><th></th>
-          </tr>
-        </thead>
-        <tbody id="budgetTableBody"></tbody>
-      </table>
-      <p id="budgetEmpty" class="muted" hidden>Nenhum lançamento ainda.</p>
-    </section>
+      <label>Arquivos</label>
+      <div id="demFiles" class="file-list"></div>
+      <input id="demFileInput" type="file">
 
-    <section id="view-embed" class="view" hidden>
-      <div class="embed-toolbar">
-        <button id="embedBack" class="btn-secondary">← Voltar</button>
-        <h2 id="embedTitle"></h2>
-      </div>
-      <div class="iframe-wrap">
-        <iframe id="embedFrame" title="Dashboard"></iframe>
-      </div>
-    </section>
+      <div id="demCardError" class="error" hidden></div>
+    </div>
 
-    <section id="view-users" class="view" hidden>
-      <h2>Usuários da plataforma</h2>
-      <p class="muted">Controle quais dashboards e a aba de Orçamento cada pessoa pode acessar.</p>
-      <button id="userNewBtn" class="btn-primary">+ Novo usuário</button>
-
-      <div id="userFormWrap" class="form-card" hidden>
-        <h3 id="userFormTitle">Novo usuário</h3>
-        <input type="hidden" id="userFormId">
-        <div class="form-row">
-          <div>
-            <label>Nome</label>
-            <input id="userFormName" type="text">
-          </div>
-          <div>
-            <label>Usuário (login)</label>
-            <input id="userFormUsername" type="text">
-          </div>
-        </div>
-        <label id="userFormPasswordLabel">Senha (mínimo 6 caracteres)</label>
-        <input id="userFormPassword" type="password">
-        <label class="checkbox-row">
-          <input type="checkbox" id="userFormSuperAdmin">
-          Administrador da plataforma (acesso total a tudo, gerencia usuários)
-        </label>
-
-        <div id="userFormPermissions">
-          <label>Permissões por dashboard</label>
-          <div class="perm-row"><span>Tráfego Pago</span><select data-perm="trafegoPago"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
-          <div class="perm-row"><span>Ações Sazonais</span><select data-perm="acoesSazonais"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
-          <div class="perm-row"><span>Redes Sociais</span><select data-perm="redesSociais"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
-          <div class="perm-row"><span>Orçamento</span><select data-perm="budget"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
-        </div>
-
-        <div id="userFormError" class="error" hidden></div>
-        <div class="form-actions">
-          <button id="userFormSave" class="btn-primary">Salvar</button>
-          <button id="userFormCancel" class="btn-secondary">Cancelar</button>
-        </div>
-      </div>
-
-      <table class="data-table">
-        <thead>
-          <tr><th>Nome</th><th>Usuário</th><th>Tipo</th><th>Acessos</th><th></th></tr>
-        </thead>
-        <tbody id="usersTableBody"></tbody>
-      </table>
-    </section>
-
-  </main>
+    <div class="modal-footer">
+      <button id="demCardSave" class="btn-primary">Salvar</button>
+      <button id="demCardArchive" class="btn-secondary">Arquivar</button>
+      <button id="demCardDelete" class="btn-secondary danger">Excluir</button>
+    </div>
+  </div>
 </div>
 
 <script src="/app.js"></script>

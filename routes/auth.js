@@ -85,6 +85,14 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+// Lista leve de usuários da plataforma (id/nome), usada para escolher o
+// responsável de uma Demanda. Qualquer pessoa logada pode ver — não expõe
+// senha nem permissões.
+router.get('/team', requireAuth, (req, res) => {
+  const users = db.get('users').value().map((u) => ({ id: u.id, username: u.username, name: u.name || u.username }));
+  res.json({ users });
+});
+
 // Gestão de usuários da plataforma — só super admin
 router.get('/users', requireAuth, requireSuperAdmin, (req, res) => {
   res.json({ users: db.get('users').value().map(publicUser) });

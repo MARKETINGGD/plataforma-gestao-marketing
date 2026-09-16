@@ -23,6 +23,16 @@ const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget
 // usuários antigos que ainda não tiveram o cargo cadastrado.
 const CARGOS = ['gerente', 'analista', 'auxiliar', 'coordenador', 'designer', 'designer3d', 'videomaker'];
 
+// Cores customizáveis pedidas pela Raquel na 13ª rodada: a cor da lista de
+// cada pessoa no quadro de Demandas (columnColor) e a cor de fundo da
+// própria tela Início (homeColor, preferência pessoal — cada um escolhe a
+// sua). Mesmo padrão de validação usado em routes/demandas.js pra cor do
+// card: hex de 6 dígitos ou null (sem cor / volta ao padrão).
+function validColor(color) {
+  if (!color || typeof color !== 'string') return null;
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
+}
+
 function signToken(user) {
   return jwt.sign(
     { id: user.id, username: user.username, role: user.isSuperAdmin ? 'super_admin' : 'user' },
@@ -39,6 +49,8 @@ function publicUser(u) {
     isSuperAdmin: !!u.isSuperAdmin,
     permissions: u.permissions || EMPTY_PERMISSIONS,
     cargo: u.cargo || '',
+    columnColor: u.columnColor || null,
+    homeColor: u.homeColor || null,
     createdAt: u.createdAt
   };
 }
@@ -119,8 +131,28 @@ router.put('/me/password', requireAuth, (req, res) => {
 // o responsável de uma Demanda ou as pessoas envolvidas num Agendamento.
 // Qualquer pessoa logada pode ver — não expõe senha nem permissões.
 router.get('/team', requireAuth, (req, res) => {
-  const users = db.get('users').value().map((u) => ({ id: u.id, username: u.username, name: u.name || u.username, cargo: u.cargo || '' }));
+  const users = db.get('users').value().map((u) => ({ id: u.id, username: u.username, name: u.name || u.username, cargo: u.cargo || '', columnColor: u.columnColor || null }));
   res.json({ users, cargos: CARGOS });
+});
+
+// Cor da lista de cada pessoa no quadro de Demandas (13ª rodada, pedido da
+// Raquel: "quero a opção de trocar a cor das listas tbm, onde tem os
+// nomes"). Mesmo padrão de acesso aberto já usado em Demandas — qualquer
+// pessoa logada pode ajustar a cor de qualquer lista, não só a própria.
+router.put('/team/:id/color', requireAuth, (req, res) => {
+  const target = db.get('users').find({ id: req.params.id }).value();
+  if (!target) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  const columnColor = validColor((req.body || {}).color);
+  db.get('users').find({ id: req.params.id }).assign({ columnColor }).write();
+  res.json({ ok: true, columnColor });
+});
+
+// Cor de fundo da tela Início — preferência pessoal (só a própria pessoa
+// muda a dela, não afeta o que os outros veem).
+router.put('/me/home-color', requireAuth, (req, res) => {
+  const homeColor = validColor((req.body || {}).color);
+  db.get('users').find({ id: req.user.id }).assign({ homeColor }).write();
+  res.json({ ok: true, homeColor });
 });
 
 // Gerenciamento leve de equipe, direto da tela de Acompanhamento de

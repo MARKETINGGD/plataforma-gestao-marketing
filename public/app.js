@@ -53,6 +53,48 @@
 
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+  // ---------- Popover genérico de cor (13ª rodada) ----------
+  // Reaproveitado pra cor da lista de cada pessoa em Demandas e pra cor de
+  // fundo (pessoal) da tela Início — mesma paleta sugerida das etiquetas.
+  let openColorPopoverEl = null;
+  function closeColorPopover() {
+    if (openColorPopoverEl) { openColorPopoverEl.remove(); openColorPopoverEl = null; }
+  }
+  document.addEventListener('click', (e) => {
+    if (openColorPopoverEl && !openColorPopoverEl.contains(e.target) && !e.target.classList.contains('color-dot-btn')) {
+      closeColorPopover();
+    }
+  });
+  function openColorPopover(anchorBtn, currentColor, onSelect) {
+    closeColorPopover();
+    const pop = document.createElement('div');
+    pop.className = 'color-popover';
+    const wrap = document.createElement('div');
+    wrap.className = 'color-swatches';
+    const none = document.createElement('div');
+    none.className = 'color-swatch color-swatch-none' + (!currentColor ? ' selected' : '');
+    none.title = 'Sem cor';
+    none.onclick = () => { onSelect(null); closeColorPopover(); };
+    wrap.appendChild(none);
+    (labelSuggestedColors.length ? labelSuggestedColors : ['#61bd4f', '#f2d600', '#ff9f1a', '#eb5a46', '#c377e0', '#0079bf', '#00c2e0', '#51e898', '#ff78cb', '#344563']).forEach((c) => {
+      const sw = document.createElement('div');
+      sw.className = 'color-swatch' + (currentColor === c ? ' selected' : '');
+      sw.style.background = c;
+      sw.onclick = () => { onSelect(c); closeColorPopover(); };
+      wrap.appendChild(sw);
+    });
+    pop.appendChild(wrap);
+    document.body.appendChild(pop);
+    const rect = anchorBtn.getBoundingClientRect();
+    pop.style.top = (rect.bottom + 6) + 'px';
+    pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 190)) + 'px';
+    openColorPopoverEl = pop;
+  }
+  function setColorDotBtn(btn, color) {
+    if (color) { btn.style.background = color; btn.classList.add('has-color'); }
+    else { btn.style.background = '#fff'; btn.classList.remove('has-color'); }
+  }
   const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const MONTHS_FULL = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -68,6 +110,43 @@
   const SOCIAL_POST_TYPE_LABEL = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
   // Tipo de newsletter tem nome diferente por marca — mesma coisa, nomes distintos.
   const NEWSLETTER_TYPE_BY_BRAND = { ghelplus: 'g_news', debacco: 'contatto' };
+
+  // 21 saudações divertidas da tela Início (pedido da Raquel, 13ª rodada) —
+  // sorteada uma a cada novo login (fica a mesma durante a sessão, muda de
+  // novo quando a pessoa faz login de novo). {nome} vira o nome da pessoa.
+  const HOME_GREETINGS = [
+    'Já tomou seu cafézinho hoje?',
+    'Olá, {nome}! O algoritmo sentiu sua falta.',
+    'Café na mão, {nome}? Então podemos falar de estratégia.',
+    'Respira, {nome}… é só mais uma alteraçãozinha.',
+    'Bem-vindo, {nome}! Hoje o briefing vem completo. Confia.',
+    '{nome}, preparado para transformar café em campanha?',
+    'Entre, fique à vontade. Os KPIs estão te esperando, {nome}.',
+    'Hoje vai dar tudo certo, {nome}. Até o Meta colaborar.',
+    'Bom dia, {nome}! Que seus criativos performem e seus clientes aprovem de primeira.',
+    'Você chegou, {nome}! Agora oficialmente podemos culpar o algoritmo.',
+    'Atenção, {nome}: grandes ideias podem acontecer por aqui.',
+    'Mais um dia fingindo que "só um ajuste" leva 5 minutos, hein, {nome}?',
+    'Olá, {nome}! Bem-vindo ao lugar onde tudo vira conteúdo.',
+    'Seu café está forte, {nome}? Porque o briefing está fraco.',
+    'Hoje tem estratégia, criatividade e provavelmente uma alteração de última hora. Boa sorte, {nome}.',
+    'Que hoje o alcance seja alto e o custo por resultado seja baixo. Ouvi um amém, {nome}?',
+    'Você não está procrastinando, {nome}. Está buscando referências.',
+    'Calma, marketer. Nem todo número vermelho é uma tragédia.',
+    'Seu painel está pronto, {nome}. Seu emocional, não garantimos.',
+    'Bem-vindo, {nome}! Aqui a gente transforma "faz algo legal" em estratégia.',
+    'Olá, {nome}, percebeu que faltou um "tchan" naquele post?'
+  ];
+  function pickHomeGreeting(nome) {
+    let idx = sessionStorage.getItem('homeGreetingIdx');
+    if (idx === null || isNaN(Number(idx))) {
+      idx = Math.floor(Math.random() * HOME_GREETINGS.length);
+      sessionStorage.setItem('homeGreetingIdx', String(idx));
+    } else {
+      idx = Number(idx);
+    }
+    return HOME_GREETINGS[idx].replace(/\{nome\}/g, nome);
+  }
   const NORMAL_POST_TYPES = ['estatico', 'carrossel', 'reels', 'storie', 'video_tiktok', 'video_youtube', 'pin'];
   const CARGO_LABEL = { gerente: 'Gerente', analista: 'Analista', auxiliar: 'Auxiliar', coordenador: 'Coordenador(a)', designer: 'Designer', designer3d: 'Designer 3D', videomaker: 'Videomaker' };
   const fmtMoney = (n) => n === null || n === undefined || n === ''
@@ -149,6 +228,12 @@
       const team = await api('/api/auth/team');
       teamMembers = team.users;
     } catch (e) { /* ignora */ }
+    // Carrega a paleta de cores sugeridas cedo (não só quando visita
+    // Demandas), pra já estar pronta pro seletor de cor da tela Início.
+    try {
+      const labelsData = await api('/api/labels');
+      labelSuggestedColors = labelsData.suggestedColors || labelSuggestedColors;
+    } catch (e) { /* ignora */ }
     applyCronogramaAccess();
     await loadHome();
     showView('home');
@@ -198,6 +283,7 @@
   $('#logoutBtn').onclick = () => {
     token = null; currentUser = null;
     localStorage.removeItem('token');
+    sessionStorage.removeItem('homeGreetingIdx'); // próximo login sorteia outra frase
     location.reload();
   };
 
@@ -264,12 +350,39 @@
   });
 
   // ---------- Início ----------
+  // Cor de fundo da tela Início (13ª rodada) — preferência pessoal: só a
+  // própria pessoa vê a cor que ela escolheu, tom bem suave (color-mix)
+  // pra não brigar com o conteúdo, mas visível como pedido.
+  function applyHomeColor() {
+    const view = $('#view-home');
+    const color = currentUser.homeColor || null;
+    if (color) {
+      view.style.background = `color-mix(in srgb, ${color} 10%, white)`;
+      view.style.borderRadius = '16px';
+      view.style.padding = '18px';
+    } else {
+      view.style.background = '';
+      view.style.borderRadius = '';
+      view.style.padding = '';
+    }
+    setColorDotBtn($('#homeColorBtn'), color);
+  }
+  $('#homeColorBtn').onclick = (e) => {
+    e.stopPropagation();
+    openColorPopover($('#homeColorBtn'), currentUser.homeColor || null, async (color) => {
+      await api('/api/auth/me/home-color', { method: 'PUT', body: JSON.stringify({ color }) });
+      currentUser.homeColor = color;
+      applyHomeColor();
+    });
+  };
+
   async function loadHome() {
     const data = await api('/api/dashboards');
     budgetAccess = data.budgetAccess;
     dashboardsByKey = {};
     data.dashboards.forEach((d) => { dashboardsByKey[d.key] = d; });
-    $('#homeGreeting').textContent = 'Olá, ' + (currentUser.name || currentUser.username) + '! Resumo geral da plataforma.';
+    $('#homeGreeting').textContent = pickHomeGreeting(currentUser.name || currentUser.username);
+    applyHomeColor();
 
     await loadRecados();
 
@@ -696,7 +809,7 @@
   // pessoal visível pra mim.
   function kanbanColumns() {
     if (demandasScope === 'geral') return teamMembers;
-    const me = { id: currentUser.id, name: (currentUser.name || currentUser.username) + ' (você)' };
+    const me = { id: currentUser.id, name: (currentUser.name || currentUser.username) + ' (você)', columnColor: currentUser.columnColor || null };
     const others = new Set();
     demandas.forEach((d) => (d.assigneeIds || []).forEach((id) => { if (id !== currentUser.id) others.add(id); }));
     const otherCols = teamMembers.filter((m) => others.has(m.id));
@@ -718,7 +831,26 @@
       const colEl = document.createElement('div');
       colEl.className = 'kanban-col';
       const items = demandas.filter((d) => demandaInColumn(d, member.id));
-      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-header-name">${member.name}</span><span class="kanban-count">${items.length}</span></div>`;
+      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-header-name">${member.name}</span><button type="button" class="color-dot-btn" title="Cor da lista"></button><span class="kanban-count">${items.length}</span></div>`;
+      // Cor customizável da lista (13ª rodada, pedido da Raquel) — mesmo
+      // tom claro (color-mix) já usado nos cards, só que mais suave por
+      // cobrir uma área bem maior, mais um topo colorido pra destacar.
+      const colorBtn = colEl.querySelector('.color-dot-btn');
+      setColorDotBtn(colorBtn, member.columnColor || null);
+      if (member.columnColor) {
+        colEl.style.background = `color-mix(in srgb, ${member.columnColor} 10%, white)`;
+        colEl.style.borderTop = `3px solid ${member.columnColor}`;
+      }
+      colorBtn.onclick = (e) => {
+        e.stopPropagation();
+        openColorPopover(colorBtn, member.columnColor || null, async (color) => {
+          await api('/api/auth/team/' + member.id + '/color', { method: 'PUT', body: JSON.stringify({ color }) });
+          const tm = teamMembers.find((m) => m.id === member.id);
+          if (tm) tm.columnColor = color;
+          if (currentUser.id === member.id) currentUser.columnColor = color;
+          renderKanban();
+        });
+      };
       const list = document.createElement('div');
       list.className = 'kanban-list';
       if (items.length === 0) {

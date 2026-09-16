@@ -33,9 +33,11 @@
   let socialStatuses = [];
   let socialPostTypes = [];
   let editingSocialPostId = null;
+  let socialTab = 'debacco'; // 'debacco' | 'ghelplus'
 
   let cronogramaTab = 'calendario'; // 'calendario' | 'feed'
   let cronogramaFeedNetwork = 'ig_fb'; // 'ig_fb' | 'linkedin'
+  let cronogramaBrand = 'debacco'; // 'debacco' | 'ghelplus'
   let cronogramaCalMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
   let brindesTab = 'debacco'; // 'debacco' | 'ghelplus' | 'log'
@@ -1064,6 +1066,14 @@
     } catch (e) { /* ignora */ }
   }
 
+  $all('.tab-btn[data-social-tab]').forEach((b) => {
+    b.onclick = () => {
+      socialTab = b.dataset.socialTab;
+      $all('.tab-btn[data-social-tab]').forEach((x) => x.classList.toggle('active', x === b));
+      renderSocialPosts();
+    };
+  });
+
   async function loadSocialPosts() {
     await ensureSocialMeta();
     const data = await api('/api/social-posts');
@@ -1074,8 +1084,9 @@
   function renderSocialPosts() {
     const body = $('#socialPostsBody');
     body.innerHTML = '';
-    $('#socialPostsEmpty').hidden = socialPosts.length > 0;
-    socialPosts.forEach((p) => {
+    const rows = socialPosts.filter((p) => (p.brand || 'debacco') === socialTab);
+    $('#socialPostsEmpty').hidden = rows.length > 0;
+    rows.forEach((p) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
@@ -1129,6 +1140,7 @@
   function openSocialPostForm(post) {
     editingSocialPostId = post ? post.id : null;
     $('#socialPostFormTitle').textContent = post ? 'Editar agendamento' : 'Novo agendamento';
+    $('#socialPostFormBrand').value = post ? (post.brand || 'debacco') : socialTab;
     $('#socialPostFormPlatform').value = post ? post.platform : (socialPlatforms[0] || '');
     $('#socialPostFormStatus').value = post ? post.status : 'rascunho';
     $('#socialPostFormType').value = post ? (post.postType || 'feed') : 'feed';
@@ -1146,6 +1158,7 @@
 
   $('#socialPostFormSave').onclick = async () => {
     const payload = {
+      brand: $('#socialPostFormBrand').value,
       platform: $('#socialPostFormPlatform').value,
       status: $('#socialPostFormStatus').value,
       postType: $('#socialPostFormType').value,
@@ -1194,6 +1207,13 @@
   };
 
   // ---------- Cronograma de Marketing ----------
+  $all('.tab-btn[data-cronograma-brand]').forEach((b) => {
+    b.onclick = () => {
+      cronogramaBrand = b.dataset.cronogramaBrand;
+      $all('.tab-btn[data-cronograma-brand]').forEach((x) => x.classList.toggle('active', x === b));
+      renderCronograma();
+    };
+  });
   $all('.tab-btn[data-cronograma-tab]').forEach((b) => {
     b.onclick = () => {
       cronogramaTab = b.dataset.cronogramaTab;
@@ -1241,7 +1261,12 @@
     showView('agendamento');
     await loadSocialPosts();
     const post = socialPosts.find((p) => p.id === postId);
-    if (post) openSocialPostForm(post);
+    if (post) {
+      socialTab = post.brand || 'debacco';
+      $all('.tab-btn[data-social-tab]').forEach((x) => x.classList.toggle('active', x.dataset.socialTab === socialTab));
+      renderSocialPosts();
+      openSocialPostForm(post);
+    }
   }
 
   function renderCronogramaCalendar() {
@@ -1284,7 +1309,7 @@
       cell.appendChild(num);
 
       const dayPosts = socialPosts
-        .filter((p) => p.scheduledDate === dateStr)
+        .filter((p) => (p.brand || 'debacco') === cronogramaBrand && p.scheduledDate === dateStr)
         .sort((a, b) => (a.scheduledTime || '').localeCompare(b.scheduledTime || ''));
       dayPosts.forEach((p) => {
         const chip = document.createElement('button');
@@ -1304,6 +1329,7 @@
     list.innerHTML = '';
     const isLinkedin = cronogramaFeedNetwork === 'linkedin';
     const posts = socialPosts
+      .filter((p) => (p.brand || 'debacco') === cronogramaBrand)
       .filter((p) => (isLinkedin ? p.platform === 'linkedin' : (p.platform === 'instagram' || p.platform === 'facebook')))
       .sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || '') || (a.scheduledTime || '').localeCompare(b.scheduledTime || ''));
     $('#cronogramaFeedEmpty').hidden = posts.length > 0;

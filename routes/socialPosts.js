@@ -19,9 +19,12 @@ const STATUSES = ['rascunho', 'agendado', 'publicado'];
 // Tipo do post — usado no Cronograma de Marketing (aba Calendário mostra
 // o tipo de cada post do dia; aba Prévia do Feed também exibe).
 const POST_TYPES = ['feed', 'story', 'reels', 'carrossel', 'video', 'live'];
+// Marca — mesmo padrão de separação usado no Orçamento (routes/budget.js),
+// pra manter Agendamento e Cronograma organizados por marca.
+const BRANDS = ['debacco', 'ghelplus'];
 
 function serialize(p) {
-  return Object.assign({}, p, { files: p.files || [], postType: p.postType || 'feed' });
+  return Object.assign({}, p, { files: p.files || [], postType: p.postType || 'feed', brand: p.brand || 'debacco' });
 }
 
 const uploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'social');
@@ -49,7 +52,7 @@ function findOr404(req, res) {
 }
 
 router.get('/meta', requireAuth, (req, res) => {
-  res.json({ platforms: PLATFORMS, statuses: STATUSES, postTypes: POST_TYPES });
+  res.json({ platforms: PLATFORMS, statuses: STATUSES, postTypes: POST_TYPES, brands: BRANDS });
 });
 
 router.get('/', requireAuth, (req, res) => {
@@ -59,11 +62,13 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { platform, scheduledDate, scheduledTime, caption, status, postType } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand } = req.body || {};
   if (!PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Escolha uma rede social válida.' });
+  if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco ou GhelPlus).' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
   const post = {
     id: nanoid(),
+    brand,
     platform,
     scheduledDate,
     scheduledTime: scheduledTime || '',
@@ -77,16 +82,17 @@ router.post('/', requireAuth, (req, res) => {
     updatedAt: new Date().toISOString()
   };
   db.get('socialPosts').push(post).write();
-  logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${platform} ${scheduledDate}`, action: 'create' });
+  logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${brand} · ${platform} ${scheduledDate}`, action: 'create' });
   res.json({ post: serialize(post) });
 });
 
 router.put('/:id', requireAuth, (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
-  const { platform, scheduledDate, scheduledTime, caption, status, postType } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
+  if (brand !== undefined && BRANDS.includes(brand)) updates.brand = brand;
   if (scheduledDate !== undefined) updates.scheduledDate = scheduledDate;
   if (scheduledTime !== undefined) updates.scheduledTime = scheduledTime;
   if (caption !== undefined) updates.caption = caption;

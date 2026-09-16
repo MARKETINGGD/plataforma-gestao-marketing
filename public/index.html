@@ -189,14 +189,28 @@
         </div>
         <p class="muted">Controle manual dos posts planejados. No futuro isso vai conectar direto com as APIs da Meta (Instagram/Facebook), LinkedIn, TikTok, YouTube e Pinterest pra publicar por aqui.</p>
 
+        <div class="tabs">
+          <button class="tab-btn active" data-social-tab="debacco">De Bacco</button>
+          <button class="tab-btn" data-social-tab="ghelplus">GhelPlus</button>
+        </div>
+
         <div id="socialPostFormWrap" class="form-card" hidden>
           <h3 id="socialPostFormTitle">Novo agendamento</h3>
           <input type="hidden" id="socialPostFormId">
           <div class="form-row">
             <div>
+              <label>Marca</label>
+              <select id="socialPostFormBrand">
+                <option value="debacco">De Bacco</option>
+                <option value="ghelplus">GhelPlus</option>
+              </select>
+            </div>
+            <div>
               <label>Rede social</label>
               <select id="socialPostFormPlatform"></select>
             </div>
+          </div>
+          <div class="form-row">
             <div>
               <label>Status</label>
               <select id="socialPostFormStatus">
@@ -205,6 +219,7 @@
                 <option value="publicado">Publicado</option>
               </select>
             </div>
+            <div></div>
           </div>
           <div class="form-row">
             <div>
@@ -380,6 +395,11 @@
       <section id="view-cronograma" class="view" hidden>
         <h2>Cronograma de Marketing</h2>
         <p class="muted">Visão visual de tudo que está no Agendamento para Redes Sociais — por calendário ou como vai aparecer no feed.</p>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-cronograma-brand="debacco">De Bacco</button>
+          <button class="tab-btn" data-cronograma-brand="ghelplus">GhelPlus</button>
+        </div>
 
         <div class="tabs">
           <button class="tab-btn active" data-cronograma-tab="calendario">Calendário</button>

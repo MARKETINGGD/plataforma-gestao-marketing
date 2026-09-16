@@ -55,4 +55,14 @@ if (demandasSemVisibilidade.length > 0) {
   });
 }
 
+// Migração: Agendamento para Redes Sociais passou a ser dividido por marca
+// (De Bacco / GhelPlus). Posts antigos, criados antes dessa separação,
+// caem em 'debacco' por padrão — a Raquel pode reclassificar editando o post.
+const socialPostsSemMarca = db.get('socialPosts').filter((p) => p.brand === undefined).value();
+if (socialPostsSemMarca.length > 0) {
+  socialPostsSemMarca.forEach((p) => {
+    db.get('socialPosts').find({ id: p.id }).assign({ brand: 'debacco' }).write();
+  });
+}
+
 module.exports = db;

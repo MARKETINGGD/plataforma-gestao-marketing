@@ -11,6 +11,12 @@ const router = express.Router();
 const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none' };
 const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin' };
 
+// Cargo (função) da pessoa na equipe — usado pro Cronograma de Marketing:
+// a aba Calendário fica restrita a todo mundo, exceto quem tem cargo
+// 'gerente'. '' (não definido) conta como liberado, pra não travar
+// usuários antigos que ainda não tiveram o cargo cadastrado.
+const CARGOS = ['gerente', 'analista', 'auxiliar', 'coordenador', 'designer', 'designer3d', 'videomaker'];
+
 function signToken(user) {
   return jwt.sign(
     { id: user.id, username: user.username, role: user.isSuperAdmin ? 'super_admin' : 'user' },
@@ -26,6 +32,7 @@ function publicUser(u) {
     name: u.name || u.username,
     isSuperAdmin: !!u.isSuperAdmin,
     permissions: u.permissions || EMPTY_PERMISSIONS,
+    cargo: u.cargo || '',
     createdAt: u.createdAt
   };
 }
@@ -102,12 +109,12 @@ router.put('/me/password', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Lista leve de usuários da plataforma (id/nome), usada para escolher o
-// responsável de uma Demanda. Qualquer pessoa logada pode ver — não expõe
-// senha nem permissões.
+// Lista leve de usuários da plataforma (id/nome/cargo), usada para escolher
+// o responsável de uma Demanda ou as pessoas envolvidas num Agendamento.
+// Qualquer pessoa logada pode ver — não expõe senha nem permissões.
 router.get('/team', requireAuth, (req, res) => {
-  const users = db.get('users').value().map((u) => ({ id: u.id, username: u.username, name: u.name || u.username }));
-  res.json({ users });
+  const users = db.get('users').value().map((u) => ({ id: u.id, username: u.username, name: u.name || u.username, cargo: u.cargo || '' }));
+  res.json({ users, cargos: CARGOS });
 });
 
 // Gestão de usuários da plataforma — só super admin
@@ -116,7 +123,7 @@ router.get('/users', requireAuth, requireSuperAdmin, (req, res) => {
 });
 
 router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {
-  const { username, password, name, isSuperAdmin, permissions } = req.body || {};
+  const { username, password, name, isSuperAdmin, permissions, cargo } = req.body || {};
   if (!username || !password || password.length < 6) {
     return res.status(400).json({ error: 'Informe um usuário e uma senha com pelo menos 6 caracteres.' });
   }
@@ -130,6 +137,7 @@ router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {
     name: (name || username).trim(),
     isSuperAdmin: !!isSuperAdmin,
     permissions: isSuperAdmin ? FULL_PERMISSIONS : sanitizePermissions(permissions),
+    cargo: CARGOS.includes(cargo) ? cargo : '',
     createdAt: new Date().toISOString()
   };
   db.get('users').push(user).write();
@@ -140,10 +148,11 @@ router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {
 router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
   const target = db.get('users').find({ id: req.params.id }).value();
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  const { name, password, isSuperAdmin, permissions } = req.body || {};
+  const { name, password, isSuperAdmin, permissions, cargo } = req.body || {};
   const updates = {};
   if (name) updates.name = name.trim();
   if (typeof isSuperAdmin === 'boolean') updates.isSuperAdmin = isSuperAdmin;
+  if (cargo !== undefined) updates.cargo = CARGOS.includes(cargo) ? cargo : '';
   updates.permissions = updates.isSuperAdmin || (updates.isSuperAdmin === undefined && target.isSuperAdmin)
     ? FULL_PERMISSIONS
     : sanitizePermissions(permissions || target.permissions);

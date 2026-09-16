@@ -187,7 +187,7 @@
             <button class="btn-primary" id="socialPostNewBtn">+ Novo agendamento</button>
           </div>
         </div>
-        <p class="muted">Controle manual dos posts planejados. No futuro isso vai conectar direto com as APIs da Meta (Instagram/Facebook), LinkedIn, TikTok, YouTube e Pinterest pra publicar por aqui.</p>
+        <p class="muted">Controle manual dos agendamentos planejados. No futuro isso vai conectar direto com as APIs da Meta (Instagram/Facebook), LinkedIn, TikTok, YouTube e Pinterest pra publicar por aqui.</p>
 
         <div class="tabs">
           <button class="tab-btn active" data-social-tab="debacco">De Bacco</button>
@@ -233,11 +233,39 @@
           </div>
           <label>Tipo de post</label>
           <select id="socialPostFormType"></select>
-          <label>Legenda / texto do post</label>
+
+          <label>Pessoas envolvidas</label>
+          <div id="socialPostFormInvolvedList" class="chip-picker"></div>
+
+          <label>Legenda / texto do agendamento</label>
           <textarea id="socialPostFormCaption" rows="3"></textarea>
-          <label>Criativo (imagem/vídeo)</label>
+
+          <label>Sugestões de alteração do material</label>
+          <textarea id="socialPostFormSuggestions" rows="2" placeholder="Alguma alteração pedida pro material?"></textarea>
+
+          <label>Link</label>
+          <input id="socialPostFormLink" type="text" placeholder="https://...">
+
+          <label>Sugestões de layout (imagens)</label>
+          <div id="socialPostFormLayoutFiles" class="file-list"></div>
+          <input id="socialPostFormLayoutFileInput" type="file" accept="image/*" multiple>
+
+          <label>Criativo final (imagem/vídeo)</label>
           <div id="socialPostFormFiles" class="file-list"></div>
           <input id="socialPostFormFileInput" type="file">
+
+          <label>Briefing (link ou arquivo)</label>
+          <input id="socialPostFormBriefingLink" type="text" placeholder="Link do briefing (opcional)">
+          <div id="socialPostFormBriefingFile" class="file-list"></div>
+          <input id="socialPostFormBriefingFileInput" type="file">
+
+          <div id="socialPostFormScriptWrap" hidden>
+            <label>Roteiro (link ou arquivo) — necessário pra vídeo</label>
+            <input id="socialPostFormScriptLink" type="text" placeholder="Link do roteiro (opcional)">
+            <div id="socialPostFormScriptFile" class="file-list"></div>
+            <input id="socialPostFormScriptFileInput" type="file">
+          </div>
+
           <div id="socialPostFormError" class="error" hidden></div>
           <div class="form-actions">
             <button id="socialPostFormSave" class="btn-primary">Salvar</button>
@@ -251,7 +279,7 @@
           </thead>
           <tbody id="socialPostsBody"></tbody>
         </table>
-        <p id="socialPostsEmpty" class="muted" hidden>Nenhum post agendado ainda.</p>
+        <p id="socialPostsEmpty" class="muted" hidden>Nenhum agendamento ainda.</p>
       </section>
 
       <section id="view-embed" class="view" hidden>
@@ -401,8 +429,8 @@
           <button class="tab-btn" data-cronograma-brand="ghelplus">GhelPlus</button>
         </div>
 
-        <div class="tabs">
-          <button class="tab-btn active" data-cronograma-tab="calendario">Calendário</button>
+        <div class="tabs" id="cronogramaViewTabs">
+          <button class="tab-btn active" data-cronograma-tab="calendario" id="cronogramaTabCalendario">Calendário</button>
           <button class="tab-btn" data-cronograma-tab="feed">Prévia do Feed</button>
         </div>
 
@@ -421,7 +449,7 @@
             <button class="tab-btn" data-feed-network="linkedin">LinkedIn</button>
           </div>
           <div id="cronogramaFeedList" class="feed-preview-list"></div>
-          <p id="cronogramaFeedEmpty" class="muted" hidden>Nenhum post agendado pra essa rede ainda.</p>
+          <p id="cronogramaFeedEmpty" class="muted" hidden>Nenhum agendamento pra essa rede ainda.</p>
         </div>
       </section>
 
@@ -460,6 +488,19 @@
             Administrador da plataforma (acesso total a tudo, gerencia usuários)
           </label>
 
+          <label>Cargo</label>
+          <select id="userFormCargo">
+            <option value="">Não definido</option>
+            <option value="gerente">Gerente</option>
+            <option value="analista">Analista</option>
+            <option value="auxiliar">Auxiliar</option>
+            <option value="coordenador">Coordenador(a)</option>
+            <option value="designer">Designer</option>
+            <option value="designer3d">Designer 3D</option>
+            <option value="videomaker">Videomaker</option>
+          </select>
+          <p class="muted" style="margin:4px 0 0;font-size:12px;">Usado pro Cronograma de Marketing: só quem tem cargo "Gerente" fica sem acesso à aba Calendário. Também define a cor da tag do agendamento no calendário (Designer, Designer 3D, Videomaker).</p>
+
           <div id="userFormPermissions">
             <label>Permissões por dashboard</label>
             <div class="perm-row"><span>Tráfego Pago</span><select data-perm="trafegoPago"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
@@ -477,7 +518,7 @@
 
         <table class="data-table">
           <thead>
-            <tr><th>Nome</th><th>Usuário</th><th>Tipo</th><th>Acessos</th><th></th></tr>
+            <tr><th>Nome</th><th>Usuário</th><th>Tipo</th><th>Cargo</th><th>Acessos</th><th></th></tr>
           </thead>
           <tbody id="usersTableBody"></tbody>
         </table>

@@ -32,8 +32,11 @@
   let socialPlatforms = [];
   let socialStatuses = [];
   let socialPostTypes = [];
+  let socialVideoPostTypes = [];
+  let socialVideoPlatforms = [];
   let editingSocialPostId = null;
   let socialTab = 'debacco'; // 'debacco' | 'ghelplus'
+  let socialInvolvedIds = new Set();
 
   let cronogramaTab = 'calendario'; // 'calendario' | 'feed'
   let cronogramaFeedNetwork = 'ig_fb'; // 'ig_fb' | 'linkedin'
@@ -59,9 +62,13 @@
     { key: 'concluida', label: 'Concluída' }
   ];
   const UNASSIGNED_COL = { id: '', name: 'Sem responsável' };
-  const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest' };
+  const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
   const SOCIAL_STATUS_LABEL = { rascunho: 'Rascunho', agendado: 'Agendado', publicado: 'Publicado' };
-  const SOCIAL_POST_TYPE_LABEL = { feed: 'Feed', story: 'Story', reels: 'Reels', carrossel: 'Carrossel', video: 'Vídeo', live: 'Live' };
+  const SOCIAL_POST_TYPE_LABEL = { feed: 'Feed', story: 'Story', reels: 'Reels', carrossel: 'Carrossel', video: 'Vídeo', live: 'Live', g_news: 'G-NEWS', contatto: 'Contatto' };
+  // Tipo de newsletter tem nome diferente por marca — mesma coisa, nomes distintos.
+  const NEWSLETTER_TYPE_BY_BRAND = { ghelplus: 'g_news', debacco: 'contatto' };
+  const NORMAL_POST_TYPES = ['feed', 'story', 'reels', 'carrossel', 'video', 'live'];
+  const CARGO_LABEL = { gerente: 'Gerente', analista: 'Analista', auxiliar: 'Auxiliar', coordenador: 'Coordenador(a)', designer: 'Designer', designer3d: 'Designer 3D', videomaker: 'Videomaker' };
   const fmtMoney = (n) => n === null || n === undefined || n === ''
     ? '—'
     : 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -133,6 +140,7 @@
       const team = await api('/api/auth/team');
       teamMembers = team.users;
     } catch (e) { /* ignora */ }
+    applyCronogramaAccess();
     await loadHome();
     showView('home');
     setActiveNav('navHome');
@@ -1061,10 +1069,42 @@
       socialPlatforms = meta.platforms;
       socialStatuses = meta.statuses;
       socialPostTypes = meta.postTypes;
+      socialVideoPostTypes = meta.videoPostTypes || [];
+      socialVideoPlatforms = meta.videoPlatforms || [];
       $('#socialPostFormPlatform').innerHTML = socialPlatforms.map((p) => `<option value="${p}">${SOCIAL_PLATFORM_LABEL[p] || p}</option>`).join('');
-      $('#socialPostFormType').innerHTML = socialPostTypes.map((t) => `<option value="${t}">${SOCIAL_POST_TYPE_LABEL[t] || t}</option>`).join('');
     } catch (e) { /* ignora */ }
   }
+
+  // O tipo de post depende da rede: pra Newsletter só existe 1 tipo, e o
+  // nome muda por marca (G-NEWS na GhelPlus, Contatto na De Bacco). Pras
+  // outras redes, mostra os tipos normais (Feed/Story/Reels/...).
+  function updateSocialTypeOptions(keepValue) {
+    const platform = $('#socialPostFormPlatform').value;
+    const brand = $('#socialPostFormBrand').value || 'debacco';
+    const sel = $('#socialPostFormType');
+    let options;
+    if (platform === 'newsletter') {
+      options = [NEWSLETTER_TYPE_BY_BRAND[brand] || 'g_news'];
+    } else {
+      options = NORMAL_POST_TYPES;
+    }
+    sel.innerHTML = options.map((t) => `<option value="${t}">${SOCIAL_POST_TYPE_LABEL[t] || t}</option>`).join('');
+    if (keepValue && options.includes(keepValue)) sel.value = keepValue;
+    updateScriptVisibility();
+  }
+
+  // Roteiro só faz sentido quando o agendamento é de vídeo (Reels, ou
+  // rede TikTok/YouTube).
+  function updateScriptVisibility() {
+    const platform = $('#socialPostFormPlatform').value;
+    const type = $('#socialPostFormType').value;
+    const isVideo = socialVideoPostTypes.includes(type) || socialVideoPlatforms.includes(platform);
+    $('#socialPostFormScriptWrap').hidden = !isVideo;
+  }
+
+  $('#socialPostFormPlatform').onchange = () => updateSocialTypeOptions();
+  $('#socialPostFormBrand').onchange = () => updateSocialTypeOptions($('#socialPostFormType').value);
+  $('#socialPostFormType').onchange = () => updateScriptVisibility();
 
   $all('.tab-btn[data-social-tab]').forEach((b) => {
     b.onclick = () => {
@@ -1137,19 +1177,111 @@
     });
   }
 
+  function renderSocialLayoutFiles(post) {
+    const wrap = $('#socialPostFormLayoutFiles');
+    wrap.innerHTML = '';
+    (post.layoutFiles || []).forEach((f) => {
+      const row = document.createElement('div');
+      row.className = 'file-item';
+      row.innerHTML = `<a href="${f.url}" target="_blank" rel="noopener">${f.name}</a> <span class="muted">(${fmtBytes(f.size)})</span>`;
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '✕';
+      delBtn.className = 'btn-link';
+      delBtn.onclick = async () => {
+        await api(`/api/social-posts/${post.id}/layout-files/${f.id}`, { method: 'DELETE' });
+        const fresh = await api('/api/social-posts');
+        socialPosts = fresh.posts;
+        const updated = socialPosts.find((x) => x.id === post.id);
+        if (updated) renderSocialLayoutFiles(updated);
+      };
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+
+  // Renderiza um único arquivo (briefing ou roteiro) — mostra o arquivo
+  // atual com botão de remover, ou nada se ainda não tiver anexo.
+  function renderSocialSingleFile(wrapSel, file, deleteUrl, onDeleted) {
+    const wrap = $(wrapSel);
+    wrap.innerHTML = '';
+    if (!file) return;
+    const row = document.createElement('div');
+    row.className = 'file-item';
+    row.innerHTML = `<a href="${file.url}" target="_blank" rel="noopener">${file.name}</a> <span class="muted">(${fmtBytes(file.size)})</span>`;
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '✕';
+    delBtn.className = 'btn-link';
+    delBtn.onclick = async () => {
+      await api(deleteUrl, { method: 'DELETE' });
+      const fresh = await api('/api/social-posts');
+      socialPosts = fresh.posts;
+      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
+      if (updated) onDeleted(updated);
+    };
+    row.appendChild(delBtn);
+    wrap.appendChild(row);
+  }
+
+  function renderBriefingFile(post) {
+    renderSocialSingleFile('#socialPostFormBriefingFile', post ? post.briefingFile : null, `/api/social-posts/${post ? post.id : ''}/briefing-file`, renderBriefingFile);
+  }
+
+  function renderScriptFile(post) {
+    renderSocialSingleFile('#socialPostFormScriptFile', post ? post.scriptFile : null, `/api/social-posts/${post ? post.id : ''}/script-file`, renderScriptFile);
+  }
+
+  function renderInvolvedChips() {
+    const wrap = $('#socialPostFormInvolvedList');
+    wrap.innerHTML = '';
+    if (teamMembers.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Nenhum usuário cadastrado ainda.</span>';
+      return;
+    }
+    teamMembers.forEach((u) => {
+      const chip = document.createElement('label');
+      chip.className = 'chip-toggle' + (socialInvolvedIds.has(u.id) ? ' active' : '');
+      const cargoTag = u.cargo ? ` (${CARGO_LABEL[u.cargo] || u.cargo})` : '';
+      chip.innerHTML = `<input type="checkbox" ${socialInvolvedIds.has(u.id) ? 'checked' : ''}> ${u.name}${cargoTag}`;
+      chip.querySelector('input').onchange = (ev) => {
+        if (ev.target.checked) socialInvolvedIds.add(u.id); else socialInvolvedIds.delete(u.id);
+        chip.classList.toggle('active', ev.target.checked);
+      };
+      wrap.appendChild(chip);
+    });
+  }
+
   function openSocialPostForm(post) {
     editingSocialPostId = post ? post.id : null;
     $('#socialPostFormTitle').textContent = post ? 'Editar agendamento' : 'Novo agendamento';
     $('#socialPostFormBrand').value = post ? (post.brand || 'debacco') : socialTab;
     $('#socialPostFormPlatform').value = post ? post.platform : (socialPlatforms[0] || '');
+    updateSocialTypeOptions(post ? (post.postType || 'feed') : 'feed');
     $('#socialPostFormStatus').value = post ? post.status : 'rascunho';
-    $('#socialPostFormType').value = post ? (post.postType || 'feed') : 'feed';
     $('#socialPostFormDate').value = post ? post.scheduledDate : '';
     $('#socialPostFormTime').value = post ? (post.scheduledTime || '') : '';
     $('#socialPostFormCaption').value = post ? (post.caption || '') : '';
+    $('#socialPostFormSuggestions').value = post ? (post.changeSuggestions || '') : '';
+    $('#socialPostFormLink').value = post ? (post.link || '') : '';
+    $('#socialPostFormBriefingLink').value = post ? (post.briefingLink || '') : '';
+    $('#socialPostFormScriptLink').value = post ? (post.scriptLink || '') : '';
+
+    socialInvolvedIds = new Set(post ? (post.involvedUserIds || []) : []);
+    renderInvolvedChips();
+
     $('#socialPostFormFileInput').value = '';
     $('#socialPostFormFileInput').style.display = post ? '' : 'none';
+    $('#socialPostFormLayoutFileInput').value = '';
+    $('#socialPostFormLayoutFileInput').style.display = post ? '' : 'none';
+    $('#socialPostFormBriefingFileInput').value = '';
+    $('#socialPostFormBriefingFileInput').style.display = post ? '' : 'none';
+    $('#socialPostFormScriptFileInput').value = '';
+    $('#socialPostFormScriptFileInput').style.display = post ? '' : 'none';
+
     renderSocialPostFiles(post || { files: [] });
+    renderSocialLayoutFiles(post || { layoutFiles: [] });
+    renderBriefingFile(post);
+    renderScriptFile(post);
+
     $('#socialPostFormError').hidden = true;
     $('#socialPostFormWrap').hidden = false;
   }
@@ -1164,10 +1296,15 @@
       postType: $('#socialPostFormType').value,
       scheduledDate: $('#socialPostFormDate').value,
       scheduledTime: $('#socialPostFormTime').value,
-      caption: $('#socialPostFormCaption').value
+      caption: $('#socialPostFormCaption').value,
+      involvedUserIds: Array.from(socialInvolvedIds),
+      changeSuggestions: $('#socialPostFormSuggestions').value,
+      link: $('#socialPostFormLink').value,
+      briefingLink: $('#socialPostFormBriefingLink').value,
+      scriptLink: $('#socialPostFormScriptLink').value
     };
     if (!payload.scheduledDate) {
-      $('#socialPostFormError').textContent = 'Escolha a data do post.';
+      $('#socialPostFormError').textContent = 'Escolha a data do agendamento.';
       $('#socialPostFormError').hidden = false;
       return;
     }
@@ -1206,7 +1343,78 @@
     }
   };
 
+  $('#socialPostFormLayoutFileInput').onchange = async () => {
+    const files = Array.from($('#socialPostFormLayoutFileInput').files || []);
+    if (files.length === 0 || !editingSocialPostId) return;
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('file', file);
+        await api(`/api/social-posts/${editingSocialPostId}/layout-files`, { method: 'POST', body: fd });
+      }
+      $('#socialPostFormLayoutFileInput').value = '';
+      const fresh = await api('/api/social-posts');
+      socialPosts = fresh.posts;
+      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
+      if (updated) renderSocialLayoutFiles(updated);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $('#socialPostFormBriefingFileInput').onchange = async () => {
+    const file = $('#socialPostFormBriefingFileInput').files[0];
+    if (!file || !editingSocialPostId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/social-posts/${editingSocialPostId}/briefing-file`, { method: 'POST', body: fd });
+      $('#socialPostFormBriefingFileInput').value = '';
+      const fresh = await api('/api/social-posts');
+      socialPosts = fresh.posts;
+      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
+      if (updated) renderBriefingFile(updated);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $('#socialPostFormScriptFileInput').onchange = async () => {
+    const file = $('#socialPostFormScriptFileInput').files[0];
+    if (!file || !editingSocialPostId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/social-posts/${editingSocialPostId}/script-file`, { method: 'POST', body: fd });
+      $('#socialPostFormScriptFileInput').value = '';
+      const fresh = await api('/api/social-posts');
+      socialPosts = fresh.posts;
+      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
+      if (updated) renderScriptFile(updated);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
   // ---------- Cronograma de Marketing ----------
+  // A aba Calendário fica restrita: todo mundo pode ver, exceto quem tem
+  // cargo "Gerente" (pedido explícito da Raquel). A Prévia do Feed continua
+  // aberta pra todo mundo. Como os dois usam os mesmos dados do Agendamento
+  // (que quem tem cargo Gerente já enxerga por completo na Prévia do Feed
+  // e no próprio Agendamento), essa é uma restrição de tela/fluxo de
+  // trabalho, não uma restrição de dado sensível — por isso o bloqueio é só
+  // no frontend, sem gate correspondente no backend.
+  function applyCronogramaAccess() {
+    const blocked = currentUser.cargo === 'gerente';
+    $('#cronogramaTabCalendario').hidden = blocked;
+    if (blocked) {
+      cronogramaTab = 'feed';
+      $all('.tab-btn[data-cronograma-tab]').forEach((x) => x.classList.toggle('active', x.dataset.cronogramaTab === 'feed'));
+      $('#cronogramaCalendarioWrap').hidden = true;
+      $('#cronogramaFeedWrap').hidden = false;
+    }
+  }
+
   $all('.tab-btn[data-cronograma-brand]').forEach((b) => {
     b.onclick = () => {
       cronogramaBrand = b.dataset.cronogramaBrand;
@@ -1316,6 +1524,31 @@
         chip.type = 'button';
         chip.className = 'cal-post-chip';
         chip.innerHTML = `<b>${p.scheduledTime || '--:--'} · ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</b>${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}`;
+
+        // Tags coloridas pelo cargo de quem está envolvido no material:
+        // designer = azul, videomaker = verde, designer 3D = verde neon
+        // (além das outras, quando o material também precisa de 3D).
+        const involvedCargos = (p.involvedUserIds || []).map((id) => {
+          const u = teamMembers.find((m) => m.id === id);
+          return u ? u.cargo : '';
+        });
+        const tagDefs = [
+          ['designer', 'tag-designer'],
+          ['videomaker', 'tag-videomaker'],
+          ['designer3d', 'tag-designer3d']
+        ].filter(([cargo]) => involvedCargos.includes(cargo));
+        if (tagDefs.length > 0) {
+          const tagsWrap = document.createElement('div');
+          tagsWrap.className = 'cal-post-tags';
+          tagDefs.forEach(([cargo, cls]) => {
+            const dot = document.createElement('span');
+            dot.className = 'cal-post-tag ' + cls;
+            dot.title = CARGO_LABEL[cargo] || cargo;
+            tagsWrap.appendChild(dot);
+          });
+          chip.appendChild(tagsWrap);
+        }
+
         chip.onclick = () => openPostFromCronograma(p.id);
         cell.appendChild(chip);
       });
@@ -1514,6 +1747,7 @@
         <td>${u.name}</td>
         <td>${u.username}</td>
         <td>${u.isSuperAdmin ? 'Administrador da plataforma' : 'Usuário'}</td>
+        <td>${CARGO_LABEL[u.cargo] || '—'}</td>
         <td>${accessList}</td>
         <td></td>
       `;
@@ -1546,6 +1780,7 @@
     $('#userFormPassword').value = '';
     $('#userFormPasswordLabel').textContent = user ? 'Nova senha (deixe em branco para manter)' : 'Senha (mínimo 6 caracteres)';
     $('#userFormSuperAdmin').checked = user ? user.isSuperAdmin : false;
+    $('#userFormCargo').value = user ? (user.cargo || '') : '';
     const perms = (user && user.permissions) || { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none' };
     $all('[data-perm]').forEach((sel) => { sel.value = perms[sel.dataset.perm] || 'none'; });
     $('#userFormError').hidden = true;
@@ -1562,6 +1797,7 @@
       username: $('#userFormUsername').value.trim(),
       password: $('#userFormPassword').value,
       isSuperAdmin: $('#userFormSuperAdmin').checked,
+      cargo: $('#userFormCargo').value,
       permissions
     };
     try {
@@ -1575,6 +1811,14 @@
       await loadUsers();
       const team = await api('/api/auth/team');
       teamMembers = team.users;
+      // Editou o próprio usuário (ex: o super admin mudando o próprio
+      // cargo) — recarrega currentUser pra aplicar na hora, sem precisar
+      // deslogar e logar de novo (ex: acesso ao Calendário do Cronograma).
+      if (editingUserId === currentUser.id) {
+        const me = await api('/api/auth/me');
+        currentUser = me.user;
+        applyCronogramaAccess();
+      }
     } catch (e) {
       $('#userFormError').textContent = e.message;
       $('#userFormError').hidden = false;

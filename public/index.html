@@ -53,6 +53,7 @@
         <button class="navlink" id="navHome" data-view="home">Início</button>
         <button class="navlink" id="navDemandas" data-view="demandas">Acompanhamento de Demandas</button>
         <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamento para Redes Sociais</button>
+        <button class="navlink" id="navCronograma" data-view="cronograma">Cronograma de Marketing</button>
         <button class="navlink" id="navDashTrafego" data-view="embed" data-dash="trafegoPago">Gerenciamento de Tráfego Pago</button>
         <button class="navlink" id="navDashMidias" data-view="embed" data-dash="redesSociais">Gerenciamento de Mídias</button>
         <button class="navlink" id="navDashAcoes" data-view="embed" data-dash="acoesSazonais">Gerenciamento de Ações Sazonais</button>
@@ -83,7 +84,7 @@
             <button class="btn-secondary" id="recadosNewBtn">+ Novo recado</button>
           </div>
           <div id="recadosForMe" class="recado-list"></div>
-          <button class="btn-link" id="recadosToggleAll">Ver mural completo</button>
+          <button class="btn-link" id="recadosToggleAll">Ver meus recados (enviados e recebidos)</button>
           <div id="recadosAllWrap" hidden>
             <table class="data-table">
               <thead><tr><th></th><th>Recado</th><th>De</th><th>Para</th><th>Lido por</th><th></th></tr></thead>
@@ -371,6 +372,11 @@
         </div>
       </section>
 
+      <section id="view-cronograma" class="view" hidden>
+        <h2>Cronograma de Marketing</h2>
+        <p class="muted">Essa área ainda está em construção — em breve vamos trabalhar nela juntos.</p>
+      </section>
+
       <section id="view-produtos" class="view" hidden>
         <h2>Produtos</h2>
         <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar o catálogo de produtos por aqui — me conta o que precisa ter nela.</p>
@@ -383,7 +389,7 @@
 
       <section id="view-users" class="view" hidden>
         <h2>Usuários da plataforma</h2>
-        <p class="muted">Controle quais dashboards e a aba de Orçamento cada pessoa pode acessar. Demandas e Brindes ficam liberados para qualquer pessoa logada.</p>
+        <p class="muted">Todo mundo logado pode ver os dashboards e as demais áreas da Plataforma — as permissões abaixo controlam apenas quem pode EDITAR em cada dashboard e o acesso à aba de Orçamento (a única que também é restrita pra visualizar).</p>
         <button id="userNewBtn" class="btn-primary">+ Novo usuário</button>
 
         <div id="userFormWrap" class="form-card" hidden>

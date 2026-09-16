@@ -294,7 +294,7 @@
   $('#recadosToggleAll').onclick = () => {
     const wrap = $('#recadosAllWrap');
     wrap.hidden = !wrap.hidden;
-    $('#recadosToggleAll').textContent = wrap.hidden ? 'Ver mural completo' : 'Esconder mural completo';
+    $('#recadosToggleAll').textContent = wrap.hidden ? 'Ver meus recados (enviados e recebidos)' : 'Esconder meus recados';
   };
 
   function renderRecadoColorSwatches() {

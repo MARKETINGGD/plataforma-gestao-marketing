@@ -26,10 +26,18 @@ function serialize(r, userId) {
   });
 }
 
-// Todos os recados ativos (não arquivados) — usado no mural completo.
+// Um recado só pode ser visto/gerenciado por quem escreveu ou por quem foi
+// marcado — nunca por "todo mundo" (recado não é aviso público).
+function canAccess(recado, userId) {
+  return recado.createdBy === userId || (recado.targetUserIds || []).includes(userId);
+}
+
+// Recados em que eu apareço — enviados por mim ou endereçados a mim (lidos
+// ou não). Usado no "mural completo" da tela Início, que só mostra o que
+// diz respeito a quem está olhando, nunca os recados de outras pessoas.
 router.get('/', requireAuth, (req, res) => {
-  const all = db.get('recados').value().filter((r) => !r.archived);
-  res.json({ recados: all.map((r) => serialize(r, req.user.id)), suggestedColors: DEFAULT_COLORS });
+  const mine = db.get('recados').value().filter((r) => !r.archived && canAccess(r, req.user.id));
+  res.json({ recados: mine.map((r) => serialize(r, req.user.id)), suggestedColors: DEFAULT_COLORS });
 });
 
 // Recados endereçados a mim e ainda não lidos — usado na tela Início.
@@ -66,6 +74,7 @@ router.post('/', requireAuth, (req, res) => {
 router.put('/:id/read', requireAuth, (req, res) => {
   const recado = db.get('recados').find({ id: req.params.id }).value();
   if (!recado) return res.status(404).json({ error: 'Recado não encontrado.' });
+  if (!canAccess(recado, req.user.id)) return res.status(403).json({ error: 'Esse recado não é seu.' });
   const readBy = Array.from(new Set([...(recado.readBy || []), req.user.id]));
   db.get('recados').find({ id: req.params.id }).assign({ readBy }).write();
   res.json({ ok: true });
@@ -74,6 +83,7 @@ router.put('/:id/read', requireAuth, (req, res) => {
 router.delete('/:id', requireAuth, (req, res) => {
   const recado = db.get('recados').find({ id: req.params.id }).value();
   if (!recado) return res.status(404).json({ error: 'Recado não encontrado.' });
+  if (!canAccess(recado, req.user.id)) return res.status(403).json({ error: 'Esse recado não é seu.' });
   db.get('recados').remove({ id: req.params.id }).write();
   logAudit({ user: req.user, entityType: 'recado', entityId: recado.id, entityLabel: recado.text.slice(0, 40), action: 'delete' });
   res.json({ ok: true });

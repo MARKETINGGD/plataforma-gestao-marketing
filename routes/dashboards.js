@@ -43,6 +43,12 @@ router.get('/', requireAuth, (req, res) => {
 // Gera um link de acesso direto ao dashboard escolhido, já autenticado
 // (login único): o token é assinado com o MESMO JWT_SECRET configurado nos
 // outros 3 projetos, então o dashboard de destino aceita sem pedir login.
+//
+// Qualquer pessoa logada na Plataforma pode ABRIR e VER os 3 dashboards —
+// só o Orçamento (rota /api/budget) continua restrito por permissão. Quem
+// não tem permissão de edição (`access === 'none'`) entra como visitante:
+// o "role" repassado no token de handoff reflete isso, e cada dashboard
+// decide por conta própria o que essa pessoa pode editar por lá.
 router.get('/launch/:key', requireAuth, (req, res) => {
   const user = db.get('users').find({ id: req.user.id }).value();
   if (!user) return res.status(401).json({ error: 'Usuário não encontrado. Faça login novamente.' });
@@ -51,7 +57,6 @@ router.get('/launch/:key', requireAuth, (req, res) => {
   if (!dashboard) return res.status(404).json({ error: 'Dashboard não encontrado.' });
 
   const access = (user.permissions || {})[dashboard.key] || 'none';
-  if (access === 'none') return res.status(403).json({ error: 'Você não tem acesso a este dashboard.' });
   if (!dashboard.url) return res.status(500).json({ error: `URL do dashboard "${dashboard.label}" ainda não foi configurada na plataforma.` });
 
   const handoffUser = { id: user.id, username: user.username, role: access };

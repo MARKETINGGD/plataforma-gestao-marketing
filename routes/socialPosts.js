@@ -77,6 +77,7 @@ function serialize(p) {
     changeSuggestionsBy: p.changeSuggestionsBy || '',
     changeSuggestionsAt: p.changeSuggestionsAt || null,
     link: p.link || '',
+    subject: p.subject || '',
     postType: migratePostType(p),
     carouselBriefings: Array.isArray(p.carouselBriefings) ? p.carouselBriefings : [],
     brand: p.brand || 'debacco',
@@ -116,7 +117,13 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
   const platformLabel = PLATFORM_LABEL_PT[post.platform] || post.platform;
   const typeLabel = POST_TYPE_LABEL_PT[post.postType] || '';
   const brandLabel = BRAND_LABEL_PT[post.brand] || post.brand;
-  const title = `Agendamento ${brandLabel} · ${platformLabel}${typeLabel ? ' (' + typeLabel + ')' : ''} · ${post.scheduledDate || 'sem data'}`;
+  // Título do card de Demanda: pedido da Raquel é "o assunto e a data da
+  // postagem" — usa o Assunto do agendamento quando preenchido; sem
+  // assunto, cai no título antigo (marca/rede/tipo) pra não ficar sem
+  // nome nenhum.
+  const title = post.subject
+    ? `${post.subject} · ${post.scheduledDate || 'sem data'}`
+    : `Agendamento ${brandLabel} · ${platformLabel}${typeLabel ? ' (' + typeLabel + ')' : ''} · ${post.scheduledDate || 'sem data'}`;
   const description = 'Você foi marcado(a) como pessoa envolvida num agendamento de redes sociais.'
     + (post.caption ? ` Legenda: "${post.caption.slice(0, 200)}"` : '');
   newIds.forEach((userId) => {
@@ -219,7 +226,7 @@ function validCarouselBriefings(list) {
 }
 
 router.post('/', requireAuth, (req, res) => {
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
   if (!PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Escolha uma rede social válida.' });
   if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco ou GhelPlus).' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
@@ -230,6 +237,7 @@ router.post('/', requireAuth, (req, res) => {
     scheduledDate,
     scheduledTime: scheduledTime || '',
     caption: caption || '',
+    subject: subject || '',
     status: STATUSES.includes(status) ? status : 'rascunho',
     postType: POST_TYPES.includes(postType) ? postType : 'estatico',
     carouselBriefings: validCarouselBriefings(carouselBriefings),
@@ -258,13 +266,14 @@ router.put('/:id', requireAuth, (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
   const previousInvolvedIds = post.involvedUserIds || [];
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
   if (brand !== undefined && BRANDS.includes(brand)) updates.brand = brand;
   if (scheduledDate !== undefined) updates.scheduledDate = scheduledDate;
   if (scheduledTime !== undefined) updates.scheduledTime = scheduledTime;
   if (caption !== undefined) updates.caption = caption;
+  if (subject !== undefined) updates.subject = subject;
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
   if (postType !== undefined && POST_TYPES.includes(postType)) updates.postType = postType;
   if (carouselBriefings !== undefined) updates.carouselBriefings = validCarouselBriefings(carouselBriefings);

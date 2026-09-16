@@ -235,6 +235,9 @@
           <label>Tipo de post</label>
           <select id="socialPostFormType"></select>
 
+          <label>Assunto</label>
+          <input id="socialPostFormSubject" type="text" placeholder="Sobre o que é esse post?">
+
           <label>Pessoas envolvidas</label>
           <div id="socialPostFormInvolvedList" class="chip-picker"></div>
 
@@ -286,7 +289,7 @@
 
         <table class="data-table">
           <thead>
-            <tr><th>Rede</th><th>Tipo</th><th>Data</th><th>Hora</th><th>Legenda</th><th>Status</th><th></th></tr>
+            <tr><th>Rede</th><th>Tipo</th><th>Assunto</th><th>Data</th><th>Hora</th><th>Legenda</th><th>Status</th><th></th></tr>
           </thead>
           <tbody id="socialPostsBody"></tbody>
         </table>
@@ -294,8 +297,7 @@
       </section>
 
       <section id="view-embed" class="view" hidden>
-        <div class="embed-toolbar">
-          <button id="embedBack" class="btn-secondary">← Voltar</button>
+        <div class="view-toolbar">
           <h2 id="embedTitle"></h2>
         </div>
         <div class="iframe-wrap">

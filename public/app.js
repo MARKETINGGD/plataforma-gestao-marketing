@@ -62,7 +62,6 @@
     { key: 'aprovacao', label: 'Em Aprovação' },
     { key: 'concluida', label: 'Concluída' }
   ];
-  const UNASSIGNED_COL = { id: '', name: 'Sem responsável' };
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
   const SOCIAL_STATUS_LABEL = { rascunho: 'Rascunho', agendado: 'Agendado', publicado: 'Publicado' };
   const SOCIAL_POST_TYPE_LABEL = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
@@ -455,12 +454,6 @@
       alert(e.message);
     }
   }
-  $('#embedBack').onclick = () => {
-    $('#embedFrame').src = 'about:blank';
-    showView('home');
-    setActiveNav('navHome');
-  };
-
   // ---------- Orçamento ----------
   function fillMonthSelect(sel) {
     sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
@@ -686,11 +679,14 @@
 
   function labelById(id) { return labels.find((l) => l.id === id); }
 
-  // No quadro geral, uma coluna por membro da equipe + "Sem responsável".
-  // Na área pessoal, só aparecem colunas relevantes: eu (sempre primeiro) e
-  // quem mais eu tiver marcado em alguma demanda pessoal visível pra mim.
+  // No quadro geral, uma coluna por membro da equipe — a coluna "Sem
+  // responsável" foi removida a pedido da Raquel; toda demanda do quadro
+  // geral agora exige pelo menos um responsável marcado (ver validação em
+  // #demCardSave). Na área pessoal, só aparecem colunas relevantes: eu
+  // (sempre primeiro) e quem mais eu tiver marcado em alguma demanda
+  // pessoal visível pra mim.
   function kanbanColumns() {
-    if (demandasScope === 'geral') return teamMembers.concat([UNASSIGNED_COL]);
+    if (demandasScope === 'geral') return teamMembers;
     const me = { id: currentUser.id, name: (currentUser.name || currentUser.username) + ' (você)' };
     const others = new Set();
     demandas.forEach((d) => (d.assigneeIds || []).forEach((id) => { if (id !== currentUser.id) others.add(id); }));
@@ -915,6 +911,14 @@
     };
     if (!payload.title) {
       $('#demCardError').textContent = 'Dê um título para a demanda.';
+      $('#demCardError').hidden = false;
+      return;
+    }
+    // No quadro geral não existe mais coluna "Sem responsável" — exige pelo
+    // menos uma pessoa marcada pra a demanda não ficar sem lugar pra
+    // aparecer. Na área pessoal continua opcional (cai na própria coluna).
+    if (demandasScope === 'geral' && payload.assigneeIds.length === 0) {
+      $('#demCardError').textContent = 'Escolha pelo menos um responsável.';
       $('#demCardError').hidden = false;
       return;
     }
@@ -1273,6 +1277,7 @@
       tr.innerHTML = `
         <td>${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
         <td>${SOCIAL_POST_TYPE_LABEL[p.postType] || p.postType || ''}</td>
+        <td>${(p.subject || '').slice(0, 40)}${(p.subject || '').length > 40 ? '…' : ''}</td>
         <td>${fmtDate(p.scheduledDate)}</td>
         <td>${p.scheduledTime || ''}</td>
         <td>${(p.caption || '').slice(0, 60)}${(p.caption || '').length > 60 ? '…' : ''}</td>
@@ -1402,6 +1407,7 @@
     $('#socialPostFormDate').value = post ? post.scheduledDate : '';
     $('#socialPostFormTime').value = post ? (post.scheduledTime || '') : '';
     $('#socialPostFormCaption').value = post ? (post.caption || '') : '';
+    $('#socialPostFormSubject').value = post ? (post.subject || '') : '';
     $('#socialPostFormSuggestions').value = post ? (post.changeSuggestions || '') : '';
     if (post && post.changeSuggestions && post.changeSuggestionsBy) {
       $('#socialPostFormSuggestionsMeta').textContent = `Pedido por ${post.changeSuggestionsBy}${post.changeSuggestionsAt ? ' em ' + fmtDateTime(post.changeSuggestionsAt) : ''}`;
@@ -1452,6 +1458,7 @@
       scheduledDate: $('#socialPostFormDate').value,
       scheduledTime: $('#socialPostFormTime').value,
       caption: $('#socialPostFormCaption').value,
+      subject: $('#socialPostFormSubject').value,
       involvedUserIds: Array.from(socialInvolvedIds),
       changeSuggestions: $('#socialPostFormSuggestions').value,
       link: $('#socialPostFormLink').value,

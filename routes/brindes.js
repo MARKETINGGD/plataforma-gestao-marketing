@@ -9,6 +9,22 @@ const router = express.Router();
 // Brindes — catálogo/estoque (por marca) e registro de saídas por
 // representante. Catálogo inicial semeado a partir da planilha de controle
 // de brindes 2026; a partir daqui os dados vivem só no banco da Plataforma.
+//
+// Acesso: qualquer pessoa logada pode VER (catálogo e registro de saídas);
+// só quem tem permissão "brindes" = editor/admin (ou é admin da
+// plataforma) pode criar/editar/excluir — permissão configurada na tela
+// de Usuários.
+function canEdit(req) {
+  const user = db.get('users').find({ id: req.user.id }).value();
+  if (!user) return false;
+  if (user.isSuperAdmin) return true;
+  const access = (user.permissions || {}).brindes || 'none';
+  return access === 'editor' || access === 'admin';
+}
+function requireBrindesEdit(req, res, next) {
+  if (!canEdit(req)) return res.status(403).json({ error: 'Você não tem permissão para editar Brindes.' });
+  next();
+}
 
 function sumStock(pr, sp, pe) {
   return (Number(pr) || 0) + (Number(sp) || 0) + (Number(pe) || 0);
@@ -92,7 +108,7 @@ router.get('/catalog', requireAuth, (req, res) => {
   res.json({ items: rows });
 });
 
-router.post('/catalog', requireAuth, (req, res) => {
+router.post('/catalog', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand, group, code, item, multiplo, valor, estoquePR, estoqueSP, estoquePE, status, obs } = req.body || {};
   if (!brand || !item) return res.status(400).json({ error: 'Preencha marca e nome do item.' });
   const row = catalogItem(brand, group || '', code || '', item, multiplo, valor, estoquePR, estoqueSP, estoquePE, status, obs);
@@ -101,7 +117,7 @@ router.post('/catalog', requireAuth, (req, res) => {
   res.json({ item: row });
 });
 
-router.put('/catalog/:id', requireAuth, (req, res) => {
+router.put('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesCatalog').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Item não encontrado.' });
   const b = req.body || {};
@@ -122,7 +138,7 @@ router.put('/catalog/:id', requireAuth, (req, res) => {
   res.json({ item: db.get('brindesCatalog').find({ id: req.params.id }).value() });
 });
 
-router.delete('/catalog/:id', requireAuth, (req, res) => {
+router.delete('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesCatalog').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Item não encontrado.' });
   db.get('brindesCatalog').remove({ id: req.params.id }).write();
@@ -139,7 +155,7 @@ router.get('/log', requireAuth, (req, res) => {
   res.json({ items: rows });
 });
 
-router.post('/log', requireAuth, (req, res) => {
+router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand, date, gerente, representante, estado, cliente, quantidade, item, motivo, obs } = req.body || {};
   if (!brand || !item) return res.status(400).json({ error: 'Preencha marca e item.' });
   const row = {
@@ -162,7 +178,7 @@ router.post('/log', requireAuth, (req, res) => {
   res.json({ item: row });
 });
 
-router.put('/log/:id', requireAuth, (req, res) => {
+router.put('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesLog').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
   const b = req.body || {};
@@ -175,7 +191,7 @@ router.put('/log/:id', requireAuth, (req, res) => {
   res.json({ item: db.get('brindesLog').find({ id: req.params.id }).value() });
 });
 
-router.delete('/log/:id', requireAuth, (req, res) => {
+router.delete('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesLog').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
   db.get('brindesLog').remove({ id: req.params.id }).write();

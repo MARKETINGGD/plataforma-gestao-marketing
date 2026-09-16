@@ -1061,6 +1061,95 @@
     }
   };
 
+  // ---------- Gerenciar equipe (a partir de Demandas) ----------
+  // Qualquer pessoa logada pode adicionar ou remover um colega da equipe
+  // direto do quadro de Demandas, sem precisar ser administrador da
+  // plataforma (a tela Usuários, com permissões e admin, continua só pra
+  // super admin). Remover apaga o login dessa pessoa.
+  function renderTeamManageList() {
+    const wrap = $('#teamManageList');
+    wrap.innerHTML = '';
+    if (teamMembers.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Nenhuma pessoa cadastrada ainda.</span>';
+      return;
+    }
+    teamMembers.forEach((u) => {
+      const row = document.createElement('div');
+      row.className = 'label-manage-row';
+      const cargoTag = u.cargo ? ` — ${CARGO_LABEL[u.cargo] || u.cargo}` : '';
+      const nameSpan = document.createElement('span');
+      nameSpan.style.flex = '1';
+      nameSpan.style.fontSize = '13px';
+      nameSpan.textContent = u.name + cargoTag;
+      row.appendChild(nameSpan);
+      if (u.id !== currentUser.id) {
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Remover';
+        delBtn.className = 'btn-link';
+        delBtn.onclick = async () => {
+          if (!confirm('Remover "' + u.name + '" da equipe? Isso apaga o login dessa pessoa.')) return;
+          try {
+            await api('/api/auth/team/' + u.id, { method: 'DELETE' });
+            await refreshTeam();
+            renderTeamManageList();
+          } catch (e) { alert(e.message); }
+        };
+        row.appendChild(delBtn);
+      }
+      wrap.appendChild(row);
+    });
+  }
+
+  async function refreshTeam() {
+    const team = await api('/api/auth/team');
+    teamMembers = team.users;
+    renderKanban();
+  }
+
+  function openTeamModal() {
+    $('#teamNewName').value = '';
+    $('#teamNewUsername').value = '';
+    $('#teamNewPassword').value = '';
+    $('#teamNewCargo').value = '';
+    $('#teamModalError').hidden = true;
+    renderTeamManageList();
+    $('#teamModal').hidden = false;
+  }
+  $('#demandasManageTeamBtn').onclick = openTeamModal;
+  $('#teamModalClose').onclick = () => { $('#teamModal').hidden = true; };
+
+  $('#teamNewAdd').onclick = async () => {
+    const payload = {
+      name: $('#teamNewName').value.trim(),
+      username: $('#teamNewUsername').value.trim(),
+      password: $('#teamNewPassword').value,
+      cargo: $('#teamNewCargo').value
+    };
+    $('#teamModalError').hidden = true;
+    if (!payload.name || !payload.username) {
+      $('#teamModalError').textContent = 'Informe nome e usuário.';
+      $('#teamModalError').hidden = false;
+      return;
+    }
+    if (!payload.password || payload.password.length < 6) {
+      $('#teamModalError').textContent = 'Informe uma senha com pelo menos 6 caracteres.';
+      $('#teamModalError').hidden = false;
+      return;
+    }
+    try {
+      await api('/api/auth/team', { method: 'POST', body: JSON.stringify(payload) });
+      $('#teamNewName').value = '';
+      $('#teamNewUsername').value = '';
+      $('#teamNewPassword').value = '';
+      $('#teamNewCargo').value = '';
+      await refreshTeam();
+      renderTeamManageList();
+    } catch (e) {
+      $('#teamModalError').textContent = e.message;
+      $('#teamModalError').hidden = false;
+    }
+  };
+
   // ---------- Agendamento para Redes Sociais ----------
   async function ensureSocialMeta() {
     if (socialPlatforms.length > 0) return;
@@ -1557,6 +1646,95 @@
     }
   }
 
+  // Só gerente, coordenador(a) ou admin da plataforma podem marcar
+  // aprovado/reprovado na Prévia do Feed — todo mundo enxerga o status.
+  function canApprovePost() {
+    return !!currentUser && (currentUser.isSuperAdmin || currentUser.cargo === 'gerente' || currentUser.cargo === 'coordenador');
+  }
+
+  async function setPostApproval(postId, approvalStatus, approvalNotes) {
+    try {
+      await api(`/api/social-posts/${postId}/approval`, { method: 'PUT', body: JSON.stringify({ approvalStatus, approvalNotes: approvalNotes || '' }) });
+      const fresh = await api('/api/social-posts');
+      socialPosts = fresh.posts;
+      renderCronogramaFeed();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // Quadradinho de aprovação — verde quando aprovado, vermelho quando
+  // reprovado (e nesse caso abre um campo pra escrever as alterações
+  // necessárias). Só quem pode aprovar consegue clicar; os demais só veem
+  // o status.
+  function renderApprovalWidget(p) {
+    const editable = canApprovePost();
+    const wrap = document.createElement('div');
+    wrap.className = 'approval-widget';
+    wrap.onclick = (ev) => ev.stopPropagation();
+
+    const squares = document.createElement('div');
+    squares.className = 'approval-squares';
+
+    const sqOk = document.createElement('button');
+    sqOk.type = 'button';
+    sqOk.className = 'approval-square approval-ok' + (p.approvalStatus === 'aprovado' ? ' active' : '');
+    sqOk.title = 'Aprovado';
+    sqOk.textContent = '✓';
+    sqOk.disabled = !editable;
+
+    const sqNo = document.createElement('button');
+    sqNo.type = 'button';
+    sqNo.className = 'approval-square approval-no' + (p.approvalStatus === 'reprovado' ? ' active' : '');
+    sqNo.title = 'Reprovado';
+    sqNo.textContent = '✕';
+    sqNo.disabled = !editable;
+
+    squares.appendChild(sqOk);
+    squares.appendChild(sqNo);
+    wrap.appendChild(squares);
+
+    const notesWrap = document.createElement('div');
+    notesWrap.className = 'approval-notes';
+    notesWrap.hidden = p.approvalStatus !== 'reprovado';
+    if (editable) {
+      const ta = document.createElement('textarea');
+      ta.rows = 2;
+      ta.placeholder = 'Alterações necessárias...';
+      ta.value = p.approvalNotes || '';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn-link';
+      saveBtn.textContent = 'Salvar alterações';
+      saveBtn.onclick = () => setPostApproval(p.id, 'reprovado', ta.value);
+      notesWrap.appendChild(ta);
+      notesWrap.appendChild(saveBtn);
+    } else if (p.approvalNotes) {
+      const readonly = document.createElement('div');
+      readonly.className = 'approval-notes-readonly';
+      readonly.textContent = p.approvalNotes;
+      notesWrap.appendChild(readonly);
+    }
+    wrap.appendChild(notesWrap);
+
+    sqOk.onclick = () => {
+      if (!editable) return;
+      const next = p.approvalStatus === 'aprovado' ? 'pendente' : 'aprovado';
+      setPostApproval(p.id, next, '');
+    };
+    sqNo.onclick = () => {
+      if (!editable) return;
+      if (p.approvalStatus === 'reprovado') {
+        setPostApproval(p.id, 'pendente', '');
+      } else {
+        notesWrap.hidden = false;
+        setPostApproval(p.id, 'reprovado', p.approvalNotes || '');
+      }
+    };
+
+    return wrap;
+  }
+
   function renderCronogramaFeed() {
     const list = $('#cronogramaFeedList');
     list.innerHTML = '';
@@ -1594,12 +1772,24 @@
         ? header + captionHtml + `<div class="feed-preview-media">${mediaHtml}</div>`
         : header + `<div class="feed-preview-media">${mediaHtml}</div><div class="feed-preview-actions">♡ ⤳ ✉</div>` + captionHtml;
 
+      card.appendChild(renderApprovalWidget(p));
+
       card.onclick = () => openPostFromCronograma(p.id);
       list.appendChild(card);
     });
   }
 
   // ---------- Brindes ----------
+  // Todo mundo pode ver o catálogo/registro de saídas — só quem tem
+  // permissão "brindes" = editor/admin (ou é admin da plataforma) enxerga
+  // os botões de criar/editar/excluir.
+  function canEditBrindes() {
+    if (!currentUser) return false;
+    if (currentUser.isSuperAdmin) return true;
+    const access = (currentUser.permissions || {}).brindes || 'none';
+    return access === 'editor' || access === 'admin';
+  }
+
   $all('.tab-btn[data-brindes-tab]').forEach((b) => {
     b.onclick = () => {
       brindesTab = b.dataset.brindesTab;
@@ -1618,6 +1808,8 @@
     ]);
     brindesCatalog = catDebacco.items.concat(catGhel.items);
     brindesLog = log.items;
+    $('#brindesCatalogNewBtn').hidden = !canEditBrindes();
+    $('#brindesLogNewBtn').hidden = !canEditBrindes();
     renderBrindes();
   }
 
@@ -1633,6 +1825,7 @@
     const body = $('#brindesCatalogBody');
     body.innerHTML = '';
     const rows = brindesCatalog.filter((r) => r.brand === brand);
+    const editable = canEditBrindes();
     rows.forEach((r) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -1647,20 +1840,22 @@
         <td>${r.status || ''}</td>
         <td></td>
       `;
-      const actionsTd = tr.querySelector('td:last-child');
-      const editBtn = document.createElement('button');
-      editBtn.textContent = 'Editar';
-      editBtn.onclick = () => openBrindeForm(r, brand);
-      const delBtn = document.createElement('button');
-      delBtn.textContent = 'Excluir';
-      delBtn.className = 'danger';
-      delBtn.onclick = async () => {
-        if (!confirm('Excluir este item do catálogo?')) return;
-        await api('/api/brindes/catalog/' + r.id, { method: 'DELETE' });
-        await loadBrindes();
-      };
-      actionsTd.appendChild(editBtn);
-      actionsTd.appendChild(delBtn);
+      if (editable) {
+        const actionsTd = tr.querySelector('td:last-child');
+        const editBtn = document.createElement('button');
+        editBtn.textContent = 'Editar';
+        editBtn.onclick = () => openBrindeForm(r, brand);
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Excluir';
+        delBtn.className = 'danger';
+        delBtn.onclick = async () => {
+          if (!confirm('Excluir este item do catálogo?')) return;
+          await api('/api/brindes/catalog/' + r.id, { method: 'DELETE' });
+          await loadBrindes();
+        };
+        actionsTd.appendChild(editBtn);
+        actionsTd.appendChild(delBtn);
+      }
       body.appendChild(tr);
     });
   }
@@ -1668,6 +1863,7 @@
   function renderBrindesLog() {
     const body = $('#brindesLogBody');
     body.innerHTML = '';
+    const editable = canEditBrindes();
     brindesLog.forEach((r) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -1680,16 +1876,18 @@
         <td>${r.motivo || ''}</td>
         <td></td>
       `;
-      const actionsTd = tr.querySelector('td:last-child');
-      const delBtn = document.createElement('button');
-      delBtn.textContent = 'Excluir';
-      delBtn.className = 'danger';
-      delBtn.onclick = async () => {
-        if (!confirm('Excluir este registro?')) return;
-        await api('/api/brindes/log/' + r.id, { method: 'DELETE' });
-        await loadBrindes();
-      };
-      actionsTd.appendChild(delBtn);
+      if (editable) {
+        const actionsTd = tr.querySelector('td:last-child');
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Excluir';
+        delBtn.className = 'danger';
+        delBtn.onclick = async () => {
+          if (!confirm('Excluir este registro?')) return;
+          await api('/api/brindes/log/' + r.id, { method: 'DELETE' });
+          await loadBrindes();
+        };
+        actionsTd.appendChild(delBtn);
+      }
       body.appendChild(tr);
     });
   }
@@ -1768,7 +1966,10 @@
   }
 
   function labelForKey(key) {
-    return { trafegoPago: 'Tráfego Pago', acoesSazonais: 'Ações Sazonais', redesSociais: 'Redes Sociais', budget: 'Orçamento' }[key] || key;
+    return {
+      trafegoPago: 'Tráfego Pago', acoesSazonais: 'Ações Sazonais', redesSociais: 'Redes Sociais', budget: 'Orçamento',
+      brindes: 'Brindes (editar)', produtos: 'Produtos (editar)', expositores: 'Expositores (editar)'
+    }[key] || key;
   }
 
   function openUserForm(user) {

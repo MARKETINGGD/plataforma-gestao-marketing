@@ -259,3 +259,16 @@ body{
 .feed-preview-noimg{color:var(--muted);font-size:12px;padding:20px;text-align:center;}
 .feed-preview-actions{display:flex;gap:14px;padding:8px 12px;color:var(--muted);font-size:17px;}
 .feed-preview-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px 10px;}
+
+/* ---------- aprovação na Prévia do Feed (quadradinho aprovado/reprovado) ---------- */
+.approval-widget{padding:0 12px 12px;display:flex;flex-direction:column;gap:6px;cursor:default;}
+.approval-squares{display:flex;gap:6px;}
+.approval-square{
+  width:22px;height:22px;border-radius:5px;border:1px solid var(--border);background:var(--bg);
+  cursor:pointer;font-size:12px;line-height:1;color:var(--muted);
+}
+.approval-square:disabled{cursor:default;}
+.approval-square.approval-ok.active{background:#16a34a;border-color:#16a34a;color:#fff;}
+.approval-square.approval-no.active{background:var(--danger);border-color:var(--danger);color:#fff;}
+.approval-notes textarea{width:100%;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:6px;font-family:inherit;margin-bottom:4px;}
+.approval-notes-readonly{font-size:12px;color:var(--danger);background:#fdecea;border:1px solid #f3c6c0;border-radius:6px;padding:6px 8px;}

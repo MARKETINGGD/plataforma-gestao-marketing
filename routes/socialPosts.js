@@ -33,6 +33,18 @@ const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
 // pra manter Agendamento e Cronograma organizados por marca.
 const BRANDS = ['debacco', 'ghelplus'];
 
+// Aprovação — usada na Prévia do Feed do Cronograma de Marketing. Todo
+// mundo vê o status; só gerente, coordenador(a) ou admin da plataforma
+// podem marcar (ver canApprove abaixo).
+const APPROVAL_STATUSES = ['pendente', 'aprovado', 'reprovado'];
+
+// Labels em PT usados só aqui no backend, pra montar o título/descrição do
+// card de Demanda criado automaticamente quando alguém é marcado como
+// pessoa envolvida num agendamento (ver createDemandCardsForNewInvolved).
+const PLATFORM_LABEL_PT = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
+const POST_TYPE_LABEL_PT = { feed: 'Feed', story: 'Story', reels: 'Reels', carrossel: 'Carrossel', video: 'Vídeo', live: 'Live', g_news: 'G-NEWS', contatto: 'Contatto' };
+const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus' };
+
 function serialize(p) {
   return Object.assign({}, p, {
     files: p.files || [],
@@ -45,7 +57,56 @@ function serialize(p) {
     changeSuggestions: p.changeSuggestions || '',
     link: p.link || '',
     postType: p.postType || 'feed',
-    brand: p.brand || 'debacco'
+    brand: p.brand || 'debacco',
+    approvalStatus: p.approvalStatus || 'pendente',
+    approvalNotes: p.approvalNotes || '',
+    approvedByName: p.approvedByName || '',
+    approvedAt: p.approvedAt || null
+  });
+}
+
+// Só gerente, coordenador(a) ou admin da plataforma podem aprovar/reprovar
+// na Prévia do Feed (pedido explícito da Raquel — "todos podem ver" o
+// status, mas só esses 3 marcam).
+function canApprove(req) {
+  if (req.user.role === 'super_admin') return true;
+  const user = db.get('users').find({ id: req.user.id }).value();
+  return !!user && (user.cargo === 'gerente' || user.cargo === 'coordenador');
+}
+
+// Cria automaticamente, no quadro geral de Demandas, um card pra cada
+// pessoa recém adicionada como envolvida num agendamento — assim ela já
+// vê na própria lista que foi chamada pra aquele material, com a data.
+// Só entra gente NOVA (comparado com a lista anterior), pra não spammar
+// card repetido a cada edição do agendamento.
+function createDemandCardsForNewInvolved(post, newIds, req) {
+  if (!newIds || newIds.length === 0) return;
+  const platformLabel = PLATFORM_LABEL_PT[post.platform] || post.platform;
+  const typeLabel = POST_TYPE_LABEL_PT[post.postType] || '';
+  const brandLabel = BRAND_LABEL_PT[post.brand] || post.brand;
+  const title = `Agendamento ${brandLabel} · ${platformLabel}${typeLabel ? ' (' + typeLabel + ')' : ''} · ${post.scheduledDate || 'sem data'}`;
+  const description = 'Você foi marcado(a) como pessoa envolvida num agendamento de redes sociais.'
+    + (post.caption ? ` Legenda: "${post.caption.slice(0, 200)}"` : '');
+  newIds.forEach((userId) => {
+    const demanda = {
+      id: nanoid(),
+      title,
+      description,
+      status: 'a_fazer',
+      visibility: 'geral',
+      archived: false,
+      dueDate: post.scheduledDate || null,
+      assigneeIds: [userId],
+      labelIds: [],
+      checklist: [],
+      files: [],
+      sourceSocialPostId: post.id,
+      createdAt: new Date().toISOString(),
+      createdBy: req.user.id,
+      createdByName: req.user.username,
+      updatedAt: new Date().toISOString()
+    };
+    db.get('demandas').push(demanda).write();
   });
 }
 
@@ -100,7 +161,8 @@ router.get('/meta', requireAuth, (req, res) => {
     postTypes: POST_TYPES,
     brands: BRANDS,
     videoPostTypes: VIDEO_POST_TYPES,
-    videoPlatforms: VIDEO_PLATFORMS
+    videoPlatforms: VIDEO_PLATFORMS,
+    approvalStatuses: APPROVAL_STATUSES
   });
 });
 
@@ -145,6 +207,7 @@ router.post('/', requireAuth, (req, res) => {
     updatedAt: new Date().toISOString()
   };
   db.get('socialPosts').push(post).write();
+  createDemandCardsForNewInvolved(post, post.involvedUserIds, req);
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${brand} · ${platform} ${scheduledDate}`, action: 'create' });
   res.json({ post: serialize(post) });
 });
@@ -152,6 +215,7 @@ router.post('/', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
+  const previousInvolvedIds = post.involvedUserIds || [];
   const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, briefingLink, scriptLink } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
@@ -167,7 +231,35 @@ router.put('/:id', requireAuth, (req, res) => {
   if (briefingLink !== undefined) updates.briefingLink = briefingLink;
   if (scriptLink !== undefined) updates.scriptLink = scriptLink;
   db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
+  const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
+  if (updates.involvedUserIds !== undefined) {
+    const newIds = updates.involvedUserIds.filter((id) => !previousInvolvedIds.includes(id));
+    createDemandCardsForNewInvolved(fresh, newIds, req);
+  }
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update' });
+  res.json({ post: serialize(fresh) });
+});
+
+// ---------- aprovação (Prévia do Feed) ----------
+router.put('/:id/approval', requireAuth, (req, res) => {
+  const post = findOr404(req, res);
+  if (!post) return;
+  if (!canApprove(req)) {
+    return res.status(403).json({ error: 'Só gerente, coordenador(a) ou administrador da plataforma podem aprovar/reprovar.' });
+  }
+  const { approvalStatus, approvalNotes } = req.body || {};
+  if (!APPROVAL_STATUSES.includes(approvalStatus)) {
+    return res.status(400).json({ error: 'Status de aprovação inválido.' });
+  }
+  const updates = {
+    approvalStatus,
+    approvalNotes: approvalStatus === 'reprovado' ? (approvalNotes || '') : '',
+    approvedByName: approvalStatus === 'pendente' ? '' : req.user.username,
+    approvedAt: approvalStatus === 'pendente' ? null : new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update', details: `Aprovação: ${approvalStatus}` });
   res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });
 });
 

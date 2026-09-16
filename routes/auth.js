@@ -8,8 +8,14 @@ const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
-const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none' };
-const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin' };
+// Brindes/Produtos/Expositores: view fica aberta a todo mundo (não são
+// gates de visualização como o Orçamento) — essas 3 chaves controlam só
+// quem pode EDITAR em cada uma. Produtos e Expositores ainda são só
+// placeholders na tela, mas o campo já fica pronto no cadastro de usuário
+// pra quando ganharem conteúdo de verdade.
+const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', produtos: 'none', expositores: 'none' };
+const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', produtos: 'admin', expositores: 'admin' };
+const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'produtos', 'expositores'];
 
 // Cargo (função) da pessoa na equipe — usado pro Cronograma de Marketing:
 // a aba Calendário fica restrita a todo mundo, exceto quem tem cargo
@@ -40,7 +46,7 @@ function publicUser(u) {
 function sanitizePermissions(input) {
   const allowed = ['none', 'editor', 'admin'];
   const out = { ...EMPTY_PERMISSIONS };
-  ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget'].forEach((key) => {
+  PERMISSION_KEYS.forEach((key) => {
     if (input && allowed.includes(input[key])) out[key] = input[key];
   });
   return out;
@@ -115,6 +121,45 @@ router.put('/me/password', requireAuth, (req, res) => {
 router.get('/team', requireAuth, (req, res) => {
   const users = db.get('users').value().map((u) => ({ id: u.id, username: u.username, name: u.name || u.username, cargo: u.cargo || '' }));
   res.json({ users, cargos: CARGOS });
+});
+
+// Gerenciamento leve de equipe, direto da tela de Acompanhamento de
+// Demandas — qualquer pessoa logada pode adicionar ou remover um colega,
+// pra manter as colunas do quadro em dia sem precisar ser administrador
+// da plataforma. Continua criando um usuário de verdade (com login), só
+// que sempre sem permissões especiais e sem admin — isso continua só na
+// tela Usuários, restrita a super admin.
+router.post('/team', requireAuth, (req, res) => {
+  const { username, password, name, cargo } = req.body || {};
+  if (!username || !password || password.length < 6) {
+    return res.status(400).json({ error: 'Informe um usuário e uma senha com pelo menos 6 caracteres.' });
+  }
+  if (db.get('users').find({ username: username.trim() }).value()) {
+    return res.status(400).json({ error: 'Já existe um usuário com esse nome.' });
+  }
+  const user = {
+    id: nanoid(),
+    username: username.trim(),
+    passwordHash: bcrypt.hashSync(password, 10),
+    name: (name || username).trim(),
+    isSuperAdmin: false,
+    permissions: { ...EMPTY_PERMISSIONS },
+    cargo: CARGOS.includes(cargo) ? cargo : '',
+    createdAt: new Date().toISOString()
+  };
+  db.get('users').push(user).write();
+  logAudit({ user: req.user, entityType: 'user', entityId: user.id, entityLabel: user.username, action: 'create', details: 'Adicionado(a) pela tela de Acompanhamento de Demandas' });
+  res.json({ user: publicUser(user) });
+});
+
+router.delete('/team/:id', requireAuth, (req, res) => {
+  const target = db.get('users').find({ id: req.params.id }).value();
+  if (!target) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'Você não pode remover a si mesmo(a).' });
+  if (target.isSuperAdmin) return res.status(400).json({ error: 'Não é possível remover um administrador da plataforma por aqui — peça pra outro admin fazer isso na tela de Usuários.' });
+  db.get('users').remove({ id: req.params.id }).write();
+  logAudit({ user: req.user, entityType: 'user', entityId: target.id, entityLabel: target.username, action: 'delete', details: 'Removido(a) pela tela de Acompanhamento de Demandas' });
+  res.json({ ok: true });
 });
 
 // Gestão de usuários da plataforma — só super admin

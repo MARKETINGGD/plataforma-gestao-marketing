@@ -136,6 +136,7 @@
         <div class="view-toolbar">
           <h2>Acompanhamento de Demandas</h2>
           <div class="view-toolbar-actions">
+            <button class="btn-secondary" id="demandasManageLabelsBtn">🏷 Etiquetas</button>
             <button class="btn-secondary" id="demandasToggleArchived">Ver arquivadas</button>
             <button class="btn-primary" id="demandasNewBtn">+ Nova demanda</button>
           </div>
@@ -144,7 +145,7 @@
         <div id="archivedWrap" hidden>
           <h3>Demandas arquivadas</h3>
           <table class="data-table">
-            <thead><tr><th>Título</th><th>Responsável</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Título</th><th>Responsáveis</th><th>Status</th><th></th></tr></thead>
             <tbody id="archivedTableBody"></tbody>
           </table>
         </div>
@@ -358,7 +359,7 @@
     </div>
 
     <div class="modal-body">
-      <div class="modal-row">
+      <div class="modal-row modal-row-2">
         <div>
           <label>Status</label>
           <select id="demCardStatus">
@@ -372,16 +373,19 @@
           <label>Data de entrega</label>
           <input id="demCardDueDate" type="date">
         </div>
-        <div>
-          <label>Responsável</label>
-          <select id="demCardAssignee"><option value="">Sem responsável</option></select>
-        </div>
       </div>
+
+      <label>Responsáveis <span class="muted" style="font-weight:400;">(o card aparece na lista de cada pessoa marcada)</span></label>
+      <div id="demAssigneeList" class="chip-picker"></div>
+
+      <label>Etiquetas <button type="button" id="demLabelManageBtn" class="btn-link" style="font-size:12px;">gerenciar etiquetas</button></label>
+      <div id="demLabelList" class="chip-picker"></div>
 
       <label>Descrição / observações</label>
       <textarea id="demCardDescription" rows="3"></textarea>
 
       <label>Checklist</label>
+      <div id="demChecklistProgress" class="checklist-progress" hidden><div id="demChecklistProgressBar" class="checklist-progress-bar"></div></div>
       <div id="demChecklist" class="checklist"></div>
       <div class="checklist-add">
         <input id="demChecklistInput" type="text" placeholder="Novo item do checklist">
@@ -399,6 +403,26 @@
       <button id="demCardSave" class="btn-primary">Salvar</button>
       <button id="demCardArchive" class="btn-secondary">Arquivar</button>
       <button id="demCardDelete" class="btn-secondary danger">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<div id="labelModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Gerenciar etiquetas</div>
+      <button id="labelModalClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="labelManageList" class="label-manage-list"></div>
+
+      <label>Nova etiqueta</label>
+      <div class="label-new-row">
+        <input id="labelNewName" type="text" placeholder="Nome da etiqueta (ex: Urgente)">
+        <button id="labelNewAdd" class="btn-secondary">+ Criar</button>
+      </div>
+      <div id="labelNewColors" class="color-swatches"></div>
+      <div id="labelModalError" class="error" hidden></div>
     </div>
   </div>
 </div>

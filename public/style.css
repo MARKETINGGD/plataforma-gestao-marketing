@@ -132,23 +132,50 @@ body{
 .tab-btn.active{color:var(--primary-dark);border-bottom-color:var(--primary);font-weight:600;}
 .row-over{background:#fdf1ef;}
 
-/* ---------- Kanban (Demandas) ---------- */
-.kanban{display:grid;grid-template-columns:repeat(4,minmax(230px,1fr));gap:14px;margin-top:16px;overflow-x:auto;}
-.kanban-col{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px;min-height:120px;}
-.kanban-col-header{font-size:13px;font-weight:700;color:var(--muted);padding:4px 6px 10px;display:flex;justify-content:space-between;}
-.kanban-count{background:var(--card);border-radius:999px;padding:0 8px;font-weight:600;}
+/* ---------- Kanban (Demandas) — uma lista por pessoa da equipe ---------- */
+.kanban{display:flex;gap:14px;margin-top:16px;overflow-x:auto;padding-bottom:8px;align-items:flex-start;}
+.kanban-col{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px;min-height:120px;width:250px;flex:0 0 250px;}
+.kanban-col-header{font-size:13px;font-weight:700;color:var(--muted);padding:4px 6px 10px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
+.kanban-col-header-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.kanban-count{background:var(--card);border-radius:999px;padding:0 8px;font-weight:600;flex:0 0 auto;}
 .kanban-list{display:flex;flex-direction:column;gap:8px;}
-.kanban-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;}
+.kanban-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer;}
+.kanban-card:hover{box-shadow:0 1px 4px rgba(0,0,0,.12);}
 .kanban-card.overdue{border-color:var(--danger);}
-.kanban-card-title{font-size:13.5px;font-weight:600;cursor:pointer;margin-bottom:6px;}
-.kanban-card-title:hover{color:var(--primary-dark);}
-.kanban-card-meta{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;}
+.kanban-card-labels{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;}
+.kanban-label-chip{height:8px;width:34px;border-radius:4px;}
+.kanban-card-title{font-size:13.5px;font-weight:600;margin-bottom:6px;}
+.kanban-card:hover .kanban-card-title{color:var(--primary-dark);}
+.kanban-card-meta{display:flex;flex-wrap:wrap;gap:4px;}
 .badge{background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted);}
 .badge-danger{background:#fdecea;border-color:#f3c6c0;color:var(--danger);}
-.kanban-card-move{display:flex;justify-content:flex-end;gap:4px;}
-.btn-move{background:none;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;padding:2px 8px;color:var(--muted);}
-.btn-move:disabled{opacity:.3;cursor:default;}
-@media (max-width:900px){ .kanban{grid-template-columns:1fr;} }
+.kanban-empty{color:var(--muted);font-size:12px;padding:6px;}
+@media (max-width:900px){ .kanban-col{width:220px;flex-basis:220px;} }
+
+/* ---------- seletor de chips (responsáveis / etiquetas no card) ---------- */
+.chip-picker{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px;}
+.chip-toggle{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;border:1px solid var(--border);background:var(--bg);font-size:12.5px;cursor:pointer;color:var(--text);user-select:none;}
+.chip-toggle input{margin:0;width:auto;}
+.chip-toggle.active{background:var(--primary);border-color:var(--primary);color:#fff;}
+.chip-toggle.label-chip{border:none;color:#fff;font-weight:600;opacity:.55;}
+.chip-toggle.label-chip.active{opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,.15) inset;}
+.chip-empty{font-size:12px;color:var(--muted);}
+
+/* ---------- checklist com barra de progresso ---------- */
+.checklist-progress{height:6px;background:var(--border);border-radius:4px;overflow:hidden;margin:2px 0 8px;}
+.checklist-progress-bar{height:100%;background:var(--primary);border-radius:4px;}
+
+/* ---------- gerenciar etiquetas ---------- */
+.modal-small{max-width:420px;}
+.label-manage-list{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
+.label-manage-row{display:flex;align-items:center;gap:8px;}
+.label-color-dot{width:20px;height:20px;border-radius:6px;flex:0 0 auto;border:1px solid rgba(0,0,0,.1);}
+.label-manage-row input[type="text"]{flex:1;padding:6px 8px;font-size:13px;}
+.label-new-row{display:flex;gap:8px;margin-top:4px;}
+.label-new-row input{flex:1;}
+.color-swatches{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+.color-swatch{width:24px;height:24px;border-radius:6px;cursor:pointer;border:2px solid transparent;}
+.color-swatch.selected{border-color:var(--text);}
 
 /* ---------- modal (card de Demanda) ---------- */
 .modal-overlay{position:fixed;inset:0;background:rgba(20,25,22,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
@@ -160,6 +187,7 @@ body{
 .modal-body label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;}
 .modal-body input,.modal-body select,.modal-body textarea{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;}
 .modal-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.modal-row-2{grid-template-columns:1fr 1fr;}
 .modal-footer{display:flex;gap:8px;padding:14px 20px;border-top:1px solid var(--border);}
 .modal-footer .btn-primary{margin-top:0;width:auto;flex:1;}
 .modal-footer .btn-secondary{margin-top:0;}

@@ -15,6 +15,11 @@
   let demandasArchived = [];
   let showingArchived = false;
   let editingDemandaId = null;
+  let labels = [];
+  let labelSuggestedColors = [];
+  let selectedAssigneeIds = new Set();
+  let selectedLabelIds = new Set();
+  let editingLabelColor = null;
 
   let brindesTab = 'debacco'; // 'debacco' | 'ghelplus' | 'log'
   let brindesCatalog = [];
@@ -32,6 +37,7 @@
     { key: 'aprovacao', label: 'Em Aprovação' },
     { key: 'concluida', label: 'Concluída' }
   ];
+  const UNASSIGNED_COL = { id: '', name: 'Sem responsável' };
   const fmtMoney = (n) => n === null || n === undefined || n === ''
     ? '—'
     : 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -407,61 +413,64 @@
   }
 
   // ---------- Acompanhamento de Demandas ----------
+  function assigneeName(id) {
+    const u = teamMembers.find((m) => m.id === id);
+    return u ? u.name : '(usuário removido)';
+  }
+  function statusLabel(key) {
+    return (STATUS_COLUMNS.find((c) => c.key === key) || {}).label || key;
+  }
+
   async function loadDemandas() {
-    fillAssigneeSelect();
-    const [ativas, arquivadas] = await Promise.all([
+    const [ativas, arquivadas, labelsData] = await Promise.all([
       api('/api/demandas?archived=false'),
-      api('/api/demandas?archived=true')
+      api('/api/demandas?archived=true'),
+      api('/api/labels')
     ]);
     demandas = ativas.demandas;
     demandasArchived = arquivadas.demandas;
+    labels = labelsData.labels;
+    labelSuggestedColors = labelsData.suggestedColors || [];
     renderKanban();
     renderArchived();
   }
 
-  function fillAssigneeSelect() {
-    const sel = $('#demCardAssignee');
-    sel.innerHTML = '<option value="">Sem responsável</option>' +
-      teamMembers.map((u) => `<option value="${u.id}">${u.name}</option>`).join('');
-  }
+  function labelById(id) { return labels.find((l) => l.id === id); }
 
   function renderKanban() {
     const board = $('#kanbanBoard');
     board.innerHTML = '';
-    STATUS_COLUMNS.forEach((col, colIdx) => {
+    const columns = teamMembers.concat([UNASSIGNED_COL]);
+    columns.forEach((member) => {
       const colEl = document.createElement('div');
       colEl.className = 'kanban-col';
-      const items = demandas.filter((d) => d.status === col.key);
-      colEl.innerHTML = `<div class="kanban-col-header">${col.label} <span class="kanban-count">${items.length}</span></div>`;
+      const items = member.id
+        ? demandas.filter((d) => (d.assigneeIds || []).includes(member.id))
+        : demandas.filter((d) => (d.assigneeIds || []).length === 0);
+      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-header-name">${member.name}</span><span class="kanban-count">${items.length}</span></div>`;
       const list = document.createElement('div');
       list.className = 'kanban-list';
+      if (items.length === 0) {
+        list.innerHTML = '<div class="kanban-empty">Sem demandas</div>';
+      }
       items.forEach((d) => {
         const card = document.createElement('div');
         card.className = 'kanban-card' + (d.overdue ? ' overdue' : '');
         const doneCount = (d.checklist || []).filter((c) => c.done).length;
         const total = (d.checklist || []).length;
+        const cardLabels = (d.labelIds || []).map(labelById).filter(Boolean);
         card.innerHTML = `
+          ${cardLabels.length > 0 ? `<div class="kanban-card-labels">${cardLabels.map((l) => `<span class="kanban-label-chip" title="${l.name}" style="background:${l.color}"></span>`).join('')}</div>` : ''}
           <div class="kanban-card-title">${d.title}</div>
           <div class="kanban-card-meta">
+            <span class="badge">${statusLabel(d.status)}</span>
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
-            ${d.assigneeName ? `<span class="badge">${d.assigneeName}</span>` : ''}
-            ${total > 0 ? `<span class="badge">${doneCount}/${total}</span>` : ''}
-          </div>
-          <div class="kanban-card-move">
-            <button class="btn-move" data-dir="-1" ${colIdx === 0 ? 'disabled' : ''}>◀</button>
-            <button class="btn-move" data-dir="1" ${colIdx === STATUS_COLUMNS.length - 1 ? 'disabled' : ''}>▶</button>
+            ${(d.assigneeIds || []).length > 1 ? `<span class="badge">${d.assigneeIds.length} pessoas</span>` : ''}
+            ${total > 0 ? `<span class="badge">✓ ${doneCount}/${total}</span>` : ''}
+            ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
           </div>
         `;
-        card.querySelector('.kanban-card-title').onclick = () => openDemandaModal(d);
-        $all('.btn-move', card).forEach((btn) => {
-          btn.onclick = async (ev) => {
-            ev.stopPropagation();
-            const newIdx = colIdx + Number(btn.dataset.dir);
-            if (newIdx < 0 || newIdx >= STATUS_COLUMNS.length) return;
-            await api('/api/demandas/' + d.id, { method: 'PUT', body: JSON.stringify({ status: STATUS_COLUMNS[newIdx].key }) });
-            await loadDemandas();
-          };
-        });
+        card.onclick = () => openDemandaModal(d);
         list.appendChild(card);
       });
       colEl.appendChild(list);
@@ -474,8 +483,8 @@
     body.innerHTML = '';
     demandasArchived.forEach((d) => {
       const tr = document.createElement('tr');
-      const statusLabel = (STATUS_COLUMNS.find((c) => c.key === d.status) || {}).label || d.status;
-      tr.innerHTML = `<td>${d.title}</td><td>${d.assigneeName || ''}</td><td>${statusLabel}</td><td></td>`;
+      const names = (d.assigneeIds || []).map(assigneeName).join(', ');
+      tr.innerHTML = `<td>${d.title}</td><td>${names}</td><td>${statusLabel(d.status)}</td><td></td>`;
       const actionsTd = tr.querySelector('td:last-child');
       const restoreBtn = document.createElement('button');
       restoreBtn.textContent = 'Desarquivar';
@@ -505,6 +514,12 @@
   function renderChecklist(demanda) {
     const wrap = $('#demChecklist');
     wrap.innerHTML = '';
+    const list = demanda.checklist || [];
+    const done = list.filter((c) => c.done).length;
+    $('#demChecklistProgress').hidden = list.length === 0;
+    if (list.length > 0) {
+      $('#demChecklistProgressBar').style.width = Math.round((done / list.length) * 100) + '%';
+    }
     (demanda.checklist || []).forEach((item) => {
       const row = document.createElement('div');
       row.className = 'checklist-item';
@@ -557,17 +572,60 @@
     }
   }
 
+  function renderAssigneeChips() {
+    const wrap = $('#demAssigneeList');
+    wrap.innerHTML = '';
+    if (teamMembers.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Nenhum usuário cadastrado ainda.</span>';
+      return;
+    }
+    teamMembers.forEach((u) => {
+      const chip = document.createElement('label');
+      chip.className = 'chip-toggle' + (selectedAssigneeIds.has(u.id) ? ' active' : '');
+      chip.innerHTML = `<input type="checkbox" ${selectedAssigneeIds.has(u.id) ? 'checked' : ''}> ${u.name}`;
+      chip.querySelector('input').onchange = (ev) => {
+        if (ev.target.checked) selectedAssigneeIds.add(u.id); else selectedAssigneeIds.delete(u.id);
+        chip.classList.toggle('active', ev.target.checked);
+      };
+      wrap.appendChild(chip);
+    });
+  }
+
+  function renderLabelChips() {
+    const wrap = $('#demLabelList');
+    wrap.innerHTML = '';
+    if (labels.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Nenhuma etiqueta ainda — clique em "gerenciar etiquetas" para criar.</span>';
+      return;
+    }
+    labels.forEach((l) => {
+      const chip = document.createElement('label');
+      chip.className = 'chip-toggle label-chip' + (selectedLabelIds.has(l.id) ? ' active' : '');
+      chip.style.background = l.color;
+      chip.innerHTML = `<input type="checkbox" style="display:none;" ${selectedLabelIds.has(l.id) ? 'checked' : ''}> ${l.name}`;
+      chip.onclick = (ev) => {
+        ev.preventDefault();
+        if (selectedLabelIds.has(l.id)) selectedLabelIds.delete(l.id); else selectedLabelIds.add(l.id);
+        chip.classList.toggle('active', selectedLabelIds.has(l.id));
+      };
+      wrap.appendChild(chip);
+    });
+  }
+
   function openDemandaModal(demanda) {
     editingDemandaId = demanda ? demanda.id : null;
     openDemandaCache = demanda;
+    selectedAssigneeIds = new Set(demanda ? (demanda.assigneeIds || []) : []);
+    selectedLabelIds = new Set(demanda ? (demanda.labelIds || []) : []);
     $('#demCardTitle').value = demanda ? demanda.title : '';
     $('#demCardStatus').value = demanda ? demanda.status : 'a_fazer';
     $('#demCardDueDate').value = demanda ? (demanda.dueDate || '') : '';
-    $('#demCardAssignee').value = demanda ? (demanda.assigneeId || '') : '';
     $('#demCardDescription').value = demanda ? (demanda.description || '') : '';
     $('#demCardError').hidden = true;
     $('#demChecklistInput').value = '';
     $('#demFileInput').value = '';
+    renderAssigneeChips();
+    renderLabelChips();
     renderChecklist(demanda || { checklist: [] });
     renderFiles(demanda || { files: [] });
     $('#demCardArchive').textContent = demanda && demanda.archived ? 'Desarquivar' : 'Arquivar';
@@ -585,7 +643,8 @@
       description: $('#demCardDescription').value,
       status: $('#demCardStatus').value,
       dueDate: $('#demCardDueDate').value || null,
-      assigneeId: $('#demCardAssignee').value || null
+      assigneeIds: Array.from(selectedAssigneeIds),
+      labelIds: Array.from(selectedLabelIds)
     };
     if (!payload.title) {
       $('#demCardError').textContent = 'Dê um título para a demanda.';
@@ -647,6 +706,101 @@
     await api('/api/demandas/' + editingDemandaId, { method: 'DELETE' });
     $('#demandaModal').hidden = true;
     await loadDemandas();
+  };
+
+  // ---------- Etiquetas (gerenciamento) ----------
+  function renderColorSwatches() {
+    const wrap = $('#labelNewColors');
+    wrap.innerHTML = '';
+    labelSuggestedColors.forEach((c) => {
+      const sw = document.createElement('div');
+      sw.className = 'color-swatch' + (editingLabelColor === c ? ' selected' : '');
+      sw.style.background = c;
+      sw.onclick = () => { editingLabelColor = c; renderColorSwatches(); };
+      wrap.appendChild(sw);
+    });
+  }
+
+  function renderLabelManageList() {
+    const wrap = $('#labelManageList');
+    wrap.innerHTML = '';
+    if (labels.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Nenhuma etiqueta criada ainda.</span>';
+      return;
+    }
+    labels.forEach((l) => {
+      const row = document.createElement('div');
+      row.className = 'label-manage-row';
+      row.innerHTML = `<span class="label-color-dot" style="background:${l.color}"></span>`;
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = l.name;
+      nameInput.onchange = async () => {
+        try {
+          await api('/api/labels/' + l.id, { method: 'PUT', body: JSON.stringify({ name: nameInput.value }) });
+          await refreshLabels();
+        } catch (e) { alert(e.message); }
+      };
+      row.appendChild(nameInput);
+      const colorPicker = document.createElement('input');
+      colorPicker.type = 'color';
+      colorPicker.value = l.color;
+      colorPicker.onchange = async () => {
+        try {
+          await api('/api/labels/' + l.id, { method: 'PUT', body: JSON.stringify({ color: colorPicker.value }) });
+          await refreshLabels();
+        } catch (e) { alert(e.message); }
+      };
+      row.appendChild(colorPicker);
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Excluir';
+      delBtn.className = 'btn-link';
+      delBtn.onclick = async () => {
+        if (!confirm('Excluir a etiqueta "' + l.name + '"? Ela será removida de todos os cards.')) return;
+        await api('/api/labels/' + l.id, { method: 'DELETE' });
+        await refreshLabels();
+      };
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+
+  async function refreshLabels() {
+    const data = await api('/api/labels');
+    labels = data.labels;
+    labelSuggestedColors = data.suggestedColors || labelSuggestedColors;
+    renderLabelManageList();
+    renderLabelChips();
+    renderKanban();
+  }
+
+  function openLabelModal() {
+    editingLabelColor = labelSuggestedColors[labels.length % (labelSuggestedColors.length || 1)] || '#0079bf';
+    $('#labelNewName').value = '';
+    $('#labelModalError').hidden = true;
+    renderLabelManageList();
+    renderColorSwatches();
+    $('#labelModal').hidden = false;
+  }
+  $('#demandasManageLabelsBtn').onclick = openLabelModal;
+  $('#demLabelManageBtn').onclick = openLabelModal;
+  $('#labelModalClose').onclick = () => { $('#labelModal').hidden = true; };
+
+  $('#labelNewAdd').onclick = async () => {
+    const name = $('#labelNewName').value.trim();
+    if (!name) {
+      $('#labelModalError').textContent = 'Dê um nome para a etiqueta.';
+      $('#labelModalError').hidden = false;
+      return;
+    }
+    try {
+      await api('/api/labels', { method: 'POST', body: JSON.stringify({ name, color: editingLabelColor }) });
+      $('#labelNewName').value = '';
+      await refreshLabels();
+    } catch (e) {
+      $('#labelModalError').textContent = e.message;
+      $('#labelModalError').hidden = false;
+    }
   };
 
   // ---------- Brindes ----------

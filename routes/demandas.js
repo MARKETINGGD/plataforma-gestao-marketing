@@ -9,9 +9,14 @@ const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
-// Acompanhamento de Demandas — quadro estilo Trello. Qualquer pessoa logada
-// na Plataforma pode usar (criar, mover, comentar); não tem permissão por
-// dashboard como Orçamento/Tráfego/Ações/Redes.
+// Acompanhamento de Demandas — quadro estilo Trello com uma lista por membro
+// da equipe. Qualquer pessoa logada na Plataforma pode usar (criar, mover,
+// comentar); não tem permissão por dashboard como Orçamento/Tráfego/Ações/Redes.
+//
+// Um card pode ser compartilhado com várias pessoas (assigneeIds) — nesse
+// caso ele aparece, com os mesmos dados, na lista de cada uma delas. "Status"
+// continua existindo como campo do card (não é mais o eixo do quadro) e
+// alimenta os contadores da tela Início.
 
 const STATUSES = ['a_fazer', 'andamento', 'aprovacao', 'concluida'];
 
@@ -21,8 +26,24 @@ function isOverdue(demanda) {
   return demanda.dueDate < today;
 }
 
+function validUserIds(ids) {
+  if (!Array.isArray(ids)) return [];
+  const users = db.get('users').value();
+  return ids.filter((id) => users.some((u) => u.id === id));
+}
+
+function validLabelIds(ids) {
+  if (!Array.isArray(ids)) return [];
+  const labels = db.get('labels').value();
+  return ids.filter((id) => labels.some((l) => l.id === id));
+}
+
 function serialize(d) {
-  return Object.assign({}, d, { overdue: isOverdue(d) });
+  return Object.assign({}, d, {
+    assigneeIds: d.assigneeIds || [],
+    labelIds: d.labelIds || [],
+    overdue: isOverdue(d)
+  });
 }
 
 const uploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'demandas');
@@ -66,9 +87,8 @@ router.get('/summary', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeId, status } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
-  const assignee = assigneeId ? db.get('users').find({ id: assigneeId }).value() : null;
   const demanda = {
     id: nanoid(),
     title: title.trim(),
@@ -76,8 +96,8 @@ router.post('/', requireAuth, (req, res) => {
     status: STATUSES.includes(status) ? status : 'a_fazer',
     archived: false,
     dueDate: dueDate || null,
-    assigneeId: assignee ? assignee.id : null,
-    assigneeName: assignee ? (assignee.name || assignee.username) : null,
+    assigneeIds: validUserIds(assigneeIds),
+    labelIds: validLabelIds(labelIds),
     checklist: [],
     files: [],
     createdAt: new Date().toISOString(),
@@ -93,17 +113,14 @@ router.post('/', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeId, status } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
   if (dueDate !== undefined) updates.dueDate = dueDate || null;
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
-  if (assigneeId !== undefined) {
-    const assignee = assigneeId ? db.get('users').find({ id: assigneeId }).value() : null;
-    updates.assigneeId = assignee ? assignee.id : null;
-    updates.assigneeName = assignee ? (assignee.name || assignee.username) : null;
-  }
+  if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
+  if (labelIds !== undefined) updates.labelIds = validLabelIds(labelIds);
   db.get('demandas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'update' });
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });

@@ -18,6 +18,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/dashboards', require('./routes/dashboards'));
 app.use('/api/budget', require('./routes/budget'));
 app.use('/api/demandas', require('./routes/demandas'));
+app.use('/api/labels', require('./routes/labels'));
 app.use('/api/brindes', require('./routes/brindes'));
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy

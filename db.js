@@ -29,7 +29,12 @@ db.defaults({
   // Brindes — catálogo/estoque e registro de saídas por representante
   brindesCatalog: [],
   brindesLog: [],
-  auditLog: []
+  auditLog: [],
+  // Gerenciamento de Influencers (14ª rodada) — dividido por marca
+  // (De Bacco / GhelPlus). Cada influencer tem sua própria "tabela"
+  // (influencerPosts) e pode ter um link externo próprio (publicToken).
+  influencers: [],
+  influencerPosts: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

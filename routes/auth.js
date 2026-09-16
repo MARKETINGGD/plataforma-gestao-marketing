@@ -225,9 +225,17 @@ router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {
 router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
   const target = db.get('users').find({ id: req.params.id }).value();
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  const { name, password, isSuperAdmin, permissions, cargo } = req.body || {};
+  const { name, username, password, isSuperAdmin, permissions, cargo } = req.body || {};
   const updates = {};
   if (name) updates.name = name.trim();
+  if (username && username.trim() !== target.username) {
+    const novoUsername = username.trim();
+    const jaExiste = db.get('users').find({ username: novoUsername }).value();
+    if (jaExiste && jaExiste.id !== target.id) {
+      return res.status(400).json({ error: 'Já existe um usuário com esse nome.' });
+    }
+    updates.username = novoUsername;
+  }
   if (typeof isSuperAdmin === 'boolean') updates.isSuperAdmin = isSuperAdmin;
   if (cargo !== undefined) updates.cargo = CARGOS.includes(cargo) ? cargo : '';
   updates.permissions = updates.isSuperAdmin || (updates.isSuperAdmin === undefined && target.isSuperAdmin)

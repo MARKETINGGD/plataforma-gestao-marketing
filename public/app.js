@@ -51,6 +51,15 @@
   let editingBrindeId = null;
   let editingBrindeLogId = null;
 
+  // ---------- Gerenciamento de Influencers (14ª rodada) ----------
+  let influencersTab = 'debacco'; // 'debacco' | 'ghelplus'
+  let influencersList = [];
+  let editingInfluencerId = null;
+  let currentInfluencer = null; // influencer aberto na tela de tabela
+  let currentInfluencerPosts = [];
+  let editingInfluencerPostId = null;
+  let influencerRedes = [];
+
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
@@ -106,6 +115,7 @@
     { key: 'concluida', label: 'Concluída' }
   ];
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
+  const INFLUENCER_STATUS_LABEL = { a_publicar: 'A publicar', publicada: 'Publicada', cancelada: 'Cancelada' };
   const SOCIAL_STATUS_LABEL = { rascunho: 'Rascunho', agendado: 'Agendado', publicado: 'Publicado' };
   const SOCIAL_POST_TYPE_LABEL = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
   // Tipo de newsletter tem nome diferente por marca — mesma coisa, nomes distintos.
@@ -185,7 +195,7 @@
   }
 
   function showScreen(name) {
-    ['loading', 'setup', 'login', 'app'].forEach((s) => {
+    ['loading', 'setup', 'login', 'app', 'influencer-public'].forEach((s) => {
       $('#screen-' + s).hidden = s !== name;
     });
   }
@@ -197,10 +207,55 @@
   function showView(name) {
     $all('.view').forEach((v) => (v.hidden = true));
     $('#view-' + name).hidden = false;
+    // Cor pessoal da tela Início cobre toda a área de conteúdo (14ª rodada)
+    // — só enquanto a Início está ativa; nas outras telas o conteúdo volta
+    // ao normal (a aba lateral nunca muda de cor).
+    if (name === 'home') {
+      applyHomeColor();
+    } else {
+      $('.content').style.background = '';
+    }
   }
 
   // ---------- boot ----------
+  async function loadInfluencerPublicPage(pubToken) {
+    try {
+      const data = await fetch('/api/influencers/public/' + encodeURIComponent(pubToken)).then((r) => r.json().then((body) => ({ ok: r.ok, body })));
+      if (!data.ok) throw new Error(data.body.error || 'Link inválido.');
+      const { influencer, posts } = data.body;
+      $('#pubInfName').textContent = influencer.name + ' — ' + (BRAND_LABEL[influencer.brand] || influencer.brand);
+      const body = $('#pubInfPostsBody');
+      body.innerHTML = '';
+      $('#pubInfEmpty').hidden = posts.length > 0;
+      posts.forEach((p) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${p.formato || '—'}</td>
+          <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+          <td>${INFLUENCER_STATUS_LABEL[p.status] || p.status}</td>
+          <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
+          <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+          <td>${p.observacoes || '—'}</td>
+          <td>${p.notas || '—'}</td>
+        `;
+        body.appendChild(tr);
+      });
+      showScreen('influencer-public');
+    } catch (e) {
+      $('#pubInfError').hidden = false;
+      showScreen('influencer-public');
+    }
+  }
+
   async function boot() {
+    // Link externo por influencer (14ª rodada) — não exige login, funciona
+    // pra quem não está dentro da plataforma. Checa antes de qualquer coisa.
+    const pubToken = new URLSearchParams(window.location.search).get('influencerPublic');
+    if (pubToken) {
+      showScreen('loading');
+      await loadInfluencerPublicPage(pubToken);
+      return;
+    }
     if (token) {
       try {
         const data = await api('/api/auth/me');
@@ -345,6 +400,7 @@
         if (b.dataset.view === 'brindes') loadBrindes();
         if (b.dataset.view === 'agendamento') loadSocialPosts();
         if (b.dataset.view === 'cronograma') loadCronograma();
+        if (b.dataset.view === 'influencers') loadInfluencers();
       }
     };
   });
@@ -354,17 +410,12 @@
   // própria pessoa vê a cor que ela escolheu, tom bem suave (color-mix)
   // pra não brigar com o conteúdo, mas visível como pedido.
   function applyHomeColor() {
-    const view = $('#view-home');
+    // Pinta a área de conteúdo inteira (.content), não só a caixinha da
+    // Início — vai até o fim da página, só a aba lateral (sidebar) fica
+    // de fora, como pedido na 14ª rodada.
+    const content = $('.content');
     const color = currentUser.homeColor || null;
-    if (color) {
-      view.style.background = `color-mix(in srgb, ${color} 10%, white)`;
-      view.style.borderRadius = '16px';
-      view.style.padding = '18px';
-    } else {
-      view.style.background = '';
-      view.style.borderRadius = '';
-      view.style.padding = '';
-    }
+    content.style.background = color ? `color-mix(in srgb, ${color} 10%, white)` : '';
     setColorDotBtn($('#homeColorBtn'), color);
   }
   $('#homeColorBtn').onclick = (e) => {
@@ -2221,7 +2272,7 @@
     $('#userFormTitle').textContent = user ? 'Editar usuário' : 'Novo usuário';
     $('#userFormName').value = user ? user.name : '';
     $('#userFormUsername').value = user ? user.username : '';
-    $('#userFormUsername').disabled = !!user;
+    $('#userFormUsername').disabled = false;
     $('#userFormPassword').value = '';
     $('#userFormPasswordLabel').textContent = user ? 'Nova senha (deixe em branco para manter)' : 'Senha (mínimo 6 caracteres)';
     $('#userFormSuperAdmin').checked = user ? user.isSuperAdmin : false;
@@ -2279,6 +2330,245 @@
       alert(e.message);
     }
   }
+
+  // ---------- Gerenciamento de Influencers (14ª rodada) ----------
+  $all('[data-inf-tab]').forEach((b) => {
+    b.onclick = () => {
+      influencersTab = b.dataset.infTab;
+      $all('[data-inf-tab]').forEach((x) => x.classList.toggle('active', x.dataset.infTab === influencersTab));
+      renderInfluencersList();
+    };
+  });
+
+  async function loadInfluencers() {
+    $('#influencerTableWrap').hidden = true;
+    $('#influencerFormWrap').hidden = true;
+    $('#influencerPostFormWrap').hidden = true;
+    if (!influencerRedes.length) {
+      try {
+        const meta = await api('/api/influencers/meta');
+        influencerRedes = meta.redes;
+        $('#influencerPostFormRede').innerHTML = influencerRedes.map((r) => `<option value="${r}">${SOCIAL_PLATFORM_LABEL[r] || r}</option>`).join('');
+      } catch (e) { /* ignora */ }
+    }
+    try {
+      const data = await api('/api/influencers');
+      influencersList = data.influencers;
+      renderInfluencersList();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  function renderInfluencersList() {
+    const wrap = $('#influencersList');
+    wrap.innerHTML = '';
+    const list = influencersList.filter((i) => i.brand === influencersTab);
+    $('#influencersEmpty').hidden = list.length > 0;
+    list.forEach((inf) => {
+      const card = document.createElement('div');
+      card.className = 'dash-card';
+      card.innerHTML = `
+        <h3>${inf.name}</h3>
+        <p>${inf.hasPublicLink ? 'Link externo ativo' : 'Sem link externo ainda'}</p>
+      `;
+      const openBtn = document.createElement('button');
+      openBtn.textContent = 'Ver tabela →';
+      openBtn.onclick = () => openInfluencerTable(inf);
+      card.appendChild(openBtn);
+      const actionsRow = document.createElement('div');
+      actionsRow.style.cssText = 'display:flex;gap:10px;margin-top:4px;';
+      const renameBtn = document.createElement('button');
+      renameBtn.textContent = 'Renomear';
+      renameBtn.className = 'btn-link';
+      renameBtn.onclick = (e) => { e.stopPropagation(); openInfluencerForm(inf); };
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Excluir';
+      delBtn.className = 'btn-link';
+      delBtn.style.color = 'var(--danger)';
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Excluir o influencer "${inf.name}" e toda a tabela dele? Essa ação não pode ser desfeita.`)) return;
+        try {
+          await api('/api/influencers/' + inf.id, { method: 'DELETE' });
+          await loadInfluencers();
+        } catch (err) { alert(err.message); }
+      };
+      actionsRow.appendChild(renameBtn);
+      actionsRow.appendChild(delBtn);
+      card.appendChild(actionsRow);
+      wrap.appendChild(card);
+    });
+  }
+
+  function openInfluencerForm(inf) {
+    editingInfluencerId = inf ? inf.id : null;
+    $('#influencerFormTitle').textContent = inf ? 'Renomear influencer' : 'Novo influencer';
+    $('#influencerFormName').value = inf ? inf.name : '';
+    $('#influencerFormError').hidden = true;
+    $('#influencerTableWrap').hidden = true;
+    $('#influencerFormWrap').hidden = false;
+  }
+  $('#influencerNewBtn').onclick = () => openInfluencerForm(null);
+  $('#influencerFormCancel').onclick = () => { $('#influencerFormWrap').hidden = true; };
+  $('#influencerFormSave').onclick = async () => {
+    const name = $('#influencerFormName').value.trim();
+    if (!name) { $('#influencerFormError').textContent = 'Informe o nome do influencer.'; $('#influencerFormError').hidden = false; return; }
+    try {
+      if (editingInfluencerId) {
+        await api('/api/influencers/' + editingInfluencerId, { method: 'PUT', body: JSON.stringify({ name }) });
+      } else {
+        await api('/api/influencers', { method: 'POST', body: JSON.stringify({ brand: influencersTab, name }) });
+      }
+      $('#influencerFormWrap').hidden = true;
+      await loadInfluencers();
+    } catch (e) {
+      $('#influencerFormError').textContent = e.message;
+      $('#influencerFormError').hidden = false;
+    }
+  };
+
+  // ---------- tabela de um influencer ----------
+  async function openInfluencerTable(inf) {
+    $('#influencerFormWrap').hidden = true;
+    $('#influencerPostFormWrap').hidden = true;
+    $('#influencerPublicLinkPanel').hidden = true;
+    try {
+      const data = await api('/api/influencers/' + inf.id);
+      currentInfluencer = data.influencer;
+      currentInfluencerPosts = data.posts;
+      $('#influencerTableTitle').textContent = currentInfluencer.name + ' — ' + (BRAND_LABEL[currentInfluencer.brand] || currentInfluencer.brand);
+      renderInfluencerPosts();
+      $('#influencerTableWrap').hidden = false;
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+  $('#influencerTableBackBtn').onclick = () => { $('#influencerTableWrap').hidden = true; loadInfluencers(); };
+
+  function renderInfluencerPosts() {
+    const body = $('#influencerPostsBody');
+    body.innerHTML = '';
+    $('#influencerPostsEmpty').hidden = currentInfluencerPosts.length > 0;
+    currentInfluencerPosts.forEach((p) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${p.formato || '—'}</td>
+        <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+        <td>${INFLUENCER_STATUS_LABEL[p.status] || p.status}</td>
+        <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
+        <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+        <td>${p.observacoes || '—'}</td>
+        <td>${p.notas || '—'}</td>
+        <td></td>
+      `;
+      const actionsTd = tr.querySelector('td:last-child');
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Editar';
+      editBtn.onclick = () => openInfluencerPostForm(p);
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Excluir';
+      delBtn.className = 'danger';
+      delBtn.onclick = async () => {
+        if (!confirm('Excluir este item da tabela?')) return;
+        try {
+          await api(`/api/influencers/${currentInfluencer.id}/posts/${p.id}`, { method: 'DELETE' });
+          await openInfluencerTable(currentInfluencer);
+        } catch (e) { alert(e.message); }
+      };
+      actionsTd.appendChild(editBtn);
+      actionsTd.appendChild(delBtn);
+      body.appendChild(tr);
+    });
+  }
+
+  function openInfluencerPostForm(post) {
+    editingInfluencerPostId = post ? post.id : null;
+    $('#influencerPostFormTitle').textContent = post ? 'Editar item' : 'Novo item';
+    $('#influencerPostFormId').value = post ? post.id : '';
+    $('#influencerPostFormFormato').value = post ? post.formato : '';
+    $('#influencerPostFormRede').value = post ? (post.rede || influencerRedes[0]) : influencerRedes[0];
+    $('#influencerPostFormStatus').value = post ? post.status : 'a_publicar';
+    $('#influencerPostFormData').value = post ? (post.dataPostagem || '') : '';
+    $('#influencerPostFormObs').value = post ? post.observacoes : '';
+    $('#influencerPostFormNotas').value = post ? post.notas : '';
+    $('#influencerPostFormFile').value = '';
+    $('#influencerPostFormFileAtual').textContent = post && post.arquivo ? ('Arquivo atual: ' + post.arquivo.name) : '';
+    $('#influencerPostFormError').hidden = true;
+    $('#influencerPostFormWrap').hidden = false;
+  }
+  $('#influencerPostNewBtn').onclick = () => openInfluencerPostForm(null);
+  $('#influencerPostFormCancel').onclick = () => { $('#influencerPostFormWrap').hidden = true; };
+
+  $('#influencerPostFormSave').onclick = async () => {
+    const payload = {
+      formato: $('#influencerPostFormFormato').value.trim(),
+      rede: $('#influencerPostFormRede').value,
+      status: $('#influencerPostFormStatus').value,
+      dataPostagem: $('#influencerPostFormData').value || null,
+      observacoes: $('#influencerPostFormObs').value.trim(),
+      notas: $('#influencerPostFormNotas').value.trim()
+    };
+    try {
+      let postId = editingInfluencerPostId;
+      if (postId) {
+        await api(`/api/influencers/${currentInfluencer.id}/posts/${postId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        const created = await api(`/api/influencers/${currentInfluencer.id}/posts`, { method: 'POST', body: JSON.stringify(payload) });
+        postId = created.post.id;
+      }
+      const file = $('#influencerPostFormFile').files[0];
+      if (file) {
+        const fd = new FormData();
+        fd.append('file', file);
+        await api(`/api/influencers/${currentInfluencer.id}/posts/${postId}/file`, { method: 'POST', body: fd });
+      }
+      $('#influencerPostFormWrap').hidden = true;
+      await openInfluencerTable(currentInfluencer);
+    } catch (e) {
+      $('#influencerPostFormError').textContent = e.message;
+      $('#influencerPostFormError').hidden = false;
+    }
+  };
+
+  // ---------- link externo do influencer ----------
+  $('#influencerPublicLinkBtn').onclick = async () => {
+    const panel = $('#influencerPublicLinkPanel');
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) await refreshInfluencerPublicLink();
+  };
+  async function refreshInfluencerPublicLink() {
+    try {
+      const data = await api('/api/influencers/' + currentInfluencer.id + '/public-link');
+      setInfluencerPublicLinkUI(data.publicToken);
+    } catch (e) { /* ignora */ }
+  }
+  function setInfluencerPublicLinkUI(pubToken) {
+    const active = !!pubToken;
+    $('#influencerPublicLinkActive').hidden = !active;
+    $('#influencerGenLinkBtn').hidden = active;
+    if (active) {
+      $('#influencerPublicLinkField').value = `${window.location.origin}/?influencerPublic=${pubToken}`;
+    }
+  }
+  $('#influencerGenLinkBtn').onclick = $('#influencerRegenLinkBtn').onclick = async () => {
+    try {
+      const data = await api(`/api/influencers/${currentInfluencer.id}/public-link/generate`, { method: 'POST' });
+      setInfluencerPublicLinkUI(data.publicToken);
+    } catch (e) { alert(e.message); }
+  };
+  $('#influencerRevokeLinkBtn').onclick = async () => {
+    if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir ver a tabela.')) return;
+    try {
+      await api(`/api/influencers/${currentInfluencer.id}/public-link`, { method: 'DELETE' });
+      setInfluencerPublicLinkUI(null);
+    } catch (e) { alert(e.message); }
+  };
+  $('#influencerCopyLinkBtn').onclick = () => {
+    const field = $('#influencerPublicLinkField');
+    field.select();
+    navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+  };
 
   boot();
 })();

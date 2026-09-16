@@ -12,6 +12,32 @@
   <p>Carregando…</p>
 </div>
 
+<!-- Link externo de um influencer (14ª rodada) — página pública, somente
+     leitura, sem exigir login (acessada com ?influencerPublic=TOKEN). -->
+<div id="screen-influencer-public" class="screen" hidden style="padding:32px;max-width:900px;margin:0 auto;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+    <img src="/img/papoi-logo.png" alt="Papoi" style="width:100px;height:auto;">
+  </div>
+  <h2 id="pubInfName" style="margin:18px 0 2px;"></h2>
+  <p class="muted" style="margin:0 0 18px;">Tabela de conteúdos deste influencer — link externo, somente leitura.</p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Formato de conteúdo</th>
+        <th>Rede</th>
+        <th>Status</th>
+        <th>Data da postagem</th>
+        <th>Arquivo</th>
+        <th>Observações</th>
+        <th>Notas extras</th>
+      </tr>
+    </thead>
+    <tbody id="pubInfPostsBody"></tbody>
+  </table>
+  <p id="pubInfEmpty" class="muted" hidden>Nenhum item nessa tabela ainda.</p>
+  <p id="pubInfError" class="error" hidden>Link inválido ou desativado.</p>
+</div>
+
 <div id="screen-setup" class="screen center" hidden>
   <div class="auth-card">
     <h1>Seja bem-vindo(a) ao Papoi</h1>
@@ -46,7 +72,7 @@
       <button id="loginSubmit" class="btn-primary login-submit">Entrar</button>
     </div>
   </div>
-  <div class="login-footer">Desenvolvido por Raquel Daltoé (Pixie Tech)</div>
+  <div class="login-footer">Desenvolvido por Pixie Tech</div>
 </div>
 
 <div id="screen-app" class="screen" hidden>
@@ -65,6 +91,7 @@
         <button class="navlink" id="navDashTrafego" data-view="embed" data-dash="trafegoPago">Gerenciamento de Tráfego Pago</button>
         <button class="navlink" id="navDashMidias" data-view="embed" data-dash="redesSociais">Gerenciamento de Mídias</button>
         <button class="navlink" id="navDashAcoes" data-view="embed" data-dash="acoesSazonais">Gerenciamento de Ações Sazonais</button>
+        <button class="navlink" id="navInfluencers" data-view="influencers">Gerenciamento de Influencers</button>
         <button class="navlink" id="navBudgetDebacco" data-view="budget" data-brand="debacco">Budget De Bacco</button>
         <button class="navlink" id="navBudgetGhelplus" data-view="budget" data-brand="ghelplus">Budget GhelPlus</button>
         <button class="navlink" id="navBrindes" data-view="brindes">Brindes</button>
@@ -80,6 +107,7 @@
             <button id="logoutBtn" class="btn-link">Sair</button>
           </div>
         </div>
+        <div class="sidebar-signature">Desenvolvido por Pixie Tech</div>
       </div>
     </aside>
 
@@ -87,10 +115,9 @@
 
       <section id="view-home" class="view">
         <div class="home-header-row">
-          <h2>Início</h2>
+          <p class="home-greeting" id="homeGreeting">Resumo geral</p>
           <button type="button" id="homeColorBtn" class="color-dot-btn" title="Cor de fundo da tela Início"></button>
         </div>
-        <p class="muted" id="homeGreeting">Resumo geral</p>
 
         <div id="recadosWrap">
           <div class="view-toolbar">
@@ -313,6 +340,116 @@
         </div>
         <div class="iframe-wrap">
           <iframe id="embedFrame" title="Dashboard"></iframe>
+        </div>
+      </section>
+
+      <section id="view-influencers" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Gerenciamento de Influencers</h2>
+          <div class="view-toolbar-actions">
+            <button class="btn-primary" id="influencerNewBtn">+ Novo influencer</button>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-inf-tab="debacco">De Bacco</button>
+          <button class="tab-btn" data-inf-tab="ghelplus">GhelPlus</button>
+        </div>
+
+        <div id="influencersList" class="card-grid"></div>
+        <p id="influencersEmpty" class="muted" hidden>Nenhum influencer cadastrado ainda nessa marca.</p>
+
+        <div id="influencerFormWrap" class="form-card" hidden>
+          <h3 id="influencerFormTitle">Novo influencer</h3>
+          <label>Nome do influencer</label>
+          <input id="influencerFormName" type="text" placeholder="Ex: @fulana.beauty">
+          <div id="influencerFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button class="btn-primary" id="influencerFormSave">Salvar</button>
+            <button class="btn-secondary" id="influencerFormCancel">Cancelar</button>
+          </div>
+        </div>
+
+        <div id="influencerTableWrap" hidden>
+          <div class="view-toolbar">
+            <h3 id="influencerTableTitle"></h3>
+            <div class="view-toolbar-actions">
+              <button class="btn-secondary" id="influencerTableBackBtn">← Voltar</button>
+              <button class="btn-secondary" id="influencerPublicLinkBtn">Link externo</button>
+              <button class="btn-primary" id="influencerPostNewBtn">+ Novo item</button>
+            </div>
+          </div>
+
+          <div id="influencerPublicLinkPanel" class="form-card" hidden>
+            <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver a tabela deste influencer, mesmo sem estar logada na plataforma.</p>
+            <div id="influencerPublicLinkActive" hidden>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="influencerPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                <button class="btn-secondary" id="influencerCopyLinkBtn">Copiar link</button>
+                <button class="btn-secondary" id="influencerRegenLinkBtn">Gerar novo link</button>
+                <button class="btn-secondary danger" id="influencerRevokeLinkBtn">Desativar</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="influencerGenLinkBtn">Gerar link externo</button>
+          </div>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Formato de conteúdo</th>
+                <th>Rede</th>
+                <th>Status</th>
+                <th>Data da postagem</th>
+                <th>Arquivo</th>
+                <th>Observações</th>
+                <th>Notas extras</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="influencerPostsBody"></tbody>
+          </table>
+          <p id="influencerPostsEmpty" class="muted" hidden>Nenhum item nessa tabela ainda.</p>
+        </div>
+
+        <div id="influencerPostFormWrap" class="form-card" hidden>
+          <h3 id="influencerPostFormTitle">Novo item</h3>
+          <input type="hidden" id="influencerPostFormId">
+          <div class="form-row">
+            <div>
+              <label>Formato de conteúdo</label>
+              <input id="influencerPostFormFormato" type="text" placeholder="Ex: Reels mensal, Stories...">
+            </div>
+            <div>
+              <label>Rede</label>
+              <select id="influencerPostFormRede"></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Status</label>
+              <select id="influencerPostFormStatus">
+                <option value="a_publicar">A publicar</option>
+                <option value="publicada">Publicada</option>
+                <option value="cancelada">Cancelada</option>
+              </select>
+            </div>
+            <div>
+              <label>Data da postagem</label>
+              <input id="influencerPostFormData" type="date">
+            </div>
+          </div>
+          <label>Observações</label>
+          <textarea id="influencerPostFormObs" rows="2"></textarea>
+          <label>Notas extras</label>
+          <textarea id="influencerPostFormNotas" rows="2"></textarea>
+          <label>Arquivo</label>
+          <input id="influencerPostFormFile" type="file">
+          <p class="muted" id="influencerPostFormFileAtual" style="font-size:12px;"></p>
+          <div id="influencerPostFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button class="btn-primary" id="influencerPostFormSave">Salvar</button>
+            <button class="btn-secondary" id="influencerPostFormCancel">Cancelar</button>
+          </div>
         </div>
       </section>
 

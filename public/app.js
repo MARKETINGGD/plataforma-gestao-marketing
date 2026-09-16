@@ -20,6 +20,18 @@
   let selectedAssigneeIds = new Set();
   let selectedLabelIds = new Set();
   let editingLabelColor = null;
+  let demandasScope = 'geral'; // 'geral' | 'pessoal'
+
+  let recadosForMe = [];
+  let recadosAll = [];
+  let recadoSuggestedColors = [];
+  let selectedRecadoColor = null;
+  let selectedRecadoTargetIds = new Set();
+
+  let socialPosts = [];
+  let socialPlatforms = [];
+  let socialStatuses = [];
+  let editingSocialPostId = null;
 
   let brindesTab = 'debacco'; // 'debacco' | 'ghelplus' | 'log'
   let brindesCatalog = [];
@@ -38,6 +50,8 @@
     { key: 'concluida', label: 'Concluída' }
   ];
   const UNASSIGNED_COL = { id: '', name: 'Sem responsável' };
+  const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest' };
+  const SOCIAL_STATUS_LABEL = { rascunho: 'Rascunho', agendado: 'Agendado', publicado: 'Publicado' };
   const fmtMoney = (n) => n === null || n === undefined || n === ''
     ? '—'
     : 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -165,6 +179,7 @@
         if (b.dataset.view === 'demandas') loadDemandas();
         if (b.dataset.view === 'users') loadUsers();
         if (b.dataset.view === 'brindes') loadBrindes();
+        if (b.dataset.view === 'agendamento') loadSocialPosts();
       }
     };
   });
@@ -175,7 +190,9 @@
     budgetAccess = data.budgetAccess;
     dashboardsByKey = {};
     data.dashboards.forEach((d) => { dashboardsByKey[d.key] = d; });
-    $('#homeGreeting').textContent = 'Olá, ' + (currentUser.name || currentUser.username) + '! Resumo geral da sua agência.';
+    $('#homeGreeting').textContent = 'Olá, ' + (currentUser.name || currentUser.username) + '! Resumo geral da plataforma.';
+
+    await loadRecados();
 
     try {
       const sum = await api('/api/demandas/summary');
@@ -197,6 +214,152 @@
       } catch (e) { /* sem acesso */ }
     }
   }
+
+  // ---------- Recados (mural da tela Início) ----------
+  function teamMemberName(id) {
+    const u = teamMembers.find((m) => m.id === id);
+    return u ? u.name : '(usuário removido)';
+  }
+
+  async function loadRecados() {
+    try {
+      const [forMe, all] = await Promise.all([api('/api/recados/for-me'), api('/api/recados')]);
+      recadosForMe = forMe.recados;
+      recadosAll = all.recados;
+      recadoSuggestedColors = all.suggestedColors || [];
+      renderRecadosForMe();
+      renderRecadosAll();
+    } catch (e) { /* ignora */ }
+  }
+
+  function renderRecadosForMe() {
+    const wrap = $('#recadosForMe');
+    wrap.innerHTML = '';
+    if (recadosForMe.length === 0) {
+      wrap.innerHTML = '<div class="recado-empty">Nenhum recado novo pra você.</div>';
+      return;
+    }
+    recadosForMe.forEach((r) => {
+      const card = document.createElement('div');
+      card.className = 'recado-card';
+      card.style.borderLeftColor = r.color;
+      card.innerHTML = `
+        <div class="recado-card-text">${r.text}<span class="recado-card-meta">de ${r.createdByName}</span></div>
+      `;
+      const btn = document.createElement('button');
+      btn.className = 'btn-secondary';
+      btn.textContent = 'Marcar como lido';
+      btn.onclick = async () => {
+        await api('/api/recados/' + r.id + '/read', { method: 'PUT' });
+        await loadRecados();
+      };
+      card.appendChild(btn);
+      wrap.appendChild(card);
+    });
+  }
+
+  function renderRecadosAll() {
+    const body = $('#recadosAllBody');
+    body.innerHTML = '';
+    if (recadosAll.length === 0) {
+      body.innerHTML = '<tr><td colspan="6" class="muted">Nenhum recado enviado ainda.</td></tr>';
+      return;
+    }
+    recadosAll.forEach((r) => {
+      const targets = (r.targetUserIds || []).map(teamMemberName);
+      const readCount = (r.readBy || []).length;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span class="label-color-dot" style="background:${r.color}"></span></td>
+        <td>${r.text}</td>
+        <td>${r.createdByName}</td>
+        <td>${targets.join(', ')}</td>
+        <td>${readCount}/${targets.length}</td>
+        <td></td>
+      `;
+      const actionsTd = tr.querySelector('td:last-child');
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Excluir';
+      delBtn.className = 'danger';
+      delBtn.onclick = async () => {
+        if (!confirm('Excluir este recado?')) return;
+        await api('/api/recados/' + r.id, { method: 'DELETE' });
+        await loadRecados();
+      };
+      actionsTd.appendChild(delBtn);
+      body.appendChild(tr);
+    });
+  }
+
+  $('#recadosToggleAll').onclick = () => {
+    const wrap = $('#recadosAllWrap');
+    wrap.hidden = !wrap.hidden;
+    $('#recadosToggleAll').textContent = wrap.hidden ? 'Ver mural completo' : 'Esconder mural completo';
+  };
+
+  function renderRecadoColorSwatches() {
+    const wrap = $('#recadoColors');
+    wrap.innerHTML = '';
+    recadoSuggestedColors.forEach((c) => {
+      const sw = document.createElement('div');
+      sw.className = 'color-swatch' + (selectedRecadoColor === c ? ' selected' : '');
+      sw.style.background = c;
+      sw.onclick = () => { selectedRecadoColor = c; renderRecadoColorSwatches(); };
+      wrap.appendChild(sw);
+    });
+  }
+
+  function renderRecadoTargetChips() {
+    const wrap = $('#recadoTargetList');
+    wrap.innerHTML = '';
+    if (teamMembers.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Nenhum usuário cadastrado ainda.</span>';
+      return;
+    }
+    teamMembers.forEach((u) => {
+      const chip = document.createElement('label');
+      chip.className = 'chip-toggle' + (selectedRecadoTargetIds.has(u.id) ? ' active' : '');
+      chip.innerHTML = `<input type="checkbox" ${selectedRecadoTargetIds.has(u.id) ? 'checked' : ''}> ${u.name}`;
+      chip.querySelector('input').onchange = (ev) => {
+        if (ev.target.checked) selectedRecadoTargetIds.add(u.id); else selectedRecadoTargetIds.delete(u.id);
+        chip.classList.toggle('active', ev.target.checked);
+      };
+      wrap.appendChild(chip);
+    });
+  }
+
+  $('#recadosNewBtn').onclick = () => {
+    $('#recadoText').value = '';
+    selectedRecadoColor = recadoSuggestedColors[0] || '#0079bf';
+    selectedRecadoTargetIds = new Set();
+    $('#recadoModalError').hidden = true;
+    renderRecadoColorSwatches();
+    renderRecadoTargetChips();
+    $('#recadoModal').hidden = false;
+  };
+  $('#recadoModalClose').onclick = () => { $('#recadoModal').hidden = true; };
+
+  $('#recadoSave').onclick = async () => {
+    const text = $('#recadoText').value.trim();
+    if (!text) {
+      $('#recadoModalError').textContent = 'Escreva o recado.';
+      $('#recadoModalError').hidden = false;
+      return;
+    }
+    if (selectedRecadoTargetIds.size === 0) {
+      $('#recadoModalError').textContent = 'Marque pelo menos uma pessoa pra ver o recado.';
+      $('#recadoModalError').hidden = false;
+      return;
+    }
+    try {
+      await api('/api/recados', { method: 'POST', body: JSON.stringify({ text, color: selectedRecadoColor, targetUserIds: Array.from(selectedRecadoTargetIds) }) });
+      $('#recadoModal').hidden = true;
+      await loadRecados();
+    } catch (e) {
+      $('#recadoModalError').textContent = e.message;
+      $('#recadoModalError').hidden = false;
+    }
+  };
 
   $('#homeGoDemandas').onclick = () => { $('#navDemandas').click(); };
   $all('[data-open-budget]').forEach((b) => {
@@ -423,8 +586,8 @@
 
   async function loadDemandas() {
     const [ativas, arquivadas, labelsData] = await Promise.all([
-      api('/api/demandas?archived=false'),
-      api('/api/demandas?archived=true'),
+      api('/api/demandas?archived=false&scope=' + demandasScope),
+      api('/api/demandas?archived=true&scope=' + demandasScope),
       api('/api/labels')
     ]);
     demandas = ativas.demandas;
@@ -435,18 +598,50 @@
     renderArchived();
   }
 
+  $all('.tab-btn[data-demandas-scope]').forEach((b) => {
+    b.onclick = () => {
+      demandasScope = b.dataset.demandasScope;
+      $all('.tab-btn[data-demandas-scope]').forEach((x) => x.classList.toggle('active', x === b));
+      $('#demandasScopeHint').textContent = demandasScope === 'pessoal'
+        ? 'Só você e quem você marcar enxergam essas demandas.'
+        : 'Visível para toda a equipe.';
+      showingArchived = false;
+      $('#archivedWrap').hidden = true;
+      $('#kanbanBoard').hidden = false;
+      $('#demandasToggleArchived').textContent = 'Ver arquivadas';
+      loadDemandas();
+    };
+  });
+
   function labelById(id) { return labels.find((l) => l.id === id); }
+
+  // No quadro geral, uma coluna por membro da equipe + "Sem responsável".
+  // Na área pessoal, só aparecem colunas relevantes: eu (sempre primeiro) e
+  // quem mais eu tiver marcado em alguma demanda pessoal visível pra mim.
+  function kanbanColumns() {
+    if (demandasScope === 'geral') return teamMembers.concat([UNASSIGNED_COL]);
+    const me = { id: currentUser.id, name: (currentUser.name || currentUser.username) + ' (você)' };
+    const others = new Set();
+    demandas.forEach((d) => (d.assigneeIds || []).forEach((id) => { if (id !== currentUser.id) others.add(id); }));
+    const otherCols = teamMembers.filter((m) => others.has(m.id));
+    return [me].concat(otherCols);
+  }
+
+  function demandaInColumn(d, colId) {
+    const ids = d.assigneeIds || [];
+    if (demandasScope === 'pessoal' && ids.length === 0) return colId === currentUser.id;
+    if (colId === '') return ids.length === 0;
+    return ids.includes(colId);
+  }
 
   function renderKanban() {
     const board = $('#kanbanBoard');
     board.innerHTML = '';
-    const columns = teamMembers.concat([UNASSIGNED_COL]);
+    const columns = kanbanColumns();
     columns.forEach((member) => {
       const colEl = document.createElement('div');
       colEl.className = 'kanban-col';
-      const items = member.id
-        ? demandas.filter((d) => (d.assigneeIds || []).includes(member.id))
-        : demandas.filter((d) => (d.assigneeIds || []).length === 0);
+      const items = demandas.filter((d) => demandaInColumn(d, member.id));
       colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-header-name">${member.name}</span><span class="kanban-count">${items.length}</span></div>`;
       const list = document.createElement('div');
       list.className = 'kanban-list';
@@ -644,7 +839,8 @@
       status: $('#demCardStatus').value,
       dueDate: $('#demCardDueDate').value || null,
       assigneeIds: Array.from(selectedAssigneeIds),
-      labelIds: Array.from(selectedLabelIds)
+      labelIds: Array.from(selectedLabelIds),
+      visibility: demandasScope
     };
     if (!payload.title) {
       $('#demCardError').textContent = 'Dê um título para a demanda.';
@@ -800,6 +996,140 @@
     } catch (e) {
       $('#labelModalError').textContent = e.message;
       $('#labelModalError').hidden = false;
+    }
+  };
+
+  // ---------- Agendamento para Redes Sociais ----------
+  async function loadSocialPosts() {
+    if (socialPlatforms.length === 0) {
+      try {
+        const meta = await api('/api/social-posts/meta');
+        socialPlatforms = meta.platforms;
+        socialStatuses = meta.statuses;
+        $('#socialPostFormPlatform').innerHTML = socialPlatforms.map((p) => `<option value="${p}">${SOCIAL_PLATFORM_LABEL[p] || p}</option>`).join('');
+      } catch (e) { /* ignora */ }
+    }
+    const data = await api('/api/social-posts');
+    socialPosts = data.posts;
+    renderSocialPosts();
+  }
+
+  function renderSocialPosts() {
+    const body = $('#socialPostsBody');
+    body.innerHTML = '';
+    $('#socialPostsEmpty').hidden = socialPosts.length > 0;
+    socialPosts.forEach((p) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
+        <td>${fmtDate(p.scheduledDate)}</td>
+        <td>${p.scheduledTime || ''}</td>
+        <td>${(p.caption || '').slice(0, 60)}${(p.caption || '').length > 60 ? '…' : ''}</td>
+        <td><span class="badge">${SOCIAL_STATUS_LABEL[p.status] || p.status}</span></td>
+        <td></td>
+      `;
+      const actionsTd = tr.querySelector('td:last-child');
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Editar';
+      editBtn.onclick = () => openSocialPostForm(p);
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Excluir';
+      delBtn.className = 'danger';
+      delBtn.onclick = async () => {
+        if (!confirm('Excluir este agendamento?')) return;
+        await api('/api/social-posts/' + p.id, { method: 'DELETE' });
+        await loadSocialPosts();
+      };
+      actionsTd.appendChild(editBtn);
+      actionsTd.appendChild(delBtn);
+      body.appendChild(tr);
+    });
+  }
+
+  function renderSocialPostFiles(post) {
+    const wrap = $('#socialPostFormFiles');
+    wrap.innerHTML = '';
+    (post.files || []).forEach((f) => {
+      const row = document.createElement('div');
+      row.className = 'file-item';
+      row.innerHTML = `<a href="${f.url}" target="_blank" rel="noopener">${f.name}</a> <span class="muted">(${fmtBytes(f.size)})</span>`;
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '✕';
+      delBtn.className = 'btn-link';
+      delBtn.onclick = async () => {
+        await api(`/api/social-posts/${post.id}/files/${f.id}`, { method: 'DELETE' });
+        const fresh = await api('/api/social-posts');
+        socialPosts = fresh.posts;
+        const updated = socialPosts.find((x) => x.id === post.id);
+        if (updated) renderSocialPostFiles(updated);
+      };
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+
+  function openSocialPostForm(post) {
+    editingSocialPostId = post ? post.id : null;
+    $('#socialPostFormTitle').textContent = post ? 'Editar agendamento' : 'Novo agendamento';
+    $('#socialPostFormPlatform').value = post ? post.platform : (socialPlatforms[0] || '');
+    $('#socialPostFormStatus').value = post ? post.status : 'rascunho';
+    $('#socialPostFormDate').value = post ? post.scheduledDate : '';
+    $('#socialPostFormTime').value = post ? (post.scheduledTime || '') : '';
+    $('#socialPostFormCaption').value = post ? (post.caption || '') : '';
+    $('#socialPostFormFileInput').value = '';
+    $('#socialPostFormFileInput').style.display = post ? '' : 'none';
+    renderSocialPostFiles(post || { files: [] });
+    $('#socialPostFormError').hidden = true;
+    $('#socialPostFormWrap').hidden = false;
+  }
+  $('#socialPostNewBtn').onclick = () => openSocialPostForm(null);
+  $('#socialPostFormCancel').onclick = () => { $('#socialPostFormWrap').hidden = true; };
+
+  $('#socialPostFormSave').onclick = async () => {
+    const payload = {
+      platform: $('#socialPostFormPlatform').value,
+      status: $('#socialPostFormStatus').value,
+      scheduledDate: $('#socialPostFormDate').value,
+      scheduledTime: $('#socialPostFormTime').value,
+      caption: $('#socialPostFormCaption').value
+    };
+    if (!payload.scheduledDate) {
+      $('#socialPostFormError').textContent = 'Escolha a data do post.';
+      $('#socialPostFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingSocialPostId) {
+        await api('/api/social-posts/' + editingSocialPostId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        const created = await api('/api/social-posts', { method: 'POST', body: JSON.stringify(payload) });
+        editingSocialPostId = created.post.id;
+        openSocialPostForm(created.post);
+        await loadSocialPosts();
+        return;
+      }
+      $('#socialPostFormWrap').hidden = true;
+      await loadSocialPosts();
+    } catch (e) {
+      $('#socialPostFormError').textContent = e.message;
+      $('#socialPostFormError').hidden = false;
+    }
+  };
+
+  $('#socialPostFormFileInput').onchange = async () => {
+    const file = $('#socialPostFormFileInput').files[0];
+    if (!file || !editingSocialPostId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/social-posts/${editingSocialPostId}/files`, { method: 'POST', body: fd });
+      $('#socialPostFormFileInput').value = '';
+      const fresh = await api('/api/social-posts');
+      socialPosts = fresh.posts;
+      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
+      if (updated) renderSocialPostFiles(updated);
+    } catch (e) {
+      alert(e.message);
     }
   };
 

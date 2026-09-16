@@ -15,10 +15,17 @@ db.defaults({
   users: [],
   // Orçamento planejado x realizado (aba "Orçamento" da plataforma)
   budgetEntries: [],
-  // Acompanhamento de Demandas (quadro estilo Trello, listas por pessoa)
+  // Acompanhamento de Demandas (quadro estilo Trello, listas por pessoa).
+  // Cada demanda tem visibility 'geral' (quadro visto por todo mundo) ou
+  // 'pessoal' (só visível pra quem criou + quem foi marcado).
   demandas: [],
   // Etiquetas coloridas usadas nos cards de Demandas (nome + cor, editável)
   labels: [],
+  // Recados do mural da tela Início — coloridos, com destinatários
+  recados: [],
+  // Agendamento de posts de redes sociais (manual por enquanto — a ideia é
+  // no futuro conectar com as APIs da Meta/LinkedIn/TikTok/YouTube/Pinterest)
+  socialPosts: [],
   // Brindes — catálogo/estoque e registro de saídas por representante
   brindesCatalog: [],
   brindesLog: [],
@@ -36,6 +43,15 @@ if (demandasParaMigrar.length > 0) {
       assigneeIds,
       labelIds: d.labelIds || []
     }).write();
+  });
+}
+
+// Migração: demandas antigas não tinham o conceito de quadro pessoal —
+// todas elas continuam valendo como quadro geral (visível a todo mundo).
+const demandasSemVisibilidade = db.get('demandas').filter((d) => d.visibility === undefined).value();
+if (demandasSemVisibilidade.length > 0) {
+  demandasSemVisibilidade.forEach((d) => {
+    db.get('demandas').find({ id: d.id }).assign({ visibility: 'geral' }).write();
   });
 }
 

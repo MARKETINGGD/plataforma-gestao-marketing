@@ -48,6 +48,7 @@
       <nav class="sidebar-nav">
         <button class="navlink" id="navHome" data-view="home">Início</button>
         <button class="navlink" id="navDemandas" data-view="demandas">Acompanhamento de Demandas</button>
+        <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamento para Redes Sociais</button>
         <button class="navlink" id="navDashTrafego" data-view="embed" data-dash="trafegoPago">Gerenciamento de Tráfego Pago</button>
         <button class="navlink" id="navDashMidias" data-view="embed" data-dash="redesSociais">Gerenciamento de Mídias</button>
         <button class="navlink" id="navDashAcoes" data-view="embed" data-dash="acoesSazonais">Gerenciamento de Ações Sazonais</button>
@@ -71,6 +72,21 @@
       <section id="view-home" class="view">
         <h2>Início</h2>
         <p class="muted" id="homeGreeting">Resumo geral</p>
+
+        <div id="recadosWrap">
+          <div class="view-toolbar">
+            <h3 style="margin:0;">Recados</h3>
+            <button class="btn-secondary" id="recadosNewBtn">+ Novo recado</button>
+          </div>
+          <div id="recadosForMe" class="recado-list"></div>
+          <button class="btn-link" id="recadosToggleAll">Ver mural completo</button>
+          <div id="recadosAllWrap" hidden>
+            <table class="data-table">
+              <thead><tr><th></th><th>Recado</th><th>De</th><th>Para</th><th>Lido por</th><th></th></tr></thead>
+              <tbody id="recadosAllBody"></tbody>
+            </table>
+          </div>
+        </div>
 
         <div class="home-grid">
           <div class="home-card">
@@ -141,6 +157,11 @@
             <button class="btn-primary" id="demandasNewBtn">+ Nova demanda</button>
           </div>
         </div>
+        <div class="tabs">
+          <button class="tab-btn active" data-demandas-scope="geral">Quadro Geral</button>
+          <button class="tab-btn" data-demandas-scope="pessoal">Minha Área Pessoal</button>
+        </div>
+        <p class="muted" id="demandasScopeHint">Visível para toda a equipe.</p>
         <div class="kanban" id="kanbanBoard"></div>
         <div id="archivedWrap" hidden>
           <h3>Demandas arquivadas</h3>
@@ -149,6 +170,63 @@
             <tbody id="archivedTableBody"></tbody>
           </table>
         </div>
+      </section>
+
+      <section id="view-agendamento" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Agendamento para Redes Sociais</h2>
+          <div class="view-toolbar-actions">
+            <button class="btn-primary" id="socialPostNewBtn">+ Novo agendamento</button>
+          </div>
+        </div>
+        <p class="muted">Controle manual dos posts planejados. No futuro isso vai conectar direto com as APIs da Meta (Instagram/Facebook), LinkedIn, TikTok, YouTube e Pinterest pra publicar por aqui.</p>
+
+        <div id="socialPostFormWrap" class="form-card" hidden>
+          <h3 id="socialPostFormTitle">Novo agendamento</h3>
+          <input type="hidden" id="socialPostFormId">
+          <div class="form-row">
+            <div>
+              <label>Rede social</label>
+              <select id="socialPostFormPlatform"></select>
+            </div>
+            <div>
+              <label>Status</label>
+              <select id="socialPostFormStatus">
+                <option value="rascunho">Rascunho</option>
+                <option value="agendado">Agendado</option>
+                <option value="publicado">Publicado</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Data</label>
+              <input id="socialPostFormDate" type="date">
+            </div>
+            <div>
+              <label>Hora</label>
+              <input id="socialPostFormTime" type="time">
+            </div>
+          </div>
+          <label>Legenda / texto do post</label>
+          <textarea id="socialPostFormCaption" rows="3"></textarea>
+          <label>Criativo (imagem/vídeo)</label>
+          <div id="socialPostFormFiles" class="file-list"></div>
+          <input id="socialPostFormFileInput" type="file">
+          <div id="socialPostFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="socialPostFormSave" class="btn-primary">Salvar</button>
+            <button id="socialPostFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr><th>Rede</th><th>Data</th><th>Hora</th><th>Legenda</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody id="socialPostsBody"></tbody>
+        </table>
+        <p id="socialPostsEmpty" class="muted" hidden>Nenhum post agendado ainda.</p>
       </section>
 
       <section id="view-embed" class="view" hidden>
@@ -423,6 +501,30 @@
       </div>
       <div id="labelNewColors" class="color-swatches"></div>
       <div id="labelModalError" class="error" hidden></div>
+    </div>
+  </div>
+</div>
+
+<div id="recadoModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Novo recado</div>
+      <button id="recadoModalClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <label>Mensagem</label>
+      <textarea id="recadoText" rows="3" placeholder="Escreva o recado..."></textarea>
+
+      <label>Cor</label>
+      <div id="recadoColors" class="color-swatches"></div>
+
+      <label>Quem precisa ver</label>
+      <div id="recadoTargetList" class="chip-picker"></div>
+
+      <div id="recadoModalError" class="error" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button id="recadoSave" class="btn-primary">Enviar recado</button>
     </div>
   </div>
 </div>

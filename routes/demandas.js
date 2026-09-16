@@ -17,8 +17,23 @@ const router = express.Router();
 // caso ele aparece, com os mesmos dados, na lista de cada uma delas. "Status"
 // continua existindo como campo do card (não é mais o eixo do quadro) e
 // alimenta os contadores da tela Início.
+//
+// Cada demanda tem um campo `visibility`:
+// - 'geral' (padrão): quadro visto por todo mundo — pra analisar as demandas
+//   de modo geral, como já era.
+// - 'pessoal': só quem criou e quem foi marcado como responsável enxerga —
+//   é a área pessoal de cada um, pra organizar as próprias demandas sem
+//   aparecer pra quem não foi marcado.
 
 const STATUSES = ['a_fazer', 'andamento', 'aprovacao', 'concluida'];
+const VISIBILITIES = ['geral', 'pessoal'];
+
+// Quem pode ver/editar uma demanda pessoal: quem criou ou quem está marcado.
+// Demandas gerais continuam abertas pra qualquer pessoa logada, como antes.
+function canAccess(demanda, user) {
+  if (demanda.visibility !== 'pessoal') return true;
+  return demanda.createdBy === user.id || (demanda.assigneeIds || []).includes(user.id);
+}
 
 function isOverdue(demanda) {
   if (!demanda.dueDate || demanda.status === 'concluida' || demanda.archived) return false;
@@ -66,18 +81,27 @@ function findOr404(req, res) {
     res.status(404).json({ error: 'Demanda não encontrada.' });
     return null;
   }
+  if (!canAccess(demanda, req.user)) {
+    res.status(403).json({ error: 'Essa demanda é pessoal e você não foi marcado nela.' });
+    return null;
+  }
   return demanda;
 }
 
 router.get('/', requireAuth, (req, res) => {
   const archived = req.query.archived === 'true';
+  const scope = req.query.scope === 'pessoal' ? 'pessoal' : 'geral';
   const all = db.get('demandas').value().filter((d) => !!d.archived === archived);
-  res.json({ demandas: all.map(serialize) });
+  const filtered = scope === 'geral'
+    ? all.filter((d) => d.visibility !== 'pessoal')
+    : all.filter((d) => d.visibility === 'pessoal' && canAccess(d, req.user));
+  res.json({ demandas: filtered.map(serialize) });
 });
 
-// Contadores usados no resumo da tela Início.
+// Contadores usados no resumo da tela Início — só conta o quadro geral
+// (demandas pessoais não entram nos números públicos da tela Início).
 router.get('/summary', requireAuth, (req, res) => {
-  const all = db.get('demandas').value().filter((d) => !d.archived);
+  const all = db.get('demandas').value().filter((d) => !d.archived && d.visibility !== 'pessoal');
   const summary = { a_fazer: 0, andamento: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
   all.forEach((d) => {
     if (STATUSES.includes(d.status)) summary[d.status] += 1;
@@ -87,13 +111,14 @@ router.get('/summary', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
   const demanda = {
     id: nanoid(),
     title: title.trim(),
     description: description || '',
     status: STATUSES.includes(status) ? status : 'a_fazer',
+    visibility: VISIBILITIES.includes(visibility) ? visibility : 'geral',
     archived: false,
     dueDate: dueDate || null,
     assigneeIds: validUserIds(assigneeIds),

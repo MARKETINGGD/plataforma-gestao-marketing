@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 app.use(cors());
@@ -34,6 +35,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Handler de erro — garante que erro de upload (arquivo grande demais, etc.)
+// volta como JSON pro frontend em vez de uma página de erro quebrada.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'Esse arquivo é maior que o limite atual (1GB por arquivo). Tente um arquivo menor ou comprimido.' });
+    }
+    return res.status(400).json({ error: 'Não foi possível enviar o arquivo: ' + err.message });
+  }
+  if (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Erro inesperado no servidor.' });
+  }
+  next();
 });
 
 const PORT = process.env.PORT || 3000;

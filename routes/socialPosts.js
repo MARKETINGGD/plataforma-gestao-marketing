@@ -33,7 +33,8 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + '-' + safe);
   }
 });
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+// Limite alto pra caber vídeos e criativos grandes dos posts agendados.
+const upload = multer({ storage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB
 
 function findOr404(req, res) {
   const post = db.get('socialPosts').find({ id: req.params.id }).value();

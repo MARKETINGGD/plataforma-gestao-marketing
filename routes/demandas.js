@@ -73,7 +73,8 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + '-' + safe);
   }
 });
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+// Limite alto pra caber vídeos e arquivos grandes de criativo, não só documentos.
+const upload = multer({ storage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB
 
 function findOr404(req, res) {
   const demanda = db.get('demandas').find({ id: req.params.id }).value();

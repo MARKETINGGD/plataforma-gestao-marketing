@@ -1,6 +1,18 @@
 :root{
-  --primary:#0f9d78;
-  --primary-dark:#0b7a5c;
+  /* Cores da marca Papoi (16/09, 9ª rodada) — extraídas do degradê da
+     logo: roxo/pink -> azul -> ciano -> laranja. --primary é o tom usado
+     em botões/estados normais (âncora do degradê); --brand-gradient é o
+     degradê completo, usado em botões primários e no item ativo da barra
+     lateral, pra realmente "trazer a marca" sem exagerar num degradê em
+     cada cantinho da tela. */
+  --primary:#6D63E0;
+  --primary-dark:#5148C4;
+  --brand-pink:#8C6FE0;
+  --brand-blue:#6C7EF2;
+  --brand-cyan:#6FA9FE;
+  --brand-orange:#FB9B18;
+  --brand-orange-dark:#FB5A2E;
+  --brand-gradient:linear-gradient(100deg,var(--brand-pink) 0%,var(--brand-blue) 30%,var(--brand-cyan) 55%,var(--brand-orange) 85%,var(--brand-orange-dark) 100%);
   --bg:#f5f7f6;
   --card:#ffffff;
   --border:#e2e6e4;
@@ -11,10 +23,17 @@
 *{box-sizing:border-box;}
 body{
   margin:0;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-family:Arial,Helvetica,sans-serif;
   background:var(--bg);
   color:var(--text);
 }
+/* Pedido da Raquel: Arial bold em títulos e botões, Arial normal no
+   resto do texto. Formulários já herdavam font-family; os outros
+   controles (button/select/textarea) não herdam por padrão em todo
+   navegador, então força aqui. */
+button,input,select,textarea{font-family:inherit;}
+h1,h2,h3,h4,h5,h6{font-weight:700;}
+button{font-weight:700;}
 .screen{min-height:100vh;}
 .center{display:flex;align-items:center;justify-content:center;padding:24px;}
 .muted{color:var(--muted);}
@@ -31,9 +50,9 @@ body{
 .auth-card input{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;}
 .btn-primary{
   margin-top:18px;width:100%;padding:10px;border:none;border-radius:8px;
-  background:var(--primary);color:#fff;font-size:14px;font-weight:600;cursor:pointer;
+  background:var(--brand-gradient);color:#fff;font-size:14px;cursor:pointer;
 }
-.btn-primary:hover{background:var(--primary-dark);}
+.btn-primary:hover{filter:brightness(0.93);}
 .btn-secondary{
   padding:10px 16px;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-size:14px;
 }
@@ -44,20 +63,20 @@ body{
 
 .sidebar{
   width:250px;flex:0 0 250px;
-  background:#20272e;color:#fff;
+  background:#1c1830;color:#fff;
   display:flex;flex-direction:column;
   position:sticky;top:0;height:100vh;overflow-y:auto;
 }
-.sidebar-brand{padding:20px 18px;line-height:1.3;border-bottom:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;gap:3px;}
-.sidebar-brand-name{font-weight:800;font-size:22px;letter-spacing:.5px;color:#fff;}
-.sidebar-brand-sub{font-weight:500;font-size:12px;color:rgba(255,255,255,.65);}
+.sidebar-brand{padding:20px 18px;line-height:1.3;border-bottom:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;gap:6px;}
+.sidebar-brand-logo{width:128px;height:auto;display:block;}
+.sidebar-brand-sub{font-weight:400;font-size:12px;color:rgba(255,255,255,.65);}
 .sidebar-nav{display:flex;flex-direction:column;padding:10px;gap:2px;flex:1;}
 .navlink{
   background:none;border:none;padding:10px 12px;border-radius:8px;cursor:pointer;
   font-size:13.5px;color:rgba(255,255,255,.82);text-align:left;line-height:1.3;
 }
 .navlink:hover{background:rgba(255,255,255,.08);color:#fff;}
-.navlink.active{background:var(--primary);color:#fff;font-weight:600;}
+.navlink.active{background:var(--brand-gradient);color:#fff;}
 .sidebar-footer{padding:14px 18px;border-top:1px solid rgba(255,255,255,.08);}
 .sidebar-user{display:flex;flex-direction:column;gap:6px;font-size:13px;}
 .sidebar-user-name{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -76,7 +95,7 @@ body{
 }
 .dash-card h3{margin:0;}
 .dash-card p{margin:0;color:var(--muted);font-size:13px;flex:1;}
-.dash-card .tag{font-size:11px;color:var(--primary-dark);background:#e8f5f0;padding:2px 8px;border-radius:999px;width:fit-content;}
+.dash-card .tag{font-size:11px;color:var(--primary-dark);background:#EFEBFC;padding:2px 8px;border-radius:999px;width:fit-content;}
 .dash-card button{
   margin-top:8px;padding:8px 12px;border:none;border-radius:8px;background:var(--primary);color:#fff;cursor:pointer;font-size:13px;
 }
@@ -236,7 +255,7 @@ body{
 .cal-day-num{font-size:12px;font-weight:700;color:var(--muted);}
 .cal-day.today .cal-day-num{color:var(--primary-dark);}
 .cal-post-chip{font-size:10.5px;line-height:1.35;background:var(--bg);border-radius:6px;padding:3px 5px;cursor:pointer;text-align:left;border:none;color:var(--text);}
-.cal-post-chip:hover{background:#e8f5f0;}
+.cal-post-chip:hover{background:#EFEBFC;}
 .cal-post-chip b{display:block;font-weight:700;}
 .cal-post-tags{display:flex;gap:3px;margin-top:2px;}
 .cal-post-tag{width:8px;height:8px;border-radius:2px;flex:0 0 auto;}

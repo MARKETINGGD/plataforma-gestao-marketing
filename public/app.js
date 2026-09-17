@@ -309,6 +309,7 @@
     await loadHome();
     showView('home');
     setActiveNav('navHome');
+    startRecadoSoundWatcher();
   }
 
   $('#setupSubmit').onclick = async () => {
@@ -472,6 +473,46 @@
         $('#statBudgetDiferenca').textContent = fmtMoney(totalReal - totalPlan);
       } catch (e) { /* sem acesso */ }
     }
+  }
+
+  // ---------- Som ao receber um recado novo (16ª rodada) ----------
+  // Pedido da Raquel: toda vez que um recado novo é adicionado pra ela,
+  // tocar um sinal sonoro. Não dá pra gerar um áudio "com a voz dos
+  // Minions" (é uma voz de personagem protegida por direitos autorais da
+  // Illumination/Universal) — a Raquel vai mandar o arquivo de áudio que
+  // ela quiser usar (mp3/wav), que entra em `public/sounds/recado.mp3`.
+  // O mecanismo já fica pronto: enquanto o arquivo não existir, o
+  // navegador só falha a tocar em silêncio (capturado no catch), sem
+  // travar nada nem mostrar erro pra quem está usando a Plataforma.
+  let recadoSoundSeenIds = null;
+  let recadoSoundTimer = null;
+  const recadoAudio = new Audio('/sounds/recado.mp3');
+  function playRecadoSound() {
+    try {
+      recadoAudio.currentTime = 0;
+      recadoAudio.play().catch(() => { /* autoplay bloqueado ou arquivo ainda não enviado */ });
+    } catch (e) { /* ignora */ }
+  }
+  async function checkNewRecados() {
+    try {
+      const data = await api('/api/recados/for-me');
+      const ids = new Set(data.recados.map((r) => r.id));
+      if (recadoSoundSeenIds === null) {
+        // Primeira checagem da sessão: só define a base, sem tocar som —
+        // senão tocaria pra recados que já estavam esperando de antes do
+        // login, e a ideia é avisar sobre o que chega NOVO durante o uso.
+        recadoSoundSeenIds = ids;
+        return;
+      }
+      const temRecadoNovo = [...ids].some((id) => !recadoSoundSeenIds.has(id));
+      if (temRecadoNovo) playRecadoSound();
+      recadoSoundSeenIds = ids;
+    } catch (e) { /* ignora falha de rede pontual */ }
+  }
+  function startRecadoSoundWatcher() {
+    checkNewRecados();
+    if (recadoSoundTimer) clearInterval(recadoSoundTimer);
+    recadoSoundTimer = setInterval(checkNewRecados, 20000);
   }
 
   // ---------- Recados (mural da tela Início) ----------
@@ -939,6 +980,7 @@
             ${total > 0 ? `<span class="badge">✓ ${doneCount}/${total}</span>` : ''}
             ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
           </div>
+          ${d.createdByName ? `<div class="kanban-card-creator">Criado por: ${d.createdByName}</div>` : ''}
         `;
         if (d.color) {
           // Tom claro (mistura com branco) pra manter o texto legível — a
@@ -2081,12 +2123,18 @@
 
       const accountLabel = SOCIAL_PLATFORM_LABEL[p.platform] || p.platform;
       const initial = ((currentUser && (currentUser.name || currentUser.username)) || 'P').slice(0, 1).toUpperCase();
+      // Formato de cada rede (pedido da Raquel, 16ª rodada): Feed Insta em
+      // 1080x1440, Feed LinkedIn em 1080x1350 — mostrado como referência
+      // pra quem está montando o criativo, além de já bater com a
+      // proporção do preview (ver .feed-preview-media no CSS).
+      const formatLabel = isLinkedin ? 'Feed LinkedIn · formato 1080×1350' : `Feed ${accountLabel} · formato 1080×1440`;
       const header = `
         <div class="feed-preview-header">
           <div class="feed-preview-avatar">${initial}</div>
           <div class="feed-preview-headtext">
             <span class="feed-preview-account">${p.createdByName || accountLabel}</span>
             <span class="feed-preview-meta">${fmtDate(p.scheduledDate)}${p.scheduledTime ? ' · ' + p.scheduledTime : ''} · ${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}</span>
+            <span class="feed-preview-format">${formatLabel}</span>
           </div>
         </div>`;
       const captionHtml = `<div class="feed-preview-caption"><b>${p.createdByName || accountLabel}</b> ${p.caption || '(sem legenda)'}</div>`;

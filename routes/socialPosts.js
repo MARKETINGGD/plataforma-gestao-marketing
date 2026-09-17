@@ -95,7 +95,7 @@ function changeSuggestionsMeta(newText, previousText, req) {
   const text = (newText || '').trim();
   if (text === (previousText || '').trim()) return {};
   if (!text) return { changeSuggestionsBy: '', changeSuggestionsAt: null };
-  return { changeSuggestionsBy: req.user.username, changeSuggestionsAt: new Date().toISOString() };
+  return { changeSuggestionsBy: req.user.name, changeSuggestionsAt: new Date().toISOString() };
 }
 
 // Só gerente, coordenador(a) ou admin da plataforma podem aprovar/reprovar
@@ -142,7 +142,7 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
       sourceSocialPostId: post.id,
       createdAt: new Date().toISOString(),
       createdBy: req.user.id,
-      createdByName: req.user.username,
+      createdByName: req.user.name,
       updatedAt: new Date().toISOString()
     };
     db.get('demandas').push(demanda).write();
@@ -253,7 +253,7 @@ router.post('/', requireAuth, (req, res) => {
     scriptFile: null,
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
-    createdByName: req.user.username,
+    createdByName: req.user.name,
     updatedAt: new Date().toISOString()
   }, changeSuggestionsMeta(changeSuggestions, '', req));
   db.get('socialPosts').push(post).write();
@@ -310,7 +310,7 @@ router.put('/:id/approval', requireAuth, (req, res) => {
   const updates = {
     approvalStatus,
     approvalNotes: approvalStatus === 'reprovado' ? (approvalNotes || '') : '',
-    approvedByName: approvalStatus === 'pendente' ? '' : req.user.username,
+    approvedByName: approvalStatus === 'pendente' ? '' : req.user.name,
     approvedAt: approvalStatus === 'pendente' ? null : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };

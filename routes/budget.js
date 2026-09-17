@@ -73,7 +73,7 @@ router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
     notes: notes || '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    updatedBy: req.user.username
+    updatedBy: req.user.name
   };
   db.get('budgetEntries').push(entry).write();
   logAudit({ user: req.user, entityType: 'budgetEntry', entityId: entry.id, entityLabel: `${brand} · ${category} · ${month}/${year}`, action: 'create' });
@@ -86,7 +86,7 @@ router.put('/:id', requireAuth, requireBudgetEdit, (req, res) => {
   const { brand, category, year, month, planejado, realizado, notes } = req.body || {};
   const updates = {
     updatedAt: new Date().toISOString(),
-    updatedBy: req.user.username
+    updatedBy: req.user.name
   };
   if (brand !== undefined) updates.brand = brand;
   if (category !== undefined) updates.category = category;

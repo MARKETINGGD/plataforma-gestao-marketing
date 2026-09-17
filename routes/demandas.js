@@ -156,7 +156,7 @@ router.post('/', requireAuth, (req, res) => {
     files: [],
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
-    createdByName: req.user.username,
+    createdByName: req.user.name,
     updatedAt: new Date().toISOString()
   };
   db.get('demandas').push(demanda).write();
@@ -262,7 +262,7 @@ router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
     url: `/uploads/demandas/${req.params.id}/${req.file.filename}`,
     size: req.file.size,
     uploadedAt: new Date().toISOString(),
-    uploadedByName: req.user.username
+    uploadedByName: req.user.name
   };
   const files = [...(demanda.files || []), fileMeta];
   db.get('demandas').find({ id: req.params.id }).assign({ files, updatedAt: new Date().toISOString() }).write();

@@ -171,7 +171,7 @@ router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
     motivo: motivo || '',
     obs: obs || '',
     createdAt: new Date().toISOString(),
-    createdByName: req.user.username
+    createdByName: req.user.name
   };
   db.get('brindesLog').push(row).write();
   logAudit({ user: req.user, entityType: 'brindeSaida', entityId: row.id, entityLabel: `${row.item} · ${row.quantidade}`, action: 'create' });

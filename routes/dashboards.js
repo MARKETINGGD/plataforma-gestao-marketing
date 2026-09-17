@@ -1,7 +1,9 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth, JWT_SECRET } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -64,6 +66,66 @@ router.get('/launch/:key', requireAuth, (req, res) => {
 
   const url = `${dashboard.url}/?platformToken=${encodeURIComponent(handoffToken)}&platformUser=${encodeURIComponent(JSON.stringify(handoffUser))}`;
   res.json({ url });
+});
+
+// ---------- link externo (por dashboard, 28ª rodada) ----------
+// Mesmo padrão do link externo dos Influencers: um token por dashboard,
+// qualquer pessoa com o link acessa sem login e sem conta na Plataforma —
+// pensado pra gente de fora (fora da equipe) acompanhar Mídias/Tráfego.
+// Quem abre o link entra como "Visitante" (role 'none': só leitura — cada
+// dashboard de destino barra escrita pra esse role, ver blockViewerWrites).
+//
+// As rotas /public/:token e /public/:token/launch ficam ANTES das rotas
+// autenticadas abaixo, sem requireAuth, seguindo o mesmo padrão de
+// routes/influencers.js.
+router.get('/public/:token', (req, res) => {
+  const link = db.get('dashboardPublicLinks').find({ token: req.params.token }).value();
+  if (!link) return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const dashboard = DASHBOARDS.find((d) => d.key === link.key);
+  if (!dashboard) return res.status(404).json({ error: 'Dashboard não encontrado.' });
+  res.json({ key: dashboard.key, label: dashboard.label, url: dashboard.url });
+});
+
+router.get('/public/:token/launch', (req, res) => {
+  const link = db.get('dashboardPublicLinks').find({ token: req.params.token }).value();
+  if (!link) return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const dashboard = DASHBOARDS.find((d) => d.key === link.key);
+  if (!dashboard) return res.status(404).json({ error: 'Dashboard não encontrado.' });
+  if (!dashboard.url) return res.status(500).json({ error: `URL do dashboard "${dashboard.label}" ainda não foi configurada na plataforma.` });
+
+  const handoffUser = { id: 'visitante-' + dashboard.key, username: 'Visitante', role: 'none' };
+  const handoffToken = jwt.sign(handoffUser, JWT_SECRET, { expiresIn: '30d' });
+  const publicUrl = `${dashboard.url}/?platformToken=${encodeURIComponent(handoffToken)}&platformUser=${encodeURIComponent(JSON.stringify(handoffUser))}`;
+  res.json({ url: publicUrl });
+});
+
+router.get('/:key/public-link', requireAuth, (req, res) => {
+  const dashboard = DASHBOARDS.find((d) => d.key === req.params.key);
+  if (!dashboard) return res.status(404).json({ error: 'Dashboard não encontrado.' });
+  const link = db.get('dashboardPublicLinks').find({ key: dashboard.key }).value();
+  res.json({ publicToken: link ? link.token : null });
+});
+
+router.post('/:key/public-link/generate', requireAuth, (req, res) => {
+  const dashboard = DASHBOARDS.find((d) => d.key === req.params.key);
+  if (!dashboard) return res.status(404).json({ error: 'Dashboard não encontrado.' });
+  const token = crypto.randomBytes(20).toString('hex');
+  const existing = db.get('dashboardPublicLinks').find({ key: dashboard.key }).value();
+  if (existing) {
+    db.get('dashboardPublicLinks').find({ key: dashboard.key }).assign({ token, createdAt: new Date().toISOString(), createdBy: req.user.id }).write();
+  } else {
+    db.get('dashboardPublicLinks').push({ key: dashboard.key, token, createdAt: new Date().toISOString(), createdBy: req.user.id }).write();
+  }
+  logAudit({ user: req.user, entityType: 'dashboardPublicLink', entityId: dashboard.key, entityLabel: dashboard.label, action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+
+router.delete('/:key/public-link', requireAuth, (req, res) => {
+  const dashboard = DASHBOARDS.find((d) => d.key === req.params.key);
+  if (!dashboard) return res.status(404).json({ error: 'Dashboard não encontrado.' });
+  db.get('dashboardPublicLinks').remove({ key: dashboard.key }).write();
+  logAudit({ user: req.user, entityType: 'dashboardPublicLink', entityId: dashboard.key, entityLabel: dashboard.label, action: 'revoke_public_link' });
+  res.json({ ok: true });
 });
 
 module.exports = router;

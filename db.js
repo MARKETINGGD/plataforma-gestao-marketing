@@ -37,7 +37,12 @@ db.defaults({
   influencerPosts: [],
   // Chat da Equipe (18ª rodada) — mural único de conversa, visível pra
   // qualquer pessoa logada na Plataforma (não são conversas privadas).
-  chatMessages: []
+  chatMessages: [],
+  // Link externo por dashboard (28ª rodada) — igual ao link externo dos
+  // Influencers: um token por dashboard (Mídias, Tráfego Pago), pra gente
+  // de fora acompanhar sem precisar de conta na Plataforma. Um registro
+  // por dashboard, upsert por 'key' (ver routes/dashboards.js).
+  dashboardPublicLinks: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

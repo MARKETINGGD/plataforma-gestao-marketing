@@ -119,6 +119,18 @@
 
     <main class="content">
 
+      <!-- Topo simples do "modo público" (28ª rodada, link externo de
+           Mídias/Tráfego) -- some no lugar da barra lateral (escondida via
+           .public-hub-mode no style.css), só pra identificar de onde vêm os
+           dados; some completamente pra quem está logado normalmente. -->
+      <div id="publicHubTopbar" hidden style="display:flex;align-items:center;gap:10px;padding:6px 0 18px;border-bottom:1px solid var(--border);margin-bottom:18px;">
+        <img src="/img/papoi-logo.png" alt="Papoi" style="width:90px;height:auto;">
+        <div>
+          <div style="font-weight:600;" id="publicHubTopbarLabel"></div>
+          <div class="muted" style="font-size:12px;">Visualização externa — somente leitura</div>
+        </div>
+      </div>
+
       <section id="view-home" class="view">
         <div class="home-header-row">
           <p class="home-greeting" id="homeGreeting">Resumo geral</p>
@@ -353,9 +365,29 @@
       <section id="view-midias-hub" class="view" hidden>
         <div class="view-toolbar">
           <h2>Gerenciamento de Mídias</h2>
-          <div class="view-toolbar-actions" id="midiasBrandSwitch"></div>
+          <div class="view-toolbar-actions" style="align-items:center;">
+            <div id="midiasBrandSwitch" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+            <button class="btn-secondary" id="midiasHubPublicLinkBtn">Link externo</button>
+          </div>
         </div>
         <p class="muted" id="midiasHubHint">Carregando…</p>
+
+        <!-- Link externo do hub de Mídias (28ª rodada) -- mesmo padrão do
+             link externo por influencer, só que dá acesso a TODAS as redes
+             + a Visão Geral, não a 1 item só. -->
+        <div id="midiasPublicLinkPanel" class="form-card" hidden>
+          <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link acessa todas as redes e a Visão Geral do Gerenciamento de Mídias, mesmo sem estar logada na plataforma.</p>
+          <div id="midiasPublicLinkActive" hidden>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" id="midiasPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+              <button class="btn-secondary" id="midiasCopyLinkBtn">Copiar link</button>
+              <button class="btn-secondary" id="midiasRegenLinkBtn">Gerar novo link</button>
+              <button class="btn-secondary danger" id="midiasRevokeLinkBtn">Desativar</button>
+            </div>
+          </div>
+          <button class="btn-primary" id="midiasGenLinkBtn">Gerar link externo</button>
+        </div>
+
         <div id="midiasHubOverviewCard"></div>
         <div id="midiasHubGroups"></div>
       </section>
@@ -385,9 +417,30 @@
       <section id="view-trafego-hub" class="view" hidden>
         <div class="view-toolbar">
           <h2>Gerenciamento de Tráfego Pago</h2>
-          <div class="view-toolbar-actions" id="trafegoBrandSwitch"></div>
+          <div class="view-toolbar-actions" style="align-items:center;">
+            <div id="trafegoBrandSwitch" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+            <button class="btn-secondary" id="trafegoHubPublicLinkBtn">Link externo</button>
+          </div>
         </div>
         <p class="muted">Escolha uma seção do painel de Tráfego Pago pra abrir.</p>
+
+        <!-- Link externo do hub de Tráfego Pago (28ª rodada) -- dá acesso a
+             TODAS as seções, incluindo Histórico de alterações (pedido
+             explícito da Raquel, mesmo sabendo que isso mostra nomes de
+             usuário da equipe ligados às ações). -->
+        <div id="trafegoPublicLinkPanel" class="form-card" hidden>
+          <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link acessa todas as seções do Gerenciamento de Tráfego Pago, incluindo o Histórico de alterações, mesmo sem estar logada na plataforma.</p>
+          <div id="trafegoPublicLinkActive" hidden>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" id="trafegoPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+              <button class="btn-secondary" id="trafegoCopyLinkBtn">Copiar link</button>
+              <button class="btn-secondary" id="trafegoRegenLinkBtn">Gerar novo link</button>
+              <button class="btn-secondary danger" id="trafegoRevokeLinkBtn">Desativar</button>
+            </div>
+          </div>
+          <button class="btn-primary" id="trafegoGenLinkBtn">Gerar link externo</button>
+        </div>
+
         <div id="trafegoHubGroups"></div>
       </section>
 

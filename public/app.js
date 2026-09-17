@@ -2,6 +2,12 @@
   let token = localStorage.getItem('token') || null;
   let currentUser = null;
   let dashboardsByKey = {};
+  // Link externo por dashboard (28ª rodada) — quando a página é aberta com
+  // ?dashboardPublic=<token>, entra em "modo público": sem login, mostra só
+  // o hub daquele dashboard (Mídias ou Tráfego), com a barra lateral da
+  // Papoi escondida (ver .public-hub-mode no style.css).
+  let dashboardPublicToken = null;
+  let dashboardPublicKey = null; // 'redesSociais' | 'trafegoPago'
   let budgetAccess = 'none';
   let budgetEntries = [];
   let budgetFluxosByBrand = {};
@@ -420,6 +426,37 @@
     }
   }
 
+  // Link externo por dashboard (28ª rodada) — mesmo espírito do link do
+  // influencer, mas pro hub inteiro de Mídias ou Tráfego. Resolve o token
+  // (GET /api/dashboards/public/:token, sem login), reaproveita a MESMA tela
+  // autenticada (#screen-app) — só esconde a barra lateral da Papoi (classe
+  // public-hub-mode) e mostra um topo simples no lugar dela — e abre direto
+  // o hub daquele dashboard, já em "modo visitante" (sem os controles de
+  // Link externo, que só fazem sentido pra quem está logado).
+  async function startDashboardPublicMode(pubToken) {
+    dashboardPublicToken = pubToken;
+    try {
+      const res = await fetch('/api/dashboards/public/' + encodeURIComponent(pubToken));
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Link inválido ou desativado.');
+      dashboardPublicKey = body.key;
+      dashboardsByKey[body.key] = body;
+      $('.app-shell').classList.add('public-hub-mode');
+      $('#publicHubTopbar').hidden = false;
+      $('#publicHubTopbarLabel').textContent = body.label;
+      showScreen('app');
+      if (body.key === 'redesSociais') {
+        await openMidiasHub();
+      } else if (body.key === 'trafegoPago') {
+        openTrafegoHub();
+      } else {
+        throw new Error('Este link externo ainda não é compatível com esta tela.');
+      }
+    } catch (e) {
+      $('#screen-loading p').textContent = e.message || 'Link inválido ou desativado.';
+    }
+  }
+
   async function boot() {
     // Link externo por influencer (14ª rodada) — não exige login, funciona
     // pra quem não está dentro da plataforma. Checa antes de qualquer coisa.
@@ -427,6 +464,14 @@
     if (pubToken) {
       showScreen('loading');
       await loadInfluencerPublicPage(pubToken);
+      return;
+    }
+    // Link externo por dashboard — Mídias/Tráfego (28ª rodada) — mesma ideia,
+    // pra quem acompanha de fora sem ter conta na Plataforma.
+    const dashPubToken = new URLSearchParams(window.location.search).get('dashboardPublic');
+    if (dashPubToken) {
+      showScreen('loading');
+      await startDashboardPublicMode(dashPubToken);
       return;
     }
     if (token) {
@@ -1261,6 +1306,36 @@
   });
 
   // ---------- dashboards embutidos ----------
+  // Carrega dashboardsByKey[key] tanto no modo normal (logado, via
+  // GET /api/dashboards) quanto no modo público do link externo (28ª
+  // rodada, via GET /api/dashboards/public/:token, sem login).
+  async function ensureDashboardMeta(key) {
+    if (dashboardsByKey[key]) return dashboardsByKey[key];
+    if (dashboardPublicToken) {
+      const res = await fetch('/api/dashboards/public/' + encodeURIComponent(dashboardPublicToken));
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Link inválido ou desativado.');
+      dashboardsByKey[body.key] = body;
+    } else {
+      const data = await api('/api/dashboards');
+      data.dashboards.forEach((d) => { dashboardsByKey[d.key] = d; });
+    }
+    return dashboardsByKey[key];
+  }
+
+  // Gera a URL de login único pro dashboard de destino — no modo público usa
+  // o launch SEM login do link externo (28ª rodada), que entra como
+  // "Visitante" (role 'none', só leitura).
+  async function dashboardLaunch(key) {
+    if (dashboardPublicToken) {
+      const res = await fetch('/api/dashboards/public/' + encodeURIComponent(dashboardPublicToken) + '/launch');
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Link inválido ou desativado.');
+      return body;
+    }
+    return api('/api/dashboards/launch/' + key);
+  }
+
   async function openDashboard(key) {
     try {
       const d = dashboardsByKey[key];
@@ -1301,10 +1376,7 @@
 
   async function loadMidiasMeta() {
     if (midiasMeta) return midiasMeta;
-    if (!dashboardsByKey.redesSociais) {
-      const data = await api('/api/dashboards');
-      data.dashboards.forEach((d) => { dashboardsByKey[d.key] = d; });
-    }
+    await ensureDashboardMeta('redesSociais');
     const baseUrl = (dashboardsByKey.redesSociais || {}).url;
     if (!baseUrl) throw new Error('URL do Gerenciamento de Mídias ainda não foi configurada.');
     const res = await fetch(baseUrl.replace(/\/$/, '') + '/api/public/channels');
@@ -1318,6 +1390,11 @@
     $('#midiasHubHint').textContent = 'Carregando…';
     $('#midiasHubOverviewCard').innerHTML = '';
     $('#midiasHubGroups').innerHTML = '';
+    // O botão/painel de "Link externo" só faz sentido pra quem está logado
+    // gerenciando o link — quem já entrou POR um link externo não deve ver
+    // esses controles (28ª rodada).
+    $('#midiasHubPublicLinkBtn').hidden = !!dashboardPublicToken;
+    if (dashboardPublicToken) $('#midiasPublicLinkPanel').hidden = true;
     try {
       await loadMidiasMeta();
       $('#midiasHubHint').textContent = 'Escolha uma rede pra ver o painel completo, ou abra a Visão Geral pra comparar todas de uma vez.';
@@ -1383,7 +1460,7 @@
     midiasHistoryMode = !!historyMode;
     try {
       await loadMidiasMeta();
-      const data = await api('/api/dashboards/launch/redesSociais');
+      const data = await dashboardLaunch('redesSociais');
       // O launch devolve a URL já com o token de login único (?platformToken=...);
       // a base (sem querystring) é o que precisamos pra montar os parâmetros de
       // navegação por cima — o app de Redes Sociais lê os dois juntos no boot.
@@ -1441,6 +1518,10 @@
 
   function openTrafegoHub() {
     showView('trafego-hub');
+    // Mesmo cuidado do Mídias: some com os controles de "Link externo" pra
+    // quem já entrou por um link externo (28ª rodada).
+    $('#trafegoHubPublicLinkBtn').hidden = !!dashboardPublicToken;
+    if (dashboardPublicToken) $('#trafegoPublicLinkPanel').hidden = true;
     renderTrafegoBrandSwitch();
     renderTrafegoHubBody();
   }
@@ -1473,7 +1554,7 @@
 
   async function openTrafegoSection(sectionId) {
     try {
-      const data = await api('/api/dashboards/launch/trafegoPago');
+      const data = await dashboardLaunch('trafegoPago');
       // O launch devolve a URL ja com o token de login unico (?platformToken=...);
       // a base (sem querystring) e o que precisamos pra montar os parametros de
       // navegacao por cima — o painel de Trafego Pago le os dois juntos no boot.
@@ -4127,6 +4208,53 @@
     field.select();
     navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
   };
+
+  // ---------- link externo por dashboard (28ª rodada) ----------
+  // Mesmo padrão do link externo do influencer, só que 1 link por dashboard
+  // inteiro (Mídias ou Tráfego) em vez de por item cadastrado — por isso os
+  // ids/rotas usam a "chave" do dashboard (redesSociais/trafegoPago) em vez
+  // de um id de registro.
+  function setupDashboardPublicLink(dashKey, prefix) {
+    $('#' + prefix + 'HubPublicLinkBtn').onclick = async () => {
+      const panel = $('#' + prefix + 'PublicLinkPanel');
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) await refresh();
+    };
+    async function refresh() {
+      try {
+        const data = await api('/api/dashboards/' + dashKey + '/public-link');
+        setUI(data.publicToken);
+      } catch (e) { /* ignora */ }
+    }
+    function setUI(pubToken) {
+      const active = !!pubToken;
+      $('#' + prefix + 'PublicLinkActive').hidden = !active;
+      $('#' + prefix + 'GenLinkBtn').hidden = active;
+      if (active) {
+        $('#' + prefix + 'PublicLinkField').value = `${window.location.origin}/?dashboardPublic=${pubToken}`;
+      }
+    }
+    $('#' + prefix + 'GenLinkBtn').onclick = $('#' + prefix + 'RegenLinkBtn').onclick = async () => {
+      try {
+        const data = await api('/api/dashboards/' + dashKey + '/public-link/generate', { method: 'POST' });
+        setUI(data.publicToken);
+      } catch (e) { alert(e.message); }
+    };
+    $('#' + prefix + 'RevokeLinkBtn').onclick = async () => {
+      if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir acessar.')) return;
+      try {
+        await api('/api/dashboards/' + dashKey + '/public-link', { method: 'DELETE' });
+        setUI(null);
+      } catch (e) { alert(e.message); }
+    };
+    $('#' + prefix + 'CopyLinkBtn').onclick = () => {
+      const field = $('#' + prefix + 'PublicLinkField');
+      field.select();
+      navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+    };
+  }
+  setupDashboardPublicLink('redesSociais', 'midias');
+  setupDashboardPublicLink('trafegoPago', 'trafego');
 
   boot();
 })();

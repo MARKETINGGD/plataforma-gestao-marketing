@@ -133,6 +133,11 @@ button{font-weight:700;}
 
 .app-shell{display:flex;min-height:100vh;align-items:stretch;}
 
+/* Modo publico do link externo por dashboard (28a rodada, Midias/Trafego) --
+   esconde a barra lateral inteira da Papoi; o .content ja tem flex:1, entao
+   ocupa a largura toda sozinho sem precisar de mais nada aqui. */
+.app-shell.public-hub-mode .sidebar{display:none;}
+
 .sidebar{
   width:250px;flex:0 0 250px;
   background:#1c1830;color:#fff;

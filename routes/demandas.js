@@ -77,6 +77,34 @@ function validColor(color) {
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
 }
 
+// Link opcional da demanda (26ª rodada, pedido da Raquel: "ter onde colocar
+// link"). Só valida que é uma string não-vazia depois de aparada — não exige
+// http(s):// pra não travar quem cola um link de app interno ou atalho.
+function validLink(link) {
+  if (link === undefined || link === null) return null;
+  const trimmed = String(link).trim();
+  return trimmed ? trimmed : null;
+}
+
+// Título do checklist (26ª rodada, pedido da Raquel: "opção de dar um
+// titulo para o check list"). Vazio/ausente cai no nome padrão de sempre.
+function validChecklistTitle(title) {
+  const trimmed = (title === undefined || title === null) ? '' : String(title).trim();
+  return trimmed || 'Checklist';
+}
+
+// Sanitiza uma lista de itens de checklist vinda do cliente ao criar o card
+// (26ª rodada: agora dá pra montar o checklist ANTES de salvar o card pela
+// primeira vez, então o POST precisa aceitar os itens já montados no
+// rascunho). Gera um id novo do servidor pra cada item (nunca confia no id
+// que o rascunho local tiver usado) e descarta itens sem texto.
+function sanitizeChecklistInput(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((it) => ({ id: nanoid(), text: String((it || {}).text || '').trim(), done: !!(it || {}).done }))
+    .filter((it) => it.text);
+}
+
 // Ordem manual do card dentro das listas do quadro (21ª rodada, pedido da
 // Raquel: "os cards dentro das listas devem poder ser mudados de ordem ao
 // puxar"). Um número só, não por lista — como um card pode aparecer em mais
@@ -99,6 +127,8 @@ function serialize(d) {
     assigneeIds: d.assigneeIds || [],
     labelIds: d.labelIds || [],
     color: d.color || null,
+    link: d.link || null,
+    checklistTitle: d.checklistTitle || 'Checklist',
     recurring: !!d.recurring,
     overdue: isOverdue(d),
     order: cardOrder(d),
@@ -147,6 +177,12 @@ function describeChanges(before, updates) {
   }
   if (updates.recurring !== undefined && updates.recurring !== !!before.recurring) {
     parts.push(updates.recurring ? 'marcada como recorrente' : 'recorrência removida');
+  }
+  if (updates.link !== undefined && updates.link !== (before.link || null)) {
+    parts.push(updates.link ? 'link alterado' : 'link removido');
+  }
+  if (updates.checklistTitle !== undefined && updates.checklistTitle !== (before.checklistTitle || 'Checklist')) {
+    parts.push(`checklist renomeado para "${updates.checklistTitle}"`);
   }
   return parts.join('; ');
 }
@@ -233,7 +269,7 @@ router.get('/summary', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
   if (recurring && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
   const demanda = {
@@ -248,7 +284,12 @@ router.post('/', requireAuth, (req, res) => {
     assigneeIds: validUserIds(assigneeIds),
     labelIds: validLabelIds(labelIds),
     color: validColor(color),
-    checklist: [],
+    link: validLink(link),
+    checklistTitle: validChecklistTitle(checklistTitle),
+    // 26ª rodada: o checklist agora pode ser montado antes de o card existir
+    // (rascunho local no front) — o que chegar aqui já vira o checklist do
+    // card assim que ele é criado, em vez de nascer sempre vazio.
+    checklist: sanitizeChecklistInput(checklist),
     files: [],
     order: Date.now(),
     createdAt: new Date().toISOString(),
@@ -283,7 +324,7 @@ router.put('/reorder', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, link, checklistTitle } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
@@ -293,6 +334,8 @@ router.put('/:id', requireAuth, (req, res) => {
   if (labelIds !== undefined) updates.labelIds = validLabelIds(labelIds);
   if (color !== undefined) updates.color = validColor(color);
   if (recurring !== undefined) updates.recurring = !!recurring;
+  if (link !== undefined) updates.link = validLink(link);
+  if (checklistTitle !== undefined) updates.checklistTitle = validChecklistTitle(checklistTitle);
 
   // Recorrência (15ª rodada): se essa demanda é (ou está virando) recorrente,
   // precisa de data de entrega (é ela que define o "dia do mês"). Se o

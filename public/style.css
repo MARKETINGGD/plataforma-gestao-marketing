@@ -378,6 +378,9 @@ button{font-weight:700;}
 .modal-footer{display:flex;gap:8px;padding:14px 20px;border-top:1px solid var(--border);}
 .modal-footer .btn-primary{margin-top:0;width:auto;flex:1;}
 .modal-footer .btn-secondary{margin-top:0;}
+.checklist-title-row{margin-top:14px;}
+.checklist-title-input{font-weight:700;border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:100%;font-size:14px;font-family:inherit;}
+.checklist-title-input:hover,.checklist-title-input:focus{border-color:var(--border);background:var(--bg);}
 .checklist{display:flex;flex-direction:column;gap:4px;margin-top:4px;}
 .checklist-item{display:flex;align-items:center;justify-content:space-between;font-size:13.5px;background:var(--bg);border-radius:8px;padding:6px 10px;}
 .checklist-add{display:flex;gap:8px;margin-top:8px;}

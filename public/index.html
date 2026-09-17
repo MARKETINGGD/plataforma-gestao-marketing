@@ -845,7 +845,12 @@
       <label>Descrição / observações</label>
       <textarea id="demCardDescription" rows="3"></textarea>
 
-      <label>Checklist</label>
+      <label for="demCardLink">Link <span class="muted" style="font-weight:400;">(opcional)</span></label>
+      <input id="demCardLink" type="text" placeholder="https://...">
+
+      <div class="checklist-title-row">
+        <input id="demChecklistTitle" type="text" class="checklist-title-input" placeholder="Checklist" value="Checklist">
+      </div>
       <div id="demChecklistProgress" class="checklist-progress" hidden><div id="demChecklistProgressBar" class="checklist-progress-bar"></div></div>
       <div id="demChecklist" class="checklist"></div>
       <div class="checklist-add">
@@ -885,6 +890,7 @@
       <div id="labelManageList" class="label-manage-list"></div>
 
       <label>Nova etiqueta</label>
+      <p id="labelNewHint" class="muted" style="font-size:12px;margin:-6px 0 8px;"></p>
       <div class="label-new-row">
         <input id="labelNewName" type="text" placeholder="Nome da etiqueta (ex: Urgente)">
         <button id="labelNewAdd" class="btn-secondary">+ Criar</button>

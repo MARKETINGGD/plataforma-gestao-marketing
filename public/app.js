@@ -16,6 +16,12 @@
   let demandasArchived = [];
   let showingArchived = false;
   let editingDemandaId = null;
+  // Checklist "rascunho" de um card ainda não salvo (26ª rodada, pedido da
+  // Raquel: "ao cadastrar um card, o check lista deve ficar liberado já
+  // antes de salvar o card"). Só é usado enquanto editingDemandaId é null —
+  // assim que o card é criado, os itens vão junto no POST e a partir daí o
+  // checklist volta a ser mutado direto pela API, como sempre foi.
+  let draftChecklist = [];
   let labels = [];
   let labelSuggestedColors = [];
   let selectedAssigneeIds = new Set();
@@ -1886,6 +1892,7 @@
             ${(d.assigneeIds || []).length > 1 ? `<span class="badge">${d.assigneeIds.length} pessoas</span>` : ''}
             ${total > 0 ? `<span class="badge">✓ ${doneCount}/${total}</span>` : ''}
             ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
+            ${d.link ? '<span class="badge" title="Tem link">🔗</span>' : ''}
           </div>
           ${d.createdByName ? `<div class="kanban-card-creator">Criado por: ${d.createdByName}</div>` : ''}
         `;
@@ -1980,19 +1987,27 @@
   };
 
   function renderChecklist(demanda) {
+    // Card ainda não salvo (editingDemandaId null): trabalha em cima do
+    // rascunho local (draftChecklist), sem chamar a API — é o que libera o
+    // checklist antes de o card existir (26ª rodada).
+    const isDraft = !editingDemandaId;
     const wrap = $('#demChecklist');
     wrap.innerHTML = '';
-    const list = demanda.checklist || [];
+    const list = isDraft ? draftChecklist : (demanda.checklist || []);
     const done = list.filter((c) => c.done).length;
     $('#demChecklistProgress').hidden = list.length === 0;
     if (list.length > 0) {
       $('#demChecklistProgressBar').style.width = Math.round((done / list.length) * 100) + '%';
     }
-    (demanda.checklist || []).forEach((item) => {
+    list.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'checklist-item';
       row.innerHTML = `<label><input type="checkbox" ${item.done ? 'checked' : ''}> <span>${item.text}</span></label>`;
       row.querySelector('input').onchange = async (ev) => {
+        if (isDraft) {
+          item.done = ev.target.checked;
+          return;
+        }
         await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'PUT', body: JSON.stringify({ done: ev.target.checked }) });
         editingDemandaId = demanda.id;
         await refreshOpenDemanda();
@@ -2001,6 +2016,12 @@
       delBtn.textContent = '✕';
       delBtn.className = 'btn-link';
       delBtn.onclick = async () => {
+        if (isDraft) {
+          const idx = draftChecklist.indexOf(item);
+          if (idx !== -1) draftChecklist.splice(idx, 1);
+          renderChecklist(demanda);
+          return;
+        }
         await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'DELETE' });
         await refreshOpenDemanda();
       };
@@ -2060,14 +2081,24 @@
     });
   }
 
+  // Etiquetas pessoais (26ª rodada) só valem dentro da área pessoal de quem
+  // criou — no quadro geral, a lista de etiquetas (pra usar no card ou pra
+  // gerenciar) mostra só as globais, mesmo que o servidor também devolva as
+  // pessoais dessa pessoa (usadas em outro contexto).
+  function visibleLabelsForScope() {
+    if (demandasScope === 'pessoal') return labels;
+    return labels.filter((l) => !l.ownerId);
+  }
+
   function renderLabelChips() {
     const wrap = $('#demLabelList');
     wrap.innerHTML = '';
-    if (labels.length === 0) {
+    const scoped = visibleLabelsForScope();
+    if (scoped.length === 0) {
       wrap.innerHTML = '<span class="chip-empty">Nenhuma etiqueta ainda — clique em "gerenciar etiquetas" para criar.</span>';
       return;
     }
-    labels.forEach((l) => {
+    scoped.forEach((l) => {
       const chip = document.createElement('label');
       chip.className = 'chip-toggle label-chip' + (selectedLabelIds.has(l.id) ? ' active' : '');
       chip.style.background = l.color;
@@ -2101,6 +2132,8 @@
   function openDemandaModal(demanda) {
     editingDemandaId = demanda ? demanda.id : null;
     openDemandaCache = demanda;
+    // Card novo: começa sempre com o rascunho de checklist vazio (26ª rodada).
+    draftChecklist = [];
     selectedAssigneeIds = new Set(demanda ? (demanda.assigneeIds || []) : []);
     selectedLabelIds = new Set(demanda ? (demanda.labelIds || []) : []);
     selectedDemColor = demanda ? (demanda.color || null) : null;
@@ -2110,6 +2143,8 @@
     $('#demCardRecurring').checked = demanda ? !!demanda.recurring : false;
     $('#demCardRecurringHint').hidden = !$('#demCardRecurring').checked;
     $('#demCardDescription').value = demanda ? (demanda.description || '') : '';
+    $('#demCardLink').value = demanda ? (demanda.link || '') : '';
+    $('#demChecklistTitle').value = demanda ? (demanda.checklistTitle || 'Checklist') : 'Checklist';
     $('#demCardError').hidden = true;
     $('#demChecklistInput').value = '';
     $('#demFileInput').value = '';
@@ -2121,7 +2156,8 @@
     $('#demCardArchive').textContent = demanda && demanda.archived ? 'Desarquivar' : 'Arquivar';
     $('#demCardArchive').hidden = !demanda;
     $('#demCardDelete').hidden = !demanda;
-    $('#demChecklistAdd').parentElement.style.display = demanda ? '' : 'none';
+    // O checklist agora fica sempre liberado, mesmo num card ainda não
+    // salvo — os itens ficam no rascunho local até o Save (26ª rodada).
     $('#demFileInput').style.display = demanda ? '' : 'none';
     loadDemHistory(demanda ? demanda.id : null);
     $('#demandaModal').hidden = false;
@@ -2139,8 +2175,16 @@
       assigneeIds: Array.from(selectedAssigneeIds),
       labelIds: Array.from(selectedLabelIds),
       color: selectedDemColor,
+      link: $('#demCardLink').value.trim() || null,
+      checklistTitle: $('#demChecklistTitle').value.trim() || 'Checklist',
       visibility: demandasScope
     };
+    // Card novo: manda junto os itens de checklist montados no rascunho
+    // antes de salvar (26ª rodada) — daí em diante o checklist passa a ser
+    // mutado pela API normalmente, como qualquer card já existente.
+    if (!editingDemandaId) {
+      payload.checklist = draftChecklist;
+    }
     if (!payload.title) {
       $('#demCardError').textContent = 'Dê um título para a demanda.';
       $('#demCardError').hidden = false;
@@ -2183,7 +2227,15 @@
 
   $('#demChecklistAdd').onclick = async () => {
     const text = $('#demChecklistInput').value.trim();
-    if (!text || !editingDemandaId) return;
+    if (!text) return;
+    if (!editingDemandaId) {
+      // Card ainda não salvo: guarda no rascunho local (26ª rodada) — vai
+      // junto no payload quando o card for salvo pela primeira vez.
+      draftChecklist.push({ text, done: false });
+      $('#demChecklistInput').value = '';
+      renderChecklist({ checklist: draftChecklist });
+      return;
+    }
     await api(`/api/demandas/${editingDemandaId}/checklist`, { method: 'POST', body: JSON.stringify({ text }) });
     $('#demChecklistInput').value = '';
     await refreshOpenDemanda();
@@ -2235,14 +2287,15 @@
   function renderLabelManageList() {
     const wrap = $('#labelManageList');
     wrap.innerHTML = '';
-    if (labels.length === 0) {
+    const scoped = visibleLabelsForScope();
+    if (scoped.length === 0) {
       wrap.innerHTML = '<span class="chip-empty">Nenhuma etiqueta criada ainda.</span>';
       return;
     }
-    labels.forEach((l) => {
+    scoped.forEach((l) => {
       const row = document.createElement('div');
       row.className = 'label-manage-row';
-      row.innerHTML = `<span class="label-color-dot" style="background:${l.color}"></span>`;
+      row.innerHTML = `<span class="label-color-dot" style="background:${l.color}"></span>${l.ownerId ? '<span class="badge badge-muted" title="Só aparece na sua área pessoal">pessoal</span>' : ''}`;
       const nameInput = document.createElement('input');
       nameInput.type = 'text';
       nameInput.value = l.name;
@@ -2289,6 +2342,12 @@
     editingLabelColor = labelSuggestedColors[labels.length % (labelSuggestedColors.length || 1)] || '#0079bf';
     $('#labelNewName').value = '';
     $('#labelModalError').hidden = true;
+    // Etiquetas pessoais (26ª rodada): quem abre o gerenciador a partir da
+    // área pessoal cria etiquetas que só aparecem lá — sem checkbox extra,
+    // o próprio contexto (aba ativa) já decide.
+    $('#labelNewHint').textContent = demandasScope === 'pessoal'
+      ? 'Etiquetas criadas aqui aparecem só na sua área pessoal.'
+      : 'Etiquetas criadas aqui aparecem no quadro geral, pra todo mundo.';
     renderLabelManageList();
     renderColorSwatches();
     $('#labelModal').hidden = false;
@@ -2305,7 +2364,7 @@
       return;
     }
     try {
-      await api('/api/labels', { method: 'POST', body: JSON.stringify({ name, color: editingLabelColor }) });
+      await api('/api/labels', { method: 'POST', body: JSON.stringify({ name, color: editingLabelColor, personal: demandasScope === 'pessoal' }) });
       $('#labelNewName').value = '';
       await refreshLabels();
     } catch (e) {

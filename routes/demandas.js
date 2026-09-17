@@ -268,6 +268,26 @@ router.get('/summary', requireAuth, (req, res) => {
   res.json({ summary });
 });
 
+// "REIS DO MARKETING" (28ª rodada, pedido da Raquel) — ranking de quem mais
+// concluiu demandas NESTE mês, pra mostrar na tela Início com foto e coroa
+// pro 1º lugar. Conta uma demanda concluída pra cada responsável dela
+// (assigneeIds) -- se o card é de mais de uma pessoa, todas ganham o ponto.
+// Usa `updatedAt` como data de conclusão (não existe um campo dedicado); pra
+// demandas RECORRENTES isso não funciona -- ao marcar como concluída, elas
+// voltam sozinhas pra "A Fazer" (ver PUT /:id acima), então nunca ficam
+// paradas em status 'concluida' pra entrar nessa contagem. Só conta demanda
+// avulsa mesmo, e não conta demanda pessoal (mesmo critério do /summary).
+router.get('/reis-do-marketing', requireAuth, (req, res) => {
+  const ym = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+  const counts = {};
+  db.get('demandas').value().forEach((d) => {
+    if (d.status !== 'concluida' || d.visibility === 'pessoal') return;
+    if (!d.updatedAt || d.updatedAt.slice(0, 7) !== ym) return;
+    (d.assigneeIds || []).forEach((id) => { counts[id] = (counts[id] || 0) + 1; });
+  });
+  res.json({ month: ym, counts });
+});
+
 router.post('/', requireAuth, (req, res) => {
   const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });

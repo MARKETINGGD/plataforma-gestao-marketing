@@ -708,6 +708,8 @@
       ]);
     } catch (e) { /* usuário pode não ter permissão futura — hoje é liberado a todos */ }
 
+    await loadReisDoMarketing();
+
     if (budgetAccess !== 'none') {
       // 24ª rodada: resumo da Início separado por marca (antes somava
       // De Bacco + GhelPlus num número só, e não dava pra saber de qual
@@ -749,6 +751,55 @@
         wrap.appendChild(row);
       });
     } catch (e) { /* ignora falha pontual */ }
+  }
+
+  // ---------- REIS DO MARKETING (28ª rodada) ----------
+  // Ranking de quem mais concluiu demandas no mês -- pedido da Raquel: uma
+  // barra por colaborador (TODOS eles, não só quem concluiu algo), com a
+  // foto de cada um subindo junto com a barra e uma coroa pro 1º lugar,
+  // ordenado por quem mais concluiu no mês.
+  async function loadReisDoMarketing() {
+    try {
+      const data = await api('/api/demandas/reis-do-marketing');
+      renderReisDoMarketing(data.counts || {});
+    } catch (e) { /* ignora falha pontual — a Início segue sem esse bloco */ }
+  }
+
+  function renderReisDoMarketing(counts) {
+    const wrap = $('#reisMarketingChart');
+    if (!wrap) return;
+    const rows = (teamMembers || [])
+      .map((u) => ({
+        id: u.id,
+        fullName: u.name || u.username,
+        firstName: (u.name || u.username || '').trim().split(/\s+/)[0] || u.username,
+        photoUrl: u.photoUrl || null,
+        count: counts[u.id] || 0
+      }))
+      .sort((a, b) => b.count - a.count || a.fullName.localeCompare(b.fullName));
+
+    $('#reisMarketingEmpty').hidden = rows.length > 0;
+    if (rows.length === 0) { wrap.innerHTML = ''; return; }
+
+    const maxCount = Math.max(1, ...rows.map((r) => r.count));
+    const BASE_BAR_H = 140; // px -- altura do 1º colocado; os outros são proporcionais
+    wrap.innerHTML = rows.map((r, idx) => {
+      const barH = Math.max(10, Math.round(BASE_BAR_H * (r.count / maxCount)));
+      const isChamp = idx === 0 && r.count > 0;
+      const initials = (r.fullName || '?').trim().charAt(0).toUpperCase();
+      const photoStyle = r.photoUrl ? `background-image:url('${r.photoUrl}');` : '';
+      return `
+        <div class="reis-bar-col" title="${r.fullName}: ${r.count} demanda${r.count === 1 ? '' : 's'} concluída${r.count === 1 ? '' : 's'} este mês">
+          <div class="reis-bar-photo${r.photoUrl ? '' : ' reis-bar-photo-fallback'}" style="${photoStyle}">
+            ${isChamp ? '<span class="reis-crown">👑</span>' : ''}
+            ${r.photoUrl ? '' : initials}
+          </div>
+          <div class="reis-bar-value">${r.count}</div>
+          <div class="reis-bar" style="height:${barH}px;${isChamp ? 'background:#F5A623;' : ''}"></div>
+          <div class="reis-bar-name">${r.firstName}</div>
+        </div>
+      `;
+    }).join('');
   }
 
   // ---------- Som de notificação: recado novo ou demanda nova (16ª/17ª rodada) ----------
@@ -1469,6 +1520,7 @@
       const platformParams = url.search; // ?platformToken=...&platformUser=...
       const view = channelId ? (historyMode ? 'audit' : 'channel') : 'overview';
       const navSrc = midiasIframeSrc(baseUrl, view);
+      $('#midiasCanalFrame').style.height = '';
       $('#midiasCanalFrame').src = navSrc + '&' + platformParams.slice(1);
       const ch = channelId ? (midiasMeta.channels.find((c) => c.id === channelId) || {}) : null;
       const brandLabel = ((midiasMeta.brands || []).find((b) => b.id === midiasBrand) || {}).label || midiasBrand;
@@ -1565,6 +1617,7 @@
       params.set('embedBrand', trafegoBrand);
       params.set('embedView', sectionId);
       const navSrc = baseUrl.replace(/\/$/, '') + '/?' + params.toString();
+      $('#trafegoTelaFrame').style.height = '';
       $('#trafegoTelaFrame').src = navSrc + '&' + platformParams.slice(1);
       const section = TRAFEGO_SECTIONS.find((s) => s.id === sectionId) || {};
       const brandLabel = (TRAFEGO_BRANDS.find((b) => b.id === trafegoBrand) || {}).label || trafegoBrand;
@@ -1576,6 +1629,23 @@
   }
 
   $('#trafegoTelaBack').onclick = () => openTrafegoHub();
+
+  // Recebe a altura real do conteúdo embutido (Mídias/Tráfego, 28ª rodada)
+  // e ajusta o iframe pra caber tudo, sem scroll interno próprio -- quem
+  // rola a página é só o scroll normal da Papoi (ver .iframe-wrap no
+  // style.css). Os dois painéis de destino mandam essa mensagem sozinhos,
+  // sempre que a altura do conteúdo deles muda.
+  window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || data.type !== 'papoi-embed-height') return;
+    const h = Math.max(300, Math.ceil(data.height));
+    if ($('#midiasCanalFrame') && event.source === $('#midiasCanalFrame').contentWindow) {
+      $('#midiasCanalFrame').style.height = h + 'px';
+    } else if ($('#trafegoTelaFrame') && event.source === $('#trafegoTelaFrame').contentWindow) {
+      $('#trafegoTelaFrame').style.height = h + 'px';
+    }
+  });
+
   // ---------- Orçamento ----------
   function fillMonthSelect(sel) {
     sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');

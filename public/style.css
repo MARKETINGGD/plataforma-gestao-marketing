@@ -229,6 +229,20 @@ button{font-weight:700;}
 .home-card-muted{background:var(--bg);box-shadow:none;}
 .home-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 .home-card button.btn-secondary{margin-top:12px;}
+
+/* REIS DO MARKETING (28ª rodada) -- ranking de quem mais concluiu demandas
+   no mês, com a foto de cada um "subindo" junto com a barra (a barra e a
+   foto ficam no mesmo bloco flex, alinhados pela base -- crescer a barra
+   empurra a foto pra cima) e uma coroa no 1º lugar. */
+.reis-marketing-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:0 1px 3px rgba(20,10,40,.05);margin-top:18px;}
+.reis-marketing-chart{display:flex;align-items:flex-end;gap:22px;overflow-x:auto;padding:12px 4px 4px;min-height:230px;}
+.reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:76px;height:230px;}
+.reis-bar-photo{position:relative;width:52px;height:52px;border-radius:50%;background:var(--primary) center/cover no-repeat;border:3px solid #fff;box-shadow:0 2px 6px rgba(20,10,40,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:18px;flex:0 0 auto;}
+.reis-bar-photo-fallback{background-image:none !important;}
+.reis-crown{position:absolute;top:-20px;left:50%;transform:translateX(-50%) rotate(-8deg);font-size:22px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25));}
+.reis-bar-value{font-size:12.5px;font-weight:700;color:var(--ink);margin:6px 0 4px;}
+.reis-bar{width:38px;border-radius:8px 8px 3px 3px;background:var(--primary);transition:height .4s ease;}
+.reis-bar-name{margin-top:8px;font-size:12px;color:var(--muted);text-align:center;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* Resumo da Início em lista + barrinhas, no lugar dos quadrados de número
    (18ª rodada) — mais visual sem virar um gráfico pesado/externo. */
 .stat-list{display:flex;flex-direction:column;gap:12px;margin-bottom:4px;}
@@ -402,8 +416,14 @@ button{font-weight:700;}
    com borda separada, pra parecerem página normal da plataforma, não um
    quadro à parte. Navegação é só pela barra lateral, como em qualquer
    outra tela (por isso não tem botão de "Voltar" aqui). */
-.iframe-wrap{overflow:hidden;height:calc(100vh - 160px);min-height:420px;}
-.iframe-wrap iframe{width:100%;height:100%;border:0;display:block;}
+/* 28a rodada: a altura fixa + overflow:hidden fazia o conteudo embutido
+   ganhar um scroll interno proprio (denunciava que era um iframe). Agora
+   o iframe avisa a propria altura (postMessage, ver receiveEmbedHeight
+   embaixo) e cresce pra caber tudo -- quem rola a pagina e so o scroll
+   normal da Papoi, como o resto do conteudo. min-height so evita o salto
+   feio enquanto a 1a altura ainda nao chegou. */
+.iframe-wrap{overflow:visible;min-height:70vh;}
+.iframe-wrap iframe{width:100%;min-height:70vh;border:0;display:block;}
 
 /* ---------- Cronograma de Marketing — Calendário ---------- */
 .cal-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px;}

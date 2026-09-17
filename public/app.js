@@ -581,6 +581,8 @@
       // (view-midias-hub) primeiro; ver openMidiasHub().
       if (b.dataset.view === 'midias-hub') {
         openMidiasHub();
+      } else if (b.dataset.view === 'trafego-hub') {
+        openTrafegoHub();
       } else if (b.dataset.dash) {
         openDashboard(b.dataset.dash);
       } else if (b.dataset.view === 'budget') {
@@ -1407,6 +1409,92 @@
   $('#midiasCanalBack').onclick = () => openMidiasHub();
   $('#midiasCanalTogglePainel').onclick = () => { if (midiasChannelId) openMidiasChannel(midiasChannelId, false); };
   $('#midiasCanalToggleHistorico').onclick = () => { if (midiasChannelId) openMidiasChannel(midiasChannelId, true); };
+
+  // ---------- Gerenciamento de Trafego Pago (27a rodada) ----------
+  // Mesmo tratamento dado ao Gerenciamento de Midias: em vez de abrir o
+  // painel de Trafego Pago inteiro (com a barra de abas dele) num iframe
+  // so, esta tela e uma "central" nativa com um card por secao do painel
+  // de origem. Ao escolher uma, abre um iframe so com o CONTEUDO daquela
+  // secao (a barra de abas do outro painel fica escondida — ver
+  // .embedded-in-platform no index.html dele), ja na marca certa.
+  //
+  // Diferente do Midias, aqui a lista de secoes e fixa (nao vem de um
+  // endpoint) porque o painel de Trafego Pago nao tem o conceito de
+  // "redes" — as secoes de hoje ja sao as abas que o proprio painel usa
+  // (Planejamento, Resultados, etc.), entao ficaram hardcoded aqui; se um
+  // dia o painel ganhar uma aba nova, basta acrescentar 1 linha nesta
+  // lista.
+  const TRAFEGO_BRANDS = [
+    { id: 'ghelplus', label: 'GhelPlus' },
+    { id: 'debacco', label: 'De Bacco' }
+  ];
+  const TRAFEGO_SECTIONS = [
+    { id: 'planning', label: 'Planejamento', desc: 'Cronograma de campanhas por trimestre, com objetivo, público-alvo e KPIs.' },
+    { id: 'results', label: 'Resultados', desc: 'Indicadores por campanha, comparador entre campanhas e funil de conversão.' },
+    { id: 'summary', label: 'Resumo Campanhas', desc: 'Visão consolidada de todas as campanhas cadastradas.' },
+    { id: 'monthly', label: 'Métricas mensais', desc: 'Investimento, receita e conversões lançados mês a mês.' },
+    { id: 'archive', label: 'Planejamentos anteriores', desc: 'Campanhas de anos passados, separadas automaticamente pela data.' },
+    { id: 'yearly', label: 'Comparativo anual', desc: 'Compara os anos lado a lado: campanhas, orçado, investido e receita.' },
+    { id: 'audit', label: 'Histórico de alterações', desc: 'Quem criou, editou ou excluiu o quê e quando.' }
+  ];
+  let trafegoBrand = 'ghelplus';
+
+  function openTrafegoHub() {
+    showView('trafego-hub');
+    renderTrafegoBrandSwitch();
+    renderTrafegoHubBody();
+  }
+
+  function renderTrafegoBrandSwitch() {
+    const wrap = $('#trafegoBrandSwitch');
+    wrap.innerHTML = TRAFEGO_BRANDS.map((b) => `<button class="btn-secondary${b.id === trafegoBrand ? ' active' : ''}" data-trafego-brand="${b.id}">${b.label}</button>`).join('');
+    wrap.querySelectorAll('[data-trafego-brand]').forEach((btn) => {
+      btn.onclick = () => {
+        trafegoBrand = btn.dataset.trafegoBrand;
+        renderTrafegoBrandSwitch();
+      };
+    });
+  }
+
+  function renderTrafegoHubBody() {
+    $('#trafegoHubGroups').innerHTML = `
+      <div class="card-grid">
+        ${TRAFEGO_SECTIONS.map((s) => `
+          <div class="dash-card" data-open-trafego-section="${s.id}">
+            <h3>${s.label}</h3>
+            <p>${s.desc}</p>
+            <button>Abrir →</button>
+          </div>`).join('')}
+      </div>`;
+    $all('[data-open-trafego-section]').forEach((card) => {
+      card.querySelector('button').onclick = () => openTrafegoSection(card.dataset.openTrafegoSection);
+    });
+  }
+
+  async function openTrafegoSection(sectionId) {
+    try {
+      const data = await api('/api/dashboards/launch/trafegoPago');
+      // O launch devolve a URL ja com o token de login unico (?platformToken=...);
+      // a base (sem querystring) e o que precisamos pra montar os parametros de
+      // navegacao por cima — o painel de Trafego Pago le os dois juntos no boot.
+      const url = new URL(data.url);
+      const baseUrl = url.origin;
+      const platformParams = url.search; // ?platformToken=...&platformUser=...
+      const params = new URLSearchParams();
+      params.set('embedBrand', trafegoBrand);
+      params.set('embedView', sectionId);
+      const navSrc = baseUrl.replace(/\/$/, '') + '/?' + params.toString();
+      $('#trafegoTelaFrame').src = navSrc + '&' + platformParams.slice(1);
+      const section = TRAFEGO_SECTIONS.find((s) => s.id === sectionId) || {};
+      const brandLabel = (TRAFEGO_BRANDS.find((b) => b.id === trafegoBrand) || {}).label || trafegoBrand;
+      $('#trafegoTelaTitle').textContent = `${section.label || ''} — ${brandLabel}`;
+      showView('trafego-tela');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  $('#trafegoTelaBack').onclick = () => openTrafegoHub();
   // ---------- Orçamento ----------
   function fillMonthSelect(sel) {
     sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');

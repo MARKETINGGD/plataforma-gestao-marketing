@@ -89,7 +89,7 @@
         <button class="navlink" id="navDemandas" data-view="demandas">Acompanhamento de Demandas</button>
         <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamento para Redes Sociais</button>
         <button class="navlink" id="navCronograma" data-view="cronograma">Cronograma de Marketing</button>
-        <button class="navlink" id="navDashTrafego" data-view="embed" data-dash="trafegoPago">Gerenciamento de Tráfego Pago</button>
+        <button class="navlink" id="navDashTrafego" data-view="trafego-hub" data-dash="trafegoPago">Gerenciamento de Tráfego Pago</button>
         <button class="navlink" id="navDashMidias" data-view="midias-hub" data-dash="redesSociais">Gerenciamento de Mídias</button>
         <button class="navlink" id="navDashAcoes" data-view="embed" data-dash="acoesSazonais">Gerenciamento de Ações Sazonais</button>
         <button class="navlink" id="navInfluencers" data-view="influencers">Gerenciamento de Influencers</button>
@@ -373,6 +373,33 @@
         </div>
         <div class="iframe-wrap">
           <iframe id="midiasCanalFrame" title="Gerenciamento de Mídias"></iframe>
+        </div>
+      </section>
+
+      <!-- Gerenciamento de Trafego Pago (27a rodada): mesmo tratamento dado
+           ao Gerenciamento de Midias -- em vez de abrir o painel inteiro
+           (com a barra de abas dele) num iframe so, esta tela mostra um hub
+           nativo da Papoi com um card por secao do painel de origem
+           (Planejamento, Resultados, etc.), e cada uma abre deep-linkada,
+           ja na marca/aba certa, com a barra de abas do painel escondida. -->
+      <section id="view-trafego-hub" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Gerenciamento de Tráfego Pago</h2>
+          <div class="view-toolbar-actions" id="trafegoBrandSwitch"></div>
+        </div>
+        <p class="muted">Escolha uma seção do painel de Tráfego Pago pra abrir.</p>
+        <div id="trafegoHubGroups"></div>
+      </section>
+
+      <section id="view-trafego-tela" class="view" hidden>
+        <div class="view-toolbar">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="btn-secondary" id="trafegoTelaBack">◀ Voltar</button>
+            <h2 id="trafegoTelaTitle"></h2>
+          </div>
+        </div>
+        <div class="iframe-wrap">
+          <iframe id="trafegoTelaFrame" title="Gerenciamento de Tráfego Pago"></iframe>
         </div>
       </section>
 

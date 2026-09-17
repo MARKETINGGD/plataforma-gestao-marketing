@@ -51,6 +51,11 @@ function publicUser(u) {
     cargo: u.cargo || '',
     columnColor: u.columnColor || null,
     homeColor: u.homeColor || null,
+    // Ordem pessoal das colunas do quadro de Demandas (17ª rodada, pedido
+    // da Raquel: cada um pode arrastar as listas e deixar do jeito que
+    // quiser organizar — é preferência de quem está vendo, não muda o que
+    // os outros enxergam, mesma lógica do homeColor).
+    columnOrder: Array.isArray(u.columnOrder) ? u.columnOrder : [],
     createdAt: u.createdAt
   };
 }
@@ -153,6 +158,22 @@ router.put('/me/home-color', requireAuth, (req, res) => {
   const homeColor = validColor((req.body || {}).color);
   db.get('users').find({ id: req.user.id }).assign({ homeColor }).write();
   res.json({ ok: true, homeColor });
+});
+
+// Ordem pessoal das colunas do quadro de Demandas (17ª rodada): a Raquel
+// pediu pra cada pessoa poder arrastar as listas e organizar do seu jeito
+// (por exemplo, deixar algumas pessoas antes de outras), e isso muda só
+// pra quem arrastou — igual o homeColor, não é uma ordem compartilhada.
+// Guarda só uma lista de ids de usuário na ordem desejada; ids que não
+// estão na lista (gente nova, por exemplo) aparecem depois, na ordem de
+// sempre — ver kanbanColumns() no app.js.
+router.put('/me/column-order', requireAuth, (req, res) => {
+  const order = (req.body || {}).order;
+  if (!Array.isArray(order) || !order.every((id) => typeof id === 'string')) {
+    return res.status(400).json({ error: 'Ordem inválida.' });
+  }
+  db.get('users').find({ id: req.user.id }).assign({ columnOrder: order }).write();
+  res.json({ ok: true, columnOrder: order });
 });
 
 // Gerenciamento leve de equipe, direto da tela de Acompanhamento de

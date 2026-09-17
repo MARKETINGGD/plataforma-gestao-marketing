@@ -230,22 +230,41 @@ button{font-weight:700;}
 
 /* ---------- Kanban (Demandas) — uma lista por pessoa da equipe ---------- */
 .kanban{display:flex;gap:14px;margin-top:16px;overflow-x:auto;padding-bottom:8px;align-items:flex-start;}
-.kanban-col{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px;min-height:120px;width:250px;flex:0 0 250px;}
+.kanban-col{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px;min-height:120px;width:250px;flex:0 0 250px;transition:opacity .15s,outline .1s;}
 .kanban-col-header{font-size:13px;font-weight:700;color:var(--muted);padding:4px 6px 10px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
 .kanban-col-header-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
 .kanban-count{background:var(--card);border-radius:999px;padding:0 8px;font-weight:600;flex:0 0 auto;}
+/* Arrastar pra reordenar as listas (17ª rodada) — cada pessoa organiza do
+   seu jeito; só a área da alça mostra a "mãozinha" de arrastar, pra não
+   confundir com clique no botão de cor. */
+.kanban-col-drag-handle{cursor:grab;color:var(--muted);opacity:.5;font-size:13px;flex:0 0 auto;user-select:none;line-height:1;}
+.kanban-col-drag-handle:active{cursor:grabbing;}
+.kanban-col.dragging{opacity:.4;}
+.kanban-col.drag-over{outline:2px dashed var(--primary);outline-offset:2px;}
 .kanban-list{display:flex;flex-direction:column;gap:8px;}
 .kanban-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer;}
 .kanban-card:hover{box-shadow:0 1px 4px rgba(0,0,0,.12);}
 .kanban-card.overdue{border-color:var(--danger);}
+.kanban-card.is-done{opacity:.68;}
 .kanban-card-labels{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;}
 .kanban-label-chip{height:8px;width:34px;border-radius:4px;}
-.kanban-card-title{font-size:13.5px;font-weight:600;margin-bottom:6px;}
+.kanban-card-title-row{display:flex;align-items:flex-start;gap:7px;margin-bottom:6px;}
+.kanban-card-title{font-size:13.5px;font-weight:600;flex:1;min-width:0;}
+.kanban-card.is-done .kanban-card-title{text-decoration:line-through;color:var(--muted);}
 .kanban-card:hover .kanban-card-title{color:var(--primary-dark);}
+/* Marcar como concluída direto pelo card, sem abrir o modal (17ª rodada). */
+.kanban-check-btn{flex:0 0 auto;width:17px;height:17px;margin-top:1px;border-radius:50%;border:2px solid var(--border);background:transparent;cursor:pointer;padding:0;position:relative;}
+.kanban-check-btn:hover{border-color:var(--primary);}
+.kanban-check-btn.checked{background:#2ea043;border-color:#2ea043;}
+.kanban-check-btn.checked::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;line-height:1;color:#fff;}
 .kanban-card-meta{display:flex;flex-wrap:wrap;gap:4px;}
 .kanban-card-creator{font-size:10.5px;color:var(--muted);margin-top:6px;}
 .badge{background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted);}
 .badge-danger{background:#fdecea;border-color:#f3c6c0;color:var(--danger);}
+/* Selo de "recorrente" discreto (17ª rodada: "o recorrente deve ser mais
+   delicado, está feio") — trocado do emoji grande antes do título por um
+   badge pequeno e neutro, junto dos outros badges do card. */
+.badge-muted{background:transparent;border-style:dashed;opacity:.7;font-size:10.5px;}
 .kanban-empty{color:var(--muted);font-size:12px;padding:6px;}
 @media (max-width:900px){ .kanban-col{width:220px;flex-basis:220px;} }
 

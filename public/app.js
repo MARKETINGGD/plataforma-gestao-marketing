@@ -22,6 +22,8 @@
   let selectedDemColor = null; // cor de fundo do card (opcional, 12ª rodada) — null = sem cor
   let editingLabelColor = null;
   let demandasScope = 'geral'; // 'geral' | 'pessoal'
+  let draggedColId = null; // arrastar pra reordenar as colunas do quadro (17ª rodada)
+  let demandaSoundSeenIds = null; // watcher de som pra demanda nova atribuída a mim (17ª rodada)
 
   let recadosForMe = [];
   let recadosAll = [];
@@ -309,7 +311,7 @@
     await loadHome();
     showView('home');
     setActiveNav('navHome');
-    startRecadoSoundWatcher();
+    startNotificationSoundWatcher();
   }
 
   $('#setupSubmit').onclick = async () => {
@@ -475,17 +477,17 @@
     }
   }
 
-  // ---------- Som ao receber um recado novo (16ª rodada) ----------
-  // Pedido da Raquel: toda vez que um recado novo é adicionado pra ela,
-  // tocar um sinal sonoro. Não dá pra gerar um áudio "com a voz dos
-  // Minions" (é uma voz de personagem protegida por direitos autorais da
-  // Illumination/Universal) — a Raquel vai mandar o arquivo de áudio que
-  // ela quiser usar (mp3/wav), que entra em `public/sounds/recado.mp3`.
-  // O mecanismo já fica pronto: enquanto o arquivo não existir, o
-  // navegador só falha a tocar em silêncio (capturado no catch), sem
-  // travar nada nem mostrar erro pra quem está usando a Plataforma.
+  // ---------- Som de notificação: recado novo ou demanda nova (16ª/17ª rodada) ----------
+  // Pedido original da Raquel (16ª rodada): toda vez que um recado novo é
+  // adicionado pra ela, tocar um sinal sonoro "papoi, com a voz dos
+  // Minions". Não dá pra gerar um áudio imitando a voz dos Minions (é voz
+  // de personagem protegida por direitos autorais da Illumination/
+  // Universal) — a Raquel mandou o arquivo de áudio dela (17ª rodada), que
+  // já está em `public/sounds/recado.mp3`. Na 17ª rodada ela pediu pra esse
+  // mesmo aviso sonoro tocar também quando chega uma demanda nova atribuída
+  // a ela no Acompanhamento de Demandas, não só recados.
   let recadoSoundSeenIds = null;
-  let recadoSoundTimer = null;
+  let notificationSoundTimer = null;
   const recadoAudio = new Audio('/sounds/recado.mp3');
   function playRecadoSound() {
     try {
@@ -509,10 +511,35 @@
       recadoSoundSeenIds = ids;
     } catch (e) { /* ignora falha de rede pontual */ }
   }
-  function startRecadoSoundWatcher() {
+  // Demanda nova atribuída a mim (17ª rodada) — olha tanto o quadro geral
+  // quanto a área pessoal, mesma lógica de "primeira checagem só define a
+  // base" usada nos recados, pra não tocar som pra demanda que já existia
+  // antes do login.
+  async function checkNewDemandas() {
+    try {
+      const [geral, pessoal] = await Promise.all([
+        api('/api/demandas'),
+        api('/api/demandas?scope=pessoal')
+      ]);
+      const minhasGeral = geral.demandas.filter((d) => (d.assigneeIds || []).includes(currentUser.id));
+      const ids = new Set([...minhasGeral, ...pessoal.demandas].map((d) => d.id));
+      if (demandaSoundSeenIds === null) {
+        demandaSoundSeenIds = ids;
+        return;
+      }
+      const temDemandaNova = [...ids].some((id) => !demandaSoundSeenIds.has(id));
+      if (temDemandaNova) playRecadoSound();
+      demandaSoundSeenIds = ids;
+    } catch (e) { /* ignora falha de rede pontual */ }
+  }
+  function startNotificationSoundWatcher() {
     checkNewRecados();
-    if (recadoSoundTimer) clearInterval(recadoSoundTimer);
-    recadoSoundTimer = setInterval(checkNewRecados, 20000);
+    checkNewDemandas();
+    if (notificationSoundTimer) clearInterval(notificationSoundTimer);
+    notificationSoundTimer = setInterval(() => {
+      checkNewRecados();
+      checkNewDemandas();
+    }, 20000);
   }
 
   // ---------- Recados (mural da tela Início) ----------
@@ -915,13 +942,39 @@
   // #demCardSave). Na área pessoal, só aparecem colunas relevantes: eu
   // (sempre primeiro) e quem mais eu tiver marcado em alguma demanda
   // pessoal visível pra mim.
+  // Ordem pessoal das colunas (17ª rodada): cada pessoa pode arrastar as
+  // listas pra organizar do jeito que quiser — não afeta o que os outros
+  // enxergam. Quem ainda não está na lista salva (gente nova, por exemplo)
+  // aparece depois, na ordem padrão de sempre.
+  function applyColumnOrder(columns) {
+    const order = (currentUser && currentUser.columnOrder) || [];
+    if (order.length === 0) return columns;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return columns
+      .map((col, i) => ({ col, i }))
+      .sort((a, b) => {
+        const ra = rank.has(a.col.id) ? rank.get(a.col.id) : 1000 + a.i;
+        const rb = rank.has(b.col.id) ? rank.get(b.col.id) : 1000 + b.i;
+        return ra - rb;
+      })
+      .map((x) => x.col);
+  }
+
   function kanbanColumns() {
-    if (demandasScope === 'geral') return teamMembers;
+    if (demandasScope === 'geral') return applyColumnOrder(teamMembers);
     const me = { id: currentUser.id, name: (currentUser.name || currentUser.username) + ' (você)', columnColor: currentUser.columnColor || null };
     const others = new Set();
     demandas.forEach((d) => (d.assigneeIds || []).forEach((id) => { if (id !== currentUser.id) others.add(id); }));
     const otherCols = teamMembers.filter((m) => others.has(m.id));
-    return [me].concat(otherCols);
+    return applyColumnOrder([me].concat(otherCols));
+  }
+
+  // Persiste a nova ordem depois de soltar uma coluna arrastada (17ª rodada).
+  async function saveColumnOrder(order) {
+    currentUser.columnOrder = order;
+    try {
+      await api('/api/auth/me/column-order', { method: 'PUT', body: JSON.stringify({ order }) });
+    } catch (e) { /* ignora falha pontual — a ordem local já foi aplicada */ }
   }
 
   function demandaInColumn(d, colId) {
@@ -929,6 +982,25 @@
     if (demandasScope === 'pessoal' && ids.length === 0) return colId === currentUser.id;
     if (colId === '') return ids.length === 0;
     return ids.includes(colId);
+  }
+
+  // Marca (ou desmarca) uma demanda como concluída direto pelo card, sem
+  // precisar abrir o modal (17ª rodada, pedido da Raquel: "ao realizar a
+  // tarefa, deve ter a opção de clicar no card e a tarefa ser finalizada").
+  // Se a demanda for recorrente, reaproveita a mesma lógica do backend que
+  // já existia (15ª rodada): em vez de ficar concluída, ela volta sozinha
+  // pra "A Fazer" com a data empurrada pro mês seguinte.
+  async function toggleDemandaConcluida(d) {
+    const novoStatus = d.status === 'concluida' ? 'a_fazer' : 'concluida';
+    try {
+      const result = await api('/api/demandas/' + d.id, { method: 'PUT', body: JSON.stringify({ status: novoStatus }) });
+      if (result.recurringReset) {
+        alert(`Demanda recorrente: essa entrega foi concluída e a demanda voltou pra "A Fazer", com a próxima data em ${fmtDate(result.recurringReset)}.`);
+      }
+      await loadDemandas();
+    } catch (e) {
+      alert(e.message || 'Não foi possível atualizar a demanda.');
+    }
   }
 
   function renderKanban() {
@@ -939,7 +1011,7 @@
       const colEl = document.createElement('div');
       colEl.className = 'kanban-col';
       const items = demandas.filter((d) => demandaInColumn(d, member.id));
-      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-header-name">${member.name}</span><button type="button" class="color-dot-btn" title="Cor da lista"></button><span class="kanban-count">${items.length}</span></div>`;
+      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${member.name}</span><button type="button" class="color-dot-btn" title="Cor da lista"></button><span class="kanban-count">${items.length}</span></div>`;
       // Cor customizável da lista (13ª rodada, pedido da Raquel) — mesmo
       // tom claro (color-mix) já usado nos cards, só que mais suave por
       // cobrir uma área bem maior, mais um topo colorido pra destacar.
@@ -959,6 +1031,37 @@
           renderKanban();
         });
       };
+
+      // Arrastar e soltar pra reordenar as listas — preferência pessoal de
+      // quem está vendo (17ª rodada), não muda a ordem que os outros veem.
+      colEl.draggable = true;
+      colEl.dataset.colId = member.id;
+      colEl.addEventListener('dragstart', (e) => {
+        draggedColId = member.id;
+        colEl.classList.add('dragging');
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      });
+      colEl.addEventListener('dragend', () => colEl.classList.remove('dragging'));
+      colEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (draggedColId && draggedColId !== member.id) colEl.classList.add('drag-over');
+      });
+      colEl.addEventListener('dragleave', () => colEl.classList.remove('drag-over'));
+      colEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        colEl.classList.remove('drag-over');
+        if (!draggedColId || draggedColId === member.id) return;
+        const order = columns.map((c) => c.id);
+        const fromIdx = order.indexOf(draggedColId);
+        const toIdx = order.indexOf(member.id);
+        if (fromIdx === -1 || toIdx === -1) return;
+        order.splice(fromIdx, 1);
+        order.splice(toIdx, 0, draggedColId);
+        draggedColId = null;
+        saveColumnOrder(order);
+        renderKanban();
+      });
+
       const list = document.createElement('div');
       list.className = 'kanban-list';
       if (items.length === 0) {
@@ -966,16 +1069,20 @@
       }
       items.forEach((d) => {
         const card = document.createElement('div');
-        card.className = 'kanban-card' + (d.overdue ? ' overdue' : '');
+        card.className = 'kanban-card' + (d.overdue ? ' overdue' : '') + (d.status === 'concluida' ? ' is-done' : '');
         const doneCount = (d.checklist || []).filter((c) => c.done).length;
         const total = (d.checklist || []).length;
         const cardLabels = (d.labelIds || []).map(labelById).filter(Boolean);
         card.innerHTML = `
           ${cardLabels.length > 0 ? `<div class="kanban-card-labels">${cardLabels.map((l) => `<span class="kanban-label-chip" title="${l.name}" style="background:${l.color}"></span>`).join('')}</div>` : ''}
-          <div class="kanban-card-title">${d.recurring ? '<span title="Recorrente — repete todo mês" style="margin-right:4px;">🔁</span>' : ''}${d.title}</div>
+          <div class="kanban-card-title-row">
+            <button type="button" class="kanban-check-btn${d.status === 'concluida' ? ' checked' : ''}" title="${d.status === 'concluida' ? 'Marcar como não concluída' : 'Marcar como concluída'}"></button>
+            <div class="kanban-card-title">${d.title}</div>
+          </div>
           <div class="kanban-card-meta">
             <span class="badge">${statusLabel(d.status)}</span>
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
+            ${d.recurring ? '<span class="badge badge-muted" title="Repete todo mês">↻ mensal</span>' : ''}
             ${(d.assigneeIds || []).length > 1 ? `<span class="badge">${d.assigneeIds.length} pessoas</span>` : ''}
             ${total > 0 ? `<span class="badge">✓ ${doneCount}/${total}</span>` : ''}
             ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
@@ -991,6 +1098,11 @@
           card.style.borderLeftWidth = '4px';
         }
         card.onclick = () => openDemandaModal(d);
+        const checkBtn = card.querySelector('.kanban-check-btn');
+        checkBtn.onclick = (e) => {
+          e.stopPropagation();
+          toggleDemandaConcluida(d);
+        };
         list.appendChild(card);
       });
       colEl.appendChild(list);

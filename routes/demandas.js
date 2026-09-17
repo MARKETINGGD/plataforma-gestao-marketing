@@ -77,6 +77,19 @@ function validColor(color) {
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
 }
 
+// Ordem manual do card dentro das listas do quadro (21ª rodada, pedido da
+// Raquel: "os cards dentro das listas devem poder ser mudados de ordem ao
+// puxar"). Um número só, não por lista — como um card pode aparecer em mais
+// de uma coluna ao mesmo tempo (quando tem vários responsáveis), arrastar
+// ele numa coluna reposiciona ele em todas; na prática, quase toda demanda
+// tem um responsável só, então isso raramente aparece. Demandas antigas
+// (antes dessa rodada) não têm esse campo gravado — pra elas, usa a data de
+// criação como posição, o que mantém a ordem de sempre (mais antiga
+// primeiro) sem precisar rodar nenhuma migração nos dados já existentes.
+function cardOrder(d) {
+  return d.order != null ? d.order : new Date(d.createdAt).getTime();
+}
+
 function serialize(d) {
   return Object.assign({}, d, {
     assigneeIds: d.assigneeIds || [],
@@ -84,6 +97,7 @@ function serialize(d) {
     color: d.color || null,
     recurring: !!d.recurring,
     overdue: isOverdue(d),
+    order: cardOrder(d),
     // Nome de quem criou, resolvido ao vivo (20ª rodada) — ver utils/names.js.
     createdByName: resolveUserName(d.createdBy, d.createdByName),
     files: (d.files || []).map((f) => Object.assign({}, f, {
@@ -160,6 +174,7 @@ router.post('/', requireAuth, (req, res) => {
     color: validColor(color),
     checklist: [],
     files: [],
+    order: Date.now(),
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
     createdByName: req.user.name,
@@ -168,6 +183,25 @@ router.post('/', requireAuth, (req, res) => {
   db.get('demandas').push(demanda).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'create' });
   res.json({ demanda: serialize(demanda) });
+});
+
+// Reordenar cards dentro de uma lista do quadro (21ª rodada) — usado tanto
+// ao arrastar um card só quanto ao clicar em "Ordenar por data" (que
+// reordena a lista inteira de uma vez). Recebe {items:[{id,order},...]} e
+// grava só o campo order de cada um, sem mexer em mais nada do card. Fica
+// ANTES de "PUT /:id" de propósito: como é uma rota fixa (sem parâmetro),
+// se viesse depois "/:id" capturaria "reorder" como se fosse um id.
+router.put('/reorder', requireAuth, (req, res) => {
+  const items = Array.isArray((req.body || {}).items) ? req.body.items : [];
+  const updated = [];
+  items.forEach((it) => {
+    if (!it || typeof it.id !== 'string' || typeof it.order !== 'number') return;
+    const demanda = db.get('demandas').find({ id: it.id }).value();
+    if (!demanda || !canAccess(demanda, req.user)) return;
+    db.get('demandas').find({ id: it.id }).assign({ order: it.order }).write();
+    updated.push(it.id);
+  });
+  res.json({ ok: true, updated });
 });
 
 router.put('/:id', requireAuth, (req, res) => {

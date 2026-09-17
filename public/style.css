@@ -447,7 +447,14 @@ button{font-weight:700;}
 .chat-empty{color:var(--muted);font-size:12px;padding:24px;text-align:center;}
 .chat-input-row{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border);background:var(--card);}
 .chat-input-row textarea{flex:1;resize:none;font-family:inherit;border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:13.5px;max-height:120px;line-height:1.4;}
-.chat-input-row button{align-self:flex-end;}
+/* 21ª rodada: bug real encontrado — o botão herdava .btn-primary, que
+   define width:100% (feito pra tela de login, onde o botão preenche
+   sozinho o cartão). Dentro do flex do chat isso fazia o botão tentar
+   ocupar a largura inteira da linha, espremendo o textarea (flex:1) pra
+   uma faixa de ~24px, praticamente sumindo — por isso "não tinha onde
+   escrever a mensagem". flex:0 0 auto + width:auto tiram o botão dessa
+   disputa e devolvem o espaço pro campo de texto. */
+.chat-input-row button{align-self:flex-end;width:auto;flex:0 0 auto;}
 @media (max-width:900px){ .chat-wrap{height:calc(100vh - 280px);} }
 
 /* ---------- Responsividade geral (20ª rodada) ----------
@@ -491,3 +498,72 @@ button{font-weight:700;}
   .summary-card{min-width:0;flex:1 1 140px;}
   .recado-card-text{min-width:0;}
 }
+
+/* ---------- Chat da Equipe: janelinha flutuante (21ª rodada) ---------- */
+/* Fica de fora da .app-shell (ver index.html), flutuando por cima de
+   qualquer tela. z-index abaixo do .modal-overlay (100) e do
+   .color-popover (200) de propósito — se um modal estiver aberto (editando
+   uma demanda, por exemplo), ele continua por cima; a bolha/janelinha não
+   atrapalha o que já está em uso. */
+.chat-widget-toggle{
+  position:fixed;right:22px;bottom:22px;z-index:60;
+  width:56px;height:56px;border-radius:50%;border:none;
+  background:var(--brand-gradient);color:#fff;font-size:24px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.22);
+}
+.chat-widget-toggle:hover{filter:brightness(0.95);}
+.chat-widget-badge{
+  position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;padding:0 5px;
+  border-radius:10px;background:var(--danger);color:#fff;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;border:2px solid #fff;
+}
+.chat-widget{
+  position:fixed;right:22px;bottom:22px;z-index:61;
+  width:340px;max-width:calc(100vw - 32px);
+  height:460px;max-height:calc(100vh - 100px);
+  display:flex;flex-direction:column;
+  background:var(--card);border:1px solid var(--border);border-radius:14px;
+  box-shadow:0 12px 32px rgba(0,0,0,0.28);overflow:hidden;
+}
+.chat-widget-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;background:var(--brand-gradient);color:#fff;font-weight:600;font-size:14px;
+  flex:0 0 auto;
+}
+.chat-widget-close{background:none;border:none;color:#fff;font-size:15px;cursor:pointer;padding:2px 4px;line-height:1;}
+.chat-widget-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;}
+.chat-widget .chat-input-row{padding:10px;flex:0 0 auto;}
+.chat-widget .chat-input-row textarea{max-height:80px;}
+
+.chat-widget-toast{
+  position:fixed;right:22px;bottom:88px;z-index:62;
+  width:300px;max-width:calc(100vw - 32px);
+  background:var(--card);border:1px solid var(--border);border-radius:12px;
+  box-shadow:0 10px 26px rgba(0,0,0,0.25);padding:12px 26px 12px 12px;cursor:pointer;
+  display:flex;gap:10px;align-items:flex-start;
+  animation:chatToastIn .18s ease-out;
+}
+.chat-widget-toast-close{position:absolute;top:6px;right:8px;background:none;border:none;font-size:13px;color:var(--muted);cursor:pointer;line-height:1;}
+.chat-widget-toast-body{flex:1;min-width:0;}
+.chat-widget-toast-name{font-weight:700;font-size:12.5px;margin-bottom:2px;}
+.chat-widget-toast-text{font-size:12.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+@keyframes chatToastIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+@media (max-width:600px){
+  .chat-widget{right:10px;left:10px;width:auto;bottom:78px;height:min(460px, calc(100vh - 150px));}
+  .chat-widget-toggle{right:14px;bottom:14px;}
+  .chat-widget-toast{right:10px;left:10px;width:auto;bottom:82px;}
+}
+
+/* ---------- Demandas: reordenar cards ao arrastar + ordenar por data (21ª rodada) ---------- */
+.kanban-sort-date-btn{
+  background:none;border:none;cursor:pointer;padding:2px 4px;font-size:13px;
+  opacity:.55;flex:0 0 auto;line-height:1;
+}
+.kanban-sort-date-btn:hover{opacity:1;}
+.kanban-card{cursor:grab;}
+.kanban-card:active{cursor:grabbing;}
+.kanban-card.card-dragging{opacity:.4;}
+.kanban-card.drag-over-card{outline:2px dashed var(--primary);outline-offset:2px;}
+.kanban-list.drag-over-list{outline:2px dashed var(--primary);outline-offset:-2px;border-radius:8px;}

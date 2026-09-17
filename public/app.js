@@ -24,12 +24,22 @@
   let editingLabelColor = null;
   let demandasScope = 'geral'; // 'geral' | 'pessoal'
   let draggedColId = null; // arrastar pra reordenar as colunas do quadro (17ª rodada)
+  let draggedCardId = null; // arrastar pra reordenar os cards dentro de uma lista (21ª rodada)
   let demandaSoundSeenIds = null; // watcher de som pra demanda nova atribuída a mim (17ª rodada)
 
   let recadosForMe = [];
   let recadosAll = [];
   let chatLastId = null; // último id de mensagem já mostrado, pra buscar só as novas no polling
   let chatPollTimer = null;
+  let activeViewName = null; // nome da tela atual (21ª rodada, ver showView) — usado pra saber
+  // se a pessoa já está vendo o Chat da Equipe em tamanho cheio, e então não duplicar aviso
+  let widgetChatLastId = null; // cursor independente do chatLastId da tela cheia — a janelinha
+  // flutuante do chat continua rodando (e contando mensagens novas) mesmo em outras telas
+  let widgetChatBaselineSet = false;
+  let chatWidgetOpen = false;
+  let chatWidgetUnread = 0;
+  let chatWidgetPollTimer = null;
+  let chatToastTimer = null;
   let recadoSuggestedColors = [];
   let selectedRecadoColor = null;
   let selectedRecadoTargetIds = new Set();
@@ -251,6 +261,7 @@
   }
 
   function showView(name) {
+    activeViewName = name;
     $all('.view').forEach((v) => (v.hidden = true));
     $('#view-' + name).hidden = false;
     // Cor pessoal da tela Início cobre toda a área de conteúdo (14ª rodada)
@@ -265,6 +276,17 @@
     // (18ª rodada) — sair da tela para em vez de continuar consultando o
     // servidor à toa em segundo plano.
     if (name !== 'chat') stopChatPolling();
+    // Bolha/janelinha flutuante do Chat da Equipe (21ª rodada) — some
+    // enquanto a pessoa já está na tela cheia do chat (ali ela já vê tudo,
+    // a bolha ficaria redundante); nas outras telas, fica disponível.
+    if (currentUser) {
+      if (name === 'chat') {
+        $('#chatWidgetToggle').hidden = true;
+        if (chatWidgetOpen) closeChatWidget();
+      } else {
+        $('#chatWidgetToggle').hidden = false;
+      }
+    }
   }
 
   // ---------- boot ----------
@@ -347,6 +369,12 @@
     showView('home');
     setActiveNav('navHome');
     startNotificationSoundWatcher();
+    // Janelinha flutuante do Chat da Equipe (21ª rodada) — carrega o
+    // histórico e começa a checar mensagens novas assim que loga, pra
+    // avisar (som + aviso no canto) mesmo enquanto a pessoa está em
+    // qualquer outra tela, não só na tela "Chat da Equipe".
+    initChatWidget();
+    startChatWidgetPolling();
   }
 
   $('#setupSubmit').onclick = async () => {
@@ -712,6 +740,160 @@
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendChatMessage();
+    }
+  });
+
+  // ---------- Chat da Equipe: janelinha flutuante + aviso sonoro (21ª rodada) ----------
+  // Pedido da Raquel: "o chat deve aparecer quando estiverem vindo
+  // mensagens, como uma janelinha de notificação a ser aberta no canto
+  // direito a tela. E deve fazer esse som em anexo." Reaproveita o
+  // renderChatMessage já usado na tela cheia (mesmo desenho de balão) e o
+  // avatarHtml já usado em outros lugares — só o cursor de polling
+  // (widgetChatLastId) e o container de destino são diferentes, pra essa
+  // janelinha funcionar em paralelo com a tela cheia sem se atrapalharem.
+  const chatAudio = new Audio('/sounds/chat.mp3');
+  function playChatSound() {
+    try {
+      chatAudio.currentTime = 0;
+      chatAudio.play().catch(() => { /* autoplay bloqueado até a pessoa interagir com a página */ });
+    } catch (e) { /* ignora */ }
+  }
+
+  async function initChatWidget() {
+    const wrap = $('#chatWidgetMessages');
+    try {
+      const data = await api('/api/chat/messages');
+      wrap.innerHTML = '';
+      if (data.messages.length === 0) {
+        wrap.innerHTML = '<div class="chat-empty">Nenhuma mensagem ainda.</div>';
+        widgetChatLastId = null;
+      } else {
+        data.messages.forEach((m) => wrap.appendChild(renderChatMessage(m)));
+        widgetChatLastId = data.messages[data.messages.length - 1].id;
+        wrap.scrollTop = wrap.scrollHeight;
+      }
+    } catch (e) { /* ignora */ }
+    widgetChatBaselineSet = true;
+  }
+
+  function updateChatWidgetBadge() {
+    const badge = $('#chatWidgetBadge');
+    if (chatWidgetUnread > 0) {
+      badge.textContent = chatWidgetUnread > 9 ? '9+' : String(chatWidgetUnread);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  function hideChatToast() {
+    $('#chatWidgetToast').hidden = true;
+    if (chatToastTimer) { clearTimeout(chatToastTimer); chatToastTimer = null; }
+  }
+
+  function showChatToast(m) {
+    const toast = $('#chatWidgetToast');
+    const person = { name: m.createdByName, photoUrl: m.createdByPhotoUrl };
+    toast.innerHTML = `
+      ${avatarHtml(person, 32)}
+      <div class="chat-widget-toast-body">
+        <div class="chat-widget-toast-name"></div>
+        <div class="chat-widget-toast-text"></div>
+      </div>
+      <button type="button" class="chat-widget-toast-close" title="Fechar aviso">✕</button>
+    `;
+    // Texto via textContent (não innerHTML), mesma cautela já usada nos
+    // balões do chat — mensagem de qualquer pessoa da equipe não pode virar
+    // HTML/script na tela de outra.
+    toast.querySelector('.chat-widget-toast-name').textContent = m.createdByName;
+    toast.querySelector('.chat-widget-toast-text').textContent = m.text;
+    toast.querySelector('.chat-widget-toast-close').onclick = (e) => { e.stopPropagation(); hideChatToast(); };
+    toast.onclick = () => { hideChatToast(); openChatWidget(); };
+    toast.hidden = false;
+    if (chatToastTimer) clearTimeout(chatToastTimer);
+    chatToastTimer = setTimeout(hideChatToast, 7000);
+  }
+
+  function openChatWidget() {
+    chatWidgetOpen = true;
+    $('#chatWidget').hidden = false;
+    chatWidgetUnread = 0;
+    updateChatWidgetBadge();
+    hideChatToast();
+    const wrap = $('#chatWidgetMessages');
+    wrap.scrollTop = wrap.scrollHeight;
+    $('#chatWidgetInput').focus();
+  }
+  function closeChatWidget() {
+    chatWidgetOpen = false;
+    $('#chatWidget').hidden = true;
+  }
+  $('#chatWidgetToggle').onclick = () => { chatWidgetOpen ? closeChatWidget() : openChatWidget(); };
+  $('#chatWidgetCloseBtn').onclick = closeChatWidget;
+
+  async function pollChatWidget() {
+    if (!widgetChatBaselineSet) return;
+    // Enquanto a pessoa já está na tela cheia do Chat da Equipe, o polling
+    // de lá (pollChat) já cobre tudo ao vivo — evita consultar duas vezes
+    // à toa. Quando ela sair da tela, o próximo ciclo já busca tudo que
+    // ficou pra trás de uma vez.
+    if (activeViewName === 'chat') return;
+    try {
+      const q = widgetChatLastId ? ('?afterId=' + encodeURIComponent(widgetChatLastId)) : '';
+      const data = await api('/api/chat/messages' + q);
+      if (data.messages.length === 0) return;
+      const wrap = $('#chatWidgetMessages');
+      const empty = wrap.querySelector('.chat-empty');
+      if (empty) empty.remove();
+      const wasAtBottom = chatIsScrolledToBottom(wrap);
+      data.messages.forEach((m) => wrap.appendChild(renderChatMessage(m)));
+      widgetChatLastId = data.messages[data.messages.length - 1].id;
+      if (wasAtBottom) wrap.scrollTop = wrap.scrollHeight;
+
+      // Só avisa (som + aviso no canto) por mensagem de outra pessoa — a
+      // própria mensagem enviada não precisa virar notificação pra quem
+      // mandou.
+      const fromOthers = data.messages.filter((m) => m.createdBy !== currentUser.id);
+      if (fromOthers.length > 0) {
+        playChatSound();
+        if (!chatWidgetOpen) {
+          chatWidgetUnread += fromOthers.length;
+          updateChatWidgetBadge();
+          showChatToast(fromOthers[fromOthers.length - 1]);
+        }
+      }
+    } catch (e) { /* ignora falha de rede pontual */ }
+  }
+
+  function startChatWidgetPolling() {
+    if (chatWidgetPollTimer) clearInterval(chatWidgetPollTimer);
+    chatWidgetPollTimer = setInterval(pollChatWidget, 5000);
+  }
+
+  async function sendChatWidgetMessage() {
+    const input = $('#chatWidgetInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.style.height = 'auto';
+    try {
+      const data = await api('/api/chat/messages', { method: 'POST', body: JSON.stringify({ text }) });
+      const wrap = $('#chatWidgetMessages');
+      const empty = wrap.querySelector('.chat-empty');
+      if (empty) empty.remove();
+      wrap.appendChild(renderChatMessage(data.message));
+      widgetChatLastId = data.message.id;
+      wrap.scrollTop = wrap.scrollHeight;
+    } catch (e) {
+      input.value = text;
+      alert(e.message || 'Não foi possível enviar a mensagem.');
+    }
+  }
+  $('#chatWidgetSendBtn').onclick = sendChatWidgetMessage;
+  $('#chatWidgetInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatWidgetMessage();
     }
   });
 
@@ -1177,6 +1359,63 @@
     }
   }
 
+  // Menor valor "seguro" entre duas ordens vizinhas, pra encaixar um card
+  // arrastado entre elas sem precisar renumerar a lista inteira (21ª
+  // rodada). Quando não tem vizinho de um dos lados (soltou no topo ou no
+  // fim da lista), afasta 1000 do único vizinho que existe — dá espaço de
+  // sobra pra próximos ajustes sem colidir.
+  function computeOrderBetween(prevOrder, nextOrder) {
+    if (prevOrder == null && nextOrder == null) return Date.now();
+    if (prevOrder == null) return nextOrder - 1000;
+    if (nextOrder == null) return prevOrder + 1000;
+    return (prevOrder + nextOrder) / 2;
+  }
+
+  // Reposiciona um card arrastado (targetId = null solta no fim da lista).
+  // Atualiza a ordem local na hora (otimista, pra não esperar o servidor
+  // pra já ver o card no lugar certo) e persiste em seguida — se a chamada
+  // falhar, a ordem local já aplicada fica valendo até o próximo loadDemandas().
+  async function reorderCardTo(items, draggedId, targetId) {
+    const dragged = demandas.find((x) => x.id === draggedId);
+    if (!dragged) return;
+    const withoutDragged = items.filter((x) => x.id !== draggedId);
+    let insertAt = targetId ? withoutDragged.findIndex((x) => x.id === targetId) : withoutDragged.length;
+    if (insertAt === -1) insertAt = withoutDragged.length;
+    const prev = withoutDragged[insertAt - 1];
+    const next = withoutDragged[insertAt];
+    const newOrder = computeOrderBetween(prev ? prev.order : null, next ? next.order : null);
+    dragged.order = newOrder;
+    draggedCardId = null;
+    renderKanban();
+    try {
+      await api('/api/demandas/reorder', { method: 'PUT', body: JSON.stringify({ items: [{ id: draggedId, order: newOrder }] }) });
+    } catch (e) { /* ignora falha pontual — a ordem local já foi aplicada */ }
+  }
+
+  // "Ordenar por data" (21ª rodada, pedido da Raquel: "deve ter a
+  // possibilidade de organizar a lista por data") — reordena de uma vez só
+  // os cards dessa lista pela data de entrega (sem data vai pro fim),
+  // renumerando a ordem manual de todos eles.
+  async function sortColumnByDate(items) {
+    if (items.length === 0) return;
+    const sorted = [...items].sort((a, b) => {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
+    });
+    const base = Date.now();
+    const changes = sorted.map((d, i) => ({ id: d.id, order: base + i * 1000 }));
+    changes.forEach((c) => {
+      const dem = demandas.find((x) => x.id === c.id);
+      if (dem) dem.order = c.order;
+    });
+    renderKanban();
+    try {
+      await api('/api/demandas/reorder', { method: 'PUT', body: JSON.stringify({ items: changes }) });
+    } catch (e) { alert('Não foi possível salvar a nova ordem por data.'); }
+  }
+
   function renderKanban() {
     const board = $('#kanbanBoard');
     board.innerHTML = '';
@@ -1184,8 +1423,15 @@
     columns.forEach((member) => {
       const colEl = document.createElement('div');
       colEl.className = 'kanban-col';
-      const items = demandas.filter((d) => demandaInColumn(d, member.id));
-      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${member.name}</span><button type="button" class="color-dot-btn" title="Cor da lista"></button><span class="kanban-count">${items.length}</span></div>`;
+      // Ordem manual dos cards dentro da lista (21ª rodada) — arrastável;
+      // "order" sempre vem preenchido pelo backend (ver cardOrder() em
+      // routes/demandas.js), inclusive pra demandas antigas sem esse campo.
+      const items = demandas.filter((d) => demandaInColumn(d, member.id)).sort((a, b) => a.order - b.order);
+      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${member.name}</span><button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button><button type="button" class="color-dot-btn" title="Cor da lista"></button><span class="kanban-count">${items.length}</span></div>`;
+      colEl.querySelector('.kanban-sort-date-btn').onclick = (e) => {
+        e.stopPropagation();
+        sortColumnByDate(items);
+      };
       // Cor customizável da lista (13ª rodada, pedido da Raquel) — mesmo
       // tom claro (color-mix) já usado nos cards, só que mais suave por
       // cobrir uma área bem maior, mais um topo colorido pra destacar.
@@ -1241,6 +1487,33 @@
       if (items.length === 0) {
         list.innerHTML = '<div class="kanban-empty">Sem demandas</div>';
       }
+      // Soltar na área vazia da lista (abaixo do último card, ou lista sem
+      // nenhum card ainda) manda o card arrastado pro fim dela (21ª
+      // rodada). stopPropagation em tudo aqui pra não se confundir com o
+      // drag-and-drop das LISTAS (colEl, algumas linhas acima) — sem isso
+      // arrastar um card também dispararia o dragstart/drop da coluna.
+      // draggedCardInThisList() trava o reordenar só dentro da MESMA lista
+      // — mesmo card aparecendo em duas colunas (vários responsáveis) não
+      // é o caso comum, e mover entre colunas mudaria quem é responsável,
+      // o que não foi pedido aqui (só reordenar dentro da lista).
+      const draggedCardInThisList = () => draggedCardId && items.some((x) => x.id === draggedCardId);
+      list.addEventListener('dragover', (e) => {
+        if (!draggedCardInThisList()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        list.classList.add('drag-over-list');
+      });
+      list.addEventListener('dragleave', (e) => {
+        e.stopPropagation();
+        list.classList.remove('drag-over-list');
+      });
+      list.addEventListener('drop', (e) => {
+        if (!draggedCardInThisList()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        list.classList.remove('drag-over-list');
+        reorderCardTo(items, draggedCardId, null);
+      });
       items.forEach((d) => {
         const card = document.createElement('div');
         card.className = 'kanban-card' + (d.overdue ? ' overdue' : '') + (d.status === 'concluida' ? ' is-done' : '');
@@ -1277,6 +1550,42 @@
           e.stopPropagation();
           toggleDemandaConcluida(d);
         };
+
+        // Arrastar pra reordenar dentro da lista (21ª rodada, pedido da
+        // Raquel: "os cards dentro das listas devem poder ser mudados de
+        // ordem ao puxar"). stopPropagation em todo evento de drag do card
+        // pra não borbulhar pro dragstart/drop da COLUNA (colEl também é
+        // draggable, pra reordenar as listas — são dois sistemas de
+        // arrastar independentes, um dentro do outro).
+        card.draggable = true;
+        card.addEventListener('dragstart', (e) => {
+          e.stopPropagation();
+          draggedCardId = d.id;
+          card.classList.add('card-dragging');
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        });
+        card.addEventListener('dragend', (e) => {
+          e.stopPropagation();
+          card.classList.remove('card-dragging');
+        });
+        card.addEventListener('dragover', (e) => {
+          if (!draggedCardInThisList() || draggedCardId === d.id) return;
+          e.preventDefault();
+          e.stopPropagation();
+          card.classList.add('drag-over-card');
+        });
+        card.addEventListener('dragleave', (e) => {
+          e.stopPropagation();
+          card.classList.remove('drag-over-card');
+        });
+        card.addEventListener('drop', (e) => {
+          if (!draggedCardInThisList() || draggedCardId === d.id) return;
+          e.preventDefault();
+          e.stopPropagation();
+          card.classList.remove('drag-over-card');
+          reorderCardTo(items, draggedCardId, d.id);
+        });
+
         list.appendChild(card);
       });
       colEl.appendChild(list);
@@ -2809,6 +3118,7 @@
       card.innerHTML = `
         <h3>${inf.name}</h3>
         <p>${inf.hasPublicLink ? 'Link externo ativo' : 'Sem link externo ainda'}</p>
+        <p class="muted" style="font-size:12px;margin-top:-4px;">${inf.contrato ? '📎 Contrato anexado' : 'Sem contrato ainda'}</p>
       `;
       const openBtn = document.createElement('button');
       openBtn.textContent = 'Ver tabela →';
@@ -2817,7 +3127,7 @@
       const actionsRow = document.createElement('div');
       actionsRow.style.cssText = 'display:flex;gap:10px;margin-top:4px;';
       const renameBtn = document.createElement('button');
-      renameBtn.textContent = 'Renomear';
+      renameBtn.textContent = 'Editar';
       renameBtn.className = 'btn-link';
       renameBtn.onclick = (e) => { e.stopPropagation(); openInfluencerForm(inf); };
       const delBtn = document.createElement('button');
@@ -2839,24 +3149,66 @@
     });
   }
 
+  // Dados pessoais + contrato (21ª rodada) — mesmo formulário usado tanto
+  // pra cadastrar quanto pra editar depois (era só "Renomear" antes; agora
+  // dá pra completar/corrigir os dados a qualquer momento).
   function openInfluencerForm(inf) {
     editingInfluencerId = inf ? inf.id : null;
-    $('#influencerFormTitle').textContent = inf ? 'Renomear influencer' : 'Novo influencer';
+    $('#influencerFormTitle').textContent = inf ? 'Editar influencer' : 'Novo influencer';
     $('#influencerFormName').value = inf ? inf.name : '';
+    $('#influencerFormCpf').value = inf ? (inf.cpf || '') : '';
+    $('#influencerFormRg').value = inf ? (inf.rg || '') : '';
+    $('#influencerFormTelefone').value = inf ? (inf.telefone || '') : '';
+    $('#influencerFormEmail').value = inf ? (inf.email || '') : '';
+    $('#influencerFormDataNascimento').value = inf ? (inf.dataNascimento || '') : '';
+    $('#influencerFormEndereco').value = inf ? (inf.endereco || '') : '';
+    $('#influencerFormContractInput').value = '';
+    if (inf && inf.contrato) {
+      $('#influencerFormContractCurrent').hidden = false;
+      $('#influencerFormContractLink').textContent = inf.contrato.name;
+      $('#influencerFormContractLink').href = inf.contrato.url;
+    } else {
+      $('#influencerFormContractCurrent').hidden = true;
+    }
     $('#influencerFormError').hidden = true;
     $('#influencerTableWrap').hidden = true;
     $('#influencerFormWrap').hidden = false;
   }
   $('#influencerNewBtn').onclick = () => openInfluencerForm(null);
   $('#influencerFormCancel').onclick = () => { $('#influencerFormWrap').hidden = true; };
+  $('#influencerFormContractRemove').onclick = async () => {
+    if (!editingInfluencerId) return;
+    if (!confirm('Remover o contrato anexado?')) return;
+    try {
+      await api('/api/influencers/' + editingInfluencerId + '/contract', { method: 'DELETE' });
+      $('#influencerFormContractCurrent').hidden = true;
+    } catch (e) { alert(e.message); }
+  };
   $('#influencerFormSave').onclick = async () => {
     const name = $('#influencerFormName').value.trim();
     if (!name) { $('#influencerFormError').textContent = 'Informe o nome do influencer.'; $('#influencerFormError').hidden = false; return; }
+    const personalPayload = {
+      name,
+      cpf: $('#influencerFormCpf').value.trim(),
+      rg: $('#influencerFormRg').value.trim(),
+      telefone: $('#influencerFormTelefone').value.trim(),
+      email: $('#influencerFormEmail').value.trim(),
+      dataNascimento: $('#influencerFormDataNascimento').value || '',
+      endereco: $('#influencerFormEndereco').value.trim()
+    };
     try {
-      if (editingInfluencerId) {
-        await api('/api/influencers/' + editingInfluencerId, { method: 'PUT', body: JSON.stringify({ name }) });
+      let infId = editingInfluencerId;
+      if (infId) {
+        await api('/api/influencers/' + infId, { method: 'PUT', body: JSON.stringify(personalPayload) });
       } else {
-        await api('/api/influencers', { method: 'POST', body: JSON.stringify({ brand: influencersTab, name }) });
+        const created = await api('/api/influencers', { method: 'POST', body: JSON.stringify(Object.assign({ brand: influencersTab }, personalPayload)) });
+        infId = created.influencer.id;
+      }
+      const contractFile = $('#influencerFormContractInput').files[0];
+      if (contractFile) {
+        const fd = new FormData();
+        fd.append('contract', contractFile);
+        await api('/api/influencers/' + infId + '/contract', { method: 'POST', body: fd });
       }
       $('#influencerFormWrap').hidden = true;
       await loadInfluencers();

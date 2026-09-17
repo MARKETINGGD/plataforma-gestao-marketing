@@ -353,6 +353,52 @@
           <h3 id="influencerFormTitle">Novo influencer</h3>
           <label>Nome do influencer</label>
           <input id="influencerFormName" type="text" placeholder="Ex: @fulana.beauty">
+
+          <!-- Dados pessoais + contrato (21ª rodada, pedido da Raquel: "na
+               hora de cadastrar a influencer, temos que colocar os dados
+               dela, dados pessoais, contrato (em arquivo)"). Tudo opcional,
+               pra não travar quem só quer cadastrar o nome rapidinho e
+               completar depois. -->
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Dados pessoais (opcional)</p>
+          <div class="form-row">
+            <div>
+              <label>CPF</label>
+              <input id="influencerFormCpf" type="text" placeholder="000.000.000-00">
+            </div>
+            <div>
+              <label>RG</label>
+              <input id="influencerFormRg" type="text">
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Telefone / WhatsApp</label>
+              <input id="influencerFormTelefone" type="text" placeholder="(00) 00000-0000">
+            </div>
+            <div>
+              <label>E-mail</label>
+              <input id="influencerFormEmail" type="email">
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Data de nascimento</label>
+              <input id="influencerFormDataNascimento" type="date">
+            </div>
+            <div>
+              <label>Endereço</label>
+              <input id="influencerFormEndereco" type="text" placeholder="Rua, número, cidade, UF, CEP">
+            </div>
+          </div>
+
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Contrato (opcional)</p>
+          <div id="influencerFormContractCurrent" hidden style="font-size:13px;margin-bottom:8px;">
+            📎 <a id="influencerFormContractLink" href="#" target="_blank" rel="noopener"></a>
+            <button type="button" class="btn-link" id="influencerFormContractRemove" style="color:var(--danger);">Remover</button>
+          </div>
+          <input id="influencerFormContractInput" type="file">
+          <p class="muted" style="font-size:11.5px;margin-top:4px;">Só é enviado quando você salvar. Formatos comuns: PDF, imagem ou documento — até 25MB.</p>
+
           <div id="influencerFormError" class="error" hidden></div>
           <div class="form-actions">
             <button class="btn-primary" id="influencerFormSave">Salvar</button>
@@ -856,6 +902,29 @@
     </div>
   </div>
 </div>
+
+<!-- Chat da Equipe — janelinha flutuante (21ª rodada, pedido da Raquel:
+     "o chat deve aparecer quando estiverem vindo mensagens, como uma
+     janelinha de notificação a ser aberta no canto direito a tela").
+     Fica fora da .app-shell pra flutuar por cima de qualquer tela; some
+     sozinha enquanto ninguém logou (ver startApp/boot em app.js) e
+     também enquanto a pessoa já está na tela "Chat da Equipe" (ali ela já
+     vê tudo em tamanho cheio, a bolha ficaria redundante). -->
+<div id="chatWidgetToast" class="chat-widget-toast" hidden></div>
+<div id="chatWidget" class="chat-widget" hidden>
+  <div class="chat-widget-header">
+    <span>Chat da Equipe</span>
+    <button type="button" id="chatWidgetCloseBtn" class="chat-widget-close" title="Fechar">✕</button>
+  </div>
+  <div id="chatWidgetMessages" class="chat-widget-messages chat-messages"></div>
+  <div class="chat-input-row">
+    <textarea id="chatWidgetInput" rows="1" placeholder="Escreva uma mensagem... (Enter envia, Shift+Enter quebra linha)"></textarea>
+    <button class="btn-secondary" id="chatWidgetSendBtn">Enviar</button>
+  </div>
+</div>
+<button type="button" id="chatWidgetToggle" class="chat-widget-toggle" hidden title="Chat da Equipe">
+  💬<span id="chatWidgetBadge" class="chat-widget-badge" hidden>0</span>
+</button>
 
 <script src="/app.js"></script>
 </body>

@@ -27,8 +27,10 @@ app.use('/api/influencers', require('./routes/influencers'));
 app.use('/api/chat', require('./routes/chat'));
 
 // Importação automática (só roda uma vez) do orçamento 2026 real da
-// GhelPlus, vindo da planilha oficial — ver utils/seedBudget2026Ghelplus.js.
+// GhelPlus e da De Bacco, vindo das planilhas oficiais — ver
+// utils/seedBudget2026Ghelplus.js e utils/seedBudget2026Debacco.js.
 require('./utils/seedBudget2026Ghelplus').seedBudget2026Ghelplus();
+require('./utils/seedBudget2026Debacco').seedBudget2026Debacco();
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).

@@ -637,20 +637,29 @@
     } catch (e) { /* usuário pode não ter permissão futura — hoje é liberado a todos */ }
 
     if (budgetAccess !== 'none') {
-      try {
-        const year = new Date().getFullYear();
-        const data = await api('/api/budget?year=' + year);
-        const totalPlan = data.entries.reduce((s, e) => s + (Number(e.planejado) || 0), 0);
-        const totalReal = data.entries.reduce((s, e) => s + (Number(e.realizado) || 0), 0);
-        renderStatBars('budgetStatList', [
-          { label: 'Planejado', value: totalPlan, display: fmtMoney(totalPlan), color: 'var(--muted)' },
-          { label: 'Realizado', value: totalReal, display: fmtMoney(totalReal), color: 'var(--primary)' }
-        ]);
-        const diff = totalReal - totalPlan;
-        const diffLine = $('#budgetDiffLine');
-        diffLine.textContent = `Diferença: ${fmtMoney(diff)}`;
-        diffLine.className = 'budget-diff ' + (diff > 0 ? 'budget-diff-over' : 'budget-diff-under');
-      } catch (e) { /* sem acesso */ }
+      // 24ª rodada: resumo da Início separado por marca (antes somava
+      // De Bacco + GhelPlus num número só, e não dava pra saber de qual
+      // marca era o valor mostrado).
+      const year = new Date().getFullYear();
+      const budgetHomeBrands = [
+        { key: 'debacco', statId: 'budgetStatListDebacco', diffId: 'budgetDiffLineDebacco' },
+        { key: 'ghelplus', statId: 'budgetStatListGhelplus', diffId: 'budgetDiffLineGhelplus' }
+      ];
+      for (const b of budgetHomeBrands) {
+        try {
+          const data = await api('/api/budget?year=' + year + '&brand=' + b.key);
+          const totalPlan = data.entries.reduce((s, e) => s + (Number(e.planejado) || 0), 0);
+          const totalReal = data.entries.reduce((s, e) => s + (Number(e.realizado) || 0), 0);
+          renderStatBars(b.statId, [
+            { label: 'Planejado', value: totalPlan, display: fmtMoney(totalPlan), color: 'var(--muted)' },
+            { label: 'Realizado', value: totalReal, display: fmtMoney(totalReal), color: 'var(--primary)' }
+          ]);
+          const diff = totalReal - totalPlan;
+          const diffLine = $('#' + b.diffId);
+          diffLine.textContent = `Diferença: ${fmtMoney(diff)}`;
+          diffLine.className = 'budget-diff ' + (diff > 0 ? 'budget-diff-over' : 'budget-diff-under');
+        } catch (e) { /* sem acesso */ }
+      }
     }
 
     // Brindes com estoque baixo (20ª rodada) — no lugar do resumo de

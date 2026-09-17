@@ -52,7 +52,26 @@ const FLUXOS_GHELPLUS = [
   'Promoções - 2.5.23'
 ];
 
-const FLUXOS_BY_BRAND = { ghelplus: FLUXOS_GHELPLUS };
+// Lista da De Bacco (24ª rodada) — mesmo esquema nome + número do fluxo,
+// vindo da planilha oficial ("2026 - BUDGET DE BACCO", abas PLANEJADO
+// 2026/REALIZADO 2026). Diferente da GhelPlus, a De Bacco usa "Immersiones"
+// (é a marca que originou esse fluxo) e não tem "Showroom" nem "Promoções".
+const FLUXOS_DEBACCO = [
+  'Institucional - 2.5.3.3',
+  'Ações Sociais - 2.5.3.4',
+  'Relacionamento - 2.5.3.22',
+  'Immersiones - 2.5.3.2',
+  'Redes Sociais - 2.5.3.5',
+  'Cenografia - 2.5.3.6',
+  'Brindes - 2.5.3.8',
+  'PDV - 2.5.3.12',
+  'Feiras/Eventos - 2.5.3.1',
+  'Expositores Padrão - 2.5.3.14',
+  'Expositores Especiais - 2.5.3.21',
+  'Equipamentos - 1.2.6.1'
+];
+
+const FLUXOS_BY_BRAND = { ghelplus: FLUXOS_GHELPLUS, debacco: FLUXOS_DEBACCO };
 
 function accessOf(req) {
   const user = db.get('users').find({ id: req.user.id }).value();

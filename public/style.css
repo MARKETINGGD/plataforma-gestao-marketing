@@ -567,3 +567,66 @@ button{font-weight:700;}
 .kanban-card.card-dragging{opacity:.4;}
 .kanban-card.drag-over-card{outline:2px dashed var(--primary);outline-offset:2px;}
 .kanban-list.drag-over-list{outline:2px dashed var(--primary);outline-offset:-2px;border-radius:8px;}
+
+/* ---------- 22ª rodada ---------- */
+
+/* Fotinho de quem mandou o recado */
+.recado-card-row{display:flex;align-items:center;gap:8px;flex:1;min-width:200px;}
+.recado-card-row .recado-card-text{min-width:0;flex:1;}
+
+/* Notificação flutuante de recado/demanda nova — mesmo visual do aviso do
+   Chat da Equipe (.chat-widget-toast, 21ª rodada), só que um pouco mais
+   alta na tela pra não competir com a bolha/aviso do chat se os dois
+   aparecerem perto um do outro. */
+.notif-toast{bottom:158px;}
+@media (max-width:600px){
+  .notif-toast{bottom:150px;}
+}
+
+/* Histórico de Demandas (card + quadro geral) */
+.demanda-history{display:flex;flex-direction:column;gap:10px;max-height:260px;overflow-y:auto;padding:2px;}
+.board-history-list{max-height:60vh;}
+.history-row{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;}
+.history-row-body{flex:1;min-width:0;}
+.history-row-main{font-weight:600;}
+.history-row-time{color:var(--muted);font-size:11px;margin-top:2px;}
+
+/* Lightbox da Prévia do Feed — imagem/vídeo em tamanho de verdade, sem o
+   recorte da miniatura de 340px do card, com navegação entre os cards de
+   um carrossel. */
+.feed-lightbox{
+  position:fixed;inset:0;z-index:120;background:rgba(0,0,0,0.9);
+  display:flex;align-items:center;justify-content:center;
+}
+.feed-lightbox-media{max-width:90vw;max-height:82vh;display:flex;align-items:center;justify-content:center;}
+.feed-lightbox-img{display:block;max-width:90vw;max-height:82vh;object-fit:contain;border-radius:4px;}
+.feed-lightbox-close{
+  position:absolute;top:16px;right:20px;background:none;border:none;color:#fff;
+  font-size:22px;cursor:pointer;line-height:1;z-index:2;
+}
+.feed-lightbox-nav{
+  position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.12);
+  border:none;color:#fff;font-size:32px;width:48px;height:48px;border-radius:50%;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;
+}
+.feed-lightbox-nav:hover{background:rgba(255,255,255,0.24);}
+.feed-lightbox-prev{left:14px;}
+.feed-lightbox-next{right:14px;}
+.feed-lightbox-counter{position:absolute;top:18px;left:20px;color:#fff;font-size:13px;opacity:.85;}
+.feed-lightbox-dots{position:absolute;bottom:20px;left:0;right:0;display:flex;justify-content:center;gap:6px;}
+.feed-lightbox-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.4);cursor:pointer;}
+.feed-lightbox-dot.active{background:#fff;}
+@media (max-width:600px){
+  .feed-lightbox-nav{width:38px;height:38px;font-size:24px;}
+}
+
+/* .feed-preview-media precisa de position:relative pro selo de carrossel
+   (acima) se ancorar certo — a regra original (início do arquivo) não
+   tinha position definido. */
+.feed-preview-media{position:relative;}
+
+/* Selo "1/N" de carrossel na Prévia do Feed */
+.feed-preview-carousel-badge{
+  position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,0.6);color:#fff;
+  font-size:11px;padding:2px 8px;border-radius:10px;pointer-events:none;
+}

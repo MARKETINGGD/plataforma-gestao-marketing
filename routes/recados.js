@@ -3,7 +3,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { resolveUserName } = require('../utils/names');
+const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 
 const router = express.Router();
 
@@ -35,8 +35,11 @@ function serialize(r, userId) {
     targetUserIds: isOwner ? (r.targetUserIds || []) : [userId],
     readBy: isOwner ? (r.readBy || []) : (r.readBy || []).filter((id) => id === userId),
     readByMe: !!(r.readBy || []).includes(userId),
-    // Nome de quem criou o recado, resolvido ao vivo (20ª rodada) — ver utils/names.js.
-    createdByName: resolveUserName(r.createdBy, r.createdByName)
+    // Nome/foto de quem criou o recado, resolvidos ao vivo (20ª/22ª rodada,
+    // pedido da Raquel: "em recados, deve aparecer a fotinho de quem
+    // mandou o recado") — ver utils/names.js.
+    createdByName: resolveUserName(r.createdBy, r.createdByName),
+    createdByPhoto: resolveUserPhoto(r.createdBy)
   });
 }
 

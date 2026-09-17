@@ -187,6 +187,7 @@
             <button class="btn-secondary" id="demandasManageTeamBtn">Equipe</button>
             <button class="btn-secondary" id="demandasManageLabelsBtn">Etiquetas</button>
             <button class="btn-secondary" id="demandasToggleArchived">Ver arquivadas</button>
+            <button class="btn-secondary" id="demandasHistoryBtn">Histórico</button>
             <button class="btn-primary" id="demandasNewBtn">+ Nova demanda</button>
           </div>
         </div>
@@ -437,6 +438,7 @@
                 <th>Status</th>
                 <th>Data da postagem</th>
                 <th>Arquivo</th>
+                <th>Parceria / Nota fiscal</th>
                 <th>Observações</th>
                 <th>Notas extras</th>
                 <th></th>
@@ -481,6 +483,30 @@
           <label>Arquivo</label>
           <input id="influencerPostFormFile" type="file">
           <p class="muted" id="influencerPostFormFileAtual" style="font-size:12px;"></p>
+
+          <!-- Parceria em permuta (22ª rodada, pedido da Raquel: "adicione
+               as datas de saída de cada entrega, quando a parceria for em
+               permuta, e deixe a opção de anexar a nota fiscal do pedido").
+               Tudo opcional. -->
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Parceria (opcional)</p>
+          <div class="form-row">
+            <div>
+              <label>Tipo de parceria</label>
+              <select id="influencerPostFormParceria">
+                <option value="">Não definido</option>
+                <option value="paga">Paga</option>
+                <option value="permuta">Permuta</option>
+              </select>
+            </div>
+            <div id="influencerPostFormSaidaWrap" hidden>
+              <label>Data de saída (envio do produto)</label>
+              <input id="influencerPostFormDataSaida" type="date">
+            </div>
+          </div>
+          <label>Nota fiscal do pedido</label>
+          <input id="influencerPostFormNotaFiscal" type="file">
+          <p class="muted" id="influencerPostFormNotaFiscalAtual" style="font-size:12px;"></p>
+
           <div id="influencerPostFormError" class="error" hidden></div>
           <div class="form-actions">
             <button class="btn-primary" id="influencerPostFormSave">Salvar</button>
@@ -793,6 +819,13 @@
       <div id="demFiles" class="file-list"></div>
       <input id="demFileInput" type="file">
 
+      <!-- Histórico do card (22ª rodada, pedido da Raquel: "no card...
+           deve aparecer o histórico daquele card, mostrando o que foi
+           feito, alterado, excluído e quem foi que fez (nome e
+           fotinho)"). Só existe pra demanda já criada. -->
+      <label id="demHistoryLabel" hidden>Histórico</label>
+      <div id="demHistory" class="demanda-history" hidden></div>
+
       <div id="demCardError" class="error" hidden></div>
     </div>
 
@@ -925,6 +958,47 @@
 <button type="button" id="chatWidgetToggle" class="chat-widget-toggle" hidden title="Chat da Equipe">
   💬<span id="chatWidgetBadge" class="chat-widget-badge" hidden>0</span>
 </button>
+
+<!-- Notificação flutuante de recado/demanda nova (22ª rodada, pedido da
+     Raquel: "quando tiver notificação de recado ou demandas novas, deve
+     subir um card pequeno na tela, do lado direito... pra ter a opção de
+     clicar e ir ver ela"). Componente próprio, separado do aviso do Chat
+     (acima), fica um pouco mais alto na tela pra não sobrepor quando os
+     dois aparecem perto um do outro. -->
+<div id="notifToast" class="chat-widget-toast notif-toast" hidden></div>
+
+<!-- Lightbox da Prévia do Feed (22ª rodada): pedido de ver o carrossel
+     completo ("deve ter a opção de clicar no post e ver os demais card,
+     como se fosse um carrossel no feed mesmo") e de ver a imagem em
+     qualidade de verdade (o preview do card é só uma miniatura de 340px,
+     recortada — aqui mostra o arquivo original, sem corte). Serve tanto
+     pra carrossel (várias imagens, com navegação) quanto pra um post
+     comum (uma imagem só). -->
+<div id="feedLightbox" class="feed-lightbox" hidden>
+  <button type="button" id="feedLightboxClose" class="feed-lightbox-close" title="Fechar">✕</button>
+  <button type="button" id="feedLightboxPrev" class="feed-lightbox-nav feed-lightbox-prev" title="Anterior">‹</button>
+  <div id="feedLightboxMedia" class="feed-lightbox-media"></div>
+  <button type="button" id="feedLightboxNext" class="feed-lightbox-nav feed-lightbox-next" title="Próximo">›</button>
+  <div id="feedLightboxCounter" class="feed-lightbox-counter"></div>
+  <div id="feedLightboxDots" class="feed-lightbox-dots"></div>
+</div>
+
+<!-- Histórico do quadro geral de Demandas (22ª rodada, pedido da Raquel:
+     "no quadro geral, ao lado de ver arquivadas, deve ter o histórico...
+     podemos ver tudo que foi feito no quadro"). -->
+<div id="boardHistoryModal" class="modal-overlay" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Histórico do quadro geral</div>
+      <button id="boardHistoryClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="margin-top:0;font-size:12.5px;">Mostra as ações feitas nos cards do Quadro Geral a partir desta atualização (22ª rodada) — cards da Área Pessoal de cada um não aparecem aqui.</p>
+      <div id="boardHistoryList" class="demanda-history board-history-list"></div>
+      <p id="boardHistoryEmpty" class="muted" hidden>Nenhuma ação registrada ainda.</p>
+    </div>
+  </div>
+</div>
 
 <script src="/app.js"></script>
 </body>

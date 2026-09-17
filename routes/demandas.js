@@ -6,7 +6,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { resolveUserName } = require('../utils/names');
+const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 
 const router = express.Router();
 
@@ -90,6 +90,10 @@ function cardOrder(d) {
   return d.order != null ? d.order : new Date(d.createdAt).getTime();
 }
 
+// Rótulos em PT do status, usados só pra montar frases legíveis no
+// histórico (22ª rodada) — mesmos valores de STATUSES acima.
+const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', aprovacao: 'Em Aprovação', concluida: 'Concluída' };
+
 function serialize(d) {
   return Object.assign({}, d, {
     assigneeIds: d.assigneeIds || [],
@@ -98,12 +102,53 @@ function serialize(d) {
     recurring: !!d.recurring,
     overdue: isOverdue(d),
     order: cardOrder(d),
-    // Nome de quem criou, resolvido ao vivo (20ª rodada) — ver utils/names.js.
+    // Nome/foto de quem criou, resolvidos ao vivo (20ª/22ª rodada) — ver utils/names.js.
     createdByName: resolveUserName(d.createdBy, d.createdByName),
+    createdByPhoto: resolveUserPhoto(d.createdBy),
     files: (d.files || []).map((f) => Object.assign({}, f, {
       uploadedByName: resolveUserName(f.uploadedBy, f.uploadedByName)
     }))
   });
+}
+
+// Monta uma frase legível descrevendo o que mudou num PUT /:id (22ª
+// rodada, pedido da Raquel: o histórico do card deve mostrar "o que foi
+// feito, alterado" — não só "atualizado" sem detalhe nenhum). `updates` é
+// o mesmo objeto que já vai ser gravado (inclusive depois do ajuste de
+// recorrência, se for o caso) — comparado contra o card antes da mudança.
+function describeChanges(before, updates) {
+  const parts = [];
+  if (updates.title !== undefined && updates.title !== before.title) {
+    parts.push(`título alterado para "${updates.title}"`);
+  }
+  if (updates.status !== undefined && updates.status !== before.status) {
+    parts.push(`status: ${STATUS_LABEL_PT[before.status] || before.status} → ${STATUS_LABEL_PT[updates.status] || updates.status}`);
+  }
+  if (updates.dueDate !== undefined && updates.dueDate !== (before.dueDate || null)) {
+    parts.push(`data de entrega: ${before.dueDate || 'sem data'} → ${updates.dueDate || 'sem data'}`);
+  }
+  if (updates.description !== undefined && updates.description !== before.description) {
+    parts.push('descrição alterada');
+  }
+  if (updates.assigneeIds !== undefined) {
+    const beforeIds = before.assigneeIds || [];
+    const added = updates.assigneeIds.filter((id) => !beforeIds.includes(id));
+    const removed = beforeIds.filter((id) => !updates.assigneeIds.includes(id));
+    if (added.length) parts.push(`responsável(is) adicionado(s): ${added.map((id) => resolveUserName(id, '?')).join(', ')}`);
+    if (removed.length) parts.push(`responsável(is) removido(s): ${removed.map((id) => resolveUserName(id, '?')).join(', ')}`);
+  }
+  if (updates.labelIds !== undefined) {
+    const beforeIds = before.labelIds || [];
+    const changed = updates.labelIds.length !== beforeIds.length || updates.labelIds.some((id) => !beforeIds.includes(id));
+    if (changed) parts.push('etiquetas alteradas');
+  }
+  if (updates.color !== undefined && updates.color !== (before.color || null)) {
+    parts.push('cor do card alterada');
+  }
+  if (updates.recurring !== undefined && updates.recurring !== !!before.recurring) {
+    parts.push(updates.recurring ? 'marcada como recorrente' : 'recorrência removida');
+  }
+  return parts.join('; ');
 }
 
 const uploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'demandas');
@@ -144,6 +189,37 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ demandas: filtered.map(serialize) });
 });
 
+// Histórico do quadro geral inteiro (22ª rodada, pedido da Raquel: "no
+// quadro geral, ao lado de ver arquivadas, deve ter o histórico... podemos
+// ver tudo que foi feito no quadro"). Fica ANTES de "GET /:id/history" por
+// segurança de rota (mesmo cuidado do "PUT /reorder" acima), mesmo não
+// havendo hoje nenhuma "GET /:id" que colidisse.
+//
+// Só entram ações marcadas como 'geral' no momento em que aconteceram
+// (campo `visibility` gravado pelo logAudit desde esta rodada, via
+// `meta`) — ações de demandas pessoais nunca aparecem aqui, e ações de
+// antes desta rodada (que não têm essa marcação) também ficam de fora, de
+// propósito: sem a marcação não dá pra garantir que não é uma demanda
+// pessoal de alguém, e privacidade vem na frente de completude aqui.
+router.get('/history', requireAuth, (req, res) => {
+  const entries = db.get('auditLog').value()
+    .filter((e) => e.entityType === 'demanda' && e.visibility === 'geral')
+    .slice()
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+    .slice(0, 300)
+    .map((e) => ({
+      id: e.id,
+      entityId: e.entityId,
+      entityLabel: e.entityLabel,
+      action: e.action,
+      details: e.details || '',
+      createdAt: e.createdAt,
+      userName: resolveUserName(e.userId, e.username),
+      userPhoto: resolveUserPhoto(e.userId)
+    }));
+  res.json({ history: entries });
+});
+
 // Contadores usados no resumo da tela Início — só conta o quadro geral
 // (demandas pessoais não entram nos números públicos da tela Início).
 router.get('/summary', requireAuth, (req, res) => {
@@ -181,7 +257,7 @@ router.post('/', requireAuth, (req, res) => {
     updatedAt: new Date().toISOString()
   };
   db.get('demandas').push(demanda).write();
-  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'create' });
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'create', meta: { visibility: demanda.visibility } });
   res.json({ demanda: serialize(demanda) });
 });
 
@@ -235,8 +311,9 @@ router.put('/:id', requireAuth, (req, res) => {
     recurringReset = updates.dueDate;
   }
 
+  const details = describeChanges(demanda, updates);
   db.get('demandas').find({ id: req.params.id }).assign(updates).write();
-  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'update' });
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: updates.title || demanda.title, action: 'update', details, meta: { visibility: demanda.visibility } });
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()), recurringReset });
 });
 
@@ -245,7 +322,7 @@ router.put('/:id/archive', requireAuth, (req, res) => {
   if (!demanda) return;
   const archived = !!(req.body || {}).archived;
   db.get('demandas').find({ id: req.params.id }).assign({ archived, updatedAt: new Date().toISOString() }).write();
-  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: archived ? 'archive' : 'unarchive' });
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: archived ? 'archive' : 'unarchive', meta: { visibility: demanda.visibility } });
   res.json({ ok: true });
 });
 
@@ -255,8 +332,31 @@ router.delete('/:id', requireAuth, (req, res) => {
   db.get('demandas').remove({ id: req.params.id }).write();
   const dir = path.join(uploadsRoot, req.params.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
-  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'delete' });
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'delete', meta: { visibility: demanda.visibility } });
   res.json({ ok: true });
+});
+
+// Histórico de UMA demanda (card) — 22ª rodada, pedido da Raquel: "no
+// card... deve aparecer o histórico daquele card, mostrando o que foi
+// feito, alterado, excluído e quem foi que fez (nome e fotinho)".
+// Reaproveita findOr404, que já barra quem não pode ver uma demanda
+// pessoal (mesmo controle de acesso de sempre).
+router.get('/:id/history', requireAuth, (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) return;
+  const entries = db.get('auditLog').value()
+    .filter((e) => e.entityType === 'demanda' && e.entityId === demanda.id)
+    .slice()
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+    .map((e) => ({
+      id: e.id,
+      action: e.action,
+      details: e.details || '',
+      createdAt: e.createdAt,
+      userName: resolveUserName(e.userId, e.username),
+      userPhoto: resolveUserPhoto(e.userId)
+    }));
+  res.json({ history: entries });
 });
 
 // ---------- checklist ----------
@@ -268,6 +368,7 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
   const item = { id: nanoid(), text, done: false };
   const checklist = [...(demanda.checklist || []), item];
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_add', details: `Item adicionado ao checklist: "${text}"`, meta: { visibility: demanda.visibility } });
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
 });
 
@@ -275,19 +376,35 @@ router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
   const { text, done } = req.body || {};
+  const before = (demanda.checklist || []).find((it) => it.id === req.params.itemId);
   const checklist = (demanda.checklist || []).map((it) => {
     if (it.id !== req.params.itemId) return it;
     return Object.assign({}, it, text !== undefined ? { text } : {}, done !== undefined ? { done: !!done } : {});
   });
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
+  // Histórico (22ª rodada): registra só quando algo de fato mudou (marcar/
+  // desmarcar ou renomear) — evita entrada de histórico "vazia" pra
+  // requisições que não alteraram nada.
+  if (before) {
+    const after = checklist.find((it) => it.id === req.params.itemId);
+    let detail = '';
+    if (after && done !== undefined && !!done !== !!before.done) {
+      detail = (after.done ? 'Item do checklist marcado como concluído: ' : 'Item do checklist desmarcado: ') + `"${after.text}"`;
+    } else if (after && text !== undefined && text !== before.text) {
+      detail = `Item do checklist renomeado para "${after.text}"`;
+    }
+    if (detail) logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_update', details: detail, meta: { visibility: demanda.visibility } });
+  }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
 });
 
 router.delete('/:id/checklist/:itemId', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
+  const target = (demanda.checklist || []).find((it) => it.id === req.params.itemId);
   const checklist = (demanda.checklist || []).filter((it) => it.id !== req.params.itemId);
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
+  if (target) logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_remove', details: `Item removido do checklist: "${target.text}"`, meta: { visibility: demanda.visibility } });
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
 });
 
@@ -307,6 +424,7 @@ router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
   };
   const files = [...(demanda.files || []), fileMeta];
   db.get('demandas').find({ id: req.params.id }).assign({ files, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'file_upload', details: `Arquivo enviado: ${fileMeta.name}`, meta: { visibility: demanda.visibility } });
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
 });
 
@@ -319,6 +437,7 @@ router.delete('/:id/files/:fileId', requireAuth, (req, res) => {
   if (target) {
     const filePath = path.join(uploadsRoot, req.params.id, path.basename(target.url));
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'file_delete', details: `Arquivo removido: ${target.name}`, meta: { visibility: demanda.visibility } });
   }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
 });

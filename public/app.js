@@ -44,6 +44,12 @@
   let selectedRecadoColor = null;
   let selectedRecadoTargetIds = new Set();
 
+  // ---------- 22ª rodada: notificação flutuante (recado/demanda), histórico
+  // de Demandas e lightbox da Prévia do Feed ----------
+  let notifToastTimer = null;
+  let feedLightboxFiles = [];
+  let feedLightboxIndex = 0;
+
   let socialPosts = [];
   let socialPlatforms = [];
   let socialStatuses = [];
@@ -147,6 +153,85 @@
     }
     return `<div class="avatar-fallback${cls}" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px;" title="${name}">${initial}</div>`;
   }
+
+  // ---------- Histórico de Demandas (22ª rodada) ----------
+  // Rótulos em PT de cada tipo de ação registrada no histórico — espelham
+  // as `action` gravadas pelo backend (ver routes/demandas.js).
+  const HISTORY_ACTION_LABEL = {
+    create: 'criou o card',
+    update: 'atualizou o card',
+    archive: 'arquivou o card',
+    unarchive: 'desarquivou o card',
+    delete: 'excluiu o card',
+    checklist_add: 'adicionou item ao checklist',
+    checklist_update: 'atualizou item do checklist',
+    checklist_remove: 'removeu item do checklist',
+    file_upload: 'enviou um arquivo',
+    file_delete: 'removeu um arquivo'
+  };
+  // Monta a lista de histórico num container — reaproveitado tanto pelo
+  // histórico de UM card (modal da demanda) quanto pelo histórico do
+  // quadro geral inteiro (que também mostra o título do card em cada
+  // linha, via opts.showEntity). Texto do usuário (nome, detalhes,
+  // título do card) sempre via textContent, nunca innerHTML — mesmo
+  // cuidado já usado no Chat da Equipe (18ª rodada), pra ninguém injetar
+  // HTML/script através de um texto que digitou em algum lugar.
+  function renderHistoryList(containerId, entries, opts) {
+    opts = opts || {};
+    const wrap = $('#' + containerId);
+    wrap.innerHTML = '';
+    if (!entries || entries.length === 0) {
+      wrap.innerHTML = '<div class="muted" style="font-size:12.5px;">Nenhuma alteração registrada ainda.</div>';
+      return;
+    }
+    entries.forEach((e) => {
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      row.innerHTML = `
+        ${avatarHtml({ name: e.userName, photoUrl: e.userPhoto }, 24)}
+        <div class="history-row-body">
+          <div class="history-row-main"></div>
+          <div class="history-row-details muted" style="font-size:12px;" hidden></div>
+          <div class="history-row-time"></div>
+        </div>
+      `;
+      const label = HISTORY_ACTION_LABEL[e.action] || e.action;
+      let mainLine = (e.userName || 'Alguém') + ' ' + label;
+      if (opts.showEntity && e.entityLabel) mainLine += ' — ' + e.entityLabel;
+      row.querySelector('.history-row-main').textContent = mainLine;
+      if (e.details) {
+        const d = row.querySelector('.history-row-details');
+        d.textContent = e.details;
+        d.hidden = false;
+      }
+      row.querySelector('.history-row-time').textContent = fmtDateTime(e.createdAt);
+      wrap.appendChild(row);
+    });
+  }
+  async function loadDemHistory(demandaId) {
+    if (!demandaId) {
+      $('#demHistoryLabel').hidden = true;
+      $('#demHistory').hidden = true;
+      return;
+    }
+    $('#demHistoryLabel').hidden = false;
+    $('#demHistory').hidden = false;
+    try {
+      const data = await api(`/api/demandas/${demandaId}/history`);
+      renderHistoryList('demHistory', data.history);
+    } catch (e) { /* ignora falha pontual */ }
+  }
+  async function openBoardHistoryModal() {
+    $('#boardHistoryModal').hidden = false;
+    try {
+      const data = await api('/api/demandas/history');
+      $('#boardHistoryEmpty').hidden = data.history.length > 0;
+      renderHistoryList('boardHistoryList', data.history, { showEntity: true });
+    } catch (e) { /* ignora falha pontual */ }
+  }
+  $('#demandasHistoryBtn').onclick = openBoardHistoryModal;
+  $('#boardHistoryClose').onclick = () => { $('#boardHistoryModal').hidden = true; };
+
   const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const MONTHS_FULL = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -614,8 +699,23 @@
         recadoSoundSeenIds = ids;
         return;
       }
-      const temRecadoNovo = [...ids].some((id) => !recadoSoundSeenIds.has(id));
-      if (temRecadoNovo) playRecadoSound();
+      const novos = data.recados.filter((r) => !recadoSoundSeenIds.has(r.id));
+      if (novos.length > 0) {
+        playRecadoSound();
+        // Notificação flutuante (22ª rodada, pedido da Raquel: "quando
+        // tiver notificação de recado ou demandas novas, deve subir um
+        // card pequeno na tela, do lado direito... pra ter a opção de
+        // clicar e ir ver ela") — mostra o mais recente dos que chegaram
+        // nesse ciclo, por data de criação (não pela ordem em que a API
+        // devolveu a lista).
+        const r = novos.slice().sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))[novos.length - 1];
+        showNotifToast({
+          title: '📨 Novo recado',
+          text: r.text,
+          person: { name: r.createdByName, photoUrl: r.createdByPhoto },
+          onClick: () => { $('#navHome').click(); }
+        });
+      }
       recadoSoundSeenIds = ids;
     } catch (e) { /* ignora falha de rede pontual */ }
   }
@@ -630,15 +730,79 @@
         api('/api/demandas?scope=pessoal')
       ]);
       const minhasGeral = geral.demandas.filter((d) => (d.assigneeIds || []).includes(currentUser.id));
-      const ids = new Set([...minhasGeral, ...pessoal.demandas].map((d) => d.id));
+      // Guarda também o escopo de cada uma (22ª rodada) — precisa saber se
+      // é do Quadro Geral ou da Área Pessoal pra abrir na aba certa quando
+      // a pessoa clicar no aviso.
+      const combined = [...minhasGeral.map((d) => ({ d, scope: 'geral' })), ...pessoal.demandas.map((d) => ({ d, scope: 'pessoal' }))];
+      const ids = new Set(combined.map((x) => x.d.id));
       if (demandaSoundSeenIds === null) {
         demandaSoundSeenIds = ids;
         return;
       }
-      const temDemandaNova = [...ids].some((id) => !demandaSoundSeenIds.has(id));
-      if (temDemandaNova) playRecadoSound();
+      const novos = combined.filter((x) => !demandaSoundSeenIds.has(x.d.id));
+      if (novos.length > 0) {
+        playRecadoSound();
+        // Mostra a mais recente por data de criação (não pela ordem
+        // geral-depois-pessoal em que os dois vieram concatenados) —
+        // senão, quando duas demandas novas chegam no mesmo ciclo de
+        // checagem, sempre mostraria a pessoal (que vem por último no
+        // array), mesmo que a geral tenha sido criada depois.
+        const { d, scope } = novos.slice().sort((a, b) => (a.d.createdAt || '').localeCompare(b.d.createdAt || ''))[novos.length - 1];
+        showNotifToast({
+          title: '✅ Nova demanda',
+          text: d.title,
+          person: { name: d.createdByName, photoUrl: d.createdByPhoto },
+          onClick: () => { goToDemandaFromNotif(d, scope); }
+        });
+      }
       demandaSoundSeenIds = ids;
     } catch (e) { /* ignora falha de rede pontual */ }
+  }
+
+  // Notificação flutuante genérica pra recado/demanda nova (22ª rodada) —
+  // mesmo espírito visual do aviso do Chat da Equipe (21ª rodada), mas num
+  // componente próprio (#notifToast), já que são avisos de origens
+  // diferentes e podem aparecer em momentos distintos.
+  function hideNotifToast() {
+    $('#notifToast').hidden = true;
+    if (notifToastTimer) { clearTimeout(notifToastTimer); notifToastTimer = null; }
+  }
+  function showNotifToast({ title, text, person, onClick }) {
+    const toast = $('#notifToast');
+    toast.innerHTML = `
+      ${avatarHtml(person, 32)}
+      <div class="chat-widget-toast-body">
+        <div class="chat-widget-toast-name"></div>
+        <div class="chat-widget-toast-text"></div>
+      </div>
+      <button type="button" class="chat-widget-toast-close" title="Fechar aviso">✕</button>
+    `;
+    toast.querySelector('.chat-widget-toast-name').textContent = title;
+    toast.querySelector('.chat-widget-toast-text').textContent = text || '';
+    toast.querySelector('.chat-widget-toast-close').onclick = (e) => { e.stopPropagation(); hideNotifToast(); };
+    toast.onclick = () => { hideNotifToast(); if (onClick) onClick(); };
+    toast.hidden = false;
+    if (notifToastTimer) clearTimeout(notifToastTimer);
+    notifToastTimer = setTimeout(hideNotifToast, 8000);
+  }
+
+  // Vai direto pro card da demanda que gerou o aviso (22ª rodada) — troca
+  // pra aba certa (Quadro Geral/Área Pessoal), carrega e abre o modal.
+  async function goToDemandaFromNotif(d, scope) {
+    demandasScope = scope;
+    $all('.tab-btn[data-demandas-scope]').forEach((x) => x.classList.toggle('active', x.dataset.demandasScope === scope));
+    $('#demandasScopeHint').textContent = scope === 'pessoal'
+      ? 'Só você e quem você marcar enxergam essas demandas.'
+      : 'Visível para toda a equipe.';
+    showingArchived = false;
+    $('#archivedWrap').hidden = true;
+    $('#kanbanBoard').hidden = false;
+    $('#demandasToggleArchived').textContent = 'Ver arquivadas';
+    setActiveNav('navDemandas');
+    showView('demandas');
+    await loadDemandas();
+    const fresh = demandas.find((x) => x.id === d.id);
+    if (fresh) openDemandaModal(fresh);
   }
   function startNotificationSoundWatcher() {
     checkNewRecados();
@@ -925,8 +1089,13 @@
       const card = document.createElement('div');
       card.className = 'recado-card';
       card.style.borderLeftColor = r.color;
+      // Fotinho de quem mandou (22ª rodada, pedido da Raquel: "em recados,
+      // deve aparecer a fotinho de quem mandou o recado").
       card.innerHTML = `
-        <div class="recado-card-text">${r.text}<span class="recado-card-meta">de ${r.createdByName}</span></div>
+        <div class="recado-card-row">
+          ${avatarHtml({ name: r.createdByName, photoUrl: r.createdByPhoto }, 28)}
+          <div class="recado-card-text">${r.text}<span class="recado-card-meta">de ${r.createdByName}</span></div>
+        </div>
       `;
       const btn = document.createElement('button');
       btn.className = 'btn-secondary';
@@ -954,7 +1123,7 @@
       tr.innerHTML = `
         <td><span class="label-color-dot" style="background:${r.color}"></span></td>
         <td>${r.text}</td>
-        <td>${r.createdByName}</td>
+        <td><div style="display:flex;align-items:center;gap:6px;">${avatarHtml({ name: r.createdByName, photoUrl: r.createdByPhoto }, 22)}${r.createdByName}</div></td>
         <td>${targets.join(', ')}</td>
         <td>${readCount}/${targets.length}</td>
         <td></td>
@@ -1684,6 +1853,7 @@
       openDemandaCache = fresh;
       renderChecklist(fresh);
       renderFiles(fresh);
+      loadDemHistory(fresh.id);
     }
   }
 
@@ -1769,6 +1939,7 @@
     $('#demCardDelete').hidden = !demanda;
     $('#demChecklistAdd').parentElement.style.display = demanda ? '' : 'none';
     $('#demFileInput').style.display = demanda ? '' : 'none';
+    loadDemHistory(demanda ? demanda.id : null);
     $('#demandaModal').hidden = false;
   }
   $('#demCardClose').onclick = () => { $('#demandaModal').hidden = true; loadDemandas(); };
@@ -2741,10 +2912,19 @@
       card.className = 'feed-preview-card' + (isLinkedin ? ' linkedin' : '');
       card.style.cursor = 'pointer';
 
-      const file = (p.files || [])[0];
+      const files = p.files || [];
+      const file = files[0];
       const isVideo = !!file && /\.(mp4|mov|webm|avi|mkv)$/i.test(file.name || file.url || '');
+      // Carrossel com mais de uma imagem (22ª rodada, pedido da Raquel:
+      // "quando o agendamento for carrossel, ele terá mais de um card...
+      // deve ter a opção de clicar no post e ver os demais card, como se
+      // fosse um carrossel no feed mesmo") — usa o mesmo array de
+      // "Criativo final" já existente (já aceitava vários arquivos), só
+      // mostrando um indicador "1/N" por cima da primeira imagem.
+      const isCarousel = p.postType === 'carrossel' && files.length > 1;
+      const carouselBadge = isCarousel ? `<span class="feed-preview-carousel-badge">🖼 1/${files.length}</span>` : '';
       const mediaHtml = file
-        ? (isVideo ? `<video src="${file.url}" controls></video>` : `<img src="${file.url}" alt="">`)
+        ? (isVideo ? `<video src="${file.url}" controls></video>` : `<img src="${file.url}" alt="">`) + carouselBadge
         : `<div class="feed-preview-noimg">Sem criativo anexado ainda</div>`;
 
       const accountLabel = SOCIAL_PLATFORM_LABEL[p.platform] || p.platform;
@@ -2779,10 +2959,84 @@
 
       card.appendChild(renderApprovalWidget(p));
 
+      // A imagem/vídeo tem um clique próprio (abre em tamanho de verdade,
+      // sem o recorte/miniatura de 340px do card — resolve também o
+      // pedido "as imagens estão aparecendo com baixa qualidade, ele deve
+      // manter a qualidade das imagens": a Plataforma nunca recomprimiu
+      // nada, ver 16ª rodada — só faltava um jeito de ver o arquivo
+      // original em vez da miniatura recortada). stopPropagation pra não
+      // também abrir o agendamento pra edição (clique no resto do card
+      // continua abrindo a edição, como sempre).
+      if (files.length > 0) {
+        const mediaEl = card.querySelector('.feed-preview-media');
+        mediaEl.style.cursor = 'zoom-in';
+        mediaEl.onclick = (ev) => {
+          ev.stopPropagation();
+          openFeedLightbox(files, 0);
+        };
+      }
+
       card.onclick = () => openPostFromCronograma(p.id);
       list.appendChild(card);
     });
   }
+
+  // ---------- Lightbox da Prévia do Feed (22ª rodada) ----------
+  // Mostra o(s) arquivo(s) de um agendamento em tamanho de verdade
+  // (object-fit:contain, sem cortar), com navegação entre os cards do
+  // carrossel quando houver mais de um arquivo.
+  function renderFeedLightboxMedia() {
+    const file = feedLightboxFiles[feedLightboxIndex];
+    const mediaWrap = $('#feedLightboxMedia');
+    if (!file) { mediaWrap.innerHTML = ''; return; }
+    const isVideo = /\.(mp4|mov|webm|avi|mkv)$/i.test(file.name || file.url || '');
+    mediaWrap.innerHTML = isVideo
+      ? `<video src="${file.url}" controls autoplay class="feed-lightbox-img"></video>`
+      : `<img src="${file.url}" alt="" class="feed-lightbox-img">`;
+    const multi = feedLightboxFiles.length > 1;
+    $('#feedLightboxPrev').hidden = !multi;
+    $('#feedLightboxNext').hidden = !multi;
+    $('#feedLightboxCounter').hidden = !multi;
+    $('#feedLightboxCounter').textContent = multi ? `${feedLightboxIndex + 1} / ${feedLightboxFiles.length}` : '';
+    const dots = $('#feedLightboxDots');
+    dots.innerHTML = '';
+    dots.hidden = !multi;
+    if (multi) {
+      feedLightboxFiles.forEach((f, i) => {
+        const dot = document.createElement('span');
+        dot.className = 'feed-lightbox-dot' + (i === feedLightboxIndex ? ' active' : '');
+        dot.onclick = (ev) => { ev.stopPropagation(); feedLightboxIndex = i; renderFeedLightboxMedia(); };
+        dots.appendChild(dot);
+      });
+    }
+  }
+  function openFeedLightbox(files, startIndex) {
+    feedLightboxFiles = files || [];
+    feedLightboxIndex = startIndex || 0;
+    if (feedLightboxFiles.length === 0) return;
+    renderFeedLightboxMedia();
+    $('#feedLightbox').hidden = false;
+  }
+  function closeFeedLightbox() {
+    $('#feedLightbox').hidden = true;
+    $('#feedLightboxMedia').innerHTML = ''; // para vídeo em reprodução ao fechar
+    feedLightboxFiles = [];
+  }
+  function feedLightboxStep(delta) {
+    if (feedLightboxFiles.length === 0) return;
+    feedLightboxIndex = (feedLightboxIndex + delta + feedLightboxFiles.length) % feedLightboxFiles.length;
+    renderFeedLightboxMedia();
+  }
+  $('#feedLightboxClose').onclick = closeFeedLightbox;
+  $('#feedLightbox').onclick = (e) => { if (e.target.id === 'feedLightbox') closeFeedLightbox(); };
+  $('#feedLightboxPrev').onclick = (e) => { e.stopPropagation(); feedLightboxStep(-1); };
+  $('#feedLightboxNext').onclick = (e) => { e.stopPropagation(); feedLightboxStep(1); };
+  document.addEventListener('keydown', (e) => {
+    if ($('#feedLightbox').hidden) return;
+    if (e.key === 'Escape') closeFeedLightbox();
+    if (e.key === 'ArrowLeft') feedLightboxStep(-1);
+    if (e.key === 'ArrowRight') feedLightboxStep(1);
+  });
 
   // ---------- Brindes ----------
   // Todo mundo pode ver o catálogo/registro de saídas — só quem tem
@@ -3245,12 +3499,19 @@
       if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
         tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
       }
+      const parceriaLabel = p.tipoParceria === 'permuta' ? 'Permuta' : (p.tipoParceria === 'paga' ? 'Paga' : '—');
+      const parceriaHtml = [
+        parceriaLabel,
+        p.tipoParceria === 'permuta' && p.dataSaida ? `<br><span class="muted" style="font-size:11px;">Saída: ${fmtDate(p.dataSaida)}</span>` : '',
+        p.notaFiscal ? `<br><a href="${p.notaFiscal.url}" target="_blank" rel="noopener" style="font-size:11px;">📎 Nota fiscal</a>` : ''
+      ].join('');
       tr.innerHTML = `
         <td>${p.formato || '—'}</td>
         <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
         <td>${influencerStatusPillHTML(p.status, true, p.id)}</td>
         <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
         <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+        <td>${parceriaHtml}</td>
         <td>${p.observacoes || '—'}</td>
         <td>${p.notas || '—'}</td>
         <td></td>
@@ -3299,11 +3560,22 @@
     $('#influencerPostFormNotas').value = post ? post.notas : '';
     $('#influencerPostFormFile').value = '';
     $('#influencerPostFormFileAtual').textContent = post && post.arquivo ? ('Arquivo atual: ' + post.arquivo.name) : '';
+    // Parceria em permuta (22ª rodada) — data de saída só faz sentido
+    // quando o tipo é "permuta", então o campo fica escondido nos outros
+    // casos (ver onchange do select logo abaixo).
+    $('#influencerPostFormParceria').value = post ? (post.tipoParceria || '') : '';
+    $('#influencerPostFormDataSaida').value = post ? (post.dataSaida || '') : '';
+    $('#influencerPostFormSaidaWrap').hidden = $('#influencerPostFormParceria').value !== 'permuta';
+    $('#influencerPostFormNotaFiscal').value = '';
+    $('#influencerPostFormNotaFiscalAtual').textContent = post && post.notaFiscal ? ('Nota fiscal atual: ' + post.notaFiscal.name) : '';
     $('#influencerPostFormError').hidden = true;
     $('#influencerPostFormWrap').hidden = false;
   }
   $('#influencerPostNewBtn').onclick = () => openInfluencerPostForm(null);
   $('#influencerPostFormCancel').onclick = () => { $('#influencerPostFormWrap').hidden = true; };
+  $('#influencerPostFormParceria').onchange = () => {
+    $('#influencerPostFormSaidaWrap').hidden = $('#influencerPostFormParceria').value !== 'permuta';
+  };
 
   $('#influencerPostFormSave').onclick = async () => {
     const payload = {
@@ -3312,7 +3584,9 @@
       status: $('#influencerPostFormStatus').value,
       dataPostagem: $('#influencerPostFormData').value || null,
       observacoes: $('#influencerPostFormObs').value.trim(),
-      notas: $('#influencerPostFormNotas').value.trim()
+      notas: $('#influencerPostFormNotas').value.trim(),
+      tipoParceria: $('#influencerPostFormParceria').value || null,
+      dataSaida: $('#influencerPostFormParceria').value === 'permuta' ? ($('#influencerPostFormDataSaida').value || null) : null
     };
     try {
       let postId = editingInfluencerPostId;
@@ -3327,6 +3601,12 @@
         const fd = new FormData();
         fd.append('file', file);
         await api(`/api/influencers/${currentInfluencer.id}/posts/${postId}/file`, { method: 'POST', body: fd });
+      }
+      const notaFiscalFile = $('#influencerPostFormNotaFiscal').files[0];
+      if (notaFiscalFile) {
+        const fd2 = new FormData();
+        fd2.append('notaFiscal', notaFiscalFile);
+        await api(`/api/influencers/${currentInfluencer.id}/posts/${postId}/nota-fiscal`, { method: 'POST', body: fd2 });
       }
       $('#influencerPostFormWrap').hidden = true;
       await openInfluencerTable(currentInfluencer);

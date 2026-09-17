@@ -20,6 +20,14 @@ const router = express.Router();
 const BRANDS = ['debacco', 'ghelplus'];
 const REDES = ['instagram', 'tiktok', 'youtube', 'facebook', 'pinterest'];
 const STATUSES = ['a_publicar', 'publicada', 'cancelada'];
+// Tipo de parceria (22ª rodada, pedido da Raquel: "adicione as datas de
+// saída de cada entrega, quando a parceria for em permuta, e deixe a
+// opção de anexar a nota fiscal do pedido") — 'permuta' é quando o
+// influencer recebe produto em troca do post, em vez de pagamento; nesse
+// caso faz sentido rastrear quando o produto saiu (envio) e a nota fiscal
+// do pedido. Opcional — item sem esse campo preenchido (cadastros
+// anteriores a essa rodada) simplesmente não mostra essa parte.
+const TIPOS_PARCERIA = ['paga', 'permuta'];
 
 function validColor() { return null; } // reservado — sem cor por enquanto
 
@@ -80,6 +88,24 @@ function serializeInfluencerPublic(inf) {
   };
 }
 
+// Versão de cada item da tabela pro link público — sem os campos de
+// parceria/nota fiscal adicionados na 22ª rodada, que são informação
+// financeira/interna (tipo de parceria, data de saída do produto, nota
+// fiscal) e não devem vazar por um link que qualquer um com a URL abre,
+// mesmo cuidado já tomado com os dados pessoais/contrato na 21ª rodada.
+function serializePostPublic(p) {
+  return {
+    id: p.id,
+    formato: p.formato,
+    rede: p.rede,
+    status: p.status,
+    dataPostagem: p.dataPostagem,
+    arquivo: p.arquivo || null,
+    observacoes: p.observacoes,
+    notas: p.notas
+  };
+}
+
 // Link externo por influencer — página pública, sem login, acessada com o
 // token no lugar do id (ninguém de fora da plataforma sabe o id interno).
 // Fica ANTES de tudo que exige login, pra não passar pela tela de login.
@@ -87,7 +113,7 @@ router.get('/public/:token', (req, res) => {
   const inf = db.get('influencers').find({ publicToken: req.params.token }).value();
   if (!inf) return res.status(404).json({ error: 'Link inválido ou desativado.' });
   const posts = db.get('influencerPosts').filter({ influencerId: inf.id }).value();
-  res.json({ influencer: serializeInfluencerPublic(inf), posts });
+  res.json({ influencer: serializeInfluencerPublic(inf), posts: posts.map(serializePostPublic) });
 });
 
 // Lista influencers de uma marca
@@ -173,7 +199,7 @@ router.get('/:id', requireAuth, (req, res) => {
 router.post('/:id/posts', requireAuth, (req, res) => {
   const inf = findInfluencerOr404(req, res);
   if (!inf) return;
-  const { formato, rede, status, dataPostagem, observacoes, notas } = req.body || {};
+  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida } = req.body || {};
   const post = {
     id: nanoid(),
     influencerId: inf.id,
@@ -184,6 +210,10 @@ router.post('/:id/posts', requireAuth, (req, res) => {
     arquivo: null,
     observacoes: (observacoes || '').trim(),
     notas: (notas || '').trim(),
+    // Parceria em permuta (22ª rodada) — ver comentário de TIPOS_PARCERIA.
+    tipoParceria: TIPOS_PARCERIA.includes(tipoParceria) ? tipoParceria : null,
+    dataSaida: dataSaida || null,
+    notaFiscal: null,
     createdAt: new Date().toISOString()
   };
   db.get('influencerPosts').push(post).write();
@@ -196,7 +226,7 @@ router.put('/:id/posts/:postId', requireAuth, (req, res) => {
   if (!inf) return;
   const post = db.get('influencerPosts').find({ id: req.params.postId, influencerId: inf.id }).value();
   if (!post) return res.status(404).json({ error: 'Item não encontrado.' });
-  const { formato, rede, status, dataPostagem, observacoes, notas } = req.body || {};
+  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida } = req.body || {};
   const updates = {};
   if (formato !== undefined) updates.formato = (formato || '').trim();
   if (rede !== undefined) updates.rede = REDES.includes(rede) ? rede : null;
@@ -204,6 +234,8 @@ router.put('/:id/posts/:postId', requireAuth, (req, res) => {
   if (dataPostagem !== undefined) updates.dataPostagem = dataPostagem || null;
   if (observacoes !== undefined) updates.observacoes = (observacoes || '').trim();
   if (notas !== undefined) updates.notas = (notas || '').trim();
+  if (tipoParceria !== undefined) updates.tipoParceria = TIPOS_PARCERIA.includes(tipoParceria) ? tipoParceria : null;
+  if (dataSaida !== undefined) updates.dataSaida = dataSaida || null;
   db.get('influencerPosts').find({ id: post.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'influencerPost', entityId: post.id, entityLabel: `${inf.name} · ${updates.formato || post.formato}`, action: 'update' });
   res.json({ post: db.get('influencerPosts').find({ id: post.id }).value() });
@@ -217,6 +249,10 @@ router.delete('/:id/posts/:postId', requireAuth, (req, res) => {
   if (post.arquivo && post.arquivo.url) {
     const filePath = path.join(__dirname, '..', 'data', 'uploads', 'influencers', inf.id, path.basename(post.arquivo.url));
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+  if (post.notaFiscal && post.notaFiscal.url) {
+    const nfPath = path.join(__dirname, '..', 'data', 'uploads', 'influencers', inf.id, 'nota-fiscal', path.basename(post.notaFiscal.url));
+    if (fs.existsSync(nfPath)) fs.unlinkSync(nfPath);
   }
   db.get('influencerPosts').remove({ id: post.id }).write();
   logAudit({ user: req.user, entityType: 'influencerPost', entityId: post.id, entityLabel: `${inf.name} · ${post.formato}`, action: 'delete' });
@@ -251,6 +287,39 @@ router.post('/:id/posts/:postId/file', requireAuth, upload.single('file'), (req,
   };
   db.get('influencerPosts').find({ id: post.id }).assign({ arquivo }).write();
   logAudit({ user: req.user, entityType: 'influencerPost', entityId: post.id, entityLabel: `${inf.name} · arquivo`, action: 'update', details: `Arquivo enviado: ${arquivo.name}` });
+  res.json({ post: db.get('influencerPosts').find({ id: post.id }).value() });
+});
+
+// ---------- nota fiscal do pedido (22ª rodada, parceria em permuta) ----------
+// Pasta separada (uploadsRoot/<id>/nota-fiscal/), mesmo padrão já usado
+// pro contrato do influencer (21ª rodada) — não se mistura com o arquivo
+// do item nem com o contrato.
+const notaFiscalStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(uploadsRoot, req.params.id, 'nota-fiscal');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadNotaFiscal = multer({ storage: notaFiscalStorage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25MB, de sobra pra PDF/imagem de nota fiscal
+
+router.post('/:id/posts/:postId/nota-fiscal', requireAuth, uploadNotaFiscal.single('notaFiscal'), (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  const post = db.get('influencerPosts').find({ id: req.params.postId, influencerId: inf.id }).value();
+  if (!post) return res.status(404).json({ error: 'Item não encontrado.' });
+  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+  const notaFiscal = {
+    url: `/uploads/influencers/${inf.id}/nota-fiscal/${req.file.filename}`,
+    name: req.file.originalname,
+    uploadedAt: new Date().toISOString()
+  };
+  db.get('influencerPosts').find({ id: post.id }).assign({ notaFiscal }).write();
+  logAudit({ user: req.user, entityType: 'influencerPost', entityId: post.id, entityLabel: `${inf.name} · nota fiscal`, action: 'update', details: `Nota fiscal enviada: ${notaFiscal.name}` });
   res.json({ post: db.get('influencerPosts').find({ id: post.id }).value() });
 });
 

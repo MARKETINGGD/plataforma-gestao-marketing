@@ -27,6 +27,8 @@
 
   let recadosForMe = [];
   let recadosAll = [];
+  let chatLastId = null; // último id de mensagem já mostrado, pra buscar só as novas no polling
+  let chatPollTimer = null;
   let recadoSuggestedColors = [];
   let selectedRecadoColor = null;
   let selectedRecadoTargetIds = new Set();
@@ -230,6 +232,10 @@
     } else {
       $('.content').style.background = '';
     }
+    // O polling do Chat da Equipe só roda enquanto a tela está aberta
+    // (18ª rodada) — sair da tela para em vez de continuar consultando o
+    // servidor à toa em segundo plano.
+    if (name !== 'chat') stopChatPolling();
   }
 
   // ---------- boot ----------
@@ -420,6 +426,7 @@
         if (b.dataset.view === 'agendamento') loadSocialPosts();
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
+        if (b.dataset.view === 'chat') loadChat();
       }
     };
   });
@@ -446,6 +453,27 @@
     });
   };
 
+  // Resumo da Início em lista + barrinha, no lugar dos quadrados de número
+  // de antes (18ª rodada: "esta feio visualmente tudo separado em
+  // quadrados, deixe com lista e grafico, de uma forma mais visual e
+  // delicada"). `rows`: [{label, value, color, display?}] — a barra de
+  // cada linha é proporcional ao maior valor do grupo (não é um total de
+  // 100%, já que "Atrasadas" é um recorte que pode se sobrepor às outras
+  // — então uma barra de comparação simples é mais honesta que um donut).
+  function renderStatBars(containerId, rows) {
+    const wrap = $('#' + containerId);
+    const max = Math.max(1, ...rows.map((r) => r.value));
+    wrap.innerHTML = rows.map((r) => `
+      <div class="stat-bar-row">
+        <div class="stat-bar-row-top">
+          <span class="stat-bar-label"><span class="stat-bar-dot" style="background:${r.color}"></span>${r.label}</span>
+          <span class="stat-bar-value">${r.display !== undefined ? r.display : r.value}</span>
+        </div>
+        <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${Math.round((r.value / max) * 100)}%;background:${r.color}"></div></div>
+      </div>
+    `).join('');
+  }
+
   async function loadHome() {
     const data = await api('/api/dashboards');
     budgetAccess = data.budgetAccess;
@@ -458,10 +486,12 @@
 
     try {
       const sum = await api('/api/demandas/summary');
-      $('#statAtrasada').textContent = sum.summary.atrasada;
-      $('#statAndamento').textContent = sum.summary.andamento;
-      $('#statAprovacao').textContent = sum.summary.aprovacao;
-      $('#statConcluida').textContent = sum.summary.concluida;
+      renderStatBars('demandasStatList', [
+        { label: 'Atrasadas', value: sum.summary.atrasada, color: 'var(--danger)' },
+        { label: 'Em andamento', value: sum.summary.andamento, color: 'var(--primary)' },
+        { label: 'Em aprovação', value: sum.summary.aprovacao, color: '#f2a900' },
+        { label: 'Concluídas', value: sum.summary.concluida, color: '#2ea043' }
+      ]);
     } catch (e) { /* usuário pode não ter permissão futura — hoje é liberado a todos */ }
 
     if (budgetAccess !== 'none') {
@@ -470,9 +500,14 @@
         const data = await api('/api/budget?year=' + year);
         const totalPlan = data.entries.reduce((s, e) => s + (Number(e.planejado) || 0), 0);
         const totalReal = data.entries.reduce((s, e) => s + (Number(e.realizado) || 0), 0);
-        $('#statBudgetPlanejado').textContent = fmtMoney(totalPlan);
-        $('#statBudgetRealizado').textContent = fmtMoney(totalReal);
-        $('#statBudgetDiferenca').textContent = fmtMoney(totalReal - totalPlan);
+        renderStatBars('budgetStatList', [
+          { label: 'Planejado', value: totalPlan, display: fmtMoney(totalPlan), color: 'var(--muted)' },
+          { label: 'Realizado', value: totalReal, display: fmtMoney(totalReal), color: 'var(--primary)' }
+        ]);
+        const diff = totalReal - totalPlan;
+        const diffLine = $('#budgetDiffLine');
+        diffLine.textContent = `Diferença: ${fmtMoney(diff)}`;
+        diffLine.className = 'budget-diff ' + (diff > 0 ? 'budget-diff-over' : 'budget-diff-under');
       } catch (e) { /* sem acesso */ }
     }
   }
@@ -541,6 +576,94 @@
       checkNewDemandas();
     }, 20000);
   }
+
+  // ---------- Chat da Equipe (18ª rodada) ----------
+  // Mural único de conversa (não são DMs) — qualquer pessoa logada vê as
+  // mesmas mensagens. Sem WebSocket: só consulta em intervalos curtos
+  // (polling) enquanto a tela está aberta (ver showView/stopChatPolling).
+  function renderChatMessage(m) {
+    const el = document.createElement('div');
+    const mine = m.createdBy === currentUser.id;
+    el.className = 'chat-msg' + (mine ? ' mine' : '');
+    const time = new Date(m.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    el.innerHTML = `<div class="chat-msg-meta"><b>${mine ? 'Você' : m.createdByName}</b><span>${time}</span></div><div class="chat-msg-text"></div>`;
+    // texto via textContent (não innerHTML), pra mensagem escrita por
+    // qualquer pessoa da equipe nunca virar HTML/script na tela de outra.
+    el.querySelector('.chat-msg-text').textContent = m.text;
+    return el;
+  }
+
+  function chatIsScrolledToBottom(wrap) {
+    return wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40;
+  }
+
+  async function pollChat() {
+    try {
+      const q = chatLastId ? ('?afterId=' + encodeURIComponent(chatLastId)) : '';
+      const data = await api('/api/chat/messages' + q);
+      if (data.messages.length === 0) return;
+      const wrap = $('#chatMessages');
+      const empty = wrap.querySelector('.chat-empty');
+      if (empty) empty.remove();
+      const wasAtBottom = chatIsScrolledToBottom(wrap);
+      data.messages.forEach((m) => wrap.appendChild(renderChatMessage(m)));
+      chatLastId = data.messages[data.messages.length - 1].id;
+      if (wasAtBottom) wrap.scrollTop = wrap.scrollHeight;
+    } catch (e) { /* ignora falha de rede pontual */ }
+  }
+
+  function startChatPolling() {
+    stopChatPolling();
+    chatPollTimer = setInterval(pollChat, 4000);
+  }
+  function stopChatPolling() {
+    if (chatPollTimer) clearInterval(chatPollTimer);
+    chatPollTimer = null;
+  }
+
+  async function loadChat() {
+    const wrap = $('#chatMessages');
+    try {
+      const data = await api('/api/chat/messages');
+      wrap.innerHTML = '';
+      if (data.messages.length === 0) {
+        wrap.innerHTML = '<div class="chat-empty">Nenhuma mensagem ainda. Comece a conversa!</div>';
+        chatLastId = null;
+      } else {
+        data.messages.forEach((m) => wrap.appendChild(renderChatMessage(m)));
+        chatLastId = data.messages[data.messages.length - 1].id;
+        wrap.scrollTop = wrap.scrollHeight;
+      }
+    } catch (e) { /* ignora */ }
+    startChatPolling();
+  }
+
+  async function sendChatMessage() {
+    const input = $('#chatInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.style.height = 'auto';
+    try {
+      const data = await api('/api/chat/messages', { method: 'POST', body: JSON.stringify({ text }) });
+      const wrap = $('#chatMessages');
+      const empty = wrap.querySelector('.chat-empty');
+      if (empty) empty.remove();
+      wrap.appendChild(renderChatMessage(data.message));
+      chatLastId = data.message.id;
+      wrap.scrollTop = wrap.scrollHeight;
+    } catch (e) {
+      input.value = text;
+      alert(e.message || 'Não foi possível enviar a mensagem.');
+    }
+  }
+  $('#chatSendBtn').onclick = sendChatMessage;
+  $('#chatInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
 
   // ---------- Recados (mural da tela Início) ----------
   function teamMemberName(id) {

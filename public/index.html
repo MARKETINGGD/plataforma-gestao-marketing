@@ -85,6 +85,7 @@
       </div>
       <nav class="sidebar-nav">
         <button class="navlink" id="navHome" data-view="home">Início</button>
+        <button class="navlink" id="navChat" data-view="chat">Chat da Equipe</button>
         <button class="navlink" id="navDemandas" data-view="demandas">Acompanhamento de Demandas</button>
         <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamento para Redes Sociais</button>
         <button class="navlink" id="navCronograma" data-view="cronograma">Cronograma de Marketing</button>
@@ -137,43 +138,14 @@
         <div class="home-grid">
           <div class="home-card">
             <h3>Demandas</h3>
-            <div class="stat-row">
-              <div class="stat-box stat-danger">
-                <span class="stat-value" id="statAtrasada">—</span>
-                <span class="stat-label">Atrasadas</span>
-              </div>
-              <div class="stat-box">
-                <span class="stat-value" id="statAndamento">—</span>
-                <span class="stat-label">Em andamento</span>
-              </div>
-              <div class="stat-box">
-                <span class="stat-value" id="statAprovacao">—</span>
-                <span class="stat-label">Em aprovação</span>
-              </div>
-              <div class="stat-box stat-success">
-                <span class="stat-value" id="statConcluida">—</span>
-                <span class="stat-label">Concluídas</span>
-              </div>
-            </div>
+            <div class="stat-list" id="demandasStatList"></div>
             <button class="btn-secondary" id="homeGoDemandas">Ver quadro de demandas →</button>
           </div>
 
           <div class="home-card">
             <h3>Orçamento — resumo do ano</h3>
-            <div class="stat-row">
-              <div class="stat-box">
-                <span class="stat-value" id="statBudgetPlanejado">—</span>
-                <span class="stat-label">Planejado</span>
-              </div>
-              <div class="stat-box">
-                <span class="stat-value" id="statBudgetRealizado">—</span>
-                <span class="stat-label">Realizado</span>
-              </div>
-              <div class="stat-box">
-                <span class="stat-value" id="statBudgetDiferenca">—</span>
-                <span class="stat-label">Diferença</span>
-              </div>
-            </div>
+            <div class="stat-list" id="budgetStatList"></div>
+            <p class="budget-diff" id="budgetDiffLine"></p>
             <div class="home-links">
               <button class="btn-secondary" data-open-budget="debacco">Budget De Bacco →</button>
               <button class="btn-secondary" data-open-budget="ghelplus">Budget GhelPlus →</button>
@@ -190,6 +162,20 @@
             <h3>Mídias Sociais</h3>
             <p class="muted">Resumo das redes em breve por aqui — por enquanto, acompanhe pelo dashboard completo.</p>
             <button class="btn-secondary" data-open-dash="redesSociais">Abrir dashboard →</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-chat" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Chat da Equipe</h2>
+        </div>
+        <p class="muted">Mural de conversa da equipe — qualquer pessoa logada na Plataforma vê as mensagens daqui.</p>
+        <div class="chat-wrap">
+          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-input-row">
+            <textarea id="chatInput" rows="1" placeholder="Escreva uma mensagem... (Enter envia, Shift+Enter quebra linha)"></textarea>
+            <button class="btn-primary" id="chatSendBtn">Enviar</button>
           </div>
         </div>
       </section>

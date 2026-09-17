@@ -24,6 +24,7 @@ app.use('/api/recados', require('./routes/recados'));
 app.use('/api/social-posts', require('./routes/socialPosts'));
 app.use('/api/brindes', require('./routes/brindes'));
 app.use('/api/influencers', require('./routes/influencers'));
+app.use('/api/chat', require('./routes/chat'));
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).

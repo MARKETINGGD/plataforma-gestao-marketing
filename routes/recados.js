@@ -18,10 +18,21 @@ function validUserIds(ids) {
   return ids.filter((id) => users.some((u) => u.id === id));
 }
 
+// Privacidade (18ª rodada, pedido da Raquel: "a tela de recados enviados,
+// não pode mostrar para quem recebeu, quais outras pessoas receberam o
+// recado... só sabe quem recebeu a pessoa que enviou"). Antes, qualquer
+// destinatário via a lista completa de quem mais recebeu o mesmo recado
+// (targetUserIds inteiro, pra todo mundo). Agora: só quem criou o recado
+// enxerga a lista completa de destinatários e quem já leu; quem só recebeu
+// vê apenas a si mesmo em targetUserIds (e só o próprio status de leitura
+// em readBy) — o suficiente pra saber "recebi isso", sem saber quem mais
+// recebeu. Redação acontece aqui, na origem do dado, não só escondida na
+// tela — quem chamar a API direto também não consegue ver a lista alheia.
 function serialize(r, userId) {
+  const isOwner = r.createdBy === userId;
   return Object.assign({}, r, {
-    targetUserIds: r.targetUserIds || [],
-    readBy: r.readBy || [],
+    targetUserIds: isOwner ? (r.targetUserIds || []) : [userId],
+    readBy: isOwner ? (r.readBy || []) : (r.readBy || []).filter((id) => id === userId),
     readByMe: !!(r.readBy || []).includes(userId)
   });
 }

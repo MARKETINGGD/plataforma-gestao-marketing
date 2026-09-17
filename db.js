@@ -34,7 +34,10 @@ db.defaults({
   // (De Bacco / GhelPlus). Cada influencer tem sua própria "tabela"
   // (influencerPosts) e pode ter um link externo próprio (publicToken).
   influencers: [],
-  influencerPosts: []
+  influencerPosts: [],
+  // Chat da Equipe (18ª rodada) — mural único de conversa, visível pra
+  // qualquer pessoa logada na Plataforma (não são conversas privadas).
+  chatMessages: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

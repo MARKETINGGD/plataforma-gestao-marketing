@@ -57,6 +57,8 @@ button{font-weight:700;}
   padding:10px 16px;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-size:14px;
 }
 .btn-secondary.danger{color:var(--danger);border-color:var(--danger);}
+/* Alterna Painel/Histórico desta rede no Gerenciamento de Mídias nativo (26ª rodada). */
+.btn-secondary.active{background:var(--primary);color:#fff;border-color:var(--primary);}
 .btn-link{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;text-decoration:underline;}
 .error{color:var(--danger);font-size:13px;margin-top:10px;}
 

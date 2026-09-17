@@ -576,7 +576,12 @@
     if (b.id === 'navBudgetParent') return;
     b.onclick = () => {
       setActiveNav(b.id);
-      if (b.dataset.dash) {
+      // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio
+      // do painel de Redes Sociais — abre a central nativa da Papoi
+      // (view-midias-hub) primeiro; ver openMidiasHub().
+      if (b.dataset.view === 'midias-hub') {
+        openMidiasHub();
+      } else if (b.dataset.dash) {
         openDashboard(b.dataset.dash);
       } else if (b.dataset.view === 'budget') {
         openBudget(b.dataset.brand);
@@ -1265,6 +1270,143 @@
       alert(e.message);
     }
   }
+
+  // ---------- Gerenciamento de Mídias (26ª rodada) ----------
+  // Em vez de abrir o painel de Redes Sociais inteiro (com a barra lateral
+  // dele, duplicando a navegação da Papoi), esta tela é uma "central"
+  // nativa: uma Visão Geral + a lista de redes agrupadas, igual a Raquel
+  // pediu ("apareça uma lista com todas as redes e um visão geral"). Ao
+  // escolher uma rede, abre um iframe só com o CONTEÚDO daquela rede (a
+  // barra lateral do outro painel fica escondida — ver .embedded-in-
+  // platform no style.css dele), com um botão pra alternar entre o painel
+  // da rede e o histórico de alterações daquela rede especificamente.
+  //
+  // O painel de Redes Sociais continua sendo dono de 100% dos dados e da
+  // lógica (gráficos, formulários, importação/exportação) — nada disso foi
+  // recriado aqui. A lista de marcas/redes vem ao vivo do próprio painel
+  // (GET /api/public/channels, sem login), então se a Raquel adicionar uma
+  // rede nova lá (editando CHANNELS em config.js, como o README dele já
+  // explica), ela aparece aqui sozinha, sem precisar mexer na Papoi.
+  let midiasMeta = null; // { brands: [...], channels: [...] } — cacheado após o 1º carregamento
+  let midiasBrand = 'ghelplus';
+  let midiasChannelId = null; // null = Visão Geral
+  let midiasHistoryMode = false;
+
+  function midiasChannelsForBrand(brand) {
+    if (!midiasMeta) return [];
+    return midiasMeta.channels.filter((c) => !(c.excludeBrands || []).includes(brand));
+  }
+
+  async function loadMidiasMeta() {
+    if (midiasMeta) return midiasMeta;
+    if (!dashboardsByKey.redesSociais) {
+      const data = await api('/api/dashboards');
+      data.dashboards.forEach((d) => { dashboardsByKey[d.key] = d; });
+    }
+    const baseUrl = (dashboardsByKey.redesSociais || {}).url;
+    if (!baseUrl) throw new Error('URL do Gerenciamento de Mídias ainda não foi configurada.');
+    const res = await fetch(baseUrl.replace(/\/$/, '') + '/api/public/channels');
+    if (!res.ok) throw new Error('Não foi possível carregar a lista de redes.');
+    midiasMeta = await res.json();
+    return midiasMeta;
+  }
+
+  async function openMidiasHub() {
+    showView('midias-hub');
+    $('#midiasHubHint').textContent = 'Carregando…';
+    $('#midiasHubOverviewCard').innerHTML = '';
+    $('#midiasHubGroups').innerHTML = '';
+    try {
+      await loadMidiasMeta();
+      $('#midiasHubHint').textContent = 'Escolha uma rede pra ver o painel completo, ou abra a Visão Geral pra comparar todas de uma vez.';
+      renderMidiasBrandSwitch();
+      renderMidiasHubBody();
+    } catch (e) {
+      $('#midiasHubHint').textContent = e.message;
+    }
+  }
+
+  function renderMidiasBrandSwitch() {
+    const wrap = $('#midiasBrandSwitch');
+    const brands = (midiasMeta && midiasMeta.brands) || [];
+    wrap.innerHTML = brands.map((b) => `<button class="btn-secondary" data-midias-brand="${b.id}" style="${b.id === midiasBrand ? `background:${b.accent};color:#fff;border-color:${b.accent};` : ''}">${b.label}</button>`).join('');
+    wrap.querySelectorAll('[data-midias-brand]').forEach((btn) => {
+      btn.onclick = () => {
+        midiasBrand = btn.dataset.midiasBrand;
+        renderMidiasBrandSwitch();
+        renderMidiasHubBody();
+      };
+    });
+  }
+
+  function renderMidiasHubBody() {
+    $('#midiasHubOverviewCard').innerHTML = `
+      <div class="dash-card" style="max-width:340px;margin-bottom:18px;" data-open-midias-overview="1">
+        <span class="tag">Visão Geral</span>
+        <h3>Panorama de todas as redes</h3>
+        <p>Compare seguidores, alcance e os conteúdos que mais se destacaram, todas as redes juntas.</p>
+        <button>Abrir →</button>
+      </div>`;
+    $('#midiasHubOverviewCard [data-open-midias-overview]').querySelector('button').onclick = () => openMidiasChannel(null, false);
+
+    const channels = midiasChannelsForBrand(midiasBrand);
+    const groups = {};
+    channels.forEach((c) => { (groups[c.group] = groups[c.group] || []).push(c); });
+    $('#midiasHubGroups').innerHTML = Object.keys(groups).map((groupName) => `
+      <h3 style="margin:18px 0 10px;">${groupName}</h3>
+      <div class="card-grid">
+        ${groups[groupName].map((c) => `
+          <div class="dash-card" data-open-midias-channel="${c.id}">
+            <h3><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${c.color};margin-right:8px;"></span>${c.label}</h3>
+            <p>Métricas, conteúdos em destaque e histórico desta rede.</p>
+            <button>Abrir →</button>
+          </div>`).join('')}
+      </div>`).join('');
+    $all('[data-open-midias-channel]').forEach((card) => {
+      card.querySelector('button').onclick = () => openMidiasChannel(card.dataset.openMidiasChannel, false);
+    });
+  }
+
+  function midiasIframeSrc(baseUrl, view) {
+    const params = new URLSearchParams();
+    params.set('embedBrand', midiasBrand);
+    if (view === 'channel') { params.set('embedView', 'channel'); params.set('embedChannel', midiasChannelId); }
+    else if (view === 'audit') { params.set('embedView', 'audit'); params.set('embedChannel', midiasChannelId); }
+    else { params.set('embedView', 'overview'); }
+    return baseUrl.replace(/\/$/, '') + '/?' + params.toString();
+  }
+
+  async function openMidiasChannel(channelId, historyMode) {
+    midiasChannelId = channelId;
+    midiasHistoryMode = !!historyMode;
+    try {
+      await loadMidiasMeta();
+      const data = await api('/api/dashboards/launch/redesSociais');
+      // O launch devolve a URL já com o token de login único (?platformToken=...);
+      // a base (sem querystring) é o que precisamos pra montar os parâmetros de
+      // navegação por cima — o app de Redes Sociais lê os dois juntos no boot.
+      const url = new URL(data.url);
+      const baseUrl = url.origin;
+      const platformParams = url.search; // ?platformToken=...&platformUser=...
+      const view = channelId ? (historyMode ? 'audit' : 'channel') : 'overview';
+      const navSrc = midiasIframeSrc(baseUrl, view);
+      $('#midiasCanalFrame').src = navSrc + '&' + platformParams.slice(1);
+      const ch = channelId ? (midiasMeta.channels.find((c) => c.id === channelId) || {}) : null;
+      const brandLabel = ((midiasMeta.brands || []).find((b) => b.id === midiasBrand) || {}).label || midiasBrand;
+      $('#midiasCanalTitle').textContent = ch ? `${ch.label} — ${brandLabel}` : `Visão Geral — ${brandLabel}`;
+      $('#midiasCanalTogglePainel').hidden = !channelId;
+      $('#midiasCanalToggleHistorico').hidden = !channelId;
+      $('#midiasCanalTogglePainel').classList.toggle('active', !historyMode);
+      $('#midiasCanalToggleHistorico').classList.toggle('active', !!historyMode);
+      showView('midias-canal');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  $('#midiasCanalBack').onclick = () => openMidiasHub();
+  $('#midiasCanalTogglePainel').onclick = () => { if (midiasChannelId) openMidiasChannel(midiasChannelId, false); };
+  $('#midiasCanalToggleHistorico').onclick = () => { if (midiasChannelId) openMidiasChannel(midiasChannelId, true); };
   // ---------- Orçamento ----------
   function fillMonthSelect(sel) {
     sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');

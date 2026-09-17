@@ -90,7 +90,7 @@
         <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamento para Redes Sociais</button>
         <button class="navlink" id="navCronograma" data-view="cronograma">Cronograma de Marketing</button>
         <button class="navlink" id="navDashTrafego" data-view="embed" data-dash="trafegoPago">Gerenciamento de Tráfego Pago</button>
-        <button class="navlink" id="navDashMidias" data-view="embed" data-dash="redesSociais">Gerenciamento de Mídias</button>
+        <button class="navlink" id="navDashMidias" data-view="midias-hub" data-dash="redesSociais">Gerenciamento de Mídias</button>
         <button class="navlink" id="navDashAcoes" data-view="embed" data-dash="acoesSazonais">Gerenciamento de Ações Sazonais</button>
         <button class="navlink" id="navInfluencers" data-view="influencers">Gerenciamento de Influencers</button>
         <div class="navlink-group" id="navBudgetGroup">
@@ -340,6 +340,39 @@
         </div>
         <div class="iframe-wrap">
           <iframe id="embedFrame" title="Dashboard"></iframe>
+        </div>
+      </section>
+
+      <!-- Gerenciamento de Mídias (26ª rodada): em vez de abrir direto o
+           painel de Redes Sociais inteiro (com a barra lateral dele) num
+           iframe só, esta tela mostra uma "central" nativa da Papoi — uma
+           Visão Geral e a lista de redes — e só ao escolher uma delas é
+           que abre o conteúdo daquela rede (view-midias-canal), com a
+           barra lateral do outro painel escondida. Pedido da Raquel:
+           "deixe ele como uma página mesmo da plataforma". -->
+      <section id="view-midias-hub" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Gerenciamento de Mídias</h2>
+          <div class="view-toolbar-actions" id="midiasBrandSwitch"></div>
+        </div>
+        <p class="muted" id="midiasHubHint">Carregando…</p>
+        <div id="midiasHubOverviewCard"></div>
+        <div id="midiasHubGroups"></div>
+      </section>
+
+      <section id="view-midias-canal" class="view" hidden>
+        <div class="view-toolbar">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="btn-secondary" id="midiasCanalBack">◀ Voltar</button>
+            <h2 id="midiasCanalTitle"></h2>
+          </div>
+          <div class="view-toolbar-actions">
+            <button class="btn-secondary" id="midiasCanalTogglePainel">Painel</button>
+            <button class="btn-secondary" id="midiasCanalToggleHistorico">Histórico desta rede</button>
+          </div>
+        </div>
+        <div class="iframe-wrap">
+          <iframe id="midiasCanalFrame" title="Gerenciamento de Mídias"></iframe>
         </div>
       </section>
 

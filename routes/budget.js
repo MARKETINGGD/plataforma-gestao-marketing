@@ -105,7 +105,7 @@ router.get('/', requireAuth, requireBudgetView, (req, res) => {
 });
 
 router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
-  const { brand, category, year, month, planejado, realizado, notes } = req.body || {};
+  const { brand, category, year, month, planejado, realizado, notes, fornecedor, tituloCompra, quantidade } = req.body || {};
   if (!brand || !category || !year || !month) {
     return res.status(400).json({ error: 'Preencha marca, categoria, ano e mês.' });
   }
@@ -118,6 +118,9 @@ router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
     planejado: planejado === '' || planejado === undefined ? null : Number(planejado),
     realizado: realizado === '' || realizado === undefined ? null : Number(realizado),
     notes: notes || '',
+    fornecedor: fornecedor || '',
+    tituloCompra: tituloCompra || '',
+    quantidade: quantidade === '' || quantidade === undefined ? null : Number(quantidade),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     updatedBy: req.user.name,
@@ -131,7 +134,7 @@ router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
 router.put('/:id', requireAuth, requireBudgetEdit, (req, res) => {
   const existing = db.get('budgetEntries').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Lançamento não encontrado.' });
-  const { brand, category, year, month, planejado, realizado, notes } = req.body || {};
+  const { brand, category, year, month, planejado, realizado, notes, fornecedor, tituloCompra, quantidade } = req.body || {};
   const updates = {
     updatedAt: new Date().toISOString(),
     updatedBy: req.user.name,
@@ -144,6 +147,9 @@ router.put('/:id', requireAuth, requireBudgetEdit, (req, res) => {
   if (planejado !== undefined) updates.planejado = planejado === '' ? null : Number(planejado);
   if (realizado !== undefined) updates.realizado = realizado === '' ? null : Number(realizado);
   if (notes !== undefined) updates.notes = notes;
+  if (fornecedor !== undefined) updates.fornecedor = fornecedor;
+  if (tituloCompra !== undefined) updates.tituloCompra = tituloCompra;
+  if (quantidade !== undefined) updates.quantidade = quantidade === '' ? null : Number(quantidade);
   db.get('budgetEntries').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'budgetEntry', entityId: existing.id, entityLabel: `${existing.brand} · ${existing.category} · ${existing.month}/${existing.year}`, action: 'update' });
   res.json({ entry: db.get('budgetEntries').find({ id: req.params.id }).value() });

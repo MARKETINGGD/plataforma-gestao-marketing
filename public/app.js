@@ -343,6 +343,13 @@
 
   function setActiveNav(id) {
     $all('.navlink').forEach((b) => b.classList.toggle('active', b.id === id));
+    // O "Budget" da barra lateral virou 1 botão só com submenu por marca
+    // (25ª rodada) — ao ativar um item do submenu, o botão-pai também fica
+    // marcado como ativo (senão pareceria que nada da barra está selecionado).
+    if (id === 'navBudgetDebacco' || id === 'navBudgetGhelplus') {
+      $('#navBudgetParent').classList.add('active');
+      $('#navBudgetSubmenu').hidden = false;
+    }
   }
 
   function showView(name) {
@@ -553,7 +560,14 @@
   };
 
   // ---------- navegação lateral ----------
+  // "Budget" (25ª rodada): 1 botão só na barra lateral — ao clicar, só
+  // abre/fecha o submenu com as marcas (não navega pra lugar nenhum sozinho).
+  $('#navBudgetParent').onclick = () => {
+    const sub = $('#navBudgetSubmenu');
+    sub.hidden = !sub.hidden;
+  };
   $all('.navlink').forEach((b) => {
+    if (b.id === 'navBudgetParent') return;
     b.onclick = () => {
       setActiveNav(b.id);
       if (b.dataset.dash) {
@@ -1259,9 +1273,37 @@
   }
   fillYearFilter();
 
+  // Cores fixas do gráfico Planejado x Realizado (25ª rodada) — validadas
+  // com o script do skill de dataviz (validate_palette.js): separação boa
+  // pra daltonismo (ΔE ~17), sempre nessa ordem (nunca sorteadas/cicladas).
+  const BUDGET_CHART_COLOR_PLAN = '#6FA9FE';
+  const BUDGET_CHART_COLOR_REAL = '#6D63E0';
+
+  function fillBudgetSearchFluxo(brand) {
+    const sel = $('#budgetSearchFluxo');
+    const fluxos = budgetFluxosByBrand[brand] || [];
+    sel.innerHTML = '<option value="">Todos os fluxos</option>' + fluxos.map((f) => `<option value="${f}">${f}</option>`).join('');
+  }
+  function fillBudgetSearchMonth() {
+    const sel = $('#budgetSearchMonth');
+    sel.innerHTML = '<option value="">Todos os meses</option>' + MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  }
+  fillBudgetSearchMonth();
+  function clearBudgetSearch() {
+    $('#budgetSearchFluxo').value = '';
+    $('#budgetSearchMonth').value = '';
+    $('#budgetSearchFornecedor').value = '';
+    $('#budgetSearchTitulo').value = '';
+    $('#budgetSearchValor').value = '';
+  }
+  ['#budgetSearchFluxo', '#budgetSearchMonth', '#budgetSearchFornecedor', '#budgetSearchTitulo', '#budgetSearchValor'].forEach((sel) => {
+    $(sel).addEventListener('input', renderBudget);
+  });
+  $('#budgetSearchClear').onclick = () => { clearBudgetSearch(); renderBudget(); };
+
   async function openBudget(brand) {
     currentBudgetBrand = brand;
-    $('#budgetTitle').textContent = 'Orçamento — ' + (BRAND_LABEL[brand] || brand);
+    $('#budgetTitle').textContent = 'Budget — ' + (BRAND_LABEL[brand] || brand);
     showView('budget');
     if (!budgetFluxosByBrand[brand]) {
       try {
@@ -1270,6 +1312,8 @@
       } catch (e) { /* sem acesso */ }
     }
     $('#budgetFormCategory').innerHTML = (budgetFluxosByBrand[brand] || []).map((f) => `<option value="${f}">${f}</option>`).join('');
+    clearBudgetSearch();
+    fillBudgetSearchFluxo(brand);
     await loadBudget();
   }
 
@@ -1299,6 +1343,38 @@
     renderBudget();
   }
 
+  // Uma linha "bate" com o planejado, estourou o planejado, ou é um gasto
+  // que não tinha nada planejado — usado tanto pra colorir a linha quanto
+  // pra decidir o sinal do valor Realizado/Diferença (25ª rodada).
+  function budgetEntryStatus(e) {
+    const planVal = (e.planejado === null || e.planejado === undefined || e.planejado === '') ? null : Number(e.planejado);
+    const realVal = (e.realizado === null || e.realizado === undefined || e.realizado === '') ? null : Number(e.realizado);
+    const hasPlan = planVal !== null && planVal > 0;
+    const hasReal = realVal !== null && realVal > 0;
+    const isUnplanned = hasReal && !hasPlan;
+    const isOverBudget = hasPlan && hasReal && realVal > planVal;
+    return { planVal, realVal, hasPlan, hasReal, isUnplanned, isOverBudget };
+  }
+
+  function passesBudgetSearch(e) {
+    const fluxo = $('#budgetSearchFluxo').value;
+    const month = $('#budgetSearchMonth').value;
+    const fornecedor = $('#budgetSearchFornecedor').value.trim().toLowerCase();
+    const titulo = $('#budgetSearchTitulo').value.trim().toLowerCase();
+    const valorRaw = $('#budgetSearchValor').value;
+    if (fluxo && e.category !== fluxo) return false;
+    if (month && String(e.month) !== String(month)) return false;
+    if (fornecedor && !(e.fornecedor || '').toLowerCase().includes(fornecedor)) return false;
+    if (titulo && !(e.tituloCompra || '').toLowerCase().includes(titulo)) return false;
+    if (valorRaw !== '') {
+      const val = Number(valorRaw);
+      const matchesPlan = e.planejado !== null && e.planejado !== undefined && Math.abs(Number(e.planejado) - val) < 0.005;
+      const matchesReal = e.realizado !== null && e.realizado !== undefined && Math.abs(Number(e.realizado) - val) < 0.005;
+      if (!matchesPlan && !matchesReal) return false;
+    }
+    return true;
+  }
+
   function renderBudget() {
     const canEdit = budgetAccess === 'editor' || budgetAccess === 'admin';
     $('#budgetTableWrap').hidden = budgetTab === 'comparativo';
@@ -1308,6 +1384,7 @@
     let rows = budgetEntries;
     if (budgetTab === 'planejado') rows = rows.filter((e) => e.planejado !== null && e.planejado !== undefined);
     if (budgetTab === 'realizado') rows = rows.filter((e) => e.realizado !== null && e.realizado !== undefined);
+    rows = rows.filter(passesBudgetSearch);
 
     const totalPlan = rows.reduce((s, e) => s + (Number(e.planejado) || 0), 0);
     const totalReal = rows.reduce((s, e) => s + (Number(e.realizado) || 0), 0);
@@ -1318,16 +1395,31 @@
     const body = $('#budgetTableBody');
     body.innerHTML = '';
     $('#budgetEmpty').hidden = rows.length > 0;
-    if (rows.length === 0) $('#budgetEmpty').textContent = 'Nenhum lançamento ainda.';
+    if (rows.length === 0) $('#budgetEmpty').textContent = 'Nenhum lançamento encontrado.';
     rows.forEach((e) => {
-      const diff = (Number(e.realizado) || 0) - (Number(e.planejado) || 0);
+      const st = budgetEntryStatus(e);
+      // Diferença = planejado - realizado (quanto sobrou do orçamento).
+      // Fica negativa (e em vermelho) quando o realizado estourou o
+      // planejado — foi assim que a Raquel pediu pra sinalizar (25ª rodada).
+      const diff = (st.planVal || 0) - (st.realVal || 0);
       const tr = document.createElement('tr');
+      if (st.isOverBudget) tr.classList.add('row-over');
+      else if (st.isUnplanned) tr.classList.add('row-unplanned');
+      const realizadoHtml = st.isOverBudget
+        ? `<span class="text-danger">-${fmtMoney(st.realVal)}</span>`
+        : fmtMoney(e.realizado);
+      const diffHtml = st.isOverBudget
+        ? `<span class="text-danger">${fmtMoney(diff)}</span>`
+        : fmtMoney(diff);
       tr.innerHTML = `
         <td>${e.category}</td>
         <td>${MONTHS[e.month - 1] || e.month}/${e.year}</td>
+        <td>${e.fornecedor || ''}</td>
+        <td>${e.tituloCompra || ''}</td>
+        <td class="num">${e.quantidade === null || e.quantidade === undefined ? '' : e.quantidade}</td>
         <td class="num">${fmtMoney(e.planejado)}</td>
-        <td class="num">${fmtMoney(e.realizado)}</td>
-        <td class="num">${fmtMoney(diff)}</td>
+        <td class="num">${realizadoHtml}</td>
+        <td class="num">${diffHtml}</td>
         <td>${e.notes || ''}</td>
         <td></td>
       `;
@@ -1347,6 +1439,7 @@
     });
 
     if (budgetTab === 'comparativo') renderBudgetComparativo();
+    renderBudgetChart();
   }
 
   function renderBudgetComparativo() {
@@ -1367,17 +1460,93 @@
       const v = byFluxo[fluxo];
       const diff = v.realizado - v.planejado;
       const pct = v.planejado > 0 ? (v.realizado / v.planejado * 100) : (v.realizado > 0 ? null : 0);
+      const over = v.planejado > 0 && v.realizado > v.planejado;
       const tr = document.createElement('tr');
-      if (v.planejado > 0 && v.realizado > v.planejado) tr.classList.add('row-over');
+      if (over) tr.classList.add('row-over');
       tr.innerHTML = `
         <td>${fluxo}</td>
         <td class="num">${fmtMoney(v.planejado)}</td>
         <td class="num">${fmtMoney(v.realizado)}</td>
-        <td class="num">${fmtMoney(diff)}</td>
+        <td class="num${over ? ' text-danger' : ''}">${fmtMoney(diff)}</td>
         <td class="num">${pct === null ? 'sem planejado' : pct.toFixed(0) + '%'}</td>
       `;
       body.appendChild(tr);
     });
+  }
+
+  // ---------- Gráfico Planejado x Realizado por mês (25ª rodada) ----------
+  // Reproduz o gráfico que existia no fim das planilhas de budget originais
+  // — se atualiza sozinho porque lê direto de `budgetEntries`, recarregado
+  // toda vez que um lançamento é criado/editado/excluído.
+  function fmtMoneyShort(n) {
+    if (n >= 1000000) return 'R$ ' + (n / 1000000).toFixed(1).replace('.', ',') + 'mi';
+    if (n >= 1000) return 'R$ ' + Math.round(n / 1000) + 'mil';
+    return 'R$ ' + Math.round(n);
+  }
+  function renderBudgetChart() {
+    const wrap = $('#budgetChartWrap');
+    if (!wrap) return;
+    const byMonth = {};
+    for (let m = 1; m <= 12; m++) byMonth[m] = { planejado: 0, realizado: 0 };
+    budgetEntries.forEach((e) => {
+      if (!byMonth[e.month]) return;
+      byMonth[e.month].planejado += Number(e.planejado) || 0;
+      byMonth[e.month].realizado += Number(e.realizado) || 0;
+    });
+    const months = Object.keys(byMonth).map(Number).sort((a, b) => a - b);
+    const hasAnyData = months.some((m) => byMonth[m].planejado > 0 || byMonth[m].realizado > 0);
+    if (!hasAnyData) {
+      wrap.innerHTML = '<p class="muted budget-chart-empty">Sem lançamentos suficientes pra montar o gráfico ainda.</p>';
+      return;
+    }
+    const maxVal = Math.max(1, ...months.map((m) => Math.max(byMonth[m].planejado, byMonth[m].realizado)));
+    const chartW = 900, chartH = 260;
+    const padL = 54, padB = 30, padT = 14, padR = 10;
+    const plotW = chartW - padL - padR;
+    const plotH = chartH - padT - padB;
+    const groupW = plotW / months.length;
+    const barW = Math.min(16, groupW * 0.32);
+    const gap = 3;
+    const yTicks = 4;
+    let gridSvg = '';
+    for (let t = 0; t <= yTicks; t++) {
+      const v = (maxVal / yTicks) * t;
+      const y = padT + plotH - (v / maxVal) * plotH;
+      gridSvg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${chartW - padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1"></line>`;
+      gridSvg += `<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtMoneyShort(v)}</text>`;
+    }
+    let barsSvg = '';
+    let labelsSvg = '';
+    months.forEach((m, i) => {
+      const groupX = padL + i * groupW;
+      const plan = byMonth[m].planejado;
+      const real = byMonth[m].realizado;
+      const planH = (plan / maxVal) * plotH;
+      const realH = (real / maxVal) * plotH;
+      const x1 = groupX + groupW / 2 - barW - gap / 2;
+      const x2 = groupX + groupW / 2 + gap / 2;
+      const yPlan = padT + plotH - planH;
+      const yReal = padT + plotH - realH;
+      barsSvg += `
+        <rect x="${x1.toFixed(1)}" y="${yPlan.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(planH, 0).toFixed(1)}" rx="3" fill="${BUDGET_CHART_COLOR_PLAN}"><title>${MONTHS[m - 1]} · Planejado: ${fmtMoney(plan)}</title></rect>
+        <rect x="${x2.toFixed(1)}" y="${yReal.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(realH, 0).toFixed(1)}" rx="3" fill="${BUDGET_CHART_COLOR_REAL}"><title>${MONTHS[m - 1]} · Realizado: ${fmtMoney(real)}</title></rect>
+      `;
+      labelsSvg += `<text x="${(groupX + groupW / 2).toFixed(1)}" y="${chartH - padB + 16}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${MONTHS[m - 1]}</text>`;
+    });
+    wrap.innerHTML = `
+      <div class="budget-chart-head">
+        <span class="budget-chart-title">Planejado x Realizado por mês</span>
+        <span class="budget-chart-legend">
+          <span class="budget-chart-legend-item"><span class="budget-chart-dot" style="background:${BUDGET_CHART_COLOR_PLAN}"></span>Planejado</span>
+          <span class="budget-chart-legend-item"><span class="budget-chart-dot" style="background:${BUDGET_CHART_COLOR_REAL}"></span>Realizado</span>
+        </span>
+      </div>
+      <svg viewBox="0 0 ${chartW} ${chartH}" class="budget-chart-svg" role="img" aria-label="Gráfico de planejado e realizado por mês">
+        ${gridSvg}
+        ${barsSvg}
+        ${labelsSvg}
+      </svg>
+    `;
   }
 
   function openBudgetForm(entry) {
@@ -1389,6 +1558,9 @@
     $('#budgetFormMonth').value = entry ? entry.month : new Date().getMonth() + 1;
     $('#budgetFormPlanejado').value = entry && entry.planejado !== null ? entry.planejado : '';
     $('#budgetFormRealizado').value = entry && entry.realizado !== null ? entry.realizado : '';
+    $('#budgetFormFornecedor').value = entry ? entry.fornecedor || '' : '';
+    $('#budgetFormTitulo').value = entry ? entry.tituloCompra || '' : '';
+    $('#budgetFormQuantidade').value = entry && entry.quantidade !== null && entry.quantidade !== undefined ? entry.quantidade : '';
     $('#budgetFormNotes').value = entry ? entry.notes || '' : '';
     $('#budgetFormError').hidden = true;
     $('#budgetFormWrap').hidden = false;
@@ -1404,6 +1576,9 @@
       month: $('#budgetFormMonth').value,
       planejado: $('#budgetFormPlanejado').value,
       realizado: $('#budgetFormRealizado').value,
+      fornecedor: $('#budgetFormFornecedor').value.trim(),
+      tituloCompra: $('#budgetFormTitulo').value.trim(),
+      quantidade: $('#budgetFormQuantidade').value,
       notes: $('#budgetFormNotes').value.trim()
     };
     try {

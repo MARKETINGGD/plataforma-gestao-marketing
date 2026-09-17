@@ -93,8 +93,13 @@
         <button class="navlink" id="navDashMidias" data-view="embed" data-dash="redesSociais">Gerenciamento de Mídias</button>
         <button class="navlink" id="navDashAcoes" data-view="embed" data-dash="acoesSazonais">Gerenciamento de Ações Sazonais</button>
         <button class="navlink" id="navInfluencers" data-view="influencers">Gerenciamento de Influencers</button>
-        <button class="navlink" id="navBudgetDebacco" data-view="budget" data-brand="debacco">Budget De Bacco</button>
-        <button class="navlink" id="navBudgetGhelplus" data-view="budget" data-brand="ghelplus">Budget GhelPlus</button>
+        <div class="navlink-group" id="navBudgetGroup">
+          <button class="navlink navlink-parent" id="navBudgetParent" type="button">Budget</button>
+          <div class="navlink-submenu" id="navBudgetSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navBudgetDebacco" data-view="budget" data-brand="debacco">De Bacco</button>
+            <button class="navlink navlink-sub" id="navBudgetGhelplus" data-view="budget" data-brand="ghelplus">GhelPlus</button>
+          </div>
+        </div>
         <button class="navlink" id="navBrindes" data-view="brindes">Brindes</button>
         <button class="navlink" id="navProdutos" data-view="produtos">Produtos</button>
         <button class="navlink" id="navExpositores" data-view="expositores">Expositores</button>
@@ -520,7 +525,7 @@
       </section>
 
       <section id="view-budget" class="view" hidden>
-        <h2 id="budgetTitle">Orçamento — Planejado x Realizado</h2>
+        <h2 id="budgetTitle">Budget</h2>
 
         <div class="tabs">
           <button class="tab-btn active" data-tab="geral">Visão Geral</button>
@@ -529,8 +534,19 @@
           <button class="tab-btn" data-tab="comparativo">Comparativo por Fluxo</button>
         </div>
 
-        <div class="toolbar">
+        <div class="toolbar budget-filter-bar" id="budgetFilterBar">
           <select id="budgetFilterYear"></select>
+          <select id="budgetSearchFluxo"><option value="">Todos os fluxos</option></select>
+          <select id="budgetSearchMonth"><option value="">Todos os meses</option></select>
+          <input id="budgetSearchFornecedor" type="text" placeholder="Buscar fornecedor">
+          <input id="budgetSearchTitulo" type="text" placeholder="Buscar título da compra">
+          <input id="budgetSearchValor" type="number" step="0.01" placeholder="Buscar valor (R$)">
+          <button id="budgetSearchClear" class="btn-secondary" type="button">Limpar filtros</button>
+        </div>
+
+        <div id="budgetChartWrap" class="budget-chart-wrap"></div>
+
+        <div class="toolbar">
           <button id="budgetNewBtn" class="btn-primary" hidden>+ Novo lançamento</button>
         </div>
 
@@ -548,6 +564,11 @@
             <span id="sumDiferenca" class="summary-value">—</span>
           </div>
         </div>
+
+        <p class="budget-legend">
+          <span><span class="budget-legend-dot budget-legend-dot-over"></span> Realizado acima do planejado</span>
+          <span><span class="budget-legend-dot budget-legend-dot-unplanned"></span> Gasto fora do planejado</span>
+        </p>
 
         <div id="budgetFormWrap" class="form-card" hidden>
           <h3 id="budgetFormTitle">Novo lançamento</h3>
@@ -569,8 +590,18 @@
               <select id="budgetFormMonth"></select>
             </div>
             <div>
-              <label>Fornecedor / observações curtas</label>
-              <input id="budgetFormNotes" type="text">
+              <label>Fornecedor</label>
+              <input id="budgetFormFornecedor" type="text">
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Título da compra</label>
+              <input id="budgetFormTitulo" type="text">
+            </div>
+            <div>
+              <label>Quantidade</label>
+              <input id="budgetFormQuantidade" type="number" step="1" min="0">
             </div>
           </div>
           <div class="form-row">
@@ -583,6 +614,8 @@
               <input id="budgetFormRealizado" type="number" step="0.01">
             </div>
           </div>
+          <label>Observações</label>
+          <input id="budgetFormNotes" type="text">
           <div id="budgetFormError" class="error" hidden></div>
           <div class="form-actions">
             <button id="budgetFormSave" class="btn-primary">Salvar</button>
@@ -595,6 +628,7 @@
             <thead>
               <tr>
                 <th>Fluxo</th><th>Mês/Ano</th>
+                <th>Fornecedor</th><th>Título da compra</th><th>Qtd.</th>
                 <th>Planejado</th><th>Realizado</th><th>Diferença</th>
                 <th>Observações</th><th></th>
               </tr>

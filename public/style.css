@@ -147,6 +147,12 @@ button{font-weight:700;}
 }
 .navlink:hover{background:rgba(255,255,255,.08);color:#fff;}
 .navlink.active{background:var(--brand-gradient);color:#fff;}
+/* "Budget" da barra lateral virou 1 botão com submenu por marca (25ª
+   rodada) — antes eram 2 botões soltos ("Budget De Bacco"/"Budget
+   GhelPlus"), o que confundia sobre qual marca cada um abria. */
+.navlink-group{display:flex;flex-direction:column;}
+.navlink-submenu{display:flex;flex-direction:column;gap:2px;padding-left:14px;margin-top:2px;}
+.navlink-sub{font-size:12.5px;padding:8px 12px;}
 .sidebar-footer{padding:14px 18px;border-top:1px solid rgba(255,255,255,.08);}
 .sidebar-user{display:flex;flex-direction:column;gap:6px;font-size:13px;}
 .sidebar-user-name{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -242,6 +248,30 @@ button{font-weight:700;}
 .tab-btn{background:none;border:none;padding:10px 14px;cursor:pointer;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;}
 .tab-btn.active{color:var(--primary-dark);border-bottom-color:var(--primary);font-weight:600;}
 .row-over{background:#fdf1ef;}
+/* Gasto que aconteceu no realizado mas não existia no planejado (25ª
+   rodada) — amarelo, pra diferenciar de "estourou o planejado" (vermelho,
+   .row-over acima). */
+.row-unplanned{background:#fff8e1;}
+.text-danger{color:var(--danger);font-weight:700;}
+
+/* ---------- filtros de busca do Budget (25ª rodada) ---------- */
+.budget-filter-bar select,.budget-filter-bar input{padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;}
+.budget-filter-bar input{min-width:150px;}
+.budget-legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin:-4px 0 12px;}
+.budget-legend span{display:inline-flex;align-items:center;gap:6px;}
+.budget-legend-dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
+.budget-legend-dot-over{background:#fdf1ef;border:1px solid var(--danger);}
+.budget-legend-dot-unplanned{background:#fff8e1;border:1px solid #d9a400;}
+
+/* ---------- gráfico Planejado x Realizado do Budget (25ª rodada) ---------- */
+.budget-chart-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin:16px 0;}
+.budget-chart-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px;}
+.budget-chart-title{font-size:13.5px;font-weight:700;color:var(--text);}
+.budget-chart-legend{display:flex;gap:14px;font-size:12px;color:var(--muted);}
+.budget-chart-legend-item{display:inline-flex;align-items:center;gap:6px;}
+.budget-chart-dot{width:9px;height:9px;border-radius:2px;display:inline-block;}
+.budget-chart-svg{width:100%;height:auto;display:block;}
+.budget-chart-empty{margin:0;}
 
 /* ---------- Kanban (Demandas) — uma lista por pessoa da equipe ---------- */
 .kanban{display:flex;gap:14px;margin-top:16px;overflow-x:auto;padding-bottom:8px;align-items:flex-start;}

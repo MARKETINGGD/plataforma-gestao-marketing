@@ -4,7 +4,7 @@
   let dashboardsByKey = {};
   let budgetAccess = 'none';
   let budgetEntries = [];
-  let budgetFluxos = [];
+  let budgetFluxosByBrand = {};
   let currentBudgetBrand = 'debacco';
   let budgetTab = 'geral';
   let editingBudgetId = null;
@@ -1254,13 +1254,13 @@
     currentBudgetBrand = brand;
     $('#budgetTitle').textContent = 'Orçamento — ' + (BRAND_LABEL[brand] || brand);
     showView('budget');
-    if (budgetFluxos.length === 0) {
+    if (!budgetFluxosByBrand[brand]) {
       try {
-        const meta = await api('/api/budget/meta');
-        budgetFluxos = meta.fluxos;
-        $('#budgetFormCategory').innerHTML = budgetFluxos.map((f) => `<option value="${f}">${f}</option>`).join('');
+        const meta = await api('/api/budget/meta?brand=' + encodeURIComponent(brand));
+        budgetFluxosByBrand[brand] = meta.fluxos;
       } catch (e) { /* sem acesso */ }
     }
+    $('#budgetFormCategory').innerHTML = (budgetFluxosByBrand[brand] || []).map((f) => `<option value="${f}">${f}</option>`).join('');
     await loadBudget();
   }
 
@@ -1375,7 +1375,7 @@
     editingBudgetId = entry ? entry.id : null;
     $('#budgetFormTitle').textContent = entry ? 'Editar lançamento' : 'Novo lançamento';
     $('#budgetFormBrand').value = currentBudgetBrand;
-    $('#budgetFormCategory').value = entry ? entry.category : (budgetFluxos[0] || '');
+    $('#budgetFormCategory').value = entry ? entry.category : ((budgetFluxosByBrand[currentBudgetBrand] || [])[0] || '');
     $('#budgetFormYear').value = entry ? entry.year : new Date().getFullYear();
     $('#budgetFormMonth').value = entry ? entry.month : new Date().getMonth() + 1;
     $('#budgetFormPlanejado').value = entry && entry.planejado !== null ? entry.planejado : '';

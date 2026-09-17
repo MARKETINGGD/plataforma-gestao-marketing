@@ -14,6 +14,7 @@ const router = express.Router();
 
 // Fluxos de lançamento fixos (mesma estrutura usada na planilha de orçamento
 // anual) — usados como opções da "categoria" de cada lançamento.
+// Lista genérica (usada por De Bacco e qualquer marca sem lista própria).
 const FLUXOS = [
   'Institucional',
   'Ações Sociais',
@@ -29,6 +30,29 @@ const FLUXOS = [
   'Expositores Especiais',
   'Equipamentos'
 ];
+
+// Lista da GhelPlus (23ª rodada) — nome + número do fluxo, exatamente como na
+// planilha oficial de orçamento ("2026- BUDGET GHELPLUS.xlsx", abas
+// PLANEJADO 2026/REALIZADO 2026). "Immersiones" não existe nessa planilha
+// (não é usado pela GhelPlus); "Promoções" é novo (existe na planilha, mas
+// sem nenhum lançamento em 2026 ainda).
+const FLUXOS_GHELPLUS = [
+  'Institucional - 2.5.2.3',
+  'Ações Sociais - 2.5.2.4',
+  'Relacionamento - 2.5.2.21',
+  'Redes Sociais - 2.5.2.5',
+  'Cenografia - 2.5.2.6',
+  'Brindes - 2.5.2.8',
+  'PDV - 2.5.2.12',
+  'Feiras e Eventos - 2.5.2.22',
+  'Showroom - 2.5.2.13',
+  'Expositores Padrão - 2.5.2.14',
+  'Expositores Especiais - 2.5.2.20',
+  'Equipamentos - 1.2.5.1',
+  'Promoções - 2.5.23'
+];
+
+const FLUXOS_BY_BRAND = { ghelplus: FLUXOS_GHELPLUS };
 
 function accessOf(req) {
   const user = db.get('users').find({ id: req.user.id }).value();
@@ -47,7 +71,8 @@ function requireBudgetEdit(req, res, next) {
 }
 
 router.get('/meta', requireAuth, requireBudgetView, (req, res) => {
-  res.json({ fluxos: FLUXOS });
+  const { brand } = req.query;
+  res.json({ fluxos: (brand && FLUXOS_BY_BRAND[brand]) || FLUXOS });
 });
 
 router.get('/', requireAuth, requireBudgetView, (req, res) => {

@@ -6,6 +6,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { resolveUserName } = require('../utils/names');
 
 const router = express.Router();
 
@@ -82,7 +83,12 @@ function serialize(d) {
     labelIds: d.labelIds || [],
     color: d.color || null,
     recurring: !!d.recurring,
-    overdue: isOverdue(d)
+    overdue: isOverdue(d),
+    // Nome de quem criou, resolvido ao vivo (20ª rodada) — ver utils/names.js.
+    createdByName: resolveUserName(d.createdBy, d.createdByName),
+    files: (d.files || []).map((f) => Object.assign({}, f, {
+      uploadedByName: resolveUserName(f.uploadedBy, f.uploadedByName)
+    }))
   });
 }
 
@@ -262,6 +268,7 @@ router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
     url: `/uploads/demandas/${req.params.id}/${req.file.filename}`,
     size: req.file.size,
     uploadedAt: new Date().toISOString(),
+    uploadedBy: req.user.id,
     uploadedByName: req.user.name
   };
   const files = [...(demanda.files || []), fileMeta];

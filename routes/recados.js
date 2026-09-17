@@ -3,6 +3,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { resolveUserName } = require('../utils/names');
 
 const router = express.Router();
 
@@ -33,7 +34,9 @@ function serialize(r, userId) {
   return Object.assign({}, r, {
     targetUserIds: isOwner ? (r.targetUserIds || []) : [userId],
     readBy: isOwner ? (r.readBy || []) : (r.readBy || []).filter((id) => id === userId),
-    readByMe: !!(r.readBy || []).includes(userId)
+    readByMe: !!(r.readBy || []).includes(userId),
+    // Nome de quem criou o recado, resolvido ao vivo (20ª rodada) — ver utils/names.js.
+    createdByName: resolveUserName(r.createdBy, r.createdByName)
   });
 }
 

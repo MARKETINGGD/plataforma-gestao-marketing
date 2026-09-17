@@ -3,6 +3,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { resolveUserName } = require('../utils/names');
 
 const router = express.Router();
 
@@ -54,6 +55,8 @@ router.get('/', requireAuth, requireBudgetView, (req, res) => {
   let entries = db.get('budgetEntries').value();
   if (brand) entries = entries.filter((e) => e.brand === brand);
   if (year) entries = entries.filter((e) => String(e.year) === String(year));
+  // Nome resolvido ao vivo (20ª rodada) — ver utils/names.js.
+  entries = entries.map((e) => Object.assign({}, e, { updatedBy: resolveUserName(e.updatedById, e.updatedBy) }));
   res.json({ entries });
 });
 
@@ -73,7 +76,8 @@ router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
     notes: notes || '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    updatedBy: req.user.name
+    updatedBy: req.user.name,
+    updatedById: req.user.id
   };
   db.get('budgetEntries').push(entry).write();
   logAudit({ user: req.user, entityType: 'budgetEntry', entityId: entry.id, entityLabel: `${brand} · ${category} · ${month}/${year}`, action: 'create' });
@@ -86,7 +90,8 @@ router.put('/:id', requireAuth, requireBudgetEdit, (req, res) => {
   const { brand, category, year, month, planejado, realizado, notes } = req.body || {};
   const updates = {
     updatedAt: new Date().toISOString(),
-    updatedBy: req.user.name
+    updatedBy: req.user.name,
+    updatedById: req.user.id
   };
   if (brand !== undefined) updates.brand = brand;
   if (category !== undefined) updates.category = category;

@@ -3,6 +3,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { resolveUserName } = require('../utils/names');
 
 const router = express.Router();
 
@@ -108,6 +109,22 @@ router.get('/catalog', requireAuth, (req, res) => {
   res.json({ items: rows });
 });
 
+// "Brindes com estoque baixo" (20ª rodada, pedido da Raquel pra tela
+// Início). Não existe um limite "oficial" de estoque baixo cadastrado no
+// sistema — usamos 50 unidades (somando as 3 praças) como valor padrão
+// documentado, ajustável aqui se a Raquel definir outro número depois.
+// Item marcado como cancelado/descontinuado não entra na lista (não faz
+// sentido pedir reposição de algo que não vai ser comprado de novo).
+const LOW_STOCK_THRESHOLD = 50;
+const DISCONTINUED_STATUSES = ['cancelar', 'não faremos mais'];
+router.get('/low-stock', requireAuth, (req, res) => {
+  const items = db.get('brindesCatalog').value()
+    .filter((it) => it.estoqueTotal <= LOW_STOCK_THRESHOLD)
+    .filter((it) => !DISCONTINUED_STATUSES.includes((it.status || '').trim().toLowerCase()))
+    .sort((a, b) => a.estoqueTotal - b.estoqueTotal);
+  res.json({ items, threshold: LOW_STOCK_THRESHOLD });
+});
+
 router.post('/catalog', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand, group, code, item, multiplo, valor, estoquePR, estoqueSP, estoquePE, status, obs } = req.body || {};
   if (!brand || !item) return res.status(400).json({ error: 'Preencha marca e nome do item.' });
@@ -152,6 +169,8 @@ router.get('/log', requireAuth, (req, res) => {
   let rows = db.get('brindesLog').value();
   if (brand) rows = rows.filter((r) => r.brand === brand);
   rows = rows.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  // Nome resolvido ao vivo (20ª rodada) — ver utils/names.js.
+  rows = rows.map((r) => Object.assign({}, r, { createdByName: resolveUserName(r.createdBy, r.createdByName) }));
   res.json({ items: rows });
 });
 
@@ -171,6 +190,7 @@ router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
     motivo: motivo || '',
     obs: obs || '',
     createdAt: new Date().toISOString(),
+    createdBy: req.user.id,
     createdByName: req.user.name
   };
   db.get('brindesLog').push(row).write();

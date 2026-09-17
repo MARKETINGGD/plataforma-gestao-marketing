@@ -152,16 +152,16 @@
             </div>
           </div>
 
-          <div class="home-card home-card-muted">
-            <h3>Tráfego Pago</h3>
-            <p class="muted">Resumo das campanhas em breve por aqui — por enquanto, acompanhe pelo dashboard completo.</p>
-            <button class="btn-secondary" data-open-dash="trafegoPago">Abrir dashboard →</button>
+          <div class="home-card">
+            <h3>Brindes com estoque baixo</h3>
+            <div id="lowStockList" class="lowstock-list"></div>
+            <p class="muted" id="lowStockEmpty" hidden>Nenhum brinde com estoque baixo no momento.</p>
+            <button class="btn-secondary" id="homeGoBrindes">Ver Brindes →</button>
           </div>
 
           <div class="home-card home-card-muted">
-            <h3>Mídias Sociais</h3>
-            <p class="muted">Resumo das redes em breve por aqui — por enquanto, acompanhe pelo dashboard completo.</p>
-            <button class="btn-secondary" data-open-dash="redesSociais">Abrir dashboard →</button>
+            <h3>Produtos próximo do lançamento</h3>
+            <p class="muted">Nenhum produto cadastrado ainda. Assim que a área de Produtos ganhar conteúdo, os próximos lançamentos aparecem aqui.</p>
           </div>
         </div>
       </section>
@@ -217,6 +217,8 @@
         <div class="tabs">
           <button class="tab-btn active" data-social-tab="debacco">De Bacco</button>
           <button class="tab-btn" data-social-tab="ghelplus">GhelPlus</button>
+          <button class="tab-btn" data-social-tab="duranox">Duranox</button>
+          <button class="tab-btn" data-social-tab="boutiqueinox">Boutique Inox</button>
         </div>
 
         <div id="socialPostFormWrap" class="form-card" hidden>
@@ -228,6 +230,8 @@
               <select id="socialPostFormBrand">
                 <option value="debacco">De Bacco</option>
                 <option value="ghelplus">GhelPlus</option>
+                <option value="duranox">Duranox</option>
+                <option value="boutiqueinox">Boutique Inox</option>
               </select>
             </div>
             <div>
@@ -574,6 +578,8 @@
         <div class="tabs">
           <button class="tab-btn active" data-cronograma-brand="debacco">De Bacco</button>
           <button class="tab-btn" data-cronograma-brand="ghelplus">GhelPlus</button>
+          <button class="tab-btn" data-cronograma-brand="duranox">Duranox</button>
+          <button class="tab-btn" data-cronograma-brand="boutiqueinox">Boutique Inox</button>
         </div>
 
         <div class="tabs" id="cronogramaViewTabs">
@@ -618,6 +624,14 @@
         <div id="userFormWrap" class="form-card" hidden>
           <h3 id="userFormTitle">Novo usuário</h3>
           <input type="hidden" id="userFormId">
+          <div class="form-row" style="align-items:center;">
+            <div id="userFormPhotoPreview"></div>
+            <div>
+              <label>Foto de perfil</label>
+              <input id="userFormPhotoInput" type="file" accept="image/*">
+              <p class="muted" style="margin:4px 0 0;font-size:12px;">Aparece no Chat da Equipe e no Cronograma de Marketing.</p>
+            </div>
+          </div>
           <div class="form-row">
             <div>
               <label>Nome</label>
@@ -669,7 +683,7 @@
 
         <table class="data-table">
           <thead>
-            <tr><th>Nome</th><th>Usuário</th><th>Tipo</th><th>Cargo</th><th>Acessos</th><th></th></tr>
+            <tr><th></th><th>Nome</th><th>Usuário</th><th>Tipo</th><th>Cargo</th><th>Acessos</th><th></th></tr>
           </thead>
           <tbody id="usersTableBody"></tbody>
         </table>

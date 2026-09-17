@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
+const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 
 const router = express.Router();
 
@@ -19,7 +20,9 @@ function serialize(m) {
     id: m.id,
     text: m.text,
     createdBy: m.createdBy,
-    createdByName: m.createdByName,
+    // Nome e foto resolvidos ao vivo (20ª rodada) — ver utils/names.js.
+    createdByName: resolveUserName(m.createdBy, m.createdByName),
+    createdByPhotoUrl: resolveUserPhoto(m.createdBy),
     createdAt: m.createdAt
   };
 }

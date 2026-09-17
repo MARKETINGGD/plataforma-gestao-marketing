@@ -9,6 +9,7 @@
   let budgetTab = 'geral';
   let editingBudgetId = null;
   let editingUserId = null;
+  let pendingUserPhotoFile = null; // foto escolhida antes do usuário existir (cadastro novo)
 
   let teamMembers = [];
   let demandas = [];
@@ -67,6 +68,19 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
+  // Responsividade (20ª rodada, pedido da Raquel: "Deixe responsivo para
+  // qualquer tela"). As tabelas (.data-table) têm várias colunas e não
+  // cabem numa tela estreita — em vez de estourar a largura da página ou
+  // depender do body inteiro rolando de lado, cada tabela ganha um wrapper
+  // que rola na horizontal só ali, mantendo o resto da tela no lugar.
+  $all('table.data-table').forEach((table) => {
+    if (table.parentElement && table.parentElement.classList.contains('table-scroll')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'table-scroll';
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  });
+
   // ---------- Popover genérico de cor (13ª rodada) ----------
   // Reaproveitado pra cor da lista de cada pessoa em Demandas e pra cor de
   // fundo (pessoal) da tela Início — mesma paleta sugerida das etiquetas.
@@ -108,10 +122,25 @@
     if (color) { btn.style.background = color; btn.classList.add('has-color'); }
     else { btn.style.background = '#fff'; btn.classList.remove('has-color'); }
   }
+  // Foto de perfil (20ª rodada): "fotinho da pessoa" no bate-papo e no
+  // cronograma. Quando a pessoa não tem foto cadastrada (ou já não existe
+  // mais), cai pra um círculo com a inicial do nome — mesmo padrão visual
+  // que já existia no cabeçalho da Prévia do Feed, só que reaproveitável em
+  // qualquer lugar da tela.
+  function avatarHtml(person, size, extraClass) {
+    size = size || 28;
+    const cls = extraClass ? ' ' + extraClass : '';
+    const name = (person && (person.name || person.username)) || '';
+    const initial = (name || '?').slice(0, 1).toUpperCase();
+    if (person && person.photoUrl) {
+      return `<img src="${person.photoUrl}" class="avatar-img${cls}" style="width:${size}px;height:${size}px;" alt="${name}" title="${name}">`;
+    }
+    return `<div class="avatar-fallback${cls}" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px;" title="${name}">${initial}</div>`;
+  }
   const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const MONTHS_FULL = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-  const BRAND_LABEL = { ghelplus: 'GhelPlus', debacco: 'De Bacco' };
+  const BRAND_LABEL = { ghelplus: 'GhelPlus', debacco: 'De Bacco', duranox: 'Duranox', boutiqueinox: 'Boutique Inox' };
   const STATUS_COLUMNS = [
     { key: 'a_fazer', label: 'A Fazer' },
     { key: 'andamento', label: 'Em Andamento' },
@@ -510,6 +539,22 @@
         diffLine.className = 'budget-diff ' + (diff > 0 ? 'budget-diff-over' : 'budget-diff-under');
       } catch (e) { /* sem acesso */ }
     }
+
+    // Brindes com estoque baixo (20ª rodada) — no lugar do resumo de
+    // Tráfego Pago/Mídias, que a Raquel pediu pra tirar da tela Início.
+    try {
+      const low = await api('/api/brindes/low-stock');
+      const wrap = $('#lowStockList');
+      wrap.innerHTML = '';
+      const items = low.items.slice(0, 6);
+      $('#lowStockEmpty').hidden = items.length > 0;
+      items.forEach((it) => {
+        const row = document.createElement('div');
+        row.className = 'lowstock-row';
+        row.innerHTML = `<span class="lowstock-name">${it.item}</span><span class="lowstock-qty">${it.estoqueTotal} un. (${BRAND_LABEL[it.brand] || it.brand})</span>`;
+        wrap.appendChild(row);
+      });
+    } catch (e) { /* ignora falha pontual */ }
   }
 
   // ---------- Som de notificação: recado novo ou demanda nova (16ª/17ª rodada) ----------
@@ -582,15 +627,20 @@
   // mesmas mensagens. Sem WebSocket: só consulta em intervalos curtos
   // (polling) enquanto a tela está aberta (ver showView/stopChatPolling).
   function renderChatMessage(m) {
-    const el = document.createElement('div');
+    const row = document.createElement('div');
     const mine = m.createdBy === currentUser.id;
-    el.className = 'chat-msg' + (mine ? ' mine' : '');
+    row.className = 'chat-msg-row' + (mine ? ' mine' : '');
     const time = new Date(m.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    el.innerHTML = `<div class="chat-msg-meta"><b>${mine ? 'Você' : m.createdByName}</b><span>${time}</span></div><div class="chat-msg-text"></div>`;
+    const avatarPerson = mine ? currentUser : { name: m.createdByName, photoUrl: m.createdByPhotoUrl };
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-msg';
+    bubble.innerHTML = `<div class="chat-msg-meta"><b>${mine ? 'Você' : m.createdByName}</b><span>${time}</span></div><div class="chat-msg-text"></div>`;
     // texto via textContent (não innerHTML), pra mensagem escrita por
     // qualquer pessoa da equipe nunca virar HTML/script na tela de outra.
-    el.querySelector('.chat-msg-text').textContent = m.text;
-    return el;
+    bubble.querySelector('.chat-msg-text').textContent = m.text;
+    row.innerHTML = avatarHtml(avatarPerson, 28);
+    row.appendChild(bubble);
+    return row;
   }
 
   function chatIsScrolledToBottom(wrap) {
@@ -812,6 +862,7 @@
   };
 
   $('#homeGoDemandas').onclick = () => { $('#navDemandas').click(); };
+  $('#homeGoBrindes').onclick = () => { $('#navBrindes').click(); };
   $all('[data-open-budget]').forEach((b) => {
     b.onclick = () => { setActiveNav(b.dataset.openBudget === 'debacco' ? 'navBudgetDebacco' : 'navBudgetGhelplus'); openBudget(b.dataset.openBudget); };
   });
@@ -1698,8 +1749,20 @@
       socialPostTypes = meta.postTypes;
       socialVideoPostTypes = meta.videoPostTypes || [];
       socialVideoPlatforms = meta.videoPlatforms || [];
-      $('#socialPostFormPlatform').innerHTML = socialPlatforms.map((p) => `<option value="${p}">${SOCIAL_PLATFORM_LABEL[p] || p}</option>`).join('');
+      renderSocialPlatformOptions();
     } catch (e) { /* ignora */ }
+  }
+
+  // Duranox e Boutique Inox (20ª rodada) não têm newsletter própria
+  // (G-NEWS é da GhelPlus, Contatto é da De Bacco) — pra essas marcas a
+  // opção "Newsletter" some da lista de redes, em vez de cair sem querer
+  // num nome de newsletter de outra marca.
+  function renderSocialPlatformOptions(keepValue) {
+    const brand = $('#socialPostFormBrand').value || 'debacco';
+    const hasNewsletter = !!NEWSLETTER_TYPE_BY_BRAND[brand];
+    const platforms = hasNewsletter ? socialPlatforms : socialPlatforms.filter((p) => p !== 'newsletter');
+    $('#socialPostFormPlatform').innerHTML = platforms.map((p) => `<option value="${p}">${SOCIAL_PLATFORM_LABEL[p] || p}</option>`).join('');
+    if (keepValue && platforms.includes(keepValue)) $('#socialPostFormPlatform').value = keepValue;
   }
 
   // O tipo de post depende da rede: pra Newsletter só existe 1 tipo, e o
@@ -1767,7 +1830,11 @@
   }
 
   $('#socialPostFormPlatform').onchange = () => updateSocialTypeOptions();
-  $('#socialPostFormBrand').onchange = () => updateSocialTypeOptions($('#socialPostFormType').value);
+  $('#socialPostFormBrand').onchange = () => {
+    const currentPlatform = $('#socialPostFormPlatform').value;
+    renderSocialPlatformOptions(currentPlatform);
+    updateSocialTypeOptions($('#socialPostFormType').value);
+  };
   $('#socialPostFormType').onchange = () => { updateScriptVisibility(); updateCarouselVisibility(); };
   // Usa 'oninput' (não 'onchange') de propósito: 'onchange' só dispara no
   // blur do campo, e como o clique do usuário pra ir digitar no Card 1
@@ -1926,7 +1993,7 @@
     editingSocialPostId = post ? post.id : null;
     $('#socialPostFormTitle').textContent = post ? 'Editar agendamento' : 'Novo agendamento';
     $('#socialPostFormBrand').value = post ? (post.brand || 'debacco') : socialTab;
-    $('#socialPostFormPlatform').value = post ? post.platform : (socialPlatforms[0] || '');
+    renderSocialPlatformOptions(post ? post.platform : null);
     updateSocialTypeOptions(post ? (post.postType || 'estatico') : 'estatico');
     $('#socialPostFormStatus').value = post ? post.status : 'rascunho';
     $('#socialPostFormDate').value = post ? post.scheduledDate : '';
@@ -2238,6 +2305,21 @@
           chip.appendChild(tagsWrap);
         }
 
+        // Fotinho de quem está envolvido no material (20ª rodada, pedido da
+        // Raquel: "no calendário, cronograma, deve aparecer a fotinho da
+        // pessoa"). Sem ninguém marcado como envolvido, mostra quem criou o
+        // agendamento — pra sempre ter alguém identificável no chip.
+        const involvedUsers = (p.involvedUserIds || []).length > 0
+          ? (p.involvedUserIds || []).map((id) => teamMembers.find((m) => m.id === id)).filter(Boolean)
+          : [{ name: p.createdByName, photoUrl: p.createdByPhotoUrl }];
+        const MAX_AVATARS = 3;
+        const shown = involvedUsers.slice(0, MAX_AVATARS);
+        const extra = involvedUsers.length - shown.length;
+        const stack = document.createElement('div');
+        stack.className = 'avatar-stack';
+        stack.innerHTML = shown.map((u) => avatarHtml(u, 18)).join('') + (extra > 0 ? `<span class="avatar-stack-more">+${extra}</span>` : '');
+        chip.appendChild(stack);
+
         chip.onclick = () => openPostFromCronograma(p.id);
         cell.appendChild(chip);
       });
@@ -2357,7 +2439,11 @@
         : `<div class="feed-preview-noimg">Sem criativo anexado ainda</div>`;
 
       const accountLabel = SOCIAL_PLATFORM_LABEL[p.platform] || p.platform;
-      const initial = ((currentUser && (currentUser.name || currentUser.username)) || 'P').slice(0, 1).toUpperCase();
+      // Foto de quem criou o agendamento (20ª rodada) — antes esse círculo
+      // sempre mostrava a inicial de quem está OLHANDO a tela (currentUser),
+      // não de quem criou o post; corrigido junto pra fazer sentido com a
+      // foto de verdade agora disponível.
+      const avatarPerson = { name: p.createdByName, photoUrl: p.createdByPhotoUrl };
       // Formato de cada rede (pedido da Raquel, 16ª rodada): Feed Insta em
       // 1080x1440, Feed LinkedIn em 1080x1350 — mostrado como referência
       // pra quem está montando o criativo, além de já bater com a
@@ -2365,7 +2451,7 @@
       const formatLabel = isLinkedin ? 'Feed LinkedIn · formato 1080×1350' : `Feed ${accountLabel} · formato 1080×1440`;
       const header = `
         <div class="feed-preview-header">
-          <div class="feed-preview-avatar">${initial}</div>
+          ${avatarHtml(avatarPerson, 32, 'feed-preview-avatar')}
           <div class="feed-preview-headtext">
             <span class="feed-preview-account">${p.createdByName || accountLabel}</span>
             <span class="feed-preview-meta">${fmtDate(p.scheduledDate)}${p.scheduledTime ? ' · ' + p.scheduledTime : ''} · ${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}</span>
@@ -2552,6 +2638,7 @@
         : Object.entries(u.permissions).filter(([, v]) => v !== 'none').map(([k, v]) => `${labelForKey(k)} (${v === 'admin' ? 'admin' : 'editor'})`).join(', ') || 'Nenhum';
       const tr = document.createElement('tr');
       tr.innerHTML = `
+        <td>${avatarHtml(u, 30)}</td>
         <td>${u.name}</td>
         <td>${u.username}</td>
         <td>${u.isSuperAdmin ? 'Administrador da plataforma' : 'Usuário'}</td>
@@ -2584,6 +2671,9 @@
 
   function openUserForm(user) {
     editingUserId = user ? user.id : null;
+    pendingUserPhotoFile = null;
+    $('#userFormPhotoInput').value = '';
+    $('#userFormPhotoPreview').innerHTML = avatarHtml(user || null, 48);
     $('#userFormTitle').textContent = user ? 'Editar usuário' : 'Novo usuário';
     $('#userFormName').value = user ? user.name : '';
     $('#userFormUsername').value = user ? user.username : '';
@@ -2599,6 +2689,31 @@
   }
   $('#userNewBtn').onclick = () => openUserForm(null);
   $('#userFormCancel').onclick = () => { $('#userFormWrap').hidden = true; };
+
+  // Foto de perfil: editando um usuário que já existe, sobe na hora; num
+  // cadastro novo (ainda sem id), guarda o arquivo e sobe assim que o
+  // usuário for criado com sucesso (ver userFormSave).
+  $('#userFormPhotoInput').onchange = async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    if (editingUserId) {
+      try {
+        const fd = new FormData();
+        fd.append('photo', file);
+        const data = await api('/api/auth/users/' + editingUserId + '/photo', { method: 'POST', body: fd });
+        $('#userFormPhotoPreview').innerHTML = avatarHtml(data.user, 48);
+        await loadUsers();
+        const team = await api('/api/auth/team');
+        teamMembers = team.users;
+      } catch (e) {
+        $('#userFormError').textContent = e.message;
+        $('#userFormError').hidden = false;
+      }
+    } else {
+      pendingUserPhotoFile = file;
+      $('#userFormPhotoPreview').innerHTML = `<img src="${URL.createObjectURL(file)}" class="avatar-img" style="width:48px;height:48px;" alt="">`;
+    }
+  };
 
   $('#userFormSave').onclick = async () => {
     const permissions = {};
@@ -2616,7 +2731,15 @@
         await api('/api/auth/users/' + editingUserId, { method: 'PUT', body: JSON.stringify(payload) });
       } else {
         if (!payload.password || payload.password.length < 6) throw new Error('Informe uma senha com pelo menos 6 caracteres.');
-        await api('/api/auth/users', { method: 'POST', body: JSON.stringify(payload) });
+        const created = await api('/api/auth/users', { method: 'POST', body: JSON.stringify(payload) });
+        // Foto escolhida antes de salvar (cadastro novo) — agora que o
+        // usuário já tem id, sobe o arquivo guardado.
+        if (pendingUserPhotoFile) {
+          const fd = new FormData();
+          fd.append('photo', pendingUserPhotoFile);
+          await api('/api/auth/users/' + created.user.id + '/photo', { method: 'POST', body: fd }).catch(() => { /* usuário já foi criado; falha no upload não desfaz o cadastro */ });
+          pendingUserPhotoFile = null;
+        }
       }
       $('#userFormWrap').hidden = true;
       await loadUsers();

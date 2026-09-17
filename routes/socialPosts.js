@@ -6,6 +6,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 
 const router = express.Router();
 
@@ -29,8 +30,12 @@ const POST_TYPES = ['g_news', 'contatto', 'estatico', 'carrossel', 'reels', 'sto
 const VIDEO_POST_TYPES = ['reels', 'video_tiktok', 'video_youtube'];
 const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
 // Marca — mesmo padrão de separação usado no Orçamento (routes/budget.js),
-// pra manter Agendamento e Cronograma organizados por marca.
-const BRANDS = ['debacco', 'ghelplus'];
+// pra manter Agendamento e Cronograma organizados por marca. Duranox e
+// Boutique Inox entraram na 20ª rodada (pedido da Raquel: "Em agendamento e
+// cronograma, crie mais 2 marcas Duranox, Boutique Inox") — escopo
+// deliberadamente restrito a Agendamento/Cronograma, por isso só aparecem
+// aqui e não em Orçamento/Brindes/Influencers.
+const BRANDS = ['debacco', 'ghelplus', 'duranox', 'boutiqueinox'];
 // Limite de cards no briefing por carrossel — só pra evitar um valor
 // absurdo vindo de uma requisição malformada.
 const MAX_CAROUSEL_CARDS = 30;
@@ -45,7 +50,7 @@ const APPROVAL_STATUSES = ['pendente', 'aprovado', 'reprovado'];
 // pessoa envolvida num agendamento (ver createDemandCardsForNewInvolved).
 const PLATFORM_LABEL_PT = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
 const POST_TYPE_LABEL_PT = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
-const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus' };
+const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus', duranox: 'Duranox', boutiqueinox: 'Boutique Inox' };
 
 // Migração de valores antigos de postType (taxonomia usada até a 6ª
 // rodada — feed/story/reels/carrossel/video/live/g_news/contatto,
@@ -74,7 +79,6 @@ function serialize(p) {
     scriptLink: p.scriptLink || '',
     involvedUserIds: p.involvedUserIds || [],
     changeSuggestions: p.changeSuggestions || '',
-    changeSuggestionsBy: p.changeSuggestionsBy || '',
     changeSuggestionsAt: p.changeSuggestionsAt || null,
     link: p.link || '',
     subject: p.subject || '',
@@ -83,8 +87,12 @@ function serialize(p) {
     brand: p.brand || 'debacco',
     approvalStatus: p.approvalStatus || 'pendente',
     approvalNotes: p.approvalNotes || '',
-    approvedByName: p.approvedByName || '',
-    approvedAt: p.approvedAt || null
+    approvedByName: resolveUserName(p.approvedBy, p.approvedByName),
+    approvedAt: p.approvedAt || null,
+    // Nomes resolvidos ao vivo (20ª rodada) — ver utils/names.js.
+    createdByName: resolveUserName(p.createdBy, p.createdByName),
+    createdByPhotoUrl: resolveUserPhoto(p.createdBy),
+    changeSuggestionsBy: resolveUserName(p.changeSuggestionsById, p.changeSuggestionsBy)
   });
 }
 
@@ -94,8 +102,8 @@ function serialize(p) {
 function changeSuggestionsMeta(newText, previousText, req) {
   const text = (newText || '').trim();
   if (text === (previousText || '').trim()) return {};
-  if (!text) return { changeSuggestionsBy: '', changeSuggestionsAt: null };
-  return { changeSuggestionsBy: req.user.name, changeSuggestionsAt: new Date().toISOString() };
+  if (!text) return { changeSuggestionsBy: '', changeSuggestionsById: null, changeSuggestionsAt: null };
+  return { changeSuggestionsBy: req.user.name, changeSuggestionsById: req.user.id, changeSuggestionsAt: new Date().toISOString() };
 }
 
 // Só gerente, coordenador(a) ou admin da plataforma podem aprovar/reprovar
@@ -228,7 +236,7 @@ function validCarouselBriefings(list) {
 router.post('/', requireAuth, (req, res) => {
   const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
   if (!PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Escolha uma rede social válida.' });
-  if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco ou GhelPlus).' });
+  if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco, GhelPlus, Duranox ou Boutique Inox).' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
   const post = Object.assign({
     id: nanoid(),
@@ -311,6 +319,7 @@ router.put('/:id/approval', requireAuth, (req, res) => {
     approvalStatus,
     approvalNotes: approvalStatus === 'reprovado' ? (approvalNotes || '') : '',
     approvedByName: approvalStatus === 'pendente' ? '' : req.user.name,
+    approvedBy: approvalStatus === 'pendente' ? null : req.user.id,
     approvedAt: approvalStatus === 'pendente' ? null : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };

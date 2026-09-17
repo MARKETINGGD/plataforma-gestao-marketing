@@ -1,4 +1,7 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
@@ -7,6 +10,36 @@ const { requireAuth, requireSuperAdmin, JWT_SECRET } = require('../middleware/au
 const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
+
+// Foto de perfil (20ª rodada, pedido da Raquel: "Em usuários, deve ter a
+// opção de cadastrar a foto da pessoa, e ai no bate papo e no calendário,
+// cronograma, deve aparecer a fotinho da pessoa"). Uma foto por pessoa —
+// cada upload novo soma um arquivo (mesmo padrão de nunca apagar nada
+// já usado nos outros uploads da Plataforma), e o registro só passa a
+// apontar pro arquivo mais recente.
+const avatarsRoot = path.join(__dirname, '..', 'data', 'uploads', 'avatars');
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // req.params.id existe em POST /users/:id/photo (admin); em POST
+    // /me/photo (autoatendimento) usa o id de quem está logado.
+    const userId = req.params.id || (req.user && req.user.id);
+    const dir = path.join(avatarsRoot, userId);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadAvatar = multer({
+  storage: avatarStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB — suficiente pra uma foto de perfil
+  fileFilter: (req, file, cb) => {
+    if (!/^image\//.test(file.mimetype)) return cb(new Error('Envie uma imagem (JPG, PNG, etc.).'));
+    cb(null, true);
+  }
+});
 
 // Brindes/Produtos/Expositores: view fica aberta a todo mundo (não são
 // gates de visualização como o Orçamento) — essas 3 chaves controlam só
@@ -56,6 +89,7 @@ function publicUser(u) {
     // quiser organizar — é preferência de quem está vendo, não muda o que
     // os outros enxergam, mesma lógica do homeColor).
     columnOrder: Array.isArray(u.columnOrder) ? u.columnOrder : [],
+    photoUrl: u.photoUrl || null,
     createdAt: u.createdAt
   };
 }
@@ -136,7 +170,7 @@ router.put('/me/password', requireAuth, (req, res) => {
 // o responsável de uma Demanda ou as pessoas envolvidas num Agendamento.
 // Qualquer pessoa logada pode ver — não expõe senha nem permissões.
 router.get('/team', requireAuth, (req, res) => {
-  const users = db.get('users').value().map((u) => ({ id: u.id, username: u.username, name: u.name || u.username, cargo: u.cargo || '', columnColor: u.columnColor || null }));
+  const users = db.get('users').value().map((u) => ({ id: u.id, username: u.username, name: u.name || u.username, cargo: u.cargo || '', columnColor: u.columnColor || null, photoUrl: u.photoUrl || null }));
   res.json({ users, cargos: CARGOS });
 });
 
@@ -269,6 +303,30 @@ router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
   db.get('users').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'user', entityId: target.id, entityLabel: target.username, action: 'update', details: 'Permissões/dados atualizados' });
   res.json({ user: publicUser(db.get('users').find({ id: req.params.id }).value()) });
+});
+
+// Foto de perfil — pela tela Usuários, um super admin pode cadastrar/trocar
+// a foto de qualquer pessoa. `req.params.id` já é usado como pasta de
+// destino pelo multer configurado acima.
+router.post('/users/:id/photo', requireAuth, requireSuperAdmin, uploadAvatar.single('photo'), (req, res) => {
+  const target = db.get('users').find({ id: req.params.id }).value();
+  if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  if (!req.file) return res.status(400).json({ error: 'Envie uma imagem.' });
+  const photoUrl = `/uploads/avatars/${req.params.id}/${req.file.filename}`;
+  db.get('users').find({ id: req.params.id }).assign({ photoUrl }).write();
+  logAudit({ user: req.user, entityType: 'user', entityId: target.id, entityLabel: target.username, action: 'update', details: 'Foto de perfil atualizada' });
+  res.json({ user: publicUser(db.get('users').find({ id: req.params.id }).value()) });
+});
+
+// Cada pessoa também pode cadastrar/trocar a própria foto (sem precisar de
+// um super admin), mesmo padrão de autoatendimento já usado em /me/password.
+router.post('/me/photo', requireAuth, uploadAvatar.single('photo'), (req, res) => {
+  const user = db.get('users').find({ id: req.user.id }).value();
+  if (!user) return res.status(401).json({ error: 'Usuário não encontrado. Faça login novamente.' });
+  if (!req.file) return res.status(400).json({ error: 'Envie uma imagem.' });
+  const photoUrl = `/uploads/avatars/${req.user.id}/${req.file.filename}`;
+  db.get('users').find({ id: req.user.id }).assign({ photoUrl }).write();
+  res.json({ user: publicUser(db.get('users').find({ id: req.user.id }).value()) });
 });
 
 router.delete('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {

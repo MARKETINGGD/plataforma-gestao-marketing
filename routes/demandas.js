@@ -41,6 +41,21 @@ function isOverdue(demanda) {
   return demanda.dueDate < today;
 }
 
+// Demanda recorrente (15ª rodada): repete todo mês, no mesmo dia da data de
+// entrega. Ao marcar como "Concluída", em vez de ficar concluída ela volta
+// sozinha pra "A Fazer" com a data empurrada pro mesmo dia do mês seguinte —
+// sem criar card novo nem guardar histórico (decisão da Raquel).
+function addOneMonthSameDay(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const targetYear = m === 12 ? y + 1 : y;
+  const targetMonth0 = m === 12 ? 0 : m; // já é o mês seguinte, 0-indexado
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth0 + 1, 0).getDate();
+  const targetDay = Math.min(d, lastDayOfTargetMonth);
+  const mm = String(targetMonth0 + 1).padStart(2, '0');
+  const dd = String(targetDay).padStart(2, '0');
+  return `${targetYear}-${mm}-${dd}`;
+}
+
 function validUserIds(ids) {
   if (!Array.isArray(ids)) return [];
   const users = db.get('users').value();
@@ -66,6 +81,7 @@ function serialize(d) {
     assigneeIds: d.assigneeIds || [],
     labelIds: d.labelIds || [],
     color: d.color || null,
+    recurring: !!d.recurring,
     overdue: isOverdue(d)
   });
 }
@@ -121,8 +137,9 @@ router.get('/summary', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
+  if (recurring && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
   const demanda = {
     id: nanoid(),
     title: title.trim(),
@@ -131,6 +148,7 @@ router.post('/', requireAuth, (req, res) => {
     visibility: VISIBILITIES.includes(visibility) ? visibility : 'geral',
     archived: false,
     dueDate: dueDate || null,
+    recurring: !!recurring,
     assigneeIds: validUserIds(assigneeIds),
     labelIds: validLabelIds(labelIds),
     color: validColor(color),
@@ -149,7 +167,7 @@ router.post('/', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
@@ -158,9 +176,28 @@ router.put('/:id', requireAuth, (req, res) => {
   if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
   if (labelIds !== undefined) updates.labelIds = validLabelIds(labelIds);
   if (color !== undefined) updates.color = validColor(color);
+  if (recurring !== undefined) updates.recurring = !!recurring;
+
+  // Recorrência (15ª rodada): se essa demanda é (ou está virando) recorrente,
+  // precisa de data de entrega (é ela que define o "dia do mês"). Se o
+  // status está sendo marcado como "Concluída", em vez de ficar concluída
+  // ela volta sozinha pra "A Fazer" com a data empurrada pro mesmo dia do
+  // mês seguinte — sem criar card novo.
+  const effectiveRecurring = updates.recurring !== undefined ? updates.recurring : !!demanda.recurring;
+  const effectiveDueDate = updates.dueDate !== undefined ? updates.dueDate : demanda.dueDate;
+  if (effectiveRecurring && !effectiveDueDate) {
+    return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
+  }
+  let recurringReset = null;
+  if (updates.status === 'concluida' && effectiveRecurring && effectiveDueDate) {
+    updates.status = 'a_fazer';
+    updates.dueDate = addOneMonthSameDay(effectiveDueDate);
+    recurringReset = updates.dueDate;
+  }
+
   db.get('demandas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'update' });
-  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()), recurringReset });
 });
 
 router.put('/:id/archive', requireAuth, (req, res) => {

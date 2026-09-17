@@ -116,6 +116,19 @@
   ];
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
   const INFLUENCER_STATUS_LABEL = { a_publicar: 'A publicar', publicada: 'Publicada', cancelada: 'Cancelada' };
+  // Cores da 15ª rodada: status em "farol" (amarelo/verde/vermelho) e cada
+  // rede social com sua própria cor, pra dar de cara o panorama da tabela.
+  const INFLUENCER_STATUS_COLOR = { a_publicar: { bg: '#F5C518', text: '#4a3b00' }, publicada: { bg: '#2F9E44', text: '#fff' }, cancelada: { bg: '#E03131', text: '#fff' } };
+  const INFLUENCER_REDE_COLOR = { instagram: '#E1306C', tiktok: '#00C2E0', youtube: '#FF0000', facebook: '#1877F2', pinterest: '#BD081C' };
+  function influencerStatusPillHTML(status, editable, postId) {
+    const c = INFLUENCER_STATUS_COLOR[status] || { bg: '#ccc', text: '#333' };
+    const style = `background:${c.bg};color:${c.text};border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:${editable ? 'pointer' : 'default'};font-family:inherit;`;
+    if (!editable) {
+      return `<span style="${style}">${INFLUENCER_STATUS_LABEL[status] || status}</span>`;
+    }
+    const opts = Object.keys(INFLUENCER_STATUS_LABEL).map((k) => `<option value="${k}" ${k === status ? 'selected' : ''}>${INFLUENCER_STATUS_LABEL[k]}</option>`).join('');
+    return `<select data-inf-status-select="${postId}" style="${style}">${opts}</select>`;
+  }
   const SOCIAL_STATUS_LABEL = { rascunho: 'Rascunho', agendado: 'Agendado', publicado: 'Publicado' };
   const SOCIAL_POST_TYPE_LABEL = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
   // Tipo de newsletter tem nome diferente por marca — mesma coisa, nomes distintos.
@@ -229,10 +242,13 @@
       $('#pubInfEmpty').hidden = posts.length > 0;
       posts.forEach((p) => {
         const tr = document.createElement('tr');
+        if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
+          tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+        }
         tr.innerHTML = `
           <td>${p.formato || '—'}</td>
           <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
-          <td>${INFLUENCER_STATUS_LABEL[p.status] || p.status}</td>
+          <td>${influencerStatusPillHTML(p.status, false)}</td>
           <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
           <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
           <td>${p.observacoes || '—'}</td>
@@ -915,7 +931,7 @@
         const cardLabels = (d.labelIds || []).map(labelById).filter(Boolean);
         card.innerHTML = `
           ${cardLabels.length > 0 ? `<div class="kanban-card-labels">${cardLabels.map((l) => `<span class="kanban-label-chip" title="${l.name}" style="background:${l.color}"></span>`).join('')}</div>` : ''}
-          <div class="kanban-card-title">${d.title}</div>
+          <div class="kanban-card-title">${d.recurring ? '<span title="Recorrente — repete todo mês" style="margin-right:4px;">🔁</span>' : ''}${d.title}</div>
           <div class="kanban-card-meta">
             <span class="badge">${statusLabel(d.status)}</span>
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
@@ -1100,6 +1116,8 @@
     $('#demCardTitle').value = demanda ? demanda.title : '';
     $('#demCardStatus').value = demanda ? demanda.status : 'a_fazer';
     $('#demCardDueDate').value = demanda ? (demanda.dueDate || '') : '';
+    $('#demCardRecurring').checked = demanda ? !!demanda.recurring : false;
+    $('#demCardRecurringHint').hidden = !$('#demCardRecurring').checked;
     $('#demCardDescription').value = demanda ? (demanda.description || '') : '';
     $('#demCardError').hidden = true;
     $('#demChecklistInput').value = '';
@@ -1117,6 +1135,7 @@
     $('#demandaModal').hidden = false;
   }
   $('#demCardClose').onclick = () => { $('#demandaModal').hidden = true; loadDemandas(); };
+  $('#demCardRecurring').onchange = () => { $('#demCardRecurringHint').hidden = !$('#demCardRecurring').checked; };
 
   $('#demCardSave').onclick = async () => {
     const payload = {
@@ -1124,6 +1143,7 @@
       description: $('#demCardDescription').value,
       status: $('#demCardStatus').value,
       dueDate: $('#demCardDueDate').value || null,
+      recurring: $('#demCardRecurring').checked,
       assigneeIds: Array.from(selectedAssigneeIds),
       labelIds: Array.from(selectedLabelIds),
       color: selectedDemColor,
@@ -1131,6 +1151,11 @@
     };
     if (!payload.title) {
       $('#demCardError').textContent = 'Dê um título para a demanda.';
+      $('#demCardError').hidden = false;
+      return;
+    }
+    if (payload.recurring && !payload.dueDate) {
+      $('#demCardError').textContent = 'Defina uma data de entrega para usar recorrência.';
       $('#demCardError').hidden = false;
       return;
     }
@@ -1144,7 +1169,10 @@
     }
     try {
       if (editingDemandaId) {
-        await api('/api/demandas/' + editingDemandaId, { method: 'PUT', body: JSON.stringify(payload) });
+        const result = await api('/api/demandas/' + editingDemandaId, { method: 'PUT', body: JSON.stringify(payload) });
+        if (result.recurringReset) {
+          alert(`Demanda recorrente: essa entrega foi concluída e a demanda voltou pra "A Fazer", com a próxima data em ${fmtDate(result.recurringReset)}.`);
+        }
       } else {
         const created = await api('/api/demandas', { method: 'POST', body: JSON.stringify(payload) });
         editingDemandaId = created.demanda.id;
@@ -2452,16 +2480,31 @@
     $('#influencerPostsEmpty').hidden = currentInfluencerPosts.length > 0;
     currentInfluencerPosts.forEach((p) => {
       const tr = document.createElement('tr');
+      if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
+        tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+      }
       tr.innerHTML = `
         <td>${p.formato || '—'}</td>
         <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
-        <td>${INFLUENCER_STATUS_LABEL[p.status] || p.status}</td>
+        <td>${influencerStatusPillHTML(p.status, true, p.id)}</td>
         <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
         <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
         <td>${p.observacoes || '—'}</td>
         <td>${p.notas || '—'}</td>
         <td></td>
       `;
+      const statusSelect = tr.querySelector('[data-inf-status-select]');
+      statusSelect.onclick = (e) => e.stopPropagation();
+      statusSelect.onchange = async () => {
+        const novoStatus = statusSelect.value;
+        try {
+          await api(`/api/influencers/${currentInfluencer.id}/posts/${p.id}`, { method: 'PUT', body: JSON.stringify({ status: novoStatus }) });
+          p.status = novoStatus;
+          renderInfluencerPosts();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
       const actionsTd = tr.querySelector('td:last-child');
       const editBtn = document.createElement('button');
       editBtn.textContent = 'Editar';

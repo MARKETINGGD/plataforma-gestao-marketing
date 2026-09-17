@@ -2372,7 +2372,11 @@
             <span class="feed-preview-format">${formatLabel}</span>
           </div>
         </div>`;
-      const captionHtml = `<div class="feed-preview-caption"><b>${p.createdByName || accountLabel}</b> ${p.caption || '(sem legenda)'}</div>`;
+      // Pedido da Raquel (19ª rodada): quem criou o agendamento só aparece
+      // em cima (cabeçalho do preview) — embaixo, igual é na rede social de
+      // verdade, quem "assina" a legenda é a conta/marca, não a pessoa.
+      const brandLabel = BRAND_LABEL[p.brand] || BRAND_LABEL.debacco;
+      const captionHtml = `<div class="feed-preview-caption"><b>${brandLabel}</b> ${p.caption || '(sem legenda)'}</div>`;
 
       card.innerHTML = isLinkedin
         ? header + captionHtml + `<div class="feed-preview-media">${mediaHtml}</div>`

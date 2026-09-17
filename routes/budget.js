@@ -52,10 +52,13 @@ const FLUXOS_GHELPLUS = [
   'Promoções - 2.5.23'
 ];
 
-// Lista da De Bacco (24ª rodada) — mesmo esquema nome + número do fluxo,
-// vindo da planilha oficial ("2026 - BUDGET DE BACCO", abas PLANEJADO
-// 2026/REALIZADO 2026). Diferente da GhelPlus, a De Bacco usa "Immersiones"
-// (é a marca que originou esse fluxo) e não tem "Showroom" nem "Promoções".
+// Lista da De Bacco (24ª rodada, +"Showroom" na 25ª) — mesmo esquema nome +
+// número do fluxo, vindo da planilha oficial ("2026 - BUDGET DE BACCO",
+// abas PLANEJADO 2026/REALIZADO 2026). Diferente da GhelPlus, a De Bacco
+// usa "Immersiones" (é a marca que originou esse fluxo) e não tem
+// "Promoções". "Showroom" (2.5.3.13) foi adicionado na 25ª rodada — ao
+// reimportar a planilha linha a linha, apareceu um fluxo Showroom que a
+// importação da 24ª rodada (que só somava totais) não tinha capturado.
 const FLUXOS_DEBACCO = [
   'Institucional - 2.5.3.3',
   'Ações Sociais - 2.5.3.4',
@@ -66,6 +69,7 @@ const FLUXOS_DEBACCO = [
   'Brindes - 2.5.3.8',
   'PDV - 2.5.3.12',
   'Feiras/Eventos - 2.5.3.1',
+  'Showroom - 2.5.3.13',
   'Expositores Padrão - 2.5.3.14',
   'Expositores Especiais - 2.5.3.21',
   'Equipamentos - 1.2.6.1'

@@ -7,6 +7,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
+const { cascadeCompleteDemandas, alsoInvolvedUserIds } = require('../utils/demandCascade');
 
 const router = express.Router();
 
@@ -147,19 +148,26 @@ function cardOrder(d) {
 const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', aprovacao: 'Em Aprovação', concluida: 'Concluída' };
 
 function serialize(d) {
+  // Quando a demanda veio de um agendamento de redes sociais (uma por
+  // pessoa marcada como envolvida, ver createDemandCardsForNewInvolved em
+  // routes/socialPosts.js), mostra quem mais foi marcado junto no mesmo
+  // agendamento (34ª rodada, pedido da Raquel) — sem isso a marcação
+  // original só existia "escondida" em cards separados de cada pessoa.
+  const alsoInvolvedNames = alsoInvolvedUserIds(d).map((id) => resolveUserName(id, '')).filter(Boolean);
   return Object.assign({}, d, {
     assigneeIds: d.assigneeIds || [],
     labelIds: d.labelIds || [],
     color: d.color || null,
     link: d.link || null,
     checklistTitle: d.checklistTitle || 'Checklist',
-    // Responsável geral (30ª rodada): marcação visual/organizacional dentro
-    // dos marcados na demanda — não afeta a pontuação do REIS DO MARKETING,
-    // que continua contando todo mundo marcado igual.
+    // Responsável geral (30ª rodada, marcação passou a pontuar na 32ª):
+    // pontua igual a qualquer outro marcado na demanda — ver GET
+    // /reis-do-marketing abaixo.
     responsibleId: d.responsibleId || null,
     recurring: !!d.recurring,
     overdue: isOverdue(d),
     order: cardOrder(d),
+    alsoInvolvedNames,
     // Nome/foto de quem criou, resolvidos ao vivo (20ª/22ª rodada) — ver utils/names.js.
     createdByName: resolveUserName(d.createdBy, d.createdByName),
     createdByPhoto: resolveUserPhoto(d.createdBy),
@@ -476,6 +484,15 @@ router.put('/:id', requireAuth, (req, res) => {
   const details = describeChanges(demanda, updates);
   db.get('demandas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: updates.title || demanda.title, action: 'update', details, meta: { visibility: demanda.visibility } });
+  // 34ª rodada: se essa demanda veio de um agendamento de redes sociais
+  // (junto com outras, uma por pessoa marcada como envolvida) e ela
+  // acabou de virar "Concluída" de verdade (não o caso de recorrência
+  // acima, que volta sozinha pra "A Fazer"), arrasta as demandas-irmãs do
+  // mesmo agendamento junto — pedido da Raquel: concluir pra uma pessoa
+  // marcada deve concluir pra todas.
+  if (updates.status === 'concluida' && demanda.sourceSocialPostId) {
+    cascadeCompleteDemandas(demanda.sourceSocialPostId, demanda.id, req);
+  }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()), recurringReset });
 });
 

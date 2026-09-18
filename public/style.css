@@ -220,11 +220,12 @@ button{font-weight:700;}
 .table-scroll .data-table{border-radius:12px;}
 
 /* ---------- Início ---------- */
-/* 33ª rodada, pedido da Raquel: "a página inicial está muito amontoada,
-   deixe os resumos um pouco mais separado do gráfico e recados" --
-   margin-top bem maior que antes (16px), só entre o .home-top-row (REIS +
+/* 33ª/34ª rodada, pedido da Raquel: "a página inicial está muito
+   amontoada, deixe os resumos um pouco mais separado do gráfico e
+   recados" -- aumentado de novo na 34ª rodada ("separe mais um pouco o
+   gráfico dos resumos"), margin-top só entre o .home-top-row (REIS +
    Recados) e essa grade de resumos. */
-.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-top:44px;}
+.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-top:68px;}
 /* Cards mais "delicados" (18ª rodada: "esta feio visualmente tudo separado
    em quadrados") — sombra suave em vez de borda dura, cantos mais
    arredondados, sem a grade de caixinhas de número que existia antes. */
@@ -256,8 +257,12 @@ button{font-weight:700;}
 /* 32ª rodada, pedido da Raquel: REIS DO MARKETING e Recados lado a lado,
    acima dos resumos -- mesma ideia visual "sem quadro" de sempre, só lado
    a lado numa grade de 2 colunas (o gráfico um pouco mais largo que a
-   coluna de Recados). Em telas estreitas empilha (ver media query). */
-.home-top-row{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:start;margin-top:18px;}
+   coluna de Recados). Em telas estreitas empilha (ver media query).
+   margin-top aumentado na 34ª rodada ("desça um pouco mais o gráfico e os
+   recados e o que está embaixo deles") -- como esse bloco vem antes de
+   .home-grid no HTML, empurrar ele pra baixo empurra tudo que vem depois
+   junto. */
+.home-top-row{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:start;margin-top:40px;}
 @media (max-width:900px){ .home-top-row{grid-template-columns:1fr;} }
 .reis-marketing-chart{display:flex;align-items:flex-end;gap:22px;overflow-x:auto;padding:12px 4px 4px;min-height:230px;}
 .reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:76px;height:230px;}

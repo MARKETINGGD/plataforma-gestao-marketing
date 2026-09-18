@@ -2524,6 +2524,7 @@
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
             ${d.recurring ? '<span class="badge badge-muted" title="Repete todo mês">↻ mensal</span>' : ''}
             ${(d.assigneeIds || []).length > 1 ? `<span class="badge">${d.assigneeIds.length} pessoas</span>` : ''}
+            ${(d.alsoInvolvedNames || []).length > 0 ? `<span class="badge" title="Também marcado(a) no mesmo agendamento: ${d.alsoInvolvedNames.join(', ')}">👥 +${d.alsoInvolvedNames.length}</span>` : ''}
             ${total > 0 ? `<span class="badge">✓ ${doneCount}/${total}</span>` : ''}
             ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
             ${d.link ? '<span class="badge" title="Tem link">🔗</span>' : ''}
@@ -2896,6 +2897,14 @@
     $('#demChecklistAssignee').innerHTML = checklistAssigneeOptionsHTML(null);
     $('#demFileInput').value = '';
     renderAssigneeChips();
+    // Também marcado(a) no mesmo agendamento (34ª rodada) — só aparece em
+    // cards que a Plataforma criou automaticamente a partir de um
+    // agendamento de redes sociais com mais de 1 pessoa envolvida.
+    const alsoInvolved = demanda ? (demanda.alsoInvolvedNames || []) : [];
+    $('#demAlsoInvolvedNote').textContent = alsoInvolved.length > 0
+      ? `Também marcado(a) no mesmo agendamento: ${alsoInvolved.join(', ')}. Concluir esta demanda conclui a de todos eles também.`
+      : '';
+    $('#demAlsoInvolvedNote').hidden = alsoInvolved.length === 0;
     renderLabelChips();
     renderDemColorSwatches();
     renderChecklist(demanda || { checklist: [] });

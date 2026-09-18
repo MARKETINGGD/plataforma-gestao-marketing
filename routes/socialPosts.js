@@ -7,6 +7,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
+const { cascadeCompleteDemandas } = require('../utils/demandCascade');
 
 const router = express.Router();
 
@@ -266,6 +267,11 @@ router.post('/', requireAuth, (req, res) => {
   }, changeSuggestionsMeta(changeSuggestions, '', req));
   db.get('socialPosts').push(post).write();
   createDemandCardsForNewInvolved(post, post.involvedUserIds, req);
+  // 34ª rodada: no caso raro de o post já nascer como "publicado", completa
+  // de cara as demandas que acabaram de ser criadas pras pessoas marcadas.
+  if (post.status === 'publicado') {
+    cascadeCompleteDemandas(post.id, null, req);
+  }
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${brand} · ${platform} ${scheduledDate}`, action: 'create' });
   res.json({ post: serialize(post) });
 });
@@ -274,6 +280,12 @@ router.put('/:id', requireAuth, (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
   const previousInvolvedIds = post.involvedUserIds || [];
+  // 34ª rodada: guarda o status ANTES do assign() -- o lowdb acha e
+  // atualiza o mesmo objeto em memória que `post` já aponta, então
+  // depois do assign(updates) o `post.status` já viria com o valor NOVO
+  // (não dava mais pra comparar "era publicado antes?" usando `post`
+  // depois dessa linha).
+  const previousStatus = post.status;
   const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
@@ -299,6 +311,14 @@ router.put('/:id', requireAuth, (req, res) => {
   if (updates.involvedUserIds !== undefined) {
     const newIds = updates.involvedUserIds.filter((id) => !previousInvolvedIds.includes(id));
     createDemandCardsForNewInvolved(fresh, newIds, req);
+  }
+  // 34ª rodada: marcar o agendamento como "publicado" completa sozinho
+  // todas as demandas que ele criou (uma por pessoa marcada como
+  // envolvida) — pedido da Raquel, mesma lógica usada quando alguém
+  // conclui manualmente a demanda de uma dessas pessoas (ver
+  // routes/demandas.js).
+  if (updates.status === 'publicado' && previousStatus !== 'publicado') {
+    cascadeCompleteDemandas(fresh.id, null, req);
   }
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update' });
   res.json({ post: serialize(fresh) });

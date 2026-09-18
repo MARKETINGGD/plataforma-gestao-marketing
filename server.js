@@ -36,6 +36,10 @@ app.use('/api/chat', require('./routes/chat'));
 // pra granular está documentada em cada um desses arquivos).
 require('./utils/seedBudget2026GhelplusGranular').seedBudget2026GhelplusGranular();
 require('./utils/seedBudget2026DebaccoGranular').seedBudget2026DebaccoGranular();
+// 34ª rodada: completa retroativamente demandas ligadas a agendamentos
+// já publicados, ou a grupos onde alguém já tinha concluído manualmente
+// antes desse recurso existir (ver utils/demandCascade.js).
+require('./utils/migrateAutoCompleteDemandasFromPosts').migrateAutoCompleteDemandasFromPosts();
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).

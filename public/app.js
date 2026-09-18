@@ -320,6 +320,23 @@
     }
     return HOME_GREETINGS[idx].replace(/\{nome\}/g, nome);
   }
+
+  // Cor da frase de boas-vindas (32ª rodada, pedido da Raquel: "deixe ela em
+  // arial bold, mas colorida, a cor tbm deve mudar a cada login") — mesmo
+  // mecanismo de sorteio/persistência da frase em si (sessionStorage, some
+  // no logout pra sortear de novo no próximo login), só que guardando o
+  // índice da cor em vez do índice da frase.
+  const HOME_GREETING_COLORS = ['#6D63E0', '#E0537A', '#2F9E44', '#E8590C', '#1C7ED6', '#AE3EC9', '#F08C00', '#0CA678'];
+  function pickHomeGreetingColor() {
+    let idx = sessionStorage.getItem('homeGreetingColorIdx');
+    if (idx === null || isNaN(Number(idx))) {
+      idx = Math.floor(Math.random() * HOME_GREETING_COLORS.length);
+      sessionStorage.setItem('homeGreetingColorIdx', String(idx));
+    } else {
+      idx = Number(idx);
+    }
+    return HOME_GREETING_COLORS[idx];
+  }
   const NORMAL_POST_TYPES = ['estatico', 'carrossel', 'reels', 'storie', 'video_tiktok', 'video_youtube', 'pin'];
   const CARGO_LABEL = { gerente: 'Gerente', analista: 'Analista', auxiliar: 'Auxiliar', coordenador: 'Coordenador(a)', designer: 'Designer', designer3d: 'Designer 3D', videomaker: 'Videomaker' };
   const fmtMoney = (n) => n === null || n === undefined || n === ''
@@ -575,6 +592,7 @@
     token = null; currentUser = null;
     localStorage.removeItem('token');
     sessionStorage.removeItem('homeGreetingIdx'); // próximo login sorteia outra frase
+    sessionStorage.removeItem('homeGreetingColorIdx'); // idem pra cor da frase
     location.reload();
   };
 
@@ -709,6 +727,7 @@
     dashboardsByKey = {};
     data.dashboards.forEach((d) => { dashboardsByKey[d.key] = d; });
     $('#homeGreeting').textContent = pickHomeGreeting(currentUser.name || currentUser.username);
+    $('#homeGreeting').style.color = pickHomeGreetingColor();
     applyHomeColor();
 
     await loadRecados();
@@ -2952,6 +2971,11 @@
     await api('/api/demandas/' + editingDemandaId + '/archive', { method: 'PUT', body: JSON.stringify({ archived: archiveNow }) });
     $('#demandaModal').hidden = true;
     await loadDemandas();
+    // 32ª rodada: arquivar/desarquivar muda se a demanda entra ou não na
+    // conta do REIS DO MARKETING (demanda arquivada não pontua) -- atualiza
+    // o gráfico junto, mesmo padrão já usado nas outras ações que mexem na
+    // pontuação.
+    refreshReisDoMarketingSoon();
   };
 
   $('#demCardDelete').onclick = async () => {
@@ -2960,6 +2984,7 @@
     await api('/api/demandas/' + editingDemandaId, { method: 'DELETE' });
     $('#demandaModal').hidden = true;
     await loadDemandas();
+    refreshReisDoMarketingSoon();
   };
 
   // ---------- Etiquetas (gerenciamento) ----------

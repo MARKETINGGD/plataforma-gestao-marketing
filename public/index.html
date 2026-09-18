@@ -138,18 +138,35 @@
           <button type="button" id="homeColorBtn" class="color-dot-btn" title="Cor de fundo da tela Início"></button>
         </div>
 
-        <div id="recadosWrap">
-          <div class="view-toolbar">
-            <h3 style="margin:0;">Recados</h3>
-            <button class="btn-secondary" id="recadosNewBtn">+ Novo recado</button>
+        <!-- 32ª rodada, pedido da Raquel: REIS DO MARKETING e Recados lado a
+             lado, logo abaixo da frase de boas-vindas -- os resumos (Demandas/
+             Orçamento/Brindes/Produtos) vêm depois, mais abaixo. -->
+        <div class="home-top-row">
+          <!-- REIS DO MARKETING (28ª rodada) -- ranking de quem mais concluiu
+               demandas no mês, com foto de cada um subindo junto com a barra e
+               coroa pro 1º lugar. -->
+          <div class="reis-marketing-card">
+            <div class="view-toolbar" style="margin-bottom:2px;">
+              <h3 style="margin:0;">👑 REIS DO MARKETING</h3>
+            </div>
+            <p class="muted" style="margin-top:0;">Quem mais concluiu demandas neste mês.</p>
+            <div id="reisMarketingChart" class="reis-marketing-chart"></div>
+            <p class="muted" id="reisMarketingEmpty" hidden>Ainda não há colaboradores cadastrados pra mostrar aqui.</p>
           </div>
-          <div id="recadosForMe" class="recado-list"></div>
-          <button class="btn-link" id="recadosToggleAll">Ver meus recados (enviados e recebidos)</button>
-          <div id="recadosAllWrap" hidden>
-            <table class="data-table">
-              <thead><tr><th></th><th>Recado</th><th>De</th><th>Para</th><th>Lido por</th><th></th></tr></thead>
-              <tbody id="recadosAllBody"></tbody>
-            </table>
+
+          <div id="recadosWrap">
+            <div class="view-toolbar">
+              <h3 style="margin:0;">Recados</h3>
+              <button class="btn-secondary" id="recadosNewBtn">+ Novo recado</button>
+            </div>
+            <div id="recadosForMe" class="recado-list"></div>
+            <button class="btn-link" id="recadosToggleAll">Ver meus recados (enviados e recebidos)</button>
+            <div id="recadosAllWrap" hidden>
+              <table class="data-table">
+                <thead><tr><th></th><th>Recado</th><th>De</th><th>Para</th><th>Lido por</th><th></th></tr></thead>
+                <tbody id="recadosAllBody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -187,18 +204,6 @@
             <h3>Produtos próximo do lançamento</h3>
             <p class="muted">Nenhum produto cadastrado ainda. Assim que a área de Produtos ganhar conteúdo, os próximos lançamentos aparecem aqui.</p>
           </div>
-        </div>
-
-        <!-- REIS DO MARKETING (28ª rodada) -- ranking de quem mais concluiu
-             demandas no mês, com foto de cada um subindo junto com a barra e
-             coroa pro 1º lugar. -->
-        <div class="reis-marketing-card">
-          <div class="view-toolbar" style="margin-bottom:2px;">
-            <h3 style="margin:0;">👑 REIS DO MARKETING</h3>
-          </div>
-          <p class="muted" style="margin-top:0;">Quem mais concluiu demandas neste mês.</p>
-          <div id="reisMarketingChart" class="reis-marketing-chart"></div>
-          <p class="muted" id="reisMarketingEmpty" hidden>Ainda não há colaboradores cadastrados pra mostrar aqui.</p>
         </div>
       </section>
 

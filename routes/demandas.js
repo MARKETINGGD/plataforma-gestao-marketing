@@ -296,33 +296,48 @@ router.get('/summary', requireAuth, (req, res) => {
   res.json({ summary });
 });
 
-// "REIS DO MARKETING" (28ª/30ª rodada, pedido da Raquel) — ranking de quem
-// mais concluiu demandas NESTE mês, pra mostrar na tela Início com foto e
-// coroa pro 1º lugar.
+// "REIS DO MARKETING" (28ª/30ª/32ª rodada, pedido da Raquel) — ranking de
+// quem mais concluiu demandas NESTE mês, pra mostrar na tela Início com
+// foto e coroa pro 1º lugar.
 //
-// 30ª rodada: passou a contar também os itens do checklist marcados com um
-// responsável (assigneeId por item). Regra confirmada com a Raquel: quando
-// a demanda TEM itens de checklist com responsável marcado, SÓ esses itens
-// concluídos pontuam (não soma com a conclusão do card inteiro, pra não
-// contar em dobro) — cada item concluído neste mês pontua pra quem está
-// marcado nele, usando `doneAt` (novo, gravado no PUT do item). Só quando a
-// demanda NÃO tem nenhum item de checklist com responsável é que volta a
-// valer a regra antiga: card inteiro concluído neste mês pontua pra todo
-// mundo marcado em assigneeIds (usando `updatedAt`, como antes).
+// 32ª rodada: regra de pontuação reescrita do zero, a pedido explícito da
+// Raquel (substitui a regra "só o checklist conta quando existe" da 30ª
+// rodada). Agora são DUAS fontes de ponto, que somam entre si (não são mais
+// exclusivas uma da outra):
 //
-// O "responsável geral" (também 30ª rodada, campo `responsibleId`) é só uma
-// marcação visual/organizacional — não entra nessa conta de forma alguma;
-// todo mundo marcado na demanda (ou no item) pontua igual.
+// 1) Card inteiro marcado como concluído neste mês (usando `updatedAt`,
+//    como sempre): pontua todo mundo marcado no card (`assigneeIds`) E
+//    o "responsável geral" (`responsibleId`), se tiver um marcado — cada
+//    pessoa só 1 ponto por essa conclusão, mesmo que ela seja ao mesmo
+//    tempo marcada E responsável geral (não pontua em dobro pelo mesmo
+//    evento). Não importa quem foi que marcou como concluído.
+// 2) Cada item de checklist concluído neste mês (usando `doneAt`, gravado
+//    no PUT do item): pontua 1 ponto pra quem está marcado nesse item —
+//    isso agora vale SEMPRE que o item tiver responsável e tiver sido
+//    concluído no mês, independente do card (inteiro) estar concluído ou
+//    não, e independente da pontuação em (1).
 //
-// Demandas RECORRENTES continuam de fora: ao marcar como concluída elas
-// voltam sozinhas pra "A Fazer" (ver PUT /:id acima), então nunca ficam
-// paradas em status 'concluida'. Não conta demanda arquivada nem pessoal
-// (mesmo critério do /summary).
+// Quem CRIOU o card não ganha ponto só por isso — só pontua se também se
+// enquadrar em (1) ou (2) (estiver marcado no card, for o responsável
+// geral, ou estiver marcado em algum item de checklist concluído), porque
+// `addPoint` só é chamado pros ids que vêm de `assigneeIds`/`responsibleId`/
+// `assigneeId` do item — nunca pro `createdBy` diretamente.
+//
+// 31ª rodada (mantido): quem tem cargo "Gerente" ou "Coordenador(a)" some
+// do gráfico e não pontua de jeito nenhum, por nenhuma das duas fontes.
+//
+// Demandas RECORRENTES continuam de fora da fonte (1): ao marcar como
+// concluída elas voltam sozinhas pra "A Fazer" (ver PUT /:id acima), então
+// nunca ficam paradas em status 'concluida'. A fonte (2), por usar
+// `doneAt` do item, não tem essa limitação. Não conta demanda arquivada
+// nem pessoal (mesmo critério do /summary).
+//
+// Importante: essa rota calcula tudo na hora, direto dos dados atuais —
+// não é um placar guardado à parte. Então já vale automaticamente pra
+// toda demanda concluída neste mês até agora e pra qualquer uma concluída
+// daqui pra frente, sem precisar de nenhuma migração.
 router.get('/reis-do-marketing', requireAuth, (req, res) => {
   const ym = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-  // 31ª rodada, pedido da Raquel: quem tem cargo "Gerente" ou "Coordenador(a)"
-  // some do gráfico e não pontua de jeito nenhum — nem quando marcado num
-  // item de checklist, nem como responsável de um card concluído.
   const excludedIds = new Set(
     db.get('users').value()
       .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
@@ -332,15 +347,20 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
   function addPoint(id) { if (id && !excludedIds.has(id)) counts[id] = (counts[id] || 0) + 1; }
   db.get('demandas').value().forEach((d) => {
     if (d.archived || d.visibility === 'pessoal') return;
-    const checklist = d.checklist || [];
-    const assignedItems = checklist.filter((it) => it.assigneeId);
-    if (assignedItems.length > 0) {
-      assignedItems.forEach((it) => {
-        if (it.done && it.doneAt && it.doneAt.slice(0, 7) === ym) addPoint(it.assigneeId);
-      });
-    } else if (d.status === 'concluida' && d.updatedAt && d.updatedAt.slice(0, 7) === ym) {
-      (d.assigneeIds || []).forEach(addPoint);
+    // (1) card inteiro concluído neste mês -- marcados + responsável geral,
+    // sem duplicar ponto pra quem for as duas coisas ao mesmo tempo.
+    if (d.status === 'concluida' && d.updatedAt && d.updatedAt.slice(0, 7) === ym) {
+      const pontuamNesseCard = new Set(d.assigneeIds || []);
+      if (d.responsibleId) pontuamNesseCard.add(d.responsibleId);
+      pontuamNesseCard.forEach(addPoint);
     }
+    // (2) itens de checklist concluídos neste mês -- 1 ponto por item, à
+    // parte da pontuação do card (soma, não substitui).
+    (d.checklist || []).forEach((it) => {
+      if (it.assigneeId && it.done && it.doneAt && it.doneAt.slice(0, 7) === ym) {
+        addPoint(it.assigneeId);
+      }
+    });
   });
   res.json({ month: ym, counts, excludedIds: Array.from(excludedIds) });
 });

@@ -43,11 +43,34 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// 32ª rodada, pedido da Raquel: "a plataforma deve ser atualizada tbm por
+// f5, hoje não consigo atualizar dessa forma" — o Cache-Control acima já
+// pedia pro navegador revalidar antes de reusar o cache, mas isso depende
+// do navegador/rede realmente respeitar a revalidação; pra não depender
+// disso, o index.html passa a ser servido com um "carimbo de versão"
+// (`?v=<hora que este processo subiu>`) colado nas tags de <script> e
+// <link> dele. Como essa URL muda sozinha a cada deploy (processo novo =
+// timestamp novo), o navegador é obrigado a buscar o app.js/style.css
+// novos — um F5 comum passa a bastar, sem precisar de Ctrl+F5/limpar
+// cache.
+const BUILD_VERSION = String(Date.now());
+const indexHtmlRaw = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+const indexHtmlVersioned = indexHtmlRaw
+  .replace('href="/style.css"', `href="/style.css?v=${BUILD_VERSION}"`)
+  .replace('src="/app.js"', `src="/app.js?v=${BUILD_VERSION}"`);
+function sendVersionedIndex(req, res) {
+  // no-store (mais forte que o no-cache genérico acima) só pro HTML em si
+  // — ele é pequeno e é o que decide qual versão de app.js/style.css vai
+  // ser buscada, então precisa vir sempre fresco do servidor.
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(indexHtmlVersioned);
+}
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// index:false pra o express não responder "/" com o index.html cru (sem o
+// carimbo de versão) antes de chegar nas rotas abaixo.
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+
+app.get('*', sendVersionedIndex);
 
 // Handler de erro — garante que erro de upload (arquivo grande demais, etc.)
 // volta como JSON pro frontend em vez de uma página de erro quebrada.

@@ -236,12 +236,25 @@ button{font-weight:700;}
 .home-budget-brand h4{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
 .home-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 .home-card button.btn-secondary{margin-top:12px;}
+/* 32ª rodada, pedido da Raquel: "os botões ainda estão estranhos, deixe
+   uma transparência atrás deles, pra não ficar tão destacado assim" --
+   fundo branco sólido chapava demais sobre a cor de fundo da Início
+   (color-dot-btn). Troca só aqui (não no .btn-secondary global, usado em
+   telas com fundo branco normal, onde já funciona bem). */
+#view-home .btn-secondary{background:rgba(255,255,255,.55);border-color:rgba(0,0,0,.08);backdrop-filter:blur(2px);}
+#view-home .btn-secondary:hover{background:rgba(255,255,255,.8);}
 
 /* REIS DO MARKETING (28ª rodada) -- ranking de quem mais concluiu demandas
    no mês, com a foto de cada um "subindo" junto com a barra (a barra e a
    foto ficam no mesmo bloco flex, alinhados pela base -- crescer a barra
    empurra a foto pra cima) e uma coroa no 1º lugar. */
-.reis-marketing-card{padding:18px 0 0;border-top:1px solid var(--border);margin-top:8px;}
+.reis-marketing-card{padding:0;}
+/* 32ª rodada, pedido da Raquel: REIS DO MARKETING e Recados lado a lado,
+   acima dos resumos -- mesma ideia visual "sem quadro" de sempre, só lado
+   a lado numa grade de 2 colunas (o gráfico um pouco mais largo que a
+   coluna de Recados). Em telas estreitas empilha (ver media query). */
+.home-top-row{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:start;margin-top:18px;}
+@media (max-width:900px){ .home-top-row{grid-template-columns:1fr;} }
 .reis-marketing-chart{display:flex;align-items:flex-end;gap:22px;overflow-x:auto;padding:12px 4px 4px;min-height:230px;}
 .reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:76px;height:230px;}
 .reis-bar-photo{position:relative;width:52px;height:52px;border-radius:50%;background:var(--primary) center/cover no-repeat;border:3px solid #fff;box-shadow:0 2px 6px rgba(20,10,40,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:18px;flex:0 0 auto;}

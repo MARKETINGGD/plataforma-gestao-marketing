@@ -92,6 +92,7 @@ function serialize(p) {
     brand: p.brand || 'debacco',
     approvalStatus: p.approvalStatus || 'pendente',
     approvalNotes: p.approvalNotes || '',
+    approvedBy: p.approvedBy || null,
     approvedByName: resolveUserName(p.approvedBy, p.approvedByName),
     approvedAt: p.approvedAt || null,
     // Nomes resolvidos ao vivo (20ª rodada) — ver utils/names.js.

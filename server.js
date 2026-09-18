@@ -40,9 +40,11 @@ app.use('/api/chat', require('./routes/chat'));
 require('./utils/seedBudget2026GhelplusGranular').seedBudget2026GhelplusGranular();
 require('./utils/seedBudget2026DebaccoGranular').seedBudget2026DebaccoGranular();
 // 41ª rodada: importação única do histórico de feiras (FEICON/GhelPlus
-// 2025+2026 — ver utils/seedFeirasGhelplus2025_2026.js; ExpoRevestir/De
-// Bacco entra numa próxima rodada, quando a Raquel mandar o link certo).
+// 2025+2026 — ver utils/seedFeirasGhelplus2025_2026.js). ExpoRevestir/De
+// Bacco entrou na 42ª rodada, quando a Raquel mandou o link certo — ver
+// utils/seedFeirasExporevestirDebacco2025_2026.js.
 require('./utils/seedFeirasGhelplus2025_2026').seedFeirasGhelplus2025_2026();
+require('./utils/seedFeirasExporevestirDebacco2025_2026').seedFeirasExporevestirDebacco2025_2026();
 // 34ª rodada: completa retroativamente demandas ligadas a agendamentos
 // já publicados, ou a grupos onde alguém já tinha concluído manualmente
 // antes desse recurso existir (ver utils/demandCascade.js).
@@ -54,6 +56,14 @@ require('./utils/migrateLastCompletedAt').migrateLastCompletedAt();
 // agendamento/ação de influencer antes desse campo existir (ver
 // utils/migrateDemandaBrand.js).
 require('./utils/migrateDemandaBrand').migrateDemandaBrand();
+// 42ª rodada: dá `concorrentes[]` retroativo pra análise de concorrência
+// criada antes da tela suportar várias marcas por análise (ver
+// utils/migrateConcorrenciaMultiMarca.js), e importa (uma vez só) a
+// planilha "PRODUTOS GHELPLUS" que a Raquel mandou (GhelPlus x
+// Tramontina/Forminox/Fabrinox — ver
+// utils/seedConcorrenciaGhelplusImport2026.js).
+require('./utils/migrateConcorrenciaMultiMarca').migrateConcorrenciaMultiMarca();
+require('./utils/seedConcorrenciaGhelplusImport2026').seedConcorrenciaGhelplusImport2026();
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).

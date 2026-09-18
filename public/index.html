@@ -249,9 +249,16 @@
           </div>
           <div class="chat-main">
             <div class="chat-main-header">
-              <div>
-                <h3 id="chatConversationTitle">Geral</h3>
-                <p class="muted" id="chatConversationSubtitle">Mural de conversa da equipe — qualquer pessoa logada na Plataforma vê as mensagens daqui.</p>
+              <div class="chat-main-header-title">
+                <!-- 42ª rodada, pedido da Raquel: "deve ter a opção de por
+                     uma imagem na foto do grupo" -- só aparece pra
+                     conversa do tipo grupo (ver applyChatHeader em app.js). -->
+                <button type="button" id="chatGroupPhotoBtn" class="chat-group-photo-btn" hidden title="Trocar foto do grupo"></button>
+                <input type="file" id="chatGroupPhotoInput" accept="image/*" hidden>
+                <div>
+                  <h3 id="chatConversationTitle">Geral</h3>
+                  <p class="muted" id="chatConversationSubtitle">Mural de conversa da equipe — qualquer pessoa logada na Plataforma vê as mensagens daqui.</p>
+                </div>
               </div>
               <button class="btn-secondary" id="chatNudgeBtn" hidden title="Vibra a tela e toca um som pra quem está na conversa">🔔 Chamar atenção</button>
             </div>
@@ -1212,7 +1219,12 @@
 
           <!-- 39ª rodada, pedido da Raquel: concorrente x nossa marca lado a
                lado, com os mesmos campos dos dois lados (produto, preço,
-               diferenciais, observações, link). -->
+               diferenciais, observações, link).
+               42ª rodada, pedido da Raquel: "deve ter tbm a opção de
+               colocar varias marcas na analise, e não apenas 1 versus a
+               outra" -- o lado do concorrente virou uma lista (1 ou mais
+               linhas, ver #concorrenciaConcorrentesRows/app.js), o lado
+               "Nossa marca" continua único. -->
           <div id="concorrenciaFormWrap" class="form-card form-card-wide" hidden>
             <h3 id="concorrenciaFormTitle">Nova análise</h3>
             <div class="form-row">
@@ -1222,21 +1234,20 @@
                   <option value="ghelplus">GhelPlus</option>
                 </select>
               </div>
-              <div><label>Concorrente</label><input id="concorrenciaFormConcorrente" type="text"></div>
+              <div><label>Título da análise</label><input id="concorrenciaFormTitulo" type="text" placeholder="Ex.: Torneiras cozinha - set/2026"></div>
             </div>
             <div class="form-row">
-              <div><label>Título da análise</label><input id="concorrenciaFormTitulo" type="text" placeholder="Ex.: Torneiras cozinha - set/2026"></div>
               <div><label>Data</label><input id="concorrenciaFormData" type="date"></div>
+              <div></div>
             </div>
 
             <div class="compare-row">
               <div class="compare-col">
-                <h4>Produto do concorrente</h4>
-                <label>Produto</label><input id="concorrenciaFormProduto" type="text">
-                <label>Preço (R$)</label><input id="concorrenciaFormPreco" type="number" step="0.01">
-                <label>Diferenciais</label><textarea id="concorrenciaFormDiferenciais" rows="2"></textarea>
-                <label>Observações</label><textarea id="concorrenciaFormObservacoes" rows="2"></textarea>
-                <label>Link de referência</label><input id="concorrenciaFormLink" type="text" placeholder="https://...">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <h4 style="margin:0;">Concorrentes</h4>
+                  <button type="button" class="btn-link" id="concorrenciaAddConcorrenteBtn">+ Adicionar concorrente</button>
+                </div>
+                <div id="concorrenciaConcorrentesRows"></div>
               </div>
               <div class="compare-vs">×</div>
               <div class="compare-col">
@@ -1681,6 +1692,14 @@
 <button type="button" id="chatWidgetToggle" class="chat-widget-toggle" hidden title="Chat da Equipe">
   💬<span id="chatWidgetBadge" class="chat-widget-badge" hidden>0</span>
 </button>
+
+<!-- 42ª rodada, pedido da Raquel: "para cada conversa/grupo novo, deve
+     abrir uma janelinha de chat nova na tela inicial, canto direito. Mas
+     só enquanto a conversa estiver acontecendo, a unica que deve se manter
+     sempre ali é a do chat geral." Janelinhas empilhadas nesse container
+     (uma por grupo/DM com mensagem nova), acima da bolha/janela fixa do
+     Geral -- ver openConversationWindow/pollConversationWindows em app.js. -->
+<div id="chatFloatingWindows" class="chat-floating-windows"></div>
 
 <!-- Notificação flutuante de recado/demanda nova (22ª rodada, pedido da
      Raquel: "quando tiver notificação de recado ou demandas novas, deve

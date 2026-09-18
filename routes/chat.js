@@ -1,10 +1,39 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 
 const router = express.Router();
+
+// Foto do grupo (42ª rodada, pedido da Raquel: "deve ter a opção de por
+// uma imagem na foto do grupo") — mesmo padrão de upload já usado na foto
+// de perfil (ver routes/auth.js: avatarsRoot/avatarStorage/uploadAvatar):
+// cada upload novo soma um arquivo (nunca apaga o de antes), e o registro
+// só passa a apontar pro arquivo mais recente.
+const groupPhotosRoot = path.join(__dirname, '..', 'data', 'uploads', 'chat-group-photos');
+const groupPhotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(groupPhotosRoot, req.params.id);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadGroupPhoto = multer({
+  storage: groupPhotoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB — suficiente pra uma foto de grupo
+  fileFilter: (req, file, cb) => {
+    if (!/^image\//.test(file.mimetype)) return cb(new Error('Envie uma imagem (JPG, PNG, etc.).'));
+    cb(null, true);
+  }
+});
 
 // Chat da Equipe (18ª rodada, pedido da Raquel: "Crie um chat dentro de
 // plataforma, onde a equipe pode conversar"). Implementado como um mural
@@ -93,6 +122,9 @@ function serializeConversation(conv, userId) {
     type: conv.type,
     name,
     participants,
+    // 42ª rodada: foto do grupo (só faz sentido pra `group` -- DM usa a
+    // fotinho da própria pessoa do outro lado, já resolvida no front).
+    photoUrl: conv.photoUrl || null,
     createdBy: conv.createdBy,
     createdAt: conv.createdAt
   };
@@ -222,6 +254,19 @@ router.post('/conversations', requireAuth, (req, res) => {
   res.status(400).json({ error: 'Tipo de conversa inválido.' });
 });
 
+// Foto do grupo (42ª rodada) — só pra grupo (não faz sentido em DM/Geral),
+// e só quem participa do grupo pode trocar a foto dele.
+router.post('/conversations/:id/photo', requireAuth, uploadGroupPhoto.single('photo'), (req, res) => {
+  const conv = getConversation(req.params.id);
+  if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+  if (conv.type !== 'group') return res.status(400).json({ error: 'Só grupos têm foto própria.' });
+  if (!isParticipant(conv, req.user.id)) return res.status(403).json({ error: 'Você não participa desse grupo.' });
+  if (!req.file) return res.status(400).json({ error: 'Selecione uma imagem.' });
+  const photoUrl = `/uploads/chat-group-photos/${req.params.id}/${req.file.filename}`;
+  db.get('chatConversations').find({ id: req.params.id }).assign({ photoUrl }).write();
+  res.json({ conversation: serializeConversation(db.get('chatConversations').find({ id: req.params.id }).value(), req.user.id) });
+});
+
 router.get('/conversations/:id/messages', requireAuth, (req, res) => {
   const conv = getConversation(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
@@ -263,21 +308,25 @@ router.post('/conversations/:id/messages', requireAuth, (req, res) => {
 });
 
 // "Chamar atenção" (40ª rodada, pedido da Raquel: "de chamar atenção
-// (vibrar a tela no chat, com barulho de algo vibrando)") — só em grupo ou
-// DM (não faz sentido vibrar a tela de todo mundo no mural Geral). É pra
-// CONVERSA inteira, não uma pessoa específica dentro do grupo (limite de
-// escopo, ver comentário no topo do arquivo). Vira só mais uma mensagem,
-// com `kind: 'nudge'` — o polling de quem está com a conversa aberta pega
-// ela como qualquer outra mensagem nova, e o frontend reconhece esse
-// `kind` pra vibrar a tela + tocar o som (em vez de mostrar texto normal).
+// (vibrar a tela no chat, com barulho de algo vibrando)") — É pra CONVERSA
+// inteira, não uma pessoa específica dentro do grupo (limite de escopo,
+// ver comentário no topo do arquivo). Vira só mais uma mensagem, com
+// `kind: 'nudge'` — o polling de quem está com a conversa aberta pega ela
+// como qualquer outra mensagem nova, e o frontend reconhece esse `kind`
+// pra vibrar a tela + tocar o som (em vez de mostrar texto normal).
+//
+// 42ª rodada, pedido da Raquel: "o chamar atenção deve estar funcionando
+// tanto para conversas e grupos privados, quanto para o grupo geral" —
+// antes (40ª rodada) era bloqueado no mural Geral (bloqueio removido
+// abaixo); ver também `$('#chatNudgeBtn').hidden` em app.js, que
+// escondia o botão só fora do Geral.
 router.post('/conversations/:id/nudge', requireAuth, (req, res) => {
   const conv = getConversation(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
-  if (conv.type === 'geral') return res.status(400).json({ error: 'Não dá pra chamar atenção no mural Geral.' });
   if (!isParticipant(conv, req.user.id)) return res.status(403).json({ error: 'Você não participa dessa conversa.' });
   const message = {
     id: nanoid(),
-    conversationId: conv.id,
+    conversationId: conv.id === 'geral' ? 'geral' : conv.id,
     kind: 'nudge',
     text: `${req.user.name || req.user.username} chamou a atenção`,
     createdBy: req.user.id,

@@ -43,6 +43,10 @@
   let draggedColId = null; // arrastar pra reordenar as colunas do quadro (17ª rodada)
   let draggedCardId = null; // arrastar pra reordenar os cards dentro de uma lista (21ª rodada)
   let demandaSoundSeenIds = null; // watcher de som pra demanda nova atribuída a mim (17ª rodada)
+  // 42ª rodada, pedido da Raquel: "ao aprovar os posts, lá em cronograma
+  // previa do feed, todos devem receber a notificação" — antes (40ª
+  // rodada) só quem CLICOU em aprovar via o aviso; ver checkNewPostApprovals.
+  let approvalSoundSeenKeys = null;
 
   let recadosForMe = [];
   let recadosAll = [];
@@ -618,13 +622,19 @@
     setActiveNav('navHome');
     startNotificationSoundWatcher();
     startReisMarketingPolling();
-    startReisMarketingWiggle();
     // Janelinha flutuante do Chat da Equipe (21ª rodada) — carrega o
     // histórico e começa a checar mensagens novas assim que loga, pra
     // avisar (som + aviso no canto) mesmo enquanto a pessoa está em
     // qualquer outra tela, não só na tela "Chat da Equipe".
     initChatWidget();
     startChatWidgetPolling();
+    // 42ª rodada, pedido da Raquel: "para cada conversa/grupo novo, deve
+    // abrir uma janelinha de chat nova... mesmo som do grupo geral" —
+    // carrega a lista de conversas cedo (senão só carregava ao abrir a
+    // tela "Chat da Equipe") e começa a checar TODAS elas em segundo
+    // plano, igual já acontece com o Geral acima.
+    await loadChatConversations();
+    startConversationWindowsPolling();
   }
 
   $('#setupSubmit').onclick = async () => {
@@ -949,9 +959,15 @@
       const isChamp = r.count > 0 && r.count === topCount;
       const initials = (r.fullName || '?').trim().charAt(0).toUpperCase();
       const photoStyle = r.photoUrl ? `background-image:url('${r.photoUrl}');` : '';
+      // 42ª rodada, pedido da Raquel: "em vez de se mexer a cada 10 min,
+      // quem esta cm a coroa deve balançar quando alguem passar o mouse
+      // por cima" -- substituiu o timer de 10min (removido, ver
+      // startReisMarketingWiggle) por uma classe aplicada só em quem tem a
+      // coroa, com o balanço disparado por CSS no :hover dela (ver
+      // .reis-bar-photo-champ:hover no style.css).
       return `
         <div class="reis-bar-col" title="${r.fullName}: ${r.count} demanda${r.count === 1 ? '' : 's'} concluída${r.count === 1 ? '' : 's'} este mês">
-          <div class="reis-bar-photo${r.photoUrl ? '' : ' reis-bar-photo-fallback'}" style="${photoStyle}">
+          <div class="reis-bar-photo${r.photoUrl ? '' : ' reis-bar-photo-fallback'}${isChamp ? ' reis-bar-photo-champ' : ''}" style="${photoStyle}">
             ${isChamp ? '<span class="reis-crown">👑</span>' : ''}
             ${r.photoUrl ? '' : initials}
           </div>
@@ -983,32 +999,11 @@
     loadReisDoMarketing().catch(() => { /* ignora falha pontual */ });
   }
 
-  // 40ª rodada, pedido da Raquel: "no grafico reis do marketing, a cada 10
-  // minutos, o bonequinho que tem a coroa, deve balançar." — mesmo padrão
-  // de gate por `activeViewName === 'home'` já usado no polling de contagem
-  // acima. Como o gráfico inteiro é redesenhado do zero a cada
-  // renderReisDoMarketing() (innerHTML), o alvo (quem está com a coroa
-  // agora, podendo ser mais de uma pessoa empatada em 1º) é buscado no
-  // instante do próprio balanço, não guardado -- pega a foto de quem tem
-  // .reis-crown dentro, adiciona a classe que dispara a animação em CSS
-  // (ver .reis-wiggle no style.css) e remove pouco depois pra poder
-  // disparar de novo no próximo ciclo de 10 minutos.
-  let reisWiggleTimer = null;
-  function startReisMarketingWiggle() {
-    if (reisWiggleTimer) clearInterval(reisWiggleTimer);
-    reisWiggleTimer = setInterval(() => {
-      if (activeViewName !== 'home') return;
-      const crownPhotos = $all('#reisMarketingChart .reis-crown').map((c) => c.closest('.reis-bar-photo')).filter(Boolean);
-      crownPhotos.forEach((el) => {
-        el.classList.remove('reis-wiggle');
-        // força reflow pra poder reiniciar a animação mesmo se a classe já
-        // tivesse sido aplicada antes (ex.: troca de campeão empatado).
-        void el.offsetWidth;
-        el.classList.add('reis-wiggle');
-      });
-      setTimeout(() => crownPhotos.forEach((el) => el.classList.remove('reis-wiggle')), 1000);
-    }, 600000);
-  }
+  // 42ª rodada, pedido da Raquel: "em vez de se mexer a cada 10 min, quem
+  // esta cm a coroa deve balançar quando alguem passar o mouse por cima."
+  // O timer de 10 minutos que existia aqui (40ª rodada) foi removido — o
+  // balanço agora é só CSS (.reis-bar-photo-champ:hover, ver style.css),
+  // sem precisar de nenhum JS/polling pra isso.
 
   // ---------- Som de notificação: recado novo ou demanda nova (16ª/17ª rodada) ----------
   // Pedido original da Raquel (16ª rodada): toda vez que um recado novo é
@@ -1099,6 +1094,42 @@
     } catch (e) { /* ignora falha de rede pontual */ }
   }
 
+  // 42ª rodada, pedido da Raquel: "ao aprovar os posts, lá em cronograma
+  // previa do feed, todos devem receber a notificação" — antes, só quem
+  // CLICOU em aprovar via o aviso (showApprovalToast, chamado direto de
+  // dentro de setPostApproval). Mesmo padrão de watcher por polling já
+  // usado em recados/demandas: primeira checagem só define a base (não
+  // avisa de aprovação que já tinha acontecido antes do login), e usa
+  // `id + ':' + approvedAt` como chave (não só o id do post) porque um
+  // post pode ser aprovado, reprovado e aprovado de novo depois — cada
+  // aprovação precisa do próprio aviso. Quem CLICOU em aprovar não recebe
+  // esse aviso de novo (já viu o dela na hora, via showApprovalToast).
+  async function checkNewPostApprovals() {
+    try {
+      const data = await api('/api/social-posts');
+      const approved = (data.posts || []).filter((p) => p.approvalStatus === 'aprovado' && p.approvedAt);
+      const keyOf = (p) => p.id + ':' + p.approvedAt;
+      const keys = new Set(approved.map(keyOf));
+      if (approvalSoundSeenKeys === null) {
+        approvalSoundSeenKeys = keys;
+        return;
+      }
+      const novos = approved.filter((p) => !approvalSoundSeenKeys.has(keyOf(p)) && p.approvedBy !== currentUser.id);
+      approvalSoundSeenKeys = keys;
+      if (novos.length > 0) {
+        playRecadoSound();
+        const p = novos.slice().sort((a, b) => (a.approvedAt || '').localeCompare(b.approvedAt || ''))[novos.length - 1];
+        const brandLabel = BRAND_LABEL[p.brand] || BRAND_LABEL.debacco;
+        showNotifToast({
+          title: '✓ Post aprovado',
+          text: `${brandLabel}, ${fmtDate(p.scheduledDate)} — por ${p.approvedByName || 'alguém'}`,
+          person: { name: p.approvedByName, photoUrl: null },
+          onClick: () => { openPostFromCronograma(p.id); }
+        });
+      }
+    } catch (e) { /* ignora falha de rede pontual */ }
+  }
+
   // Notificação flutuante genérica pra recado/demanda nova (22ª rodada) —
   // mesmo espírito visual do aviso do Chat da Equipe (21ª rodada), mas num
   // componente próprio (#notifToast), já que são avisos de origens
@@ -1147,10 +1178,12 @@
   function startNotificationSoundWatcher() {
     checkNewRecados();
     checkNewDemandas();
+    checkNewPostApprovals();
     if (notificationSoundTimer) clearInterval(notificationSoundTimer);
     notificationSoundTimer = setInterval(() => {
       checkNewRecados();
       checkNewDemandas();
+      checkNewPostApprovals();
     }, 20000);
   }
 
@@ -1259,7 +1292,12 @@
     chatConversations.forEach((conv) => {
       const item = document.createElement('div');
       item.className = 'chat-conversation-item' + (conv.id === currentConversationId ? ' active' : '');
-      item.innerHTML = `<span class="chat-conversation-icon">${conversationIcon(conv)}</span><span class="chat-conversation-name"></span>`;
+      // 42ª rodada: grupo com foto cadastrada mostra a foto no lugar do
+      // ícone 👥 na lista de conversas.
+      const iconHtml = conv.type === 'group' && conv.photoUrl
+        ? `<span class="chat-conversation-icon chat-conversation-icon-photo" style="background-image:url('${conv.photoUrl}')"></span>`
+        : `<span class="chat-conversation-icon">${conversationIcon(conv)}</span>`;
+      item.innerHTML = `${iconHtml}<span class="chat-conversation-name"></span>`;
       item.querySelector('.chat-conversation-name').textContent = conv.name;
       item.onclick = () => selectConversation(conv.id);
       wrap.appendChild(item);
@@ -1323,7 +1361,20 @@
       : conv.type === 'group'
         ? `Grupo privado — só quem está no grupo vê essas mensagens (${(conv.participants || []).length} participantes).`
         : 'Conversa privada — só vocês dois veem essas mensagens.';
-    $('#chatNudgeBtn').hidden = conv.type === 'geral';
+    // 42ª rodada, pedido da Raquel: "o chamar atenção deve estar
+    // funcionando tanto para conversas e grupos privados, quanto para o
+    // grupo geral" -- antes o botão ficava escondido no Geral.
+    $('#chatNudgeBtn').hidden = false;
+    // 42ª rodada, pedido da Raquel: "deve ter a opção de por uma imagem na
+    // foto do grupo" -- só faz sentido pra grupo (DM já usa a fotinho da
+    // outra pessoa; Geral não tem "foto").
+    const photoBtn = $('#chatGroupPhotoBtn');
+    photoBtn.hidden = conv.type !== 'group';
+    if (conv.type === 'group') {
+      photoBtn.classList.toggle('has-photo', !!conv.photoUrl);
+      photoBtn.style.backgroundImage = conv.photoUrl ? `url('${conv.photoUrl}')` : '';
+      photoBtn.textContent = conv.photoUrl ? '' : '📷';
+    }
     currentConversationParticipants = conv.type === 'geral'
       ? teamMembers.map((u) => ({ id: u.id, name: u.name || u.username }))
       : (conv.participants || []);
@@ -1431,7 +1482,6 @@
   $('#chatInput').addEventListener('blur', () => setTimeout(hideChatMentionSuggest, 150));
 
   $('#chatNudgeBtn').onclick = async () => {
-    if (currentConversationId === 'geral') return;
     try {
       await api(`/api/chat/conversations/${encodeURIComponent(currentConversationId)}/nudge`, { method: 'POST', body: JSON.stringify({}) });
       // A própria pessoa que chamou atenção também vê a mensagem de
@@ -1441,6 +1491,28 @@
       await pollChat();
     } catch (e) {
       alert(e.message || 'Não foi possível chamar atenção agora.');
+    }
+  };
+
+  // 42ª rodada, pedido da Raquel: "deve ter a opção de por uma imagem na
+  // foto do grupo" -- clica no círculo do cabeçalho, escolhe a imagem,
+  // sobe pra conversa que está aberta (só aparece pra grupo, ver
+  // applyChatHeader) e atualiza a lista/cabeçalho com a foto nova.
+  $('#chatGroupPhotoBtn').onclick = () => { $('#chatGroupPhotoInput').click(); };
+  $('#chatGroupPhotoInput').onchange = async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    try {
+      const fd = new FormData();
+      fd.append('photo', file);
+      const data = await api(`/api/chat/conversations/${encodeURIComponent(currentConversationId)}/photo`, { method: 'POST', body: fd });
+      const idx = chatConversations.findIndex((c) => c.id === data.conversation.id);
+      if (idx !== -1) chatConversations[idx] = data.conversation;
+      applyChatHeader();
+      renderChatConversationList();
+    } catch (e) {
+      alert(e.message || 'Não foi possível trocar a foto do grupo.');
     }
   };
 
@@ -1668,6 +1740,145 @@
       sendChatWidgetMessage();
     }
   });
+
+  // ---------- Janelinhas flutuantes por conversa/grupo (42ª rodada) ----------
+  // Pedido da Raquel: "para cada conversa/grupo novo, deve abrir uma
+  // janelinha de chat nova na tela inicial, canto direito. Mas só enquanto
+  // a conversa estiver acontecendo, a unica que deve se manter sempre ali
+  // é a do chat geral." + "cada mensagem nos grupos e conversas privadas,
+  // deve fazer som, o mesmo som do grupo geral."
+  //
+  // Funciona em paralelo à janelinha fixa do Geral acima (não mexe nela).
+  // Consulta TODAS as conversas (grupos/DMs) de que a pessoa participa em
+  // segundo plano — mesmo padrão "primeira checagem só define a base" já
+  // usado no aviso de recados/demandas, pra não abrir janela retroativa de
+  // mensagem antiga ao logar. Quando chega mensagem nova de OUTRA pessoa
+  // numa delas, toca o mesmo som do Geral (playChatSound) e abre (ou
+  // reaproveita, se já estava aberta) uma janelinha flutuante empilhada no
+  // canto direito da tela, ao lado da bolha/janela do Geral. Cada janela
+  // fecha sozinha depois de CONV_WINDOW_IDLE_MS sem mensagem nova nela (a
+  // conversa "parou de acontecer") -- fechar na mão (✕) funciona a
+  // qualquer momento, e a janela reabre se chegar mensagem nova depois.
+  const CONV_WINDOW_IDLE_MS = 10 * 60 * 1000; // 10 minutos
+  let convWindowState = {}; // { [conversationId]: { lastId, baselineSet, el, idleTimer } }
+  let convWindowPollTimer = null;
+
+  function conversationLabelFor(convId) {
+    const conv = chatConversations.find((c) => c.id === convId);
+    return conv ? conv.name : 'Conversa';
+  }
+
+  function closeConversationWindow(convId) {
+    const st = convWindowState[convId];
+    if (!st) return;
+    if (st.idleTimer) clearTimeout(st.idleTimer);
+    if (st.el) st.el.remove();
+    st.el = null;
+    st.idleTimer = null;
+  }
+
+  function scheduleConversationWindowIdleClose(convId) {
+    const st = convWindowState[convId];
+    if (!st) return;
+    if (st.idleTimer) clearTimeout(st.idleTimer);
+    st.idleTimer = setTimeout(() => closeConversationWindow(convId), CONV_WINDOW_IDLE_MS);
+  }
+
+  function openConversationWindow(convId) {
+    const st = convWindowState[convId];
+    if (st && st.el) return st;
+    const wrapAll = $('#chatFloatingWindows');
+    if (!wrapAll) return st;
+    const el = document.createElement('div');
+    el.className = 'chat-floating-win';
+    el.innerHTML = `
+      <div class="chat-widget-header">
+        <span></span>
+        <button type="button" class="chat-widget-close" title="Fechar">✕</button>
+      </div>
+      <div class="chat-widget-messages chat-messages"></div>
+      <div class="chat-input-row">
+        <textarea rows="1" placeholder="Escreva uma mensagem... (Enter envia, Shift+Enter quebra linha)"></textarea>
+        <button class="btn-secondary">Enviar</button>
+      </div>
+    `;
+    el.querySelector('.chat-widget-header span').textContent = conversationLabelFor(convId);
+    el.querySelector('.chat-widget-close').onclick = () => closeConversationWindow(convId);
+    const msgsWrap = el.querySelector('.chat-widget-messages');
+    const input = el.querySelector('textarea');
+    const sendBtn = el.querySelector('button.btn-secondary');
+    async function sendFromWindow() {
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      input.style.height = 'auto';
+      try {
+        const data = await api(`/api/chat/conversations/${encodeURIComponent(convId)}/messages`, { method: 'POST', body: JSON.stringify({ text }) });
+        const empty = msgsWrap.querySelector('.chat-empty');
+        if (empty) empty.remove();
+        msgsWrap.appendChild(renderChatMessage(data.message));
+        msgsWrap.scrollTop = msgsWrap.scrollHeight;
+        if (convWindowState[convId]) convWindowState[convId].lastId = data.message.id;
+        scheduleConversationWindowIdleClose(convId);
+      } catch (e) {
+        input.value = text;
+        alert(e.message || 'Não foi possível enviar a mensagem.');
+      }
+    }
+    sendBtn.onclick = sendFromWindow;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFromWindow(); }
+    });
+    wrapAll.appendChild(el);
+    if (!convWindowState[convId]) convWindowState[convId] = { lastId: null, baselineSet: false };
+    convWindowState[convId].el = el;
+    scheduleConversationWindowIdleClose(convId);
+    return convWindowState[convId];
+  }
+
+  async function pollConversationWindows() {
+    try {
+      if (chatConversations.length === 0) await loadChatConversations();
+      const mine = chatConversations.filter((c) => c.id !== 'geral');
+      for (const conv of mine) {
+        if (!convWindowState[conv.id]) convWindowState[conv.id] = { lastId: null, baselineSet: false };
+        const st = convWindowState[conv.id];
+        const q = st.lastId ? ('?afterId=' + encodeURIComponent(st.lastId)) : '';
+        let data;
+        try {
+          data = await api(`/api/chat/conversations/${encodeURIComponent(conv.id)}/messages${q}`);
+        } catch (e) { continue; } // conversa pode ter sido excluída/perdida o acesso -- ignora e segue pras outras
+        if (!data.messages || data.messages.length === 0) continue;
+        st.lastId = data.messages[data.messages.length - 1].id;
+        if (!st.baselineSet) { st.baselineSet = true; continue; } // não abre janela retroativa ao logar
+        // Já vendo essa conversa em tela cheia agora? pollChat (tela cheia)
+        // já mostra as mensagens ao vivo -- não duplica janela nem som.
+        const viewingFullscreen = activeViewName === 'chat' && currentConversationId === conv.id;
+        if (viewingFullscreen) continue;
+        const fromOthers = data.messages.filter((m) => m.createdBy !== currentUser.id);
+        if (fromOthers.length === 0) continue;
+        playChatSound();
+        const state = openConversationWindow(conv.id);
+        if (!state || !state.el) continue;
+        const msgsWrap = state.el.querySelector('.chat-widget-messages');
+        const empty = msgsWrap.querySelector('.chat-empty');
+        if (empty) empty.remove();
+        const wasAtBottom = chatIsScrolledToBottom(msgsWrap);
+        data.messages.forEach((m) => {
+          const rowEl = renderChatMessage(m);
+          msgsWrap.appendChild(rowEl);
+          if (m.kind === 'nudge' && m.createdBy !== currentUser.id) triggerNudgeEffect(rowEl);
+        });
+        if (wasAtBottom) msgsWrap.scrollTop = msgsWrap.scrollHeight;
+        scheduleConversationWindowIdleClose(conv.id);
+      }
+    } catch (e) { /* ignora falha de rede pontual */ }
+  }
+
+  function startConversationWindowsPolling() {
+    if (convWindowPollTimer) clearInterval(convWindowPollTimer);
+    convWindowPollTimer = setInterval(pollConversationWindows, 6000);
+  }
 
   // ---------- Recados (mural da tela Início) ----------
   function teamMemberName(id) {
@@ -4860,6 +5071,10 @@
   let concorrenciaBrandFilter = 'todos';
   let lancamentosBrandFilter = 'todos';
   let editingConcorrenciaId = null;
+  // 42ª rodada: linhas de concorrente do formulário (1 ou mais), editadas
+  // em memória e só lidas do DOM na hora de salvar/adicionar/remover linha
+  // (ver renderConcorrenciaRows/syncConcorrenciaRowsFromDOM).
+  let concorrenciaFormRows = [];
   let editingLancamentoId = null;
   // 39ª rodada, pedido da Raquel: status trocou pro fluxo de lançamento
   // físico (era planejado/em_andamento/lançado). Lançamento antigo com um
@@ -4910,26 +5125,39 @@
     }
     function precoTxt(v) { return v === null || v === undefined ? '—' : fmtMoney(v); }
     function linkTxt(v) { return v ? `<a href="${v}" target="_blank" rel="noopener">${v}</a>` : '—'; }
-    list.innerHTML = rows.map((it) => `
+    // 42ª rodada: uma análise pode ter vários concorrentes agora
+    // (`it.concorrentes[]`); registro criado antes disso só tem os campos
+    // soltos (concorrente/produto/...) -- trata como se fosse uma lista de
+    // 1 item só, pra não precisar esperar a migração rodar em produção.
+    function concorrentesDe(it) {
+      if (Array.isArray(it.concorrentes) && it.concorrentes.length) return it.concorrentes;
+      return [{ nome: it.concorrente, produto: it.produto, preco: it.preco, diferenciais: it.diferenciais, observacoes: it.observacoes, link: it.link }];
+    }
+    list.innerHTML = rows.map((it) => {
+      const concorrentes = concorrentesDe(it);
+      const nomesConcorrentes = concorrentes.map((c) => c.nome).filter(Boolean).join(', ');
+      return `
       <div class="compare-card">
         <div class="compare-card-head">
           <div>
-            <h4>${it.titulo ? escapeHtml(it.titulo) : (BRAND_LABEL[it.brand] || it.brand) + ' · ' + it.concorrente}</h4>
-            <div class="compare-card-meta">${BRAND_LABEL[it.brand] || it.brand} · ${it.concorrente}${it.data ? ' · ' + fmtDate(it.data) : ''}</div>
+            <h4>${it.titulo ? escapeHtml(it.titulo) : (BRAND_LABEL[it.brand] || it.brand) + ' · ' + nomesConcorrentes}</h4>
+            <div class="compare-card-meta">${BRAND_LABEL[it.brand] || it.brand} · ${nomesConcorrentes}${it.data ? ' · ' + fmtDate(it.data) : ''}</div>
           </div>
           ${canEditProdutos() ? `<span><button class="btn-link" data-edit-concorrencia="${it.id}">Editar</button> <button class="btn-link danger" data-del-concorrencia="${it.id}">Excluir</button></span>` : ''}
         </div>
-        <div class="compare-card-body">
-          <div>
-            <h4>${it.concorrente}</h4>
-            ${campo('Produto', it.produto || '—')}
-            ${campo('Preço', precoTxt(it.preco))}
-            ${campo('Diferenciais', it.diferenciais || '—')}
-            ${campo('Observações', it.observacoes || '—')}
-            ${campo('Link', linkTxt(it.link))}
-          </div>
+        <div class="compare-card-body-multi">
+          ${concorrentes.map((c) => `
+            <div class="compare-col">
+              <h4>${c.nome || '—'}</h4>
+              ${campo('Produto', c.produto || '—')}
+              ${campo('Preço', precoTxt(c.preco))}
+              ${campo('Diferenciais', c.diferenciais || '—')}
+              ${campo('Observações', c.observacoes || '—')}
+              ${campo('Link', linkTxt(c.link))}
+            </div>
+          `).join('')}
           <div class="compare-vs">×</div>
-          <div>
+          <div class="compare-col">
             <h4>Nossa marca</h4>
             ${campo('Produto', it.nossoProduto || '—')}
             ${campo('Preço', precoTxt(it.nossoPreco))}
@@ -4939,7 +5167,8 @@
           </div>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     $all('[data-edit-concorrencia]').forEach((b) => {
       b.onclick = () => openConcorrenciaForm(concorrenciaItems.find((it) => it.id === b.dataset.editConcorrencia));
     });
@@ -4952,18 +5181,76 @@
     });
   }
 
+  // 42ª rodada: renderiza as linhas de concorrente do formulário a partir
+  // de `concorrenciaFormRows` (recriando os inputs) e depois seta o
+  // `.value` de cada um via JS -- evita ter que escapar aspas/HTML dentro
+  // de um atributo `value="..."` montado por template string.
+  function renderConcorrenciaRows() {
+    const wrap = $('#concorrenciaConcorrentesRows');
+    wrap.innerHTML = concorrenciaFormRows.map((row, idx) => `
+      <div class="concorrente-form-row" data-row-idx="${idx}">
+        ${concorrenciaFormRows.length > 1 ? `<button type="button" class="btn-link danger" data-remove-concorrente-row="${idx}">Remover</button>` : ''}
+        <label>Nome do concorrente</label><input type="text" data-crow="nome">
+        <label>Produto</label><input type="text" data-crow="produto">
+        <label>Preço (R$)</label><input type="number" step="0.01" data-crow="preco">
+        <label>Diferenciais</label><textarea rows="2" data-crow="diferenciais"></textarea>
+        <label>Observações</label><textarea rows="2" data-crow="observacoes"></textarea>
+        <label>Link de referência</label><input type="text" data-crow="link" placeholder="https://...">
+      </div>
+    `).join('');
+    $all('#concorrenciaConcorrentesRows .concorrente-form-row').forEach((rowEl, idx) => {
+      const row = concorrenciaFormRows[idx];
+      rowEl.querySelector('[data-crow="nome"]').value = row.nome || '';
+      rowEl.querySelector('[data-crow="produto"]').value = row.produto || '';
+      rowEl.querySelector('[data-crow="preco"]').value = (row.preco !== null && row.preco !== undefined) ? row.preco : '';
+      rowEl.querySelector('[data-crow="diferenciais"]').value = row.diferenciais || '';
+      rowEl.querySelector('[data-crow="observacoes"]').value = row.observacoes || '';
+      rowEl.querySelector('[data-crow="link"]').value = row.link || '';
+    });
+    $all('[data-remove-concorrente-row]').forEach((b) => {
+      b.onclick = () => {
+        syncConcorrenciaRowsFromDOM();
+        concorrenciaFormRows.splice(Number(b.dataset.removeConcorrenteRow), 1);
+        renderConcorrenciaRows();
+      };
+    });
+  }
+  function syncConcorrenciaRowsFromDOM() {
+    $all('#concorrenciaConcorrentesRows .concorrente-form-row').forEach((rowEl, idx) => {
+      if (!concorrenciaFormRows[idx]) return;
+      concorrenciaFormRows[idx] = {
+        nome: rowEl.querySelector('[data-crow="nome"]').value,
+        produto: rowEl.querySelector('[data-crow="produto"]').value,
+        preco: rowEl.querySelector('[data-crow="preco"]').value,
+        diferenciais: rowEl.querySelector('[data-crow="diferenciais"]').value,
+        observacoes: rowEl.querySelector('[data-crow="observacoes"]').value,
+        link: rowEl.querySelector('[data-crow="link"]').value
+      };
+    });
+  }
+  $('#concorrenciaAddConcorrenteBtn').onclick = () => {
+    syncConcorrenciaRowsFromDOM();
+    concorrenciaFormRows.push({ nome: '', produto: '', preco: '', diferenciais: '', observacoes: '', link: '' });
+    renderConcorrenciaRows();
+  };
+
   function openConcorrenciaForm(item) {
     editingConcorrenciaId = item ? item.id : null;
     $('#concorrenciaFormTitle').textContent = item ? 'Editar análise' : 'Nova análise';
     $('#concorrenciaFormBrand').value = item ? item.brand : 'debacco';
     $('#concorrenciaFormTitulo').value = item ? (item.titulo || '') : '';
     $('#concorrenciaFormData').value = item ? (item.data || '') : '';
-    $('#concorrenciaFormConcorrente').value = item ? item.concorrente : '';
-    $('#concorrenciaFormProduto').value = item ? (item.produto || '') : '';
-    $('#concorrenciaFormPreco').value = item && item.preco !== null && item.preco !== undefined ? item.preco : '';
-    $('#concorrenciaFormDiferenciais').value = item ? (item.diferenciais || '') : '';
-    $('#concorrenciaFormLink').value = item ? (item.link || '') : '';
-    $('#concorrenciaFormObservacoes').value = item ? (item.observacoes || '') : '';
+    // 42ª rodada: item novo começa com 1 linha de concorrente em branco;
+    // item existente com `concorrentes[]` usa a lista; item existente sem
+    // (criado antes da 42ª rodada, antes da migração rodar) cai pros
+    // campos soltos antigos, como 1 linha só.
+    const existingRows = item && Array.isArray(item.concorrentes) && item.concorrentes.length
+      ? item.concorrentes
+      : item
+        ? [{ nome: item.concorrente, produto: item.produto, preco: item.preco, diferenciais: item.diferenciais, observacoes: item.observacoes, link: item.link }]
+        : [{ nome: '', produto: '', preco: '', diferenciais: '', observacoes: '', link: '' }];
+    concorrenciaFormRows = existingRows.map((r) => ({ ...r }));
+    renderConcorrenciaRows();
     $('#concorrenciaFormNossoProduto').value = item ? (item.nossoProduto || '') : '';
     $('#concorrenciaFormNossoPreco').value = item && item.nossoPreco !== null && item.nossoPreco !== undefined ? item.nossoPreco : '';
     $('#concorrenciaFormNossoDiferenciais').value = item ? (item.nossoDiferenciais || '') : '';
@@ -4975,16 +5262,24 @@
   $('#concorrenciaNewBtn').onclick = () => openConcorrenciaForm(null);
   $('#concorrenciaFormCancel').onclick = () => { $('#concorrenciaFormWrap').hidden = true; };
   $('#concorrenciaFormSave').onclick = async () => {
+    syncConcorrenciaRowsFromDOM();
+    const concorrentes = concorrenciaFormRows
+      .map((r) => ({
+        nome: (r.nome || '').trim(),
+        produto: (r.produto || '').trim(),
+        preco: r.preco === '' || r.preco === null || r.preco === undefined ? null : r.preco,
+        diferenciais: (r.diferenciais || '').trim(),
+        observacoes: (r.observacoes || '').trim(),
+        link: (r.link || '').trim()
+      }))
+      .filter((r) => r.nome);
     const payload = {
       brand: $('#concorrenciaFormBrand').value,
       titulo: $('#concorrenciaFormTitulo').value.trim(),
       data: $('#concorrenciaFormData').value || null,
-      concorrente: $('#concorrenciaFormConcorrente').value.trim(),
-      produto: $('#concorrenciaFormProduto').value.trim(),
-      preco: $('#concorrenciaFormPreco').value || null,
-      diferenciais: $('#concorrenciaFormDiferenciais').value.trim(),
-      link: $('#concorrenciaFormLink').value.trim(),
-      observacoes: $('#concorrenciaFormObservacoes').value.trim(),
+      // 42ª rodada, pedido da Raquel: "opção de colocar varias marcas na
+      // analise, e não apenas 1 versus a outra" -- manda a lista inteira.
+      concorrentes,
       nossoProduto: $('#concorrenciaFormNossoProduto').value.trim(),
       nossoPreco: $('#concorrenciaFormNossoPreco').value || null,
       nossoDiferenciais: $('#concorrenciaFormNossoDiferenciais').value.trim(),
@@ -5001,8 +5296,8 @@
       $('#concorrenciaFormError').hidden = false;
       return;
     }
-    if (!payload.concorrente) {
-      $('#concorrenciaFormError').textContent = 'Informe o nome do concorrente.';
+    if (concorrentes.length === 0) {
+      $('#concorrenciaFormError').textContent = 'Informe ao menos um concorrente.';
       $('#concorrenciaFormError').hidden = false;
       return;
     }

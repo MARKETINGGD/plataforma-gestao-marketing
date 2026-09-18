@@ -28,6 +28,16 @@ const router = express.Router();
 // preço, diferenciais, observações, link) — prefixo `nosso*`/`nossa*` pra
 // diferenciar dos campos do concorrente sem precisar de objeto aninhado.
 //
+// 42ª rodada, pedido da Raquel: "deve ter tbm a opção de colocar varias
+// marcas na analise, e não apenas 1 versus a outra" — o lado do
+// concorrente virou uma LISTA (`concorrentes[]`, 1 ou mais), cada um com
+// os mesmos campos de antes (nome, produto, preço, diferenciais,
+// observações, link). Os campos soltos antigos (concorrente/produto/
+// preco/diferenciais/observacoes/link) continuam sendo gravados também,
+// sempre espelhando o 1º concorrente da lista, só por compatibilidade com
+// qualquer coisa antiga que ainda leia esses campos direto — ver
+// utils/migrateConcorrenciaMultiMarca.js pra quem já existia antes disso.
+//
 // Lançamentos de Produtos ganhou "produto" (categoria/tipo, junto do nome
 // específico que já existia), "código", "diferenciais" e "arquivos"
 // (upload, mesmo padrão de Demandas: um arquivo por vez, guardado em
@@ -62,6 +72,24 @@ function str(v) {
 function priceOrNull(v) {
   return v === null || v === undefined || v === '' ? null : Number(v);
 }
+// 42ª rodada: normaliza a lista de concorrentes de uma análise — aceita
+// qualquer array vindo do front, sanitiza cada linha com os mesmos
+// helpers de sempre (str/priceOrNull) e descarta linha sem nome de
+// concorrente (linha "em branco" que sobrou no formulário, por ex.).
+function sanitizeConcorrentes(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((c) => ({
+      id: (c && str(c.id)) || nanoid(),
+      nome: str(c && c.nome),
+      produto: str(c && c.produto),
+      preco: priceOrNull(c && c.preco),
+      diferenciais: str(c && c.diferenciais),
+      observacoes: str(c && c.observacoes),
+      link: str(c && c.link) || null
+    }))
+    .filter((c) => c.nome);
+}
 
 // ---------- Análise de concorrência ----------
 router.get('/concorrencia', requireAuth, (req, res) => {
@@ -70,27 +98,35 @@ router.get('/concorrencia', requireAuth, (req, res) => {
 
 router.post('/concorrencia', requireAuth, requireProdutosEdit, (req, res) => {
   const {
-    brand, titulo, data, concorrente, produto, preco, diferenciais, link, observacoes,
+    brand, titulo, data, concorrentes,
+    // campos soltos (compat com formulário antigo, de antes da 42ª rodada)
+    concorrente, produto, preco, diferenciais, link, observacoes,
     nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes
   } = req.body || {};
-  const nome = str(concorrente);
-  if (!nome) return res.status(400).json({ error: 'Informe o nome do concorrente.' });
   const tituloTrim = str(titulo);
   if (!tituloTrim) return res.status(400).json({ error: 'Informe o título da análise.' });
   if (!data) return res.status(400).json({ error: 'Informe a data da análise.' });
+  let concorrentesList = sanitizeConcorrentes(concorrentes);
+  if (concorrentesList.length === 0 && str(concorrente)) {
+    concorrentesList = sanitizeConcorrentes([{ nome: concorrente, produto, preco, diferenciais, observacoes, link }]);
+  }
+  if (concorrentesList.length === 0) return res.status(400).json({ error: 'Informe ao menos um concorrente.' });
   const item = {
     id: nanoid(),
     brand: validBrand(brand),
     // ---- identificação da análise (41ª rodada) ----
     titulo: tituloTrim,
     data: data || null,
-    // ---- lado do concorrente ----
-    concorrente: nome,
-    produto: str(produto),
-    preco: priceOrNull(preco),
-    diferenciais: str(diferenciais),
-    observacoes: str(observacoes),
-    link: str(link) || null,
+    // ---- lado do(s) concorrente(s) (42ª rodada: vira lista) ----
+    concorrentes: concorrentesList,
+    // campos soltos mantidos em sincronia com o 1º concorrente, só por
+    // compatibilidade com o que ainda lê esses campos direto.
+    concorrente: concorrentesList[0].nome,
+    produto: concorrentesList[0].produto,
+    preco: concorrentesList[0].preco,
+    diferenciais: concorrentesList[0].diferenciais,
+    observacoes: concorrentesList[0].observacoes,
+    link: concorrentesList[0].link,
     // ---- lado "nossa marca" (39ª rodada) — mesmos campos, espelhados ----
     nossoProduto: str(nossoProduto),
     nossoPreco: priceOrNull(nossoPreco),
@@ -102,7 +138,7 @@ router.post('/concorrencia', requireAuth, requireProdutosEdit, (req, res) => {
     updatedAt: new Date().toISOString()
   };
   db.get('concorrencia').push(item).write();
-  logAudit({ user: req.user, entityType: 'concorrencia', entityId: item.id, entityLabel: item.concorrente, action: 'create', details: `Análise de concorrência criada: "${item.concorrente}"` });
+  logAudit({ user: req.user, entityType: 'concorrencia', entityId: item.id, entityLabel: item.titulo, action: 'create', details: `Análise de concorrência criada: "${item.titulo}" (${concorrentesList.length} concorrente(s))` });
   res.json({ item });
 });
 
@@ -110,33 +146,51 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
   const existing = db.get('concorrencia').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
   const {
-    brand, titulo, data, concorrente, produto, preco, diferenciais, link, observacoes,
+    brand, titulo, data, concorrentes,
+    concorrente, produto, preco, diferenciais, link, observacoes,
     nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes
   } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (brand !== undefined) updates.brand = validBrand(brand);
   if (titulo !== undefined) updates.titulo = str(titulo);
   if (data !== undefined) updates.data = data || null;
-  if (concorrente !== undefined) updates.concorrente = str(concorrente);
-  if (produto !== undefined) updates.produto = str(produto);
-  if (preco !== undefined) updates.preco = priceOrNull(preco);
-  if (diferenciais !== undefined) updates.diferenciais = str(diferenciais);
-  if (link !== undefined) updates.link = str(link) || null;
-  if (observacoes !== undefined) updates.observacoes = str(observacoes);
+  if (concorrentes !== undefined) {
+    const list = sanitizeConcorrentes(concorrentes);
+    if (list.length === 0) return res.status(400).json({ error: 'Informe ao menos um concorrente.' });
+    updates.concorrentes = list;
+    updates.concorrente = list[0].nome;
+    updates.produto = list[0].produto;
+    updates.preco = list[0].preco;
+    updates.diferenciais = list[0].diferenciais;
+    updates.observacoes = list[0].observacoes;
+    updates.link = list[0].link;
+  } else if (concorrente !== undefined) {
+    // compat: PUT antigo mandando só os campos soltos de 1 concorrente
+    const list = sanitizeConcorrentes([{ nome: concorrente, produto, preco, diferenciais, observacoes, link }]);
+    if (list.length) {
+      updates.concorrentes = list;
+      updates.concorrente = list[0].nome;
+      updates.produto = list[0].produto;
+      updates.preco = list[0].preco;
+      updates.diferenciais = list[0].diferenciais;
+      updates.observacoes = list[0].observacoes;
+      updates.link = list[0].link;
+    }
+  }
   if (nossoProduto !== undefined) updates.nossoProduto = str(nossoProduto);
   if (nossoPreco !== undefined) updates.nossoPreco = priceOrNull(nossoPreco);
   if (nossoDiferenciais !== undefined) updates.nossoDiferenciais = str(nossoDiferenciais);
   if (nossoLink !== undefined) updates.nossoLink = str(nossoLink) || null;
   if (nossasObservacoes !== undefined) updates.nossasObservacoes = str(nossasObservacoes);
   db.get('concorrencia').find({ id: req.params.id }).assign(updates).write();
-  logAudit({ user: req.user, entityType: 'concorrencia', entityId: existing.id, entityLabel: updates.concorrente || existing.concorrente, action: 'update', details: 'Análise de concorrência atualizada' });
+  logAudit({ user: req.user, entityType: 'concorrencia', entityId: existing.id, entityLabel: updates.titulo || existing.titulo, action: 'update', details: 'Análise de concorrência atualizada' });
   res.json({ item: db.get('concorrencia').find({ id: req.params.id }).value() });
 });
 
 router.delete('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => {
   const target = db.get('concorrencia').find({ id: req.params.id }).value();
   db.get('concorrencia').remove({ id: req.params.id }).write();
-  if (target) logAudit({ user: req.user, entityType: 'concorrencia', entityId: target.id, entityLabel: target.concorrente, action: 'delete', details: `Análise de concorrência excluída: "${target.concorrente}"` });
+  if (target) logAudit({ user: req.user, entityType: 'concorrencia', entityId: target.id, entityLabel: target.titulo || target.concorrente, action: 'delete', details: `Análise de concorrência excluída: "${target.titulo || target.concorrente}"` });
   res.json({ ok: true });
 });
 

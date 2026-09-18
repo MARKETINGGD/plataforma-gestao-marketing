@@ -63,6 +63,15 @@ function validUserIds(ids) {
   return ids.filter((id) => users.some((u) => u.id === id));
 }
 
+// Um único id de usuário válido (30ª rodada: usado pro responsável geral da
+// demanda e pro responsável de cada item do checklist) — null/inválido vira
+// null, nunca quebra.
+function validUserId(id) {
+  if (!id) return null;
+  const users = db.get('users').value();
+  return users.some((u) => u.id === id) ? id : null;
+}
+
 function validLabelIds(ids) {
   if (!Array.isArray(ids)) return [];
   const labels = db.get('labels').value();
@@ -101,7 +110,16 @@ function validChecklistTitle(title) {
 function sanitizeChecklistInput(items) {
   if (!Array.isArray(items)) return [];
   return items
-    .map((it) => ({ id: nanoid(), text: String((it || {}).text || '').trim(), done: !!(it || {}).done }))
+    .map((it) => {
+      const done = !!(it || {}).done;
+      return {
+        id: nanoid(),
+        text: String((it || {}).text || '').trim(),
+        done,
+        assigneeId: validUserId((it || {}).assigneeId),
+        doneAt: done ? new Date().toISOString() : null
+      };
+    })
     .filter((it) => it.text);
 }
 
@@ -129,6 +147,10 @@ function serialize(d) {
     color: d.color || null,
     link: d.link || null,
     checklistTitle: d.checklistTitle || 'Checklist',
+    // Responsável geral (30ª rodada): marcação visual/organizacional dentro
+    // dos marcados na demanda — não afeta a pontuação do REIS DO MARKETING,
+    // que continua contando todo mundo marcado igual.
+    responsibleId: d.responsibleId || null,
     recurring: !!d.recurring,
     overdue: isOverdue(d),
     order: cardOrder(d),
@@ -268,30 +290,52 @@ router.get('/summary', requireAuth, (req, res) => {
   res.json({ summary });
 });
 
-// "REIS DO MARKETING" (28ª rodada, pedido da Raquel) — ranking de quem mais
-// concluiu demandas NESTE mês, pra mostrar na tela Início com foto e coroa
-// pro 1º lugar. Conta uma demanda concluída pra cada responsável dela
-// (assigneeIds) -- se o card é de mais de uma pessoa, todas ganham o ponto.
-// Usa `updatedAt` como data de conclusão (não existe um campo dedicado); pra
-// demandas RECORRENTES isso não funciona -- ao marcar como concluída, elas
+// "REIS DO MARKETING" (28ª/30ª rodada, pedido da Raquel) — ranking de quem
+// mais concluiu demandas NESTE mês, pra mostrar na tela Início com foto e
+// coroa pro 1º lugar.
+//
+// 30ª rodada: passou a contar também os itens do checklist marcados com um
+// responsável (assigneeId por item). Regra confirmada com a Raquel: quando
+// a demanda TEM itens de checklist com responsável marcado, SÓ esses itens
+// concluídos pontuam (não soma com a conclusão do card inteiro, pra não
+// contar em dobro) — cada item concluído neste mês pontua pra quem está
+// marcado nele, usando `doneAt` (novo, gravado no PUT do item). Só quando a
+// demanda NÃO tem nenhum item de checklist com responsável é que volta a
+// valer a regra antiga: card inteiro concluído neste mês pontua pra todo
+// mundo marcado em assigneeIds (usando `updatedAt`, como antes).
+//
+// O "responsável geral" (também 30ª rodada, campo `responsibleId`) é só uma
+// marcação visual/organizacional — não entra nessa conta de forma alguma;
+// todo mundo marcado na demanda (ou no item) pontua igual.
+//
+// Demandas RECORRENTES continuam de fora: ao marcar como concluída elas
 // voltam sozinhas pra "A Fazer" (ver PUT /:id acima), então nunca ficam
-// paradas em status 'concluida' pra entrar nessa contagem. Só conta demanda
-// avulsa mesmo, e não conta demanda pessoal (mesmo critério do /summary).
+// paradas em status 'concluida'. Não conta demanda arquivada nem pessoal
+// (mesmo critério do /summary).
 router.get('/reis-do-marketing', requireAuth, (req, res) => {
   const ym = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
   const counts = {};
+  function addPoint(id) { if (id) counts[id] = (counts[id] || 0) + 1; }
   db.get('demandas').value().forEach((d) => {
-    if (d.status !== 'concluida' || d.visibility === 'pessoal') return;
-    if (!d.updatedAt || d.updatedAt.slice(0, 7) !== ym) return;
-    (d.assigneeIds || []).forEach((id) => { counts[id] = (counts[id] || 0) + 1; });
+    if (d.archived || d.visibility === 'pessoal') return;
+    const checklist = d.checklist || [];
+    const assignedItems = checklist.filter((it) => it.assigneeId);
+    if (assignedItems.length > 0) {
+      assignedItems.forEach((it) => {
+        if (it.done && it.doneAt && it.doneAt.slice(0, 7) === ym) addPoint(it.assigneeId);
+      });
+    } else if (d.status === 'concluida' && d.updatedAt && d.updatedAt.slice(0, 7) === ym) {
+      (d.assigneeIds || []).forEach(addPoint);
+    }
   });
   res.json({ month: ym, counts });
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist, responsibleId } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
   if (recurring && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
+  const finalAssigneeIds = validUserIds(assigneeIds);
   const demanda = {
     id: nanoid(),
     title: title.trim(),
@@ -301,7 +345,11 @@ router.post('/', requireAuth, (req, res) => {
     archived: false,
     dueDate: dueDate || null,
     recurring: !!recurring,
-    assigneeIds: validUserIds(assigneeIds),
+    assigneeIds: finalAssigneeIds,
+    // Responsável geral (30ª rodada): precisa estar entre os marcados na
+    // demanda, senão não faz sentido (não dá pra marcar como responsável
+    // alguém que nem está no card).
+    responsibleId: finalAssigneeIds.includes(responsibleId) ? responsibleId : null,
     labelIds: validLabelIds(labelIds),
     color: validColor(color),
     link: validLink(link),
@@ -344,13 +392,25 @@ router.put('/reorder', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, link, checklistTitle } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, link, checklistTitle, responsibleId } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
   if (dueDate !== undefined) updates.dueDate = dueDate || null;
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
   if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
+  // Responsável geral (30ª rodada): valida contra os marcados que vão valer
+  // DEPOIS dessa atualização (novos assigneeIds, se vieram junto; senão os
+  // que a demanda já tinha) — pra não perder a marcação por engano quando o
+  // card é salvo sem mexer nos marcados.
+  if (responsibleId !== undefined) {
+    const effectiveAssigneeIds = updates.assigneeIds !== undefined ? updates.assigneeIds : (demanda.assigneeIds || []);
+    updates.responsibleId = effectiveAssigneeIds.includes(responsibleId) ? responsibleId : null;
+  } else if (updates.assigneeIds !== undefined && demanda.responsibleId && !updates.assigneeIds.includes(demanda.responsibleId)) {
+    // Se o responsável geral atual saiu da lista de marcados nessa mesma
+    // atualização, a marcação cai junto (não faz sentido sobreviver sozinha).
+    updates.responsibleId = null;
+  }
   if (labelIds !== undefined) updates.labelIds = validLabelIds(labelIds);
   if (color !== undefined) updates.color = validColor(color);
   if (recurring !== undefined) updates.recurring = !!recurring;
@@ -428,7 +488,10 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
   if (!demanda) return;
   const text = ((req.body || {}).text || '').trim();
   if (!text) return res.status(400).json({ error: 'Escreva o item do checklist.' });
-  const item = { id: nanoid(), text, done: false };
+  // Responsável do item (30ª rodada): opcional, quem for marcado aqui passa
+  // a pontuar no REIS DO MARKETING quando o item for concluído.
+  const assigneeId = validUserId((req.body || {}).assigneeId);
+  const item = { id: nanoid(), text, done: false, assigneeId, doneAt: null };
   const checklist = [...(demanda.checklist || []), item];
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_add', details: `Item adicionado ao checklist: "${text}"`, meta: { visibility: demanda.visibility } });
@@ -438,11 +501,24 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
 router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { text, done } = req.body || {};
+  const { text, done, assigneeId } = req.body || {};
   const before = (demanda.checklist || []).find((it) => it.id === req.params.itemId);
   const checklist = (demanda.checklist || []).map((it) => {
     if (it.id !== req.params.itemId) return it;
-    return Object.assign({}, it, text !== undefined ? { text } : {}, done !== undefined ? { done: !!done } : {});
+    const patch = Object.assign(
+      {},
+      text !== undefined ? { text } : {},
+      done !== undefined ? { done: !!done } : {},
+      assigneeId !== undefined ? { assigneeId: validUserId(assigneeId) } : {}
+    );
+    // doneAt (30ª rodada): marca o instante em que o item foi concluído —
+    // é o que o REIS DO MARKETING usa pra saber se a conclusão foi NESTE
+    // mês. Só mexe quando `done` está de fato mudando de valor (chega/sai
+    // de concluído); grava/limpa junto com o done, nunca fica desalinhado.
+    if (done !== undefined && !!done !== !!it.done) {
+      patch.doneAt = done ? new Date().toISOString() : null;
+    }
+    return Object.assign({}, it, patch);
   });
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   // Histórico (22ª rodada): registra só quando algo de fato mudou (marcar/

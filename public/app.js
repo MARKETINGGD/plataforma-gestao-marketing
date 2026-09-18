@@ -31,6 +31,11 @@
   let labels = [];
   let labelSuggestedColors = [];
   let selectedAssigneeIds = new Set();
+  // Responsável geral (30ª rodada, pedido da Raquel): marcação extra dentro
+  // dos marcados na demanda, puramente visual/organizacional -- não conta
+  // pontos a mais no REIS DO MARKETING, só ajuda a saber quem é o dono final
+  // do card. Um só por vez (ou nenhum).
+  let selectedResponsibleId = null;
   let selectedLabelIds = new Set();
   let selectedDemColor = null; // cor de fundo do card (opcional, 12ª rodada) — null = sem cor
   let editingLabelColor = null;
@@ -512,6 +517,7 @@
     showView('home');
     setActiveNav('navHome');
     startNotificationSoundWatcher();
+    startReisMarketingPolling();
     // Janelinha flutuante do Chat da Equipe (21ª rodada) — carrega o
     // histórico e começa a checar mensagens novas assim que loga, pra
     // avisar (som + aviso no canto) mesmo enquanto a pessoa está em
@@ -800,6 +806,26 @@
         </div>
       `;
     }).join('');
+  }
+
+  // 30ª rodada, pedido da Raquel: o gráfico precisa se atualizar sozinho
+  // sempre que alguém concluir uma demanda (ou um item de checklist com
+  // responsável), não só quando a página é recarregada. Dois mecanismos,
+  // como já é feito pro Chat/recados/demandas nesse arquivo:
+  // 1) chamada imediata logo depois da PRÓPRIA ação (marcar concluída,
+  //    marcar item do checklist) -- pra quem fez a ação já ver o gráfico
+  //    mudar na hora, sem esperar o polling;
+  // 2) polling discreto enquanto a tela Início está aberta -- pra pegar
+  //    conclusões feitas por OUTRAS pessoas em outra sessão.
+  let reisMarketingPollTimer = null;
+  function startReisMarketingPolling() {
+    if (reisMarketingPollTimer) clearInterval(reisMarketingPollTimer);
+    reisMarketingPollTimer = setInterval(() => {
+      if (activeViewName === 'home') loadReisDoMarketing();
+    }, 15000);
+  }
+  function refreshReisDoMarketingSoon() {
+    loadReisDoMarketing().catch(() => { /* ignora falha pontual */ });
   }
 
   // ---------- Som de notificação: recado novo ou demanda nova (16ª/17ª rodada) ----------
@@ -2094,6 +2120,7 @@
         alert(`Demanda recorrente: essa entrega foi concluída e a demanda voltou pra "A Fazer", com a próxima data em ${fmtDate(result.recurringReset)}.`);
       }
       await loadDemandas();
+      refreshReisDoMarketingSoon();
     } catch (e) {
       alert(e.message || 'Não foi possível atualizar a demanda.');
     }
@@ -2367,6 +2394,17 @@
     $('#kanbanBoard').hidden = showingArchived;
   };
 
+  // Select de responsável de um item do checklist (30ª rodada, pedido da
+  // Raquel: "isso deve contabilizar para quem esta marcado no check list")
+  // -- opcional; quem for marcado aqui passa a pontuar no REIS DO MARKETING
+  // quando o item for concluído (ver regra em routes/demandas.js).
+  function checklistAssigneeOptionsHTML(selectedId) {
+    const opts = ['<option value="">Sem responsável</option>'].concat(
+      teamMembers.map((u) => `<option value="${u.id}"${selectedId === u.id ? ' selected' : ''}>${u.name}</option>`)
+    );
+    return opts.join('');
+  }
+
   function renderChecklist(demanda) {
     // Card ainda não salvo (editingDemandaId null): trabalha em cima do
     // rascunho local (draftChecklist), sem chamar a API — é o que libera o
@@ -2383,13 +2421,24 @@
     list.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'checklist-item';
-      row.innerHTML = `<label><input type="checkbox" ${item.done ? 'checked' : ''}> <span>${item.text}</span></label>`;
+      row.innerHTML = `<label><input type="checkbox" ${item.done ? 'checked' : ''}> <span>${item.text}</span></label><select class="checklist-assignee-select">${checklistAssigneeOptionsHTML(item.assigneeId || null)}</select>`;
       row.querySelector('input').onchange = async (ev) => {
         if (isDraft) {
           item.done = ev.target.checked;
           return;
         }
         await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'PUT', body: JSON.stringify({ done: ev.target.checked }) });
+        editingDemandaId = demanda.id;
+        await refreshOpenDemanda();
+        refreshReisDoMarketingSoon();
+      };
+      row.querySelector('.checklist-assignee-select').onchange = async (ev) => {
+        const assigneeId = ev.target.value || null;
+        if (isDraft) {
+          item.assigneeId = assigneeId;
+          return;
+        }
+        await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'PUT', body: JSON.stringify({ assigneeId }) });
         editingDemandaId = demanda.id;
         await refreshOpenDemanda();
       };
@@ -2405,6 +2454,7 @@
         }
         await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'DELETE' });
         await refreshOpenDemanda();
+        refreshReisDoMarketingSoon();
       };
       row.appendChild(delBtn);
       wrap.appendChild(row);
@@ -2454,9 +2504,32 @@
       const chip = document.createElement('label');
       chip.className = 'chip-toggle' + (selectedAssigneeIds.has(u.id) ? ' active' : '');
       chip.innerHTML = `<input type="checkbox" ${selectedAssigneeIds.has(u.id) ? 'checked' : ''}> ${u.name}`;
+      // Responsável geral (30ª rodada, pedido da Raquel): marcação extra
+      // dentro dos já marcados na demanda -- os demais continuam
+      // aparecendo no card, mas não como responsáveis finais. É só
+      // organizacional: não muda em nada a pontuação do REIS DO MARKETING
+      // (todo mundo marcado continua pontuando igual).
+      const respBtn = document.createElement('button');
+      respBtn.type = 'button';
+      respBtn.className = 'chip-responsible-btn' + (selectedResponsibleId === u.id ? ' active' : '');
+      respBtn.title = selectedResponsibleId === u.id ? 'Responsável geral — clique para remover' : 'Marcar como responsável geral';
+      respBtn.textContent = selectedResponsibleId === u.id ? '★' : '☆';
+      respBtn.hidden = !selectedAssigneeIds.has(u.id);
+      respBtn.onclick = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        selectedResponsibleId = selectedResponsibleId === u.id ? null : u.id;
+        renderAssigneeChips();
+      };
+      chip.appendChild(respBtn);
       chip.querySelector('input').onchange = (ev) => {
-        if (ev.target.checked) selectedAssigneeIds.add(u.id); else selectedAssigneeIds.delete(u.id);
-        chip.classList.toggle('active', ev.target.checked);
+        if (ev.target.checked) {
+          selectedAssigneeIds.add(u.id);
+        } else {
+          selectedAssigneeIds.delete(u.id);
+          if (selectedResponsibleId === u.id) selectedResponsibleId = null;
+        }
+        renderAssigneeChips();
       };
       wrap.appendChild(chip);
     });
@@ -2516,6 +2589,7 @@
     // Card novo: começa sempre com o rascunho de checklist vazio (26ª rodada).
     draftChecklist = [];
     selectedAssigneeIds = new Set(demanda ? (demanda.assigneeIds || []) : []);
+    selectedResponsibleId = demanda ? (demanda.responsibleId || null) : null;
     selectedLabelIds = new Set(demanda ? (demanda.labelIds || []) : []);
     selectedDemColor = demanda ? (demanda.color || null) : null;
     $('#demCardTitle').value = demanda ? demanda.title : '';
@@ -2528,6 +2602,7 @@
     $('#demChecklistTitle').value = demanda ? (demanda.checklistTitle || 'Checklist') : 'Checklist';
     $('#demCardError').hidden = true;
     $('#demChecklistInput').value = '';
+    $('#demChecklistAssignee').innerHTML = checklistAssigneeOptionsHTML(null);
     $('#demFileInput').value = '';
     renderAssigneeChips();
     renderLabelChips();
@@ -2554,6 +2629,7 @@
       dueDate: $('#demCardDueDate').value || null,
       recurring: $('#demCardRecurring').checked,
       assigneeIds: Array.from(selectedAssigneeIds),
+      responsibleId: selectedResponsibleId,
       labelIds: Array.from(selectedLabelIds),
       color: selectedDemColor,
       link: $('#demCardLink').value.trim() || null,
@@ -2600,6 +2676,7 @@
       }
       $('#demandaModal').hidden = true;
       await loadDemandas();
+      refreshReisDoMarketingSoon();
     } catch (e) {
       $('#demCardError').textContent = e.message;
       $('#demCardError').hidden = false;
@@ -2609,16 +2686,19 @@
   $('#demChecklistAdd').onclick = async () => {
     const text = $('#demChecklistInput').value.trim();
     if (!text) return;
+    const assigneeId = $('#demChecklistAssignee').value || null;
     if (!editingDemandaId) {
       // Card ainda não salvo: guarda no rascunho local (26ª rodada) — vai
       // junto no payload quando o card for salvo pela primeira vez.
-      draftChecklist.push({ text, done: false });
+      draftChecklist.push({ text, done: false, assigneeId });
       $('#demChecklistInput').value = '';
+      $('#demChecklistAssignee').value = '';
       renderChecklist({ checklist: draftChecklist });
       return;
     }
-    await api(`/api/demandas/${editingDemandaId}/checklist`, { method: 'POST', body: JSON.stringify({ text }) });
+    await api(`/api/demandas/${editingDemandaId}/checklist`, { method: 'POST', body: JSON.stringify({ text, assigneeId }) });
     $('#demChecklistInput').value = '';
+    $('#demChecklistAssignee').value = '';
     await refreshOpenDemanda();
   };
 

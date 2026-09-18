@@ -224,9 +224,16 @@ button{font-weight:700;}
 /* Cards mais "delicados" (18ª rodada: "esta feio visualmente tudo separado
    em quadrados") — sombra suave em vez de borda dura, cantos mais
    arredondados, sem a grade de caixinhas de número que existia antes. */
-.home-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:0 1px 3px rgba(20,10,40,.05);}
+/* 29ª rodada, pedido da Raquel: "estão dentro de quadros, deixe sem esse
+   quadro para ficar mais delicado" -- tira fundo/borda/sombra da caixa,
+   fica só espaçamento + uma linha fina embaixo pra separar visualmente. */
+.home-card{padding:0 0 18px;border-bottom:1px solid var(--border);}
 .home-card h3{margin:0 0 14px;}
-.home-card-muted{background:var(--bg);box-shadow:none;}
+.home-card-muted{border-bottom-style:dashed;}
+.home-grid{align-items:start;}
+.home-budget-brand{margin-bottom:16px;}
+.home-budget-brand:last-child{margin-bottom:0;}
+.home-budget-brand h4{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
 .home-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 .home-card button.btn-secondary{margin-top:12px;}
 
@@ -234,7 +241,7 @@ button{font-weight:700;}
    no mês, com a foto de cada um "subindo" junto com a barra (a barra e a
    foto ficam no mesmo bloco flex, alinhados pela base -- crescer a barra
    empurra a foto pra cima) e uma coroa no 1º lugar. */
-.reis-marketing-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:0 1px 3px rgba(20,10,40,.05);margin-top:18px;}
+.reis-marketing-card{padding:18px 0 0;border-top:1px solid var(--border);margin-top:8px;}
 .reis-marketing-chart{display:flex;align-items:flex-end;gap:22px;overflow-x:auto;padding:12px 4px 4px;min-height:230px;}
 .reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:76px;height:230px;}
 .reis-bar-photo{position:relative;width:52px;height:52px;border-radius:50%;background:var(--primary) center/cover no-repeat;border:3px solid #fff;box-shadow:0 2px 6px rgba(20,10,40,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:18px;flex:0 0 auto;}
@@ -341,6 +348,13 @@ button{font-weight:700;}
 .chip-toggle.active{background:var(--primary);border-color:var(--primary);color:#fff;}
 .chip-toggle.label-chip{border:none;color:#fff;font-weight:600;opacity:.55;}
 .chip-toggle.label-chip.active{opacity:1;box-shadow:0 0 0 2px rgba(0,0,0,.15) inset;}
+/* Responsável geral (30ª rodada) -- estrelinha dentro do chip de marcado
+   na demanda; só aparece pra quem já está marcado (chip ativo). */
+.chip-responsible-btn{border:none;background:transparent;color:inherit;opacity:.55;cursor:pointer;font-size:13px;line-height:1;padding:0 0 0 2px;}
+.chip-responsible-btn:hover{opacity:1;}
+.chip-responsible-btn.active{opacity:1;color:#F5A623;}
+.chip-toggle.active .chip-responsible-btn{color:#fff;}
+.chip-toggle.active .chip-responsible-btn.active{color:#FFD97A;}
 .chip-empty{font-size:12px;color:var(--muted);}
 
 /* ---------- checklist com barra de progresso ---------- */
@@ -403,8 +417,12 @@ button{font-weight:700;}
 .checklist-title-input{font-weight:700;border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:100%;font-size:14px;font-family:inherit;}
 .checklist-title-input:hover,.checklist-title-input:focus{border-color:var(--border);background:var(--bg);}
 .checklist{display:flex;flex-direction:column;gap:4px;margin-top:4px;}
-.checklist-item{display:flex;align-items:center;justify-content:space-between;font-size:13.5px;background:var(--bg);border-radius:8px;padding:6px 10px;}
+.checklist-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13.5px;background:var(--bg);border-radius:8px;padding:6px 10px;}
+.checklist-item label{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}
+.checklist-item label span{overflow:hidden;text-overflow:ellipsis;}
+.checklist-assignee-select{font-size:12px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;background:var(--card);color:var(--text);font-family:inherit;max-width:130px;}
 .checklist-add{display:flex;gap:8px;margin-top:8px;}
+.checklist-add .checklist-assignee-select{max-width:150px;}
 .file-list{display:flex;flex-direction:column;gap:4px;margin-top:4px;}
 .file-item{display:flex;align-items:center;justify-content:space-between;font-size:13px;background:var(--bg);border-radius:8px;padding:6px 10px;}
 @media (max-width:640px){ .modal-row{grid-template-columns:1fr;} }

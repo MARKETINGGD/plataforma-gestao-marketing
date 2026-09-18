@@ -29,6 +29,11 @@ db.defaults({
   // Brindes — catálogo/estoque e registro de saídas por representante
   brindesCatalog: [],
   brindesLog: [],
+  // Retiradas Internas (38ª rodada, pedido da Raquel: submenu novo dentro
+  // de Brindes) — registro de retirada interna de brinde/vinho (não é
+  // saída pra representante/cliente, isso já é o `brindesLog` acima). Ver
+  // routes/retiradasInternas.js.
+  retiradasInternas: [],
   auditLog: [],
   // Gerenciamento de Influencers (14ª rodada) — dividido por marca
   // (De Bacco / GhelPlus). Cada influencer tem sua própria "tabela"

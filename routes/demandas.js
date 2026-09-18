@@ -40,6 +40,15 @@ const VISIBILITIES = ['geral', 'pessoal'];
 // direto na aba Demandas pode escolher (ou deixar em branco). Mesmos 4
 // valores usados em Agendamento (routes/socialPosts.js BRANDS).
 const BRANDS = ['debacco', 'ghelplus', 'duranox', 'boutiqueinox'];
+// Rede (38ª rodada, pedido da Raquel: "quando a demanda for criada na
+// página de demandas, coloque além do ícone da marca, o ícone da rede,
+// precisa ter a opção de escolha de rede, porque às vezes são criadas
+// demandas de rede ali") -- antes o campo `network` só era preenchido
+// sozinho quando a demanda vinha de um agendamento (ver
+// createDemandCardsForNewInvolved em routes/socialPosts.js); agora quem
+// cria direto na aba Demandas também pode escolher (ou deixar em branco).
+// Mesmos valores usados em Agendamento (routes/socialPosts.js PLATFORMS).
+const NETWORKS = ['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube', 'pinterest', 'newsletter', 'influencer', 'blog'];
 
 // Quem pode ver/editar uma demanda pessoal: quem criou ou quem está marcado.
 // Demandas gerais continuam abertas pra qualquer pessoa logada, como antes.
@@ -86,6 +95,10 @@ function validUserId(id) {
 
 function validBrand(brand) {
   return BRANDS.includes(brand) ? brand : null;
+}
+
+function validNetwork(network) {
+  return NETWORKS.includes(network) ? network : null;
 }
 
 function validLabelIds(ids) {
@@ -184,6 +197,7 @@ function serialize(d) {
     link: d.link || null,
     checklistTitle: d.checklistTitle || 'Checklist',
     brand: d.brand || null,
+    network: d.network || null,
     // Responsável geral (30ª rodada, marcação passou a pontuar na 32ª):
     // pontua igual a qualquer outro marcado na demanda — ver GET
     // /reis-do-marketing abaixo.
@@ -423,7 +437,7 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist, responsibleId, brand } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist, responsibleId, brand, network } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
   if (recurring && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
   const finalAssigneeIds = validUserIds(assigneeIds);
@@ -446,6 +460,7 @@ router.post('/', requireAuth, (req, res) => {
     link: validLink(link),
     checklistTitle: validChecklistTitle(checklistTitle),
     brand: validBrand(brand),
+    network: validNetwork(network),
     // 26ª rodada: o checklist agora pode ser montado antes de o card existir
     // (rascunho local no front) — o que chegar aqui já vira o checklist do
     // card assim que ele é criado, em vez de nascer sempre vazio.
@@ -484,7 +499,7 @@ router.put('/reorder', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, link, checklistTitle, responsibleId, brand } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, link, checklistTitle, responsibleId, brand, network } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
@@ -521,6 +536,7 @@ router.put('/:id', requireAuth, (req, res) => {
   if (link !== undefined) updates.link = validLink(link);
   if (checklistTitle !== undefined) updates.checklistTitle = validChecklistTitle(checklistTitle);
   if (brand !== undefined) updates.brand = validBrand(brand);
+  if (network !== undefined) updates.network = validNetwork(network);
 
   // Recorrência (15ª rodada): se essa demanda é (ou está virando) recorrente,
   // precisa de data de entrega (é ela que define o "dia do mês"). Se o

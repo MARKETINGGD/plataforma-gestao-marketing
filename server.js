@@ -23,6 +23,7 @@ app.use('/api/labels', require('./routes/labels'));
 app.use('/api/recados', require('./routes/recados'));
 app.use('/api/social-posts', require('./routes/socialPosts'));
 app.use('/api/brindes', require('./routes/brindes'));
+app.use('/api/retiradas-internas', require('./routes/retiradasInternas'));
 app.use('/api/influencers', require('./routes/influencers'));
 app.use('/api/produtos', require('./routes/produtos'));
 app.use('/api/chat', require('./routes/chat'));

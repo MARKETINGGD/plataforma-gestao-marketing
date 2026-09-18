@@ -105,7 +105,16 @@
             <button class="navlink navlink-sub" id="navProdutosLancamentos" data-view="produtos" data-produtos-tab="lancamentos">Lançamentos de Produtos</button>
           </div>
         </div>
-        <button class="navlink" id="navBrindes" data-view="brindes">Brindes</button>
+        <!-- 38ª rodada, pedido da Raquel: "em brindes, adicione um sub menu:
+             Controle Geral / Retiradas Internas" -- mesmo padrão de submenu
+             já usado em Budget/Produtos. -->
+        <div class="navlink-group" id="navBrindesGroup">
+          <button class="navlink navlink-parent" id="navBrindesParent" type="button">Brindes</button>
+          <div class="navlink-submenu" id="navBrindesSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navBrindesControleGeral" data-view="brindes">Controle Geral</button>
+            <button class="navlink navlink-sub" id="navBrindesRetiradas" data-view="brindes-retiradas">Retiradas Internas</button>
+          </div>
+        </div>
         <div class="navlink-group" id="navBudgetGroup">
           <button class="navlink navlink-parent" id="navBudgetParent" type="button">Budget</button>
           <div class="navlink-submenu" id="navBudgetSubmenu" hidden>
@@ -1001,6 +1010,49 @@
         </div>
       </section>
 
+      <!-- Retiradas Internas (38ª rodada): registro de retirada interna de
+           brinde/vinho -- data, produto, quem retirou e motivo. Não é saída
+           pra representante/cliente (isso é o "Registro de Saídas" acima,
+           dentro de Controle Geral). -->
+      <section id="view-brindes-retiradas" class="view" hidden>
+        <h2>Brindes — Retiradas Internas</h2>
+        <p class="muted">Controle de brinde ou vinho retirado internamente pela equipe — quem pegou, o quê e por quê. Não desconta do estoque do catálogo.</p>
+        <div class="tabs">
+          <button class="tab-btn active" data-retiradas-brand="debacco">De Bacco</button>
+          <button class="tab-btn" data-retiradas-brand="ghelplus">GhelPlus</button>
+        </div>
+        <div class="view-toolbar-actions" style="margin:12px 0;">
+          <button class="btn-primary" id="retiradasNewBtn">+ Nova retirada</button>
+        </div>
+
+        <div id="retiradaFormWrap" class="form-card" hidden>
+          <h3>Nova retirada</h3>
+          <div class="form-row">
+            <div><label>Data da retirada</label><input id="retiradaFormDate" type="date"></div>
+            <div><label>Quem retirou</label><select id="retiradaFormUser"></select></div>
+          </div>
+          <label>Produto retirado</label>
+          <select id="retiradaFormProdutoSelect"></select>
+          <div class="form-row" id="retiradaFormNovoProdutoRow" hidden>
+            <div><label>Nome do novo produto</label><input id="retiradaFormNovoProdutoNome" type="text" placeholder="Ex.: Garrafa de vinho tinto reserva"></div>
+            <div><label>Grupo <span class="muted" style="font-weight:400;">(ex.: Vinhos)</span></label><input id="retiradaFormNovoProdutoGrupo" type="text" placeholder="Vinhos"></div>
+          </div>
+          <label>Motivo</label>
+          <input id="retiradaFormMotivo" type="text">
+          <div id="retiradaFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="retiradaFormSave" class="btn-primary">Salvar</button>
+            <button id="retiradaFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead><tr><th>Data</th><th>Produto</th><th>Quem retirou</th><th>Motivo</th><th></th></tr></thead>
+          <tbody id="retiradasBody"></tbody>
+        </table>
+        <p class="muted" id="retiradasEmpty" hidden>Nenhuma retirada registrada ainda pra essa marca.</p>
+      </section>
+
       <section id="view-cronograma" class="view" hidden>
         <h2>Cronograma de Marketing</h2>
         <p class="muted">Visão visual de tudo que está no Agendamento para Redes Sociais — por calendário ou como vai aparecer no feed.</p>
@@ -1239,14 +1291,33 @@
         </div>
       </div>
 
-      <label>Marca <span class="muted" style="font-weight:400;">(opcional — mostra o ícone da marca no início do título do card)</span></label>
-      <select id="demCardBrand">
-        <option value="">Nenhuma</option>
-        <option value="debacco">De Bacco</option>
-        <option value="ghelplus">GhelPlus</option>
-        <option value="duranox">Duranox</option>
-        <option value="boutiqueinox">Boutique Inox</option>
-      </select>
+      <div class="modal-row modal-row-2">
+        <div>
+          <label>Marca <span class="muted" style="font-weight:400;">(opcional — ícone no início do título)</span></label>
+          <select id="demCardBrand">
+            <option value="">Nenhuma</option>
+            <option value="debacco">De Bacco</option>
+            <option value="ghelplus">GhelPlus</option>
+            <option value="duranox">Duranox</option>
+            <option value="boutiqueinox">Boutique Inox</option>
+          </select>
+        </div>
+        <div>
+          <label>Rede <span class="muted" style="font-weight:400;">(opcional — pra demanda de rede social)</span></label>
+          <select id="demCardNetwork">
+            <option value="">Nenhuma</option>
+            <option value="instagram">Instagram</option>
+            <option value="facebook">Facebook</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="tiktok">TikTok</option>
+            <option value="youtube">YouTube</option>
+            <option value="pinterest">Pinterest</option>
+            <option value="newsletter">Newsletter</option>
+            <option value="influencer">Influencer</option>
+            <option value="blog">Blog</option>
+          </select>
+        </div>
+      </div>
 
       <div class="checkbox-row">
         <input type="checkbox" id="demCardRecurring">

@@ -446,6 +446,11 @@
       $('#navProdutosParent').classList.add('active');
       $('#navProdutosSubmenu').hidden = false;
     }
+    // Brindes (38ª rodada) -- mesmo padrão do Budget/Produtos acima.
+    if (id === 'navBrindesControleGeral' || id === 'navBrindesRetiradas') {
+      $('#navBrindesParent').classList.add('active');
+      $('#navBrindesSubmenu').hidden = false;
+    }
   }
 
   function showView(name) {
@@ -707,8 +712,12 @@
     const sub = $('#navProdutosSubmenu');
     sub.hidden = !sub.hidden;
   };
+  $('#navBrindesParent').onclick = () => {
+    const sub = $('#navBrindesSubmenu');
+    sub.hidden = !sub.hidden;
+  };
   $all('.navlink').forEach((b) => {
-    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent') return;
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent') return;
     b.onclick = () => {
       setActiveNav(b.id);
       // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio
@@ -733,6 +742,7 @@
         if (b.dataset.view === 'demandas') loadDemandas();
         if (b.dataset.view === 'users') loadUsers();
         if (b.dataset.view === 'brindes') loadBrindes();
+        if (b.dataset.view === 'brindes-retiradas') loadRetiradas();
         if (b.dataset.view === 'agendamento') loadSocialPosts();
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
@@ -1498,7 +1508,7 @@
   };
 
   $('#homeGoDemandas').onclick = () => { $('#navDemandas').click(); };
-  $('#homeGoBrindes').onclick = () => { $('#navBrindes').click(); };
+  $('#homeGoBrindes').onclick = () => { $('#navBrindesControleGeral').click(); };
   $all('[data-open-budget]').forEach((b) => {
     b.onclick = () => { setActiveNav(b.dataset.openBudget === 'debacco' ? 'navBudgetDebacco' : 'navBudgetGhelplus'); openBudget(b.dataset.openBudget); };
   });
@@ -2945,6 +2955,12 @@
     // Influencer já chega com isso preenchido sozinho; quem cria direto
     // aqui pode escolher.
     $('#demCardBrand').value = demanda ? (demanda.brand || '') : '';
+    // Rede (38ª rodada, pedido da Raquel): opcional -- mostra o ícone da
+    // rede no card, igual à Marca acima. Demanda vinda de Agendamento/
+    // Influencer já chega com isso preenchido sozinho; quem cria direto
+    // aqui também pode escolher, pra demanda de post/rede social criada
+    // manualmente.
+    $('#demCardNetwork').value = demanda ? (demanda.network || '') : '';
     $('#demCardRecurring').checked = demanda ? !!demanda.recurring : false;
     $('#demCardRecurringHint').hidden = !$('#demCardRecurring').checked;
     $('#demCardDescription').value = demanda ? (demanda.description || '') : '';
@@ -2998,6 +3014,7 @@
       link: $('#demCardLink').value.trim() || null,
       checklistTitle: $('#demChecklistTitle').value.trim() || 'Checklist',
       brand: $('#demCardBrand').value || null,
+      network: $('#demCardNetwork').value || null,
       visibility: demandasScope
     };
     // Card novo: manda junto os itens de checklist montados no rascunho
@@ -4342,6 +4359,131 @@
     } catch (e) {
       $('#brindeLogFormError').textContent = e.message;
       $('#brindeLogFormError').hidden = false;
+    }
+  };
+
+  // ---------- Retiradas Internas (38ª rodada) ----------
+  // Registro de retirada interna de brinde/vinho -- pedido da Raquel:
+  // "deve ter uma lista pré cadastrada de todos os brindes das marcas
+  // GhelPlus e De Bacco e também a opção de cadastrar novos, além de
+  // vinhos. deve ter a data da retirada, produto retirado, quem retirou e
+  // motivo." A lista pré-cadastrada reaproveita o catálogo de Brindes já
+  // existente (mesmo GET /api/brindes/catalog usado em Controle Geral);
+  // vinho é só mais um grupo dentro desse mesmo catálogo (ver
+  // routes/retiradasInternas.js).
+  let retiradasBrand = 'debacco';
+  let retiradasItems = [];
+  let retiradasCatalog = [];
+
+  function retiradaProdutoOptionsHTML() {
+    const sorted = retiradasCatalog.slice().sort((a, b) => (a.item || '').localeCompare(b.item || ''));
+    const opts = sorted.map((it) => `<option value="${it.id}">${it.item}${it.group ? ' — ' + it.group : ''}</option>`);
+    opts.push('<option value="__novo__">+ Cadastrar novo produto...</option>');
+    return opts.join('');
+  }
+
+  async function loadRetiradas() {
+    $('#retiradasNewBtn').hidden = !canEditBrindes();
+    $all('.tab-btn[data-retiradas-brand]').forEach((b) => b.classList.toggle('active', b.dataset.retiradasBrand === retiradasBrand));
+    const [retiradasRes, catalogRes] = await Promise.all([
+      api('/api/retiradas-internas?brand=' + retiradasBrand),
+      api('/api/brindes/catalog?brand=' + retiradasBrand)
+    ]);
+    retiradasItems = retiradasRes.items;
+    retiradasCatalog = catalogRes.items;
+    renderRetiradas();
+  }
+
+  function renderRetiradas() {
+    const body = $('#retiradasBody');
+    body.innerHTML = '';
+    const editable = canEditBrindes();
+    $('#retiradasEmpty').hidden = retiradasItems.length > 0;
+    retiradasItems.forEach((r) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${fmtDate(r.date)}</td>
+        <td>${r.item}</td>
+        <td>${r.withdrawnByName || ''}</td>
+        <td>${r.motivo || ''}</td>
+        <td></td>
+      `;
+      if (editable) {
+        const actionsTd = tr.querySelector('td:last-child');
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Excluir';
+        delBtn.className = 'danger';
+        delBtn.onclick = async () => {
+          if (!confirm('Excluir esta retirada?')) return;
+          await api('/api/retiradas-internas/' + r.id, { method: 'DELETE' });
+          await loadRetiradas();
+        };
+        actionsTd.appendChild(delBtn);
+      }
+      body.appendChild(tr);
+    });
+  }
+
+  $all('.tab-btn[data-retiradas-brand]').forEach((b) => {
+    b.onclick = () => {
+      retiradasBrand = b.dataset.retiradasBrand;
+      $('#retiradaFormWrap').hidden = true;
+      loadRetiradas();
+    };
+  });
+
+  function openRetiradaForm() {
+    $('#retiradaFormDate').value = new Date().toISOString().slice(0, 10);
+    $('#retiradaFormUser').innerHTML = ['<option value="">Selecione...</option>']
+      .concat(teamMembers.map((u) => `<option value="${u.id}">${u.name}</option>`)).join('');
+    $('#retiradaFormProdutoSelect').innerHTML = retiradaProdutoOptionsHTML();
+    $('#retiradaFormProdutoSelect').value = '';
+    $('#retiradaFormNovoProdutoRow').hidden = true;
+    $('#retiradaFormNovoProdutoNome').value = '';
+    $('#retiradaFormNovoProdutoGrupo').value = '';
+    $('#retiradaFormMotivo').value = '';
+    $('#retiradaFormError').hidden = true;
+    $('#retiradaFormWrap').hidden = false;
+  }
+  $('#retiradasNewBtn').onclick = openRetiradaForm;
+  $('#retiradaFormCancel').onclick = () => { $('#retiradaFormWrap').hidden = true; };
+  $('#retiradaFormProdutoSelect').onchange = () => {
+    $('#retiradaFormNovoProdutoRow').hidden = $('#retiradaFormProdutoSelect').value !== '__novo__';
+  };
+  $('#retiradaFormSave').onclick = async () => {
+    const produtoSelect = $('#retiradaFormProdutoSelect').value;
+    const isNovo = produtoSelect === '__novo__';
+    const payload = {
+      brand: retiradasBrand,
+      date: $('#retiradaFormDate').value,
+      withdrawnBy: $('#retiradaFormUser').value,
+      motivo: $('#retiradaFormMotivo').value.trim()
+    };
+    if (isNovo) {
+      payload.item = $('#retiradaFormNovoProdutoNome').value.trim();
+      payload.group = $('#retiradaFormNovoProdutoGrupo').value.trim();
+    } else {
+      const catalogItem = retiradasCatalog.find((it) => it.id === produtoSelect);
+      payload.catalogItemId = produtoSelect;
+      payload.item = catalogItem ? catalogItem.item : '';
+    }
+    if (!payload.item) {
+      $('#retiradaFormError').textContent = 'Escolha ou cadastre o produto retirado.';
+      $('#retiradaFormError').hidden = false;
+      return;
+    }
+    if (!payload.withdrawnBy) {
+      $('#retiradaFormError').textContent = 'Escolha quem retirou.';
+      $('#retiradaFormError').hidden = false;
+      return;
+    }
+    try {
+      await api('/api/retiradas-internas', { method: 'POST', body: JSON.stringify(payload) });
+      $('#retiradaFormWrap').hidden = true;
+      await loadRetiradas();
+    } catch (e) {
+      $('#retiradaFormError').textContent = e.message;
+      $('#retiradaFormError').hidden = false;
     }
   };
 

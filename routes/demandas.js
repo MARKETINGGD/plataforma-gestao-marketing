@@ -610,6 +610,21 @@ router.put('/:id', requireAuth, (req, res) => {
     recurringReset = updates.dueDate;
   }
 
+  // Auto-arquivar ao concluir (40ª rodada, pedido da Raquel: "em demandas,
+  // sempre que a demanda for marcada como concluida, ela deve se arquivar
+  // automaticamente (para todos que estavam no card)"). Só dispara na
+  // TRANSIÇÃO de verdade pra "Concluída" (`demanda.status !== 'concluida'`
+  // antes dessa gravação) -- checado DEPOIS do bloco de recorrência acima,
+  // porque uma demanda recorrente "concluída" volta sozinha pra "A Fazer"
+  // (updates.status já foi revertido ali em cima) e não deve arquivar. As
+  // demandas-irmãs do mesmo agendamento (mesmo card, "para todos que
+  // estavam") são arquivadas junto logo abaixo, dentro de
+  // cascadeCompleteDemandas (utils/demandCascade.js), que agora também
+  // grava `archived: true`.
+  if (updates.status === 'concluida' && demanda.status !== 'concluida') {
+    updates.archived = true;
+  }
+
   const details = describeChanges(demanda, updates);
   db.get('demandas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: updates.title || demanda.title, action: 'update', details, meta: { visibility: demanda.visibility } });

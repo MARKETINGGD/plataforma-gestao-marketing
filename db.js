@@ -43,6 +43,15 @@ db.defaults({
   // Chat da Equipe (18ª rodada) — mural único de conversa, visível pra
   // qualquer pessoa logada na Plataforma (não são conversas privadas).
   chatMessages: [],
+  // Conversas do Chat (40ª rodada, pedido da Raquel: grupos + conversas
+  // privadas) — cada registro é um grupo ('group', com `name` e
+  // `participantIds`) ou uma conversa privada de 2 pessoas ('dm', sem
+  // `name`, só `participantIds` com exatamente 2 ids). O mural "Geral" de
+  // sempre NÃO tem registro aqui — continua sendo o `chatMessages` sem
+  // `conversationId` (ou com o valor 'geral'), pra não precisar migrar
+  // nada e a janelinha flutuante de chat continuar funcionando sem
+  // nenhuma mudança (ela só fala com o mural Geral). Ver routes/chat.js.
+  chatConversations: [],
   // Link externo por dashboard (28ª rodada) — igual ao link externo dos
   // Influencers: um token por dashboard (Mídias, Tráfego Pago), pra gente
   // de fora acompanhar sem precisar de conta na Plataforma. Um registro

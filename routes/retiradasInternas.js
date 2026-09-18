@@ -15,6 +15,23 @@ const router = express.Router();
 // aqui não tem representante nem cliente, é só data + produto + quem
 // retirou + motivo, como pedido.
 //
+// 40ª rodada, pedido da Raquel: "Quem retirou não deve ser pre definido,
+// devemos poder escrever o nome de quem foi; tbm precisamos por a
+// quantidade retirada." — então "quem retirou" deixou de ser um select
+// vinculado a uma conta de usuário (`withdrawnBy` como id) e virou texto
+// livre (`withdrawnByName` direto, sem vínculo com conta nenhuma) — porque
+// quem retirou um brinde nem sempre é alguém com login na Plataforma
+// (pode ser qualquer pessoa da equipe/loja). Também entrou o campo
+// `quantidade` (número, obrigatório, mínimo 1).
+//
+// Compatibilidade com registros antigos: registros criados antes dessa
+// rodada guardam `withdrawnBy` como o id de uma conta de usuário — pra
+// esses, o nome continua sendo resolvido ao vivo (mesmo padrão de sempre,
+// ver utils/names.js), então se o nome da conta for corrigido depois isso
+// ainda reflete. Registros novos marcam `withdrawnByFreeText: true` e já
+// guardam o nome final direto em `withdrawnByName`, sem tentar resolver
+// contra nenhuma conta.
+//
 // Reaproveita o catálogo de Brindes (`brindesCatalog`) como a "lista
 // pré-cadastrada" de produtos de cada marca — inclusive pra vinho, que
 // vira só mais um item do catálogo com `group: 'Vinhos'` (o campo `group`
@@ -43,24 +60,37 @@ function validBrand(brand) {
   return BRANDS.includes(brand) ? brand : null;
 }
 
+function toQuantidade(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.round(n);
+}
+
 router.get('/', requireAuth, (req, res) => {
   const { brand } = req.query;
   let rows = db.get('retiradasInternas').value();
   if (brand) rows = rows.filter((r) => r.brand === brand);
   rows = rows.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
-  // Nome de quem retirou resolvido ao vivo (mesmo padrão já usado em todo
-  // o resto da Plataforma — ver utils/names.js).
-  rows = rows.map((r) => Object.assign({}, r, { withdrawnByName: resolveUserName(r.withdrawnBy, r.withdrawnByName) }));
+  // Nome de quem retirou: registros novos (texto livre) mostram o nome
+  // gravado direto; registros antigos (vinculados a uma conta) continuam
+  // resolvendo o nome ao vivo, mesmo padrão já usado em todo o resto da
+  // Plataforma — ver utils/names.js.
+  rows = rows.map((r) => {
+    if (r.withdrawnByFreeText) return Object.assign({}, r, { quantidade: r.quantidade || null });
+    return Object.assign({}, r, { withdrawnByName: resolveUserName(r.withdrawnBy, r.withdrawnByName), quantidade: r.quantidade || null });
+  });
   res.json({ items: rows });
 });
 
 router.post('/', requireAuth, requireEdit, (req, res) => {
-  const { brand, date, item, group, catalogItemId, withdrawnBy, motivo } = req.body || {};
+  const { brand, date, item, group, catalogItemId, withdrawnByName, quantidade, motivo } = req.body || {};
   const finalBrand = validBrand(brand);
   if (!finalBrand) return res.status(400).json({ error: 'Escolha a marca.' });
   if (!item || !item.trim()) return res.status(400).json({ error: 'Escolha ou cadastre o produto retirado.' });
-  const withdrawnUser = db.get('users').find({ id: withdrawnBy }).value();
-  if (!withdrawnUser) return res.status(400).json({ error: 'Escolha quem retirou.' });
+  const finalWithdrawnByName = (withdrawnByName || '').trim();
+  if (!finalWithdrawnByName) return res.status(400).json({ error: 'Escreva o nome de quem retirou.' });
+  const finalQuantidade = toQuantidade(quantidade);
+  if (!finalQuantidade) return res.status(400).json({ error: 'Informe a quantidade retirada (mínimo 1).' });
 
   // Produto novo (não estava na lista pré-cadastrada) — cadastra também no
   // catálogo geral de Brindes, pra já aparecer em "Controle Geral" e nas
@@ -98,8 +128,10 @@ router.post('/', requireAuth, requireEdit, (req, res) => {
     date: date || new Date().toISOString().slice(0, 10),
     catalogItemId: finalCatalogItemId,
     item: item.trim(),
-    withdrawnBy,
-    withdrawnByName: withdrawnUser.name || withdrawnUser.username,
+    withdrawnBy: null,
+    withdrawnByName: finalWithdrawnByName,
+    withdrawnByFreeText: true,
+    quantidade: finalQuantidade,
     motivo: motivo || '',
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
@@ -118,11 +150,17 @@ router.put('/:id', requireAuth, requireEdit, (req, res) => {
   if (b.date !== undefined) updates.date = b.date || existing.date;
   if (b.item !== undefined && b.item.trim()) updates.item = b.item.trim();
   if (b.motivo !== undefined) updates.motivo = b.motivo;
-  if (b.withdrawnBy !== undefined) {
-    const u = db.get('users').find({ id: b.withdrawnBy }).value();
-    if (!u) return res.status(400).json({ error: 'Escolha quem retirou.' });
-    updates.withdrawnBy = b.withdrawnBy;
-    updates.withdrawnByName = u.name || u.username;
+  if (b.withdrawnByName !== undefined) {
+    const name = (b.withdrawnByName || '').trim();
+    if (!name) return res.status(400).json({ error: 'Escreva o nome de quem retirou.' });
+    updates.withdrawnByName = name;
+    updates.withdrawnBy = null;
+    updates.withdrawnByFreeText = true;
+  }
+  if (b.quantidade !== undefined) {
+    const q = toQuantidade(b.quantidade);
+    if (!q) return res.status(400).json({ error: 'Informe a quantidade retirada (mínimo 1).' });
+    updates.quantidade = q;
   }
   db.get('retiradasInternas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'retiradaInterna', entityId: existing.id, entityLabel: updates.item || existing.item, action: 'update' });

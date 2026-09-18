@@ -227,16 +227,38 @@
         </div>
       </section>
 
+      <!-- 40ª rodada, pedido da Raquel: grupos + conversas privadas, além
+           do mural "Geral" de sempre (mantido, confirmado com ela antes de
+           mexer). Sidebar de conversas ao lado do mural/conversa aberta —
+           ver public/app.js (bloco "Chat da Equipe") e routes/chat.js. -->
       <section id="view-chat" class="view" hidden>
         <div class="view-toolbar">
           <h2>Chat da Equipe</h2>
         </div>
-        <p class="muted">Mural de conversa da equipe — qualquer pessoa logada na Plataforma vê as mensagens daqui.</p>
-        <div class="chat-wrap">
-          <div id="chatMessages" class="chat-messages"></div>
-          <div class="chat-input-row">
-            <textarea id="chatInput" rows="1" placeholder="Escreva uma mensagem... (Enter envia, Shift+Enter quebra linha)"></textarea>
-            <button class="btn-primary" id="chatSendBtn">Enviar</button>
+        <div class="chat-layout">
+          <div class="chat-sidebar">
+            <div class="chat-sidebar-actions">
+              <button class="btn-secondary" id="chatNewGroupBtn">+ Novo grupo</button>
+              <button class="btn-secondary" id="chatNewDmBtn">+ Conversa privada</button>
+            </div>
+            <div id="chatConversationList" class="chat-conversation-list"></div>
+          </div>
+          <div class="chat-main">
+            <div class="chat-main-header">
+              <div>
+                <h3 id="chatConversationTitle">Geral</h3>
+                <p class="muted" id="chatConversationSubtitle">Mural de conversa da equipe — qualquer pessoa logada na Plataforma vê as mensagens daqui.</p>
+              </div>
+              <button class="btn-secondary" id="chatNudgeBtn" hidden title="Vibra a tela e toca um som pra quem está na conversa">🔔 Chamar atenção</button>
+            </div>
+            <div class="chat-wrap">
+              <div id="chatMessages" class="chat-messages"></div>
+              <div class="chat-input-row">
+                <textarea id="chatInput" rows="1" placeholder="Escreva uma mensagem... (Enter envia, Shift+Enter quebra linha, @ marca alguém)"></textarea>
+                <button class="btn-primary" id="chatSendBtn">Enviar</button>
+              </div>
+              <div id="chatMentionSuggest" class="chat-mention-suggest" hidden></div>
+            </div>
           </div>
         </div>
       </section>
@@ -1029,7 +1051,7 @@
           <h3>Nova retirada</h3>
           <div class="form-row">
             <div><label>Data da retirada</label><input id="retiradaFormDate" type="date"></div>
-            <div><label>Quem retirou</label><select id="retiradaFormUser"></select></div>
+            <div><label>Quem retirou</label><input id="retiradaFormUser" type="text" placeholder="Nome de quem retirou"></div>
           </div>
           <label>Produto retirado</label>
           <select id="retiradaFormProdutoSelect"></select>
@@ -1037,8 +1059,10 @@
             <div><label>Nome do novo produto</label><input id="retiradaFormNovoProdutoNome" type="text" placeholder="Ex.: Garrafa de vinho tinto reserva"></div>
             <div><label>Grupo <span class="muted" style="font-weight:400;">(ex.: Vinhos)</span></label><input id="retiradaFormNovoProdutoGrupo" type="text" placeholder="Vinhos"></div>
           </div>
-          <label>Motivo</label>
-          <input id="retiradaFormMotivo" type="text">
+          <div class="form-row">
+            <div><label>Quantidade retirada</label><input id="retiradaFormQuantidade" type="number" min="1" step="1" placeholder="1"></div>
+            <div><label>Motivo</label><input id="retiradaFormMotivo" type="text"></div>
+          </div>
           <div id="retiradaFormError" class="error" hidden></div>
           <div class="form-actions">
             <button id="retiradaFormSave" class="btn-primary">Salvar</button>
@@ -1047,7 +1071,7 @@
         </div>
 
         <table class="data-table">
-          <thead><tr><th>Data</th><th>Produto</th><th>Quem retirou</th><th>Motivo</th><th></th></tr></thead>
+          <thead><tr><th>Data</th><th>Produto</th><th>Quem retirou</th><th>Qtd.</th><th>Motivo</th><th></th></tr></thead>
           <tbody id="retiradasBody"></tbody>
         </table>
         <p class="muted" id="retiradasEmpty" hidden>Nenhuma retirada registrada ainda pra essa marca.</p>
@@ -1069,12 +1093,20 @@
           <button class="tab-btn" data-cronograma-tab="feed">Prévia do Feed</button>
         </div>
 
+        <!-- 40ª rodada, pedido da Raquel: "em cronograma, previa do feed,
+             ele deve mostrar mês a mês. Não deve misturar os meses." --
+             a barra de navegação por mês agora é compartilhada pelas duas
+             abas (Calendário e Prévia do Feed), reaproveitando o mesmo
+             estado de mês (`cronogramaCalMonth`) que o calendário já
+             usava, então a Prévia do Feed passa a filtrar por mês também,
+             sem misturar. -->
+        <div class="cal-toolbar">
+          <button class="btn-secondary" id="cronogramaPrevMonth">← Mês anterior</button>
+          <h3 id="cronogramaMonthLabel"></h3>
+          <button class="btn-secondary" id="cronogramaNextMonth">Próximo mês →</button>
+        </div>
+
         <div id="cronogramaCalendarioWrap">
-          <div class="cal-toolbar">
-            <button class="btn-secondary" id="cronogramaPrevMonth">← Mês anterior</button>
-            <h3 id="cronogramaMonthLabel"></h3>
-            <button class="btn-secondary" id="cronogramaNextMonth">Próximo mês →</button>
-          </div>
           <div class="cal-grid" id="cronogramaCalGrid"></div>
         </div>
 
@@ -1084,7 +1116,7 @@
             <button class="tab-btn" data-feed-network="linkedin">LinkedIn</button>
           </div>
           <div id="cronogramaFeedList" class="feed-preview-list"></div>
-          <p id="cronogramaFeedEmpty" class="muted" hidden>Nenhum agendamento pra essa rede ainda.</p>
+          <p id="cronogramaFeedEmpty" class="muted" hidden>Nenhum agendamento pra essa rede nesse mês.</p>
         </div>
       </section>
 
@@ -1479,6 +1511,47 @@
   </div>
 </div>
 
+<!-- 40ª rodada: criar grupo do Chat (nome + participantes). -->
+<div id="chatGroupModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Novo grupo</div>
+      <button id="chatGroupModalClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <label>Nome do grupo</label>
+      <input id="chatGroupName" type="text" placeholder="Ex.: Time Social Media">
+
+      <label>Participantes</label>
+      <div id="chatGroupParticipants" class="chip-picker"></div>
+
+      <div id="chatGroupModalError" class="error" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button id="chatGroupSave" class="btn-primary">Criar grupo</button>
+    </div>
+  </div>
+</div>
+
+<!-- 40ª rodada: iniciar conversa privada (1 a 1) do Chat. -->
+<div id="chatDmModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Nova conversa privada</div>
+      <button id="chatDmModalClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <label>Com quem você quer conversar?</label>
+      <select id="chatDmUser"></select>
+
+      <div id="chatDmModalError" class="error" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button id="chatDmSave" class="btn-primary">Iniciar conversa</button>
+    </div>
+  </div>
+</div>
+
 <div id="changePasswordModal" class="modal-overlay" hidden>
   <div class="modal modal-small">
     <div class="modal-header">
@@ -1508,6 +1581,13 @@
      sozinha enquanto ninguém logou (ver startApp/boot em app.js) e
      também enquanto a pessoa já está na tela "Chat da Equipe" (ali ela já
      vê tudo em tamanho cheio, a bolha ficaria redundante). -->
+<!-- Notificação de aprovação de post (40ª rodada), pedido da Raquel: "em
+     cronograma, previa do feed, ao ser aprovado um post, deve ter uma
+     notificação na tela com som." A Plataforma não tem WebSocket/infra de
+     tempo real (só polling) — então esse aviso é o retorno imediato pra
+     quem CLICOU em aprovar (não um aviso pra outras pessoas em outras
+     telas). Fica fora da .app-shell, mesmo padrão do aviso de chat. -->
+<div id="approvalToast" class="approval-toast" hidden></div>
 <div id="chatWidgetToast" class="chat-widget-toast" hidden></div>
 <div id="chatWidget" class="chat-widget" hidden>
   <div class="chat-widget-header">

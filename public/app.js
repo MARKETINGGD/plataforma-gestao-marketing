@@ -48,6 +48,16 @@
   let recadosAll = [];
   let chatLastId = null; // último id de mensagem já mostrado, pra buscar só as novas no polling
   let chatPollTimer = null;
+  // 40ª rodada: grupos + conversas privadas -- a tela cheia do Chat passou
+  // a ser "por conversa" (Geral continua existindo, só que agora é uma
+  // conversa como outra qualquer do ponto de vista do frontend, com id
+  // fixo 'geral'). A janelinha flutuante (widgetChatLastId acima) NÃO
+  // mexe nisso -- continua falando só com o mural Geral pelas rotas
+  // antigas, sem saber que conversas existem.
+  let currentConversationId = 'geral';
+  let chatConversations = []; // cache da última lista carregada (GET /api/chat/conversations)
+  let currentConversationParticipants = []; // candidatos a @menção na conversa aberta agora
+  let chatConversationsPollTimer = null;
   let activeViewName = null; // nome da tela atual (21ª rodada, ver showView) — usado pra saber
   // se a pessoa já está vendo o Chat da Equipe em tamanho cheio, e então não duplicar aviso
   let widgetChatLastId = null; // cursor independente do chatLastId da tela cheia — a janelinha
@@ -608,6 +618,7 @@
     setActiveNav('navHome');
     startNotificationSoundWatcher();
     startReisMarketingPolling();
+    startReisMarketingWiggle();
     // Janelinha flutuante do Chat da Equipe (21ª rodada) — carrega o
     // histórico e começa a checar mensagens novas assim que loga, pra
     // avisar (som + aviso no canto) mesmo enquanto a pessoa está em
@@ -752,7 +763,7 @@
         if (b.dataset.view === 'agendamento') loadSocialPosts();
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
-        if (b.dataset.view === 'chat') loadChat();
+        if (b.dataset.view === 'chat') { loadChatConversations(); loadChat(); }
       }
     };
   });
@@ -971,6 +982,33 @@
     loadReisDoMarketing().catch(() => { /* ignora falha pontual */ });
   }
 
+  // 40ª rodada, pedido da Raquel: "no grafico reis do marketing, a cada 10
+  // minutos, o bonequinho que tem a coroa, deve balançar." — mesmo padrão
+  // de gate por `activeViewName === 'home'` já usado no polling de contagem
+  // acima. Como o gráfico inteiro é redesenhado do zero a cada
+  // renderReisDoMarketing() (innerHTML), o alvo (quem está com a coroa
+  // agora, podendo ser mais de uma pessoa empatada em 1º) é buscado no
+  // instante do próprio balanço, não guardado -- pega a foto de quem tem
+  // .reis-crown dentro, adiciona a classe que dispara a animação em CSS
+  // (ver .reis-wiggle no style.css) e remove pouco depois pra poder
+  // disparar de novo no próximo ciclo de 10 minutos.
+  let reisWiggleTimer = null;
+  function startReisMarketingWiggle() {
+    if (reisWiggleTimer) clearInterval(reisWiggleTimer);
+    reisWiggleTimer = setInterval(() => {
+      if (activeViewName !== 'home') return;
+      const crownPhotos = $all('#reisMarketingChart .reis-crown').map((c) => c.closest('.reis-bar-photo')).filter(Boolean);
+      crownPhotos.forEach((el) => {
+        el.classList.remove('reis-wiggle');
+        // força reflow pra poder reiniciar a animação mesmo se a classe já
+        // tivesse sido aplicada antes (ex.: troca de campeão empatado).
+        void el.offsetWidth;
+        el.classList.add('reis-wiggle');
+      });
+      setTimeout(() => crownPhotos.forEach((el) => el.classList.remove('reis-wiggle')), 1000);
+    }, 600000);
+  }
+
   // ---------- Som de notificação: recado novo ou demanda nova (16ª/17ª rodada) ----------
   // Pedido original da Raquel (16ª rodada): toda vez que um recado novo é
   // adicionado pra ela, tocar um sinal sonoro "papoi, com a voz dos
@@ -1119,7 +1157,53 @@
   // Mural único de conversa (não são DMs) — qualquer pessoa logada vê as
   // mesmas mensagens. Sem WebSocket: só consulta em intervalos curtos
   // (polling) enquanto a tela está aberta (ver showView/stopChatPolling).
+  //
+  // 40ª rodada, pedido da Raquel: grupos, conversas privadas, menção e
+  // "chamar atenção". A tela cheia passou a ser "por conversa"
+  // (currentConversationId — 'geral' é a conversa fixa de sempre, com o
+  // mesmo texto/comportamento de antes). renderChatMessage/
+  // chatIsScrolledToBottom continuam compartilhadas com a janelinha
+  // flutuante (que continua só no Geral, sem saber que conversas existem).
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Menções (@Fulano) — o texto já vem só com os nomes marcados que o
+  // backend reconheceu (mentionedUserIds), então aqui é só achar de novo
+  // "@Nome" no texto (mesmos nomes, mesma regra de "mais longo primeiro")
+  // e destacar visualmente. Sempre passa por escapeHtml antes -- mensagem
+  // de qualquer pessoa da equipe não pode virar HTML/script na tela de
+  // outra, mesmo com o innerHTML novo (antes era só textContent).
+  function highlightMentionsHtml(text, mentionedUserIds, participants) {
+    let html = escapeHtml(text);
+    if (!mentionedUserIds || mentionedUserIds.length === 0) return html;
+    const names = (participants || [])
+      .filter((p) => mentionedUserIds.includes(p.id) && p.name)
+      .map((p) => p.name)
+      .sort((a, b) => b.length - a.length);
+    names.forEach((name) => {
+      const needle = '@' + escapeHtml(name);
+      if (html.includes(needle)) {
+        html = html.split(needle).join(`<span class="chat-mention">${needle}</span>`);
+      }
+    });
+    return html;
+  }
+
   function renderChatMessage(m) {
+    // "Chamar atenção" (nudge, 40ª rodada) — vira uma linha central de
+    // aviso de sistema, não uma bolha de mensagem normal.
+    if (m.kind === 'nudge') {
+      const row = document.createElement('div');
+      row.className = 'chat-nudge-msg';
+      row.textContent = `🔔 ${m.text}`;
+      row.dataset.msgId = m.id;
+      row.dataset.kind = 'nudge';
+      row.dataset.createdBy = m.createdBy;
+      return row;
+    }
     const row = document.createElement('div');
     const mine = m.createdBy === currentUser.id;
     row.className = 'chat-msg-row' + (mine ? ' mine' : '');
@@ -1127,10 +1211,10 @@
     const avatarPerson = mine ? currentUser : { name: m.createdByName, photoUrl: m.createdByPhotoUrl };
     const bubble = document.createElement('div');
     bubble.className = 'chat-msg';
-    bubble.innerHTML = `<div class="chat-msg-meta"><b>${mine ? 'Você' : m.createdByName}</b><span>${time}</span></div><div class="chat-msg-text"></div>`;
-    // texto via textContent (não innerHTML), pra mensagem escrita por
-    // qualquer pessoa da equipe nunca virar HTML/script na tela de outra.
-    bubble.querySelector('.chat-msg-text').textContent = m.text;
+    bubble.innerHTML = `<div class="chat-msg-meta"><b>${mine ? 'Você' : escapeHtml(m.createdByName)}</b><span>${time}</span></div><div class="chat-msg-text"></div>`;
+    // Texto com menções destacadas — já passa por escapeHtml dentro de
+    // highlightMentionsHtml, então segue seguro mesmo indo por innerHTML.
+    bubble.querySelector('.chat-msg-text').innerHTML = highlightMentionsHtml(m.text, m.mentionedUserIds, currentConversationParticipants);
     row.innerHTML = avatarHtml(avatarPerson, 28);
     row.appendChild(bubble);
     return row;
@@ -1140,16 +1224,82 @@
     return wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40;
   }
 
+  // Vibra a tela (quando o aparelho/navegador aceita) + toca o som de
+  // "chamar atenção" + balança a mensagem na tela — pedido da Raquel:
+  // "de chamar atenção (vibrar a tela no chat, com barulho de algo
+  // vibrando)". Só dispara pra quem RECEBE (nunca pra quem mandou).
+  const nudgeAudio = new Audio('/sounds/nudge.mp3');
+  function playNudgeSound() {
+    try {
+      nudgeAudio.currentTime = 0;
+      nudgeAudio.play().catch(() => { /* autoplay bloqueado até a pessoa interagir com a página */ });
+    } catch (e) { /* ignora */ }
+  }
+  function triggerNudgeEffect(rowEl) {
+    playNudgeSound();
+    try { if (navigator.vibrate) navigator.vibrate([160, 80, 160, 80, 220]); } catch (e) { /* navegador/aparelho sem suporte -- ignora */ }
+    if (rowEl) {
+      rowEl.classList.add('chat-nudge-shake');
+      setTimeout(() => rowEl.classList.remove('chat-nudge-shake'), 700);
+    }
+  }
+
+  // ---------- Conversas: Geral (fixo) + grupos/DMs (40ª rodada) ----------
+  function conversationIcon(conv) {
+    if (conv.type === 'geral') return '#';
+    if (conv.type === 'group') return '👥';
+    return (conv.name || '?').trim().charAt(0).toUpperCase();
+  }
+
+  function renderChatConversationList() {
+    const wrap = $('#chatConversationList');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    chatConversations.forEach((conv) => {
+      const item = document.createElement('div');
+      item.className = 'chat-conversation-item' + (conv.id === currentConversationId ? ' active' : '');
+      item.innerHTML = `<span class="chat-conversation-icon">${conversationIcon(conv)}</span><span class="chat-conversation-name"></span>`;
+      item.querySelector('.chat-conversation-name').textContent = conv.name;
+      item.onclick = () => selectConversation(conv.id);
+      wrap.appendChild(item);
+    });
+  }
+
+  async function loadChatConversations() {
+    try {
+      const data = await api('/api/chat/conversations');
+      chatConversations = data.conversations || [];
+      renderChatConversationList();
+    } catch (e) { /* ignora falha pontual */ }
+  }
+
+  function currentConversationMeta() {
+    return chatConversations.find((c) => c.id === currentConversationId) || { id: 'geral', type: 'geral', name: 'Geral', participants: [] };
+  }
+
+  async function selectConversation(id) {
+    currentConversationId = id;
+    chatLastId = null;
+    renderChatConversationList();
+    await loadChat();
+  }
+
   async function pollChat() {
     try {
       const q = chatLastId ? ('?afterId=' + encodeURIComponent(chatLastId)) : '';
-      const data = await api('/api/chat/messages' + q);
+      const data = await api(`/api/chat/conversations/${encodeURIComponent(currentConversationId)}/messages${q}`);
       if (data.messages.length === 0) return;
       const wrap = $('#chatMessages');
       const empty = wrap.querySelector('.chat-empty');
       if (empty) empty.remove();
       const wasAtBottom = chatIsScrolledToBottom(wrap);
-      data.messages.forEach((m) => wrap.appendChild(renderChatMessage(m)));
+      data.messages.forEach((m) => {
+        const rowEl = renderChatMessage(m);
+        wrap.appendChild(rowEl);
+        // Nudge de outra pessoa, chegando pelo polling enquanto essa
+        // conversa está aberta -- vibra + toca o som na hora.
+        if (m.kind === 'nudge' && m.createdBy !== currentUser.id) triggerNudgeEffect(rowEl);
+      });
       chatLastId = data.messages[data.messages.length - 1].id;
       if (wasAtBottom) wrap.scrollTop = wrap.scrollHeight;
     } catch (e) { /* ignora falha de rede pontual */ }
@@ -1164,10 +1314,35 @@
     chatPollTimer = null;
   }
 
+  function applyChatHeader() {
+    const conv = currentConversationMeta();
+    $('#chatConversationTitle').textContent = conv.name;
+    $('#chatConversationSubtitle').textContent = conv.type === 'geral'
+      ? 'Mural de conversa da equipe — qualquer pessoa logada na Plataforma vê as mensagens daqui.'
+      : conv.type === 'group'
+        ? `Grupo privado — só quem está no grupo vê essas mensagens (${(conv.participants || []).length} participantes).`
+        : 'Conversa privada — só vocês dois veem essas mensagens.';
+    $('#chatNudgeBtn').hidden = conv.type === 'geral';
+    currentConversationParticipants = conv.type === 'geral'
+      ? teamMembers.map((u) => ({ id: u.id, name: u.name || u.username }))
+      : (conv.participants || []);
+  }
+
   async function loadChat() {
+    applyChatHeader();
     const wrap = $('#chatMessages');
     try {
-      const data = await api('/api/chat/messages');
+      const data = await api(`/api/chat/conversations/${encodeURIComponent(currentConversationId)}/messages`);
+      // A resposta também traz a conversa (participantes atualizados) —
+      // reaproveita pra menção/cabeçalho sem precisar de outra chamada.
+      if (data.conversation) {
+        const idx = chatConversations.findIndex((c) => c.id === data.conversation.id);
+        if (idx !== -1) chatConversations[idx] = data.conversation;
+        currentConversationParticipants = data.conversation.type === 'geral'
+          ? teamMembers.map((u) => ({ id: u.id, name: u.name || u.username }))
+          : (data.conversation.participants || []);
+        $('#chatConversationTitle').textContent = data.conversation.name;
+      }
       wrap.innerHTML = '';
       if (data.messages.length === 0) {
         wrap.innerHTML = '<div class="chat-empty">Nenhuma mensagem ainda. Comece a conversa!</div>';
@@ -1177,7 +1352,9 @@
         chatLastId = data.messages[data.messages.length - 1].id;
         wrap.scrollTop = wrap.scrollHeight;
       }
-    } catch (e) { /* ignora */ }
+    } catch (e) {
+      wrap.innerHTML = '<div class="chat-empty">Não foi possível abrir essa conversa.</div>';
+    }
     startChatPolling();
   }
 
@@ -1187,8 +1364,9 @@
     if (!text) return;
     input.value = '';
     input.style.height = 'auto';
+    hideChatMentionSuggest();
     try {
-      const data = await api('/api/chat/messages', { method: 'POST', body: JSON.stringify({ text }) });
+      const data = await api(`/api/chat/conversations/${encodeURIComponent(currentConversationId)}/messages`, { method: 'POST', body: JSON.stringify({ text }) });
       const wrap = $('#chatMessages');
       const empty = wrap.querySelector('.chat-empty');
       if (empty) empty.remove();
@@ -1207,6 +1385,134 @@
       sendChatMessage();
     }
   });
+
+  // Sugestão de @menção -- aparece enquanto a pessoa digita "@algumacoisa"
+  // no fim de uma palavra, filtrando pelos participantes da conversa
+  // aberta (ou toda a equipe, no Geral). Clicar (ou Enter/Tab na sugestão)
+  // completa "@Nome Completo " no lugar do texto parcial.
+  function hideChatMentionSuggest() {
+    $('#chatMentionSuggest').hidden = true;
+    $('#chatMentionSuggest').innerHTML = '';
+  }
+  function currentMentionToken(input) {
+    const pos = input.selectionStart || input.value.length;
+    const before = input.value.slice(0, pos);
+    const m = before.match(/(?:^|\s)@([^\s@]*)$/);
+    return m ? { partial: m[1], start: pos - m[1].length } : null;
+  }
+  function applyMentionSuggest() {
+    const input = $('#chatInput');
+    const token = currentMentionToken(input);
+    if (!token) return hideChatMentionSuggest();
+    const partialLower = token.partial.toLowerCase();
+    const matches = currentConversationParticipants
+      .filter((p) => p.id !== currentUser.id && (p.name || '').toLowerCase().includes(partialLower))
+      .slice(0, 6);
+    if (matches.length === 0) return hideChatMentionSuggest();
+    const box = $('#chatMentionSuggest');
+    box.innerHTML = '';
+    matches.forEach((p) => {
+      const item = document.createElement('div');
+      item.className = 'chat-mention-suggest-item';
+      item.textContent = p.name;
+      item.onclick = () => {
+        const before = input.value.slice(0, token.start);
+        const after = input.value.slice(token.start + token.partial.length);
+        input.value = `${before}${p.name} ${after}`;
+        hideChatMentionSuggest();
+        input.focus();
+      };
+      box.appendChild(item);
+    });
+    box.hidden = false;
+  }
+  $('#chatInput').addEventListener('input', applyMentionSuggest);
+  $('#chatInput').addEventListener('blur', () => setTimeout(hideChatMentionSuggest, 150));
+
+  $('#chatNudgeBtn').onclick = async () => {
+    if (currentConversationId === 'geral') return;
+    try {
+      await api(`/api/chat/conversations/${encodeURIComponent(currentConversationId)}/nudge`, { method: 'POST', body: JSON.stringify({}) });
+      // A própria pessoa que chamou atenção também vê a mensagem de
+      // sistema aparecer na conversa (sem vibrar/tocar pra ela mesma —
+      // isso já é garantido em pollChat, que só dispara o efeito pra
+      // mensagem de OUTRA pessoa).
+      await pollChat();
+    } catch (e) {
+      alert(e.message || 'Não foi possível chamar atenção agora.');
+    }
+  };
+
+  // ---------- Novo grupo / nova conversa privada (40ª rodada) ----------
+  function openChatGroupModal() {
+    $('#chatGroupName').value = '';
+    $('#chatGroupModalError').hidden = true;
+    const wrap = $('#chatGroupParticipants');
+    wrap.innerHTML = '';
+    if (teamMembers.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Nenhum usuário cadastrado ainda.</span>';
+    } else {
+      teamMembers.filter((u) => u.id !== currentUser.id).forEach((u) => {
+        const chip = document.createElement('label');
+        chip.className = 'chip-toggle';
+        chip.innerHTML = `<input type="checkbox" value="${u.id}"> ${escapeHtml(u.name)}`;
+        wrap.appendChild(chip);
+        chip.querySelector('input').onchange = (ev) => chip.classList.toggle('active', ev.target.checked);
+      });
+    }
+    $('#chatGroupModal').hidden = false;
+  }
+  $('#chatNewGroupBtn').onclick = openChatGroupModal;
+  $('#chatGroupModalClose').onclick = () => { $('#chatGroupModal').hidden = true; };
+  $('#chatGroupSave').onclick = async () => {
+    const name = $('#chatGroupName').value.trim();
+    const ids = $all('#chatGroupParticipants input[type=checkbox]:checked').map((el) => el.value);
+    if (!name) {
+      $('#chatGroupModalError').textContent = 'Dê um nome para o grupo.';
+      $('#chatGroupModalError').hidden = false;
+      return;
+    }
+    if (ids.length === 0) {
+      $('#chatGroupModalError').textContent = 'Escolha pelo menos mais uma pessoa para o grupo.';
+      $('#chatGroupModalError').hidden = false;
+      return;
+    }
+    try {
+      const data = await api('/api/chat/conversations', { method: 'POST', body: JSON.stringify({ type: 'group', name, participantIds: ids }) });
+      $('#chatGroupModal').hidden = true;
+      await loadChatConversations();
+      await selectConversation(data.conversation.id);
+    } catch (e) {
+      $('#chatGroupModalError').textContent = e.message;
+      $('#chatGroupModalError').hidden = false;
+    }
+  };
+
+  function openChatDmModal() {
+    $('#chatDmModalError').hidden = true;
+    $('#chatDmUser').innerHTML = ['<option value="">Selecione...</option>']
+      .concat(teamMembers.filter((u) => u.id !== currentUser.id).map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`)).join('');
+    $('#chatDmModal').hidden = false;
+  }
+  $('#chatNewDmBtn').onclick = openChatDmModal;
+  $('#chatDmModalClose').onclick = () => { $('#chatDmModal').hidden = true; };
+  $('#chatDmSave').onclick = async () => {
+    const otherId = $('#chatDmUser').value;
+    if (!otherId) {
+      $('#chatDmModalError').textContent = 'Escolha uma pessoa para conversar.';
+      $('#chatDmModalError').hidden = false;
+      return;
+    }
+    try {
+      const data = await api('/api/chat/conversations', { method: 'POST', body: JSON.stringify({ type: 'dm', participantIds: [otherId] }) });
+      $('#chatDmModal').hidden = true;
+      await loadChatConversations();
+      await selectConversation(data.conversation.id);
+    } catch (e) {
+      $('#chatDmModalError').textContent = e.message;
+      $('#chatDmModalError').hidden = false;
+    }
+  };
 
   // ---------- Chat da Equipe: janelinha flutuante + aviso sonoro (21ª rodada) ----------
   // Pedido da Raquel: "o chat deve aparecer quando estiverem vindo
@@ -3794,13 +4100,17 @@
       renderCronogramaFeed();
     };
   });
+  // 40ª rodada: a navegação de mês agora é compartilhada pelas duas abas
+  // (Calendário e Prévia do Feed), então chama o dispatcher `renderCronograma()`
+  // em vez de `renderCronogramaCalendar()` direto -- assim a Prévia do Feed
+  // também refiltra pro mês novo quando é ela que está aberta.
   $('#cronogramaPrevMonth').onclick = () => {
     cronogramaCalMonth = new Date(cronogramaCalMonth.getFullYear(), cronogramaCalMonth.getMonth() - 1, 1);
-    renderCronogramaCalendar();
+    renderCronograma();
   };
   $('#cronogramaNextMonth').onclick = () => {
     cronogramaCalMonth = new Date(cronogramaCalMonth.getFullYear(), cronogramaCalMonth.getMonth() + 1, 1);
-    renderCronogramaCalendar();
+    renderCronograma();
   };
 
   async function loadCronograma() {
@@ -3811,6 +4121,10 @@
   }
 
   function renderCronograma() {
+    // 40ª rodada: o rótulo do mês (barra compartilhada) é atualizado aqui,
+    // no dispatcher, porque agora vale pras duas abas -- antes só existia
+    // dentro de renderCronogramaCalendar().
+    $('#cronogramaMonthLabel').textContent = `${MONTHS_FULL[cronogramaCalMonth.getMonth()]} ${cronogramaCalMonth.getFullYear()}`;
     if (cronogramaTab === 'feed') {
       renderCronogramaFeed();
     } else {
@@ -3938,12 +4252,34 @@
     return !!currentUser && (currentUser.isSuperAdmin || currentUser.cargo === 'gerente' || currentUser.cargo === 'coordenador');
   }
 
+  let approvalToastTimer = null;
+  // 40ª rodada, pedido da Raquel: "ao ser aprovado um post, deve ter uma
+  // notificação na tela com som." A Plataforma é 100% baseada em polling
+  // (sem WebSocket em lugar nenhum) — não tem como avisar em tempo real
+  // outras telas/pessoas quando um post é aprovado. Esse aviso é o retorno
+  // imediato pra quem CLICOU em aprovar, na hora que aprova. Reaproveita o
+  // mesmo som de aviso já usado em recados/demandas (recado.mp3).
+  function showApprovalToast(p) {
+    const toast = $('#approvalToast');
+    const brandLabel = BRAND_LABEL[p.brand] || BRAND_LABEL.debacco;
+    toast.innerHTML = `<span class="approval-toast-icon">✓</span><span class="approval-toast-text"></span>`;
+    toast.querySelector('.approval-toast-text').textContent = `Post aprovado — ${brandLabel}, ${fmtDate(p.scheduledDate)}`;
+    toast.hidden = false;
+    playRecadoSound();
+    if (approvalToastTimer) clearTimeout(approvalToastTimer);
+    approvalToastTimer = setTimeout(() => { toast.hidden = true; }, 5000);
+  }
+
   async function setPostApproval(postId, approvalStatus, approvalNotes) {
     try {
       await api(`/api/social-posts/${postId}/approval`, { method: 'PUT', body: JSON.stringify({ approvalStatus, approvalNotes: approvalNotes || '' }) });
       const fresh = await api('/api/social-posts');
       socialPosts = fresh.posts;
       renderCronogramaFeed();
+      if (approvalStatus === 'aprovado') {
+        const post = socialPosts.find((sp) => sp.id === postId);
+        if (post) showApprovalToast(post);
+      }
     } catch (e) {
       alert(e.message);
     }
@@ -4025,9 +4361,20 @@
     const list = $('#cronogramaFeedList');
     list.innerHTML = '';
     const isLinkedin = cronogramaFeedNetwork === 'linkedin';
+    // 40ª rodada, pedido da Raquel: "previa do feed, ele deve mostrar mês a
+    // mês. Não deve misturar os meses." — reaproveita o mesmo mês
+    // selecionado no Calendário (`cronogramaCalMonth`), com a mesma barra
+    // de navegação (agora compartilhada entre as duas abas, ver HTML).
+    const feedYear = cronogramaCalMonth.getFullYear();
+    const feedMonth = cronogramaCalMonth.getMonth();
     const posts = socialPosts
       .filter((p) => (p.brand || 'debacco') === cronogramaBrand)
       .filter((p) => (isLinkedin ? p.platform === 'linkedin' : (p.platform === 'instagram' || p.platform === 'facebook')))
+      .filter((p) => {
+        if (!p.scheduledDate) return false;
+        const d = new Date(p.scheduledDate + 'T00:00:00');
+        return d.getFullYear() === feedYear && d.getMonth() === feedMonth;
+      })
       .sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || '') || (a.scheduledTime || '').localeCompare(b.scheduledTime || ''));
     $('#cronogramaFeedEmpty').hidden = posts.length > 0;
 
@@ -4411,6 +4758,7 @@
         <td>${fmtDate(r.date)}</td>
         <td>${r.item}</td>
         <td>${r.withdrawnByName || ''}</td>
+        <td>${r.quantidade || ''}</td>
         <td>${r.motivo || ''}</td>
         <td></td>
       `;
@@ -4440,13 +4788,13 @@
 
   function openRetiradaForm() {
     $('#retiradaFormDate').value = new Date().toISOString().slice(0, 10);
-    $('#retiradaFormUser').innerHTML = ['<option value="">Selecione...</option>']
-      .concat(teamMembers.map((u) => `<option value="${u.id}">${u.name}</option>`)).join('');
+    $('#retiradaFormUser').value = '';
     $('#retiradaFormProdutoSelect').innerHTML = retiradaProdutoOptionsHTML();
     $('#retiradaFormProdutoSelect').value = '';
     $('#retiradaFormNovoProdutoRow').hidden = true;
     $('#retiradaFormNovoProdutoNome').value = '';
     $('#retiradaFormNovoProdutoGrupo').value = '';
+    $('#retiradaFormQuantidade').value = '1';
     $('#retiradaFormMotivo').value = '';
     $('#retiradaFormError').hidden = true;
     $('#retiradaFormWrap').hidden = false;
@@ -4462,7 +4810,8 @@
     const payload = {
       brand: retiradasBrand,
       date: $('#retiradaFormDate').value,
-      withdrawnBy: $('#retiradaFormUser').value,
+      withdrawnByName: $('#retiradaFormUser').value.trim(),
+      quantidade: Number($('#retiradaFormQuantidade').value),
       motivo: $('#retiradaFormMotivo').value.trim()
     };
     if (isNovo) {
@@ -4478,8 +4827,13 @@
       $('#retiradaFormError').hidden = false;
       return;
     }
-    if (!payload.withdrawnBy) {
-      $('#retiradaFormError').textContent = 'Escolha quem retirou.';
+    if (!payload.withdrawnByName) {
+      $('#retiradaFormError').textContent = 'Escreva o nome de quem retirou.';
+      $('#retiradaFormError').hidden = false;
+      return;
+    }
+    if (!payload.quantidade || payload.quantidade < 1) {
+      $('#retiradaFormError').textContent = 'Informe a quantidade retirada (mínimo 1).';
       $('#retiradaFormError').hidden = false;
       return;
     }

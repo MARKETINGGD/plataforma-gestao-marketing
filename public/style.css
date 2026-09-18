@@ -288,6 +288,22 @@ button{font-weight:700;}
 .reis-bar-photo{position:relative;width:52px;height:52px;border-radius:50%;background:var(--primary) center/cover no-repeat;border:3px solid #fff;box-shadow:0 2px 6px rgba(20,10,40,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:18px;flex:0 0 auto;}
 .reis-bar-photo-fallback{background-image:none !important;}
 .reis-crown{position:absolute;top:-20px;left:50%;transform:translateX(-50%) rotate(-8deg);font-size:22px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25));}
+
+/* 40ª rodada, pedido da Raquel: "no grafico reis do marketing, a cada 10
+   minutos, o bonequinho que tem a coroa, deve balançar." -- aplicada em
+   .reis-bar-photo (a fotinho/bonequinho), não em .reis-crown sozinha, pra
+   balançar o conjunto foto+coroa junto. Ver startReisMarketingWiggle() em
+   app.js, que adiciona essa classe por ~1s a cada 10 minutos. */
+@keyframes reisWiggle{
+  0%,100%{transform:rotate(0deg);}
+  15%{transform:rotate(-12deg);}
+  30%{transform:rotate(10deg);}
+  45%{transform:rotate(-8deg);}
+  60%{transform:rotate(6deg);}
+  75%{transform:rotate(-4deg);}
+  90%{transform:rotate(2deg);}
+}
+.reis-wiggle{animation:reisWiggle .9s ease-in-out;}
 .reis-bar-value{font-size:12.5px;font-weight:700;color:var(--ink);margin:6px 0 4px;}
 .reis-bar{width:38px;border-radius:8px 8px 3px 3px;background:var(--primary);transition:height .4s ease;}
 .reis-bar-name{margin-top:8px;font-size:12px;color:var(--muted);text-align:center;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -581,7 +597,7 @@ button{font-weight:700;}
 .approval-notes-readonly{font-size:12px;color:var(--danger);background:#fdecea;border:1px solid #f3c6c0;border-radius:6px;padding:6px 8px;}
 
 /* ---------- Chat da Equipe (18ª rodada) ---------- */
-.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 230px);min-height:360px;max-height:640px;margin-top:14px;background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+.chat-wrap{position:relative;display:flex;flex-direction:column;height:calc(100vh - 230px);min-height:360px;max-height:640px;margin-top:14px;background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
 .chat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;}
 /* Foto de perfil (20ª rodada) — cada mensagem vira uma linha com o avatar
    ao lado da bolha, espelhada pra mensagens próprias. */
@@ -603,6 +619,48 @@ button{font-weight:700;}
    disputa e devolvem o espaço pro campo de texto. */
 .chat-input-row button{align-self:flex-end;width:auto;flex:0 0 auto;}
 @media (max-width:900px){ .chat-wrap{height:calc(100vh - 280px);} }
+
+/* ---------- Chat da Equipe: grupos, DMs, menções, chamar atenção (40ª rodada) ---------- */
+.chat-layout{display:flex;gap:14px;margin-top:14px;align-items:flex-start;}
+.chat-sidebar{width:230px;flex:0 0 auto;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:8px;height:calc(100vh - 230px);min-height:360px;max-height:640px;}
+.chat-sidebar-actions{display:flex;flex-direction:column;gap:6px;}
+.chat-sidebar-actions button{font-size:12.5px;padding:7px 10px;}
+.chat-conversation-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;margin-top:4px;}
+.chat-conversation-item{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:10px;cursor:pointer;font-size:12.5px;color:var(--text);}
+.chat-conversation-item:hover{background:var(--bg);}
+.chat-conversation-item.active{background:color-mix(in srgb, var(--primary) 16%, white);font-weight:700;}
+.chat-conversation-item .chat-conversation-icon{width:26px;height:26px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:0 0 auto;}
+.chat-conversation-item .chat-conversation-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.chat-main{flex:1;min-width:0;display:flex;flex-direction:column;}
+.chat-main-header{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.chat-main-header h3{margin:0;}
+.chat-main-header p{margin:2px 0 0;}
+.chat-main .chat-wrap{margin-top:10px;}
+@media (max-width:900px){
+  .chat-layout{flex-direction:column;}
+  .chat-sidebar{width:auto;height:180px;min-height:140px;}
+}
+
+/* Mensagem de "chamar atenção" (nudge) -- vira uma linha centralizada,
+   estilo aviso de sistema, não uma bolha normal. */
+.chat-nudge-msg{align-self:center;max-width:90%;text-align:center;font-size:12px;font-weight:700;color:#B4590C;background:#FFF1DE;border:1px solid #F5A623;border-radius:999px;padding:6px 14px;margin:2px 0;}
+@keyframes chatNudgeShake{
+  0%,100%{transform:translateX(0);}
+  15%{transform:translateX(-6px);}
+  30%{transform:translateX(6px);}
+  45%{transform:translateX(-6px);}
+  60%{transform:translateX(6px);}
+  75%{transform:translateX(-3px);}
+  90%{transform:translateX(3px);}
+}
+.chat-nudge-shake{animation:chatNudgeShake .6s ease-in-out;}
+
+/* Menção (@Fulano) dentro do texto da mensagem. */
+.chat-mention{background:color-mix(in srgb, var(--primary) 22%, white);border-radius:5px;padding:0 3px;font-weight:700;}
+
+.chat-mention-suggest{position:absolute;bottom:60px;left:12px;right:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.18);max-height:160px;overflow-y:auto;z-index:5;}
+.chat-mention-suggest-item{padding:8px 12px;font-size:12.5px;cursor:pointer;}
+.chat-mention-suggest-item:hover, .chat-mention-suggest-item.active{background:var(--bg);}
 
 /* ---------- Responsividade geral (20ª rodada) ----------
    Pedido da Raquel: "Deixe responsivo para qualquer tela". Antes só havia
@@ -703,6 +761,24 @@ button{font-weight:700;}
   .chat-widget{right:10px;left:10px;width:auto;bottom:78px;height:min(460px, calc(100vh - 150px));}
   .chat-widget-toggle{right:14px;bottom:14px;}
   .chat-widget-toast{right:10px;left:10px;width:auto;bottom:82px;}
+}
+
+/* Notificação de aprovação de post (40ª rodada) -- ver index.html
+   #approvalToast. Mesmo padrão visual do aviso de chat, mas em verde
+   (aprovado) no canto superior direito, pra não competir com o próprio
+   chat (que fica embaixo). */
+.approval-toast{
+  position:fixed;right:22px;top:78px;z-index:70;
+  width:300px;max-width:calc(100vw - 32px);
+  background:var(--card);border:1px solid #2f9e5b;border-left:5px solid #2f9e5b;border-radius:12px;
+  box-shadow:0 10px 26px rgba(0,0,0,0.25);padding:12px 14px;
+  display:flex;gap:10px;align-items:center;
+  animation:chatToastIn .18s ease-out;
+}
+.approval-toast-icon{font-size:20px;line-height:1;color:#2f9e5b;}
+.approval-toast-text{font-size:13px;color:var(--text);font-weight:600;}
+@media (max-width:600px){
+  .approval-toast{right:10px;left:10px;width:auto;top:70px;}
 }
 
 /* ---------- Demandas: reordenar cards ao arrastar + ordenar por data (21ª rodada) ---------- */

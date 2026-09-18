@@ -32,8 +32,20 @@ function cascadeCompleteDemandas(sourceSocialPostId, excludeId, req) {
     // lastCompletedAt (36ª rodada) -- mesma marcação de "quando foi
     // concluída de verdade" já feita no PUT /:id manual (ver
     // routes/demandas.js), aplicada aqui também pra quem é completada
-    // automaticamente pela cascata.
-    db.get('demandas').find({ id: d.id }).assign({ status: 'concluida', updatedAt: now, lastCompletedAt: now }).write();
+    // automaticamente pela cascata. lastCompletedDueDate (39ª rodada) --
+    // mesma lógica, com a data de entrega que valia na hora (essas
+    // demandas-irmãs não passam pelo bloco de recorrência do PUT manual,
+    // então a `dueDate` atual do card já é a que valia na conclusão).
+    // archived (40ª rodada, pedido da Raquel: "para todos que estavam no
+    // card") -- concluir automaticamente por cascata também arquiva, igual
+    // à demanda que disparou a conclusão.
+    db.get('demandas').find({ id: d.id }).assign({
+      status: 'concluida',
+      updatedAt: now,
+      lastCompletedAt: now,
+      lastCompletedDueDate: d.dueDate || null,
+      archived: true
+    }).write();
     if (req && req.user) {
       logAudit({
         user: req.user,

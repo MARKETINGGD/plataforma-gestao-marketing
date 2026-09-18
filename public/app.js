@@ -775,6 +775,7 @@
         if (b.dataset.view === 'influencers') loadInfluencers();
         if (b.dataset.view === 'chat') { loadChatConversations(); loadChat(); }
         if (b.dataset.view === 'feiras') loadFeiras();
+        if (b.dataset.view === 'campanha-cooperada') loadCampanhasCooperadas();
       }
     };
   });
@@ -5059,6 +5060,183 @@
     }
   };
 
+  // ---------- Campanha Cooperada (43ª rodada) ----------
+  // Pedido da Raquel: "adicione no menu o botao campanha cooperada, logo
+  // abaixo de brindes" — cliente, representante, produto, quantidade,
+  // motivo, orçamento (documento anexo), aprovado, data do pedido, data da
+  // entrega, cobrança enviada e finalizado. Separado por marca (De Bacco /
+  // GhelPlus, confirmado com a Raquel), mesmo padrão de tela/permissão já
+  // usado em Feiras/Produtos (botão só na barra lateral, sem submenu, com
+  // abas de marca dentro da própria tela). O fluxo de criar → reabrir em
+  // modo edição pra liberar o upload do orçamento é o mesmo já usado em
+  // Lançamentos de Produtos (39ª rodada).
+  let campanhaCooperadaBrandFilter = 'todos';
+  let campanhaCooperadaItems = [];
+  let editingCampanhaCooperadaId = null;
+
+  function canEditCampanhaCooperada() {
+    if (!currentUser) return false;
+    if (currentUser.isSuperAdmin) return true;
+    const access = (currentUser.permissions || {}).campanhaCooperada || 'none';
+    return access === 'editor' || access === 'admin';
+  }
+
+  async function loadCampanhasCooperadas() {
+    const data = await api('/api/campanha-cooperada');
+    campanhaCooperadaItems = data.items || [];
+    renderCampanhasCooperadas();
+  }
+
+  function simNaoBadge(value) {
+    return value ? '<span class="badge badge-success">Sim</span>' : '<span class="badge">Não</span>';
+  }
+
+  function renderCampanhasCooperadas() {
+    $('#campanhaCooperadaNewBtn').hidden = !canEditCampanhaCooperada();
+    const rows = campanhaCooperadaItems.filter((it) => campanhaCooperadaBrandFilter === 'todos' || it.brand === campanhaCooperadaBrandFilter);
+    const body = $('#campanhaCooperadaBody');
+    $('#campanhaCooperadaEmpty').hidden = rows.length > 0;
+    const editable = canEditCampanhaCooperada();
+    body.innerHTML = rows.map((it) => `
+      <tr>
+        <td>${BRAND_LABEL[it.brand] || it.brand}</td>
+        <td>${it.cliente}</td>
+        <td>${it.representante || '—'}</td>
+        <td>${it.produto || '—'}</td>
+        <td>${it.quantidade != null ? it.quantidade : '—'}</td>
+        <td>${it.dataPedido ? fmtDate(it.dataPedido) : '—'}</td>
+        <td>${it.dataEntrega ? fmtDate(it.dataEntrega) : '—'}</td>
+        <td>${simNaoBadge(it.aprovado)}</td>
+        <td>${simNaoBadge(it.cobrancaEnviada)}</td>
+        <td>${simNaoBadge(it.finalizado)}</td>
+        <td>${it.orcamento ? `<a href="${it.orcamento.url}" target="_blank" rel="noopener">${it.orcamento.name}</a>` : '—'}</td>
+        <td>${editable ? `<button class="btn-link" data-edit-campanha-cooperada="${it.id}">Editar</button> <button class="btn-link danger" data-del-campanha-cooperada="${it.id}">Excluir</button>` : ''}</td>
+      </tr>
+    `).join('');
+    $all('[data-edit-campanha-cooperada]').forEach((b) => {
+      b.onclick = () => openCampanhaCooperadaForm(campanhaCooperadaItems.find((it) => it.id === b.dataset.editCampanhaCooperada));
+    });
+    $all('[data-del-campanha-cooperada]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir esta campanha cooperada?')) return;
+        await api('/api/campanha-cooperada/' + b.dataset.delCampanhaCooperada, { method: 'DELETE' });
+        await loadCampanhasCooperadas();
+      };
+    });
+  }
+
+  function renderCampanhaCooperadaOrcamento(item) {
+    const wrap = $('#campanhaCooperadaOrcamento');
+    wrap.innerHTML = '';
+    if (item && item.orcamento) {
+      const row = document.createElement('div');
+      row.className = 'file-item';
+      row.innerHTML = `<a href="${item.orcamento.url}" target="_blank" rel="noopener">${item.orcamento.name}</a> <span class="muted">(${fmtBytes(item.orcamento.size)})</span>`;
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '✕';
+      delBtn.className = 'btn-link';
+      delBtn.onclick = async () => {
+        await api(`/api/campanha-cooperada/${item.id}/orcamento`, { method: 'DELETE' });
+        const data = await api('/api/campanha-cooperada');
+        campanhaCooperadaItems = data.items || [];
+        renderCampanhaCooperadaOrcamento(campanhaCooperadaItems.find((it) => it.id === item.id));
+        renderCampanhasCooperadas();
+      };
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    } else {
+      wrap.innerHTML = '<p class="muted" style="margin:4px 0;">Nenhum orçamento anexado ainda.</p>';
+    }
+  }
+
+  function openCampanhaCooperadaForm(item) {
+    editingCampanhaCooperadaId = item ? item.id : null;
+    $('#campanhaCooperadaFormTitle').textContent = item ? 'Editar campanha cooperada' : 'Nova campanha cooperada';
+    $('#campanhaCooperadaFormBrand').value = item ? item.brand : (campanhaCooperadaBrandFilter !== 'todos' ? campanhaCooperadaBrandFilter : 'debacco');
+    $('#campanhaCooperadaFormCliente').value = item ? item.cliente : '';
+    $('#campanhaCooperadaFormRepresentante').value = item ? (item.representante || '') : '';
+    $('#campanhaCooperadaFormProduto').value = item ? (item.produto || '') : '';
+    $('#campanhaCooperadaFormQuantidade').value = item && item.quantidade != null ? item.quantidade : '';
+    $('#campanhaCooperadaFormMotivo').value = item ? (item.motivo || '') : '';
+    $('#campanhaCooperadaFormDataPedido').value = item ? (item.dataPedido || '') : '';
+    $('#campanhaCooperadaFormDataEntrega').value = item ? (item.dataEntrega || '') : '';
+    $('#campanhaCooperadaFormAprovado').value = item && item.aprovado ? 'true' : 'false';
+    $('#campanhaCooperadaFormCobranca').value = item && item.cobrancaEnviada ? 'true' : 'false';
+    $('#campanhaCooperadaFormFinalizado').value = item && item.finalizado ? 'true' : 'false';
+    $('#campanhaCooperadaFormError').hidden = true;
+    // Upload do orçamento só depois de a campanha existir (precisa do id na
+    // URL) -- mesmo comportamento já usado em Lançamentos de Produtos.
+    $('#campanhaCooperadaFileInput').value = '';
+    $('#campanhaCooperadaFileInput').style.display = item ? '' : 'none';
+    renderCampanhaCooperadaOrcamento(item);
+    $('#campanhaCooperadaFormWrap').hidden = false;
+  }
+  $('#campanhaCooperadaNewBtn').onclick = () => openCampanhaCooperadaForm(null);
+  $('#campanhaCooperadaFormCancel').onclick = () => { $('#campanhaCooperadaFormWrap').hidden = true; };
+  $('#campanhaCooperadaFileInput').onchange = async () => {
+    const file = $('#campanhaCooperadaFileInput').files[0];
+    if (!file || !editingCampanhaCooperadaId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/campanha-cooperada/${editingCampanhaCooperadaId}/orcamento`, { method: 'POST', body: fd });
+      $('#campanhaCooperadaFileInput').value = '';
+      const data = await api('/api/campanha-cooperada');
+      campanhaCooperadaItems = data.items || [];
+      renderCampanhaCooperadaOrcamento(campanhaCooperadaItems.find((it) => it.id === editingCampanhaCooperadaId));
+      renderCampanhasCooperadas();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  $('#campanhaCooperadaFormSave').onclick = async () => {
+    const payload = {
+      brand: $('#campanhaCooperadaFormBrand').value,
+      cliente: $('#campanhaCooperadaFormCliente').value.trim(),
+      representante: $('#campanhaCooperadaFormRepresentante').value.trim(),
+      produto: $('#campanhaCooperadaFormProduto').value.trim(),
+      quantidade: $('#campanhaCooperadaFormQuantidade').value === '' ? null : Number($('#campanhaCooperadaFormQuantidade').value),
+      motivo: $('#campanhaCooperadaFormMotivo').value.trim(),
+      dataPedido: $('#campanhaCooperadaFormDataPedido').value || null,
+      dataEntrega: $('#campanhaCooperadaFormDataEntrega').value || null,
+      aprovado: $('#campanhaCooperadaFormAprovado').value === 'true',
+      cobrancaEnviada: $('#campanhaCooperadaFormCobranca').value === 'true',
+      finalizado: $('#campanhaCooperadaFormFinalizado').value === 'true'
+    };
+    if (!payload.cliente) {
+      $('#campanhaCooperadaFormError').textContent = 'Informe o cliente.';
+      $('#campanhaCooperadaFormError').hidden = false;
+      return;
+    }
+    try {
+      let savedId = editingCampanhaCooperadaId;
+      if (editingCampanhaCooperadaId) {
+        await api('/api/campanha-cooperada/' + editingCampanhaCooperadaId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        const created = await api('/api/campanha-cooperada', { method: 'POST', body: JSON.stringify(payload) });
+        savedId = created.item.id;
+      }
+      await loadCampanhasCooperadas();
+      // Se acabou de criar, reabre já em modo edição pra liberar o upload
+      // do orçamento -- mesmo comportamento já usado em Lançamentos.
+      if (!editingCampanhaCooperadaId && savedId) {
+        openCampanhaCooperadaForm(campanhaCooperadaItems.find((it) => it.id === savedId));
+      } else {
+        $('#campanhaCooperadaFormWrap').hidden = true;
+      }
+    } catch (e) {
+      $('#campanhaCooperadaFormError').textContent = e.message;
+      $('#campanhaCooperadaFormError').hidden = false;
+    }
+  };
+  $all('.tab-btn[data-campanha-cooperada-brand]').forEach((b) => {
+    b.onclick = () => {
+      campanhaCooperadaBrandFilter = b.dataset.campanhaCooperadaBrand;
+      $all('.tab-btn[data-campanha-cooperada-brand]').forEach((x) => x.classList.toggle('active', x === b));
+      renderCampanhasCooperadas();
+    };
+  });
+
   // ---------- Produtos (33ª rodada) ----------
   // "Análise de Concorrência" e "Lançamentos de Produtos" -- mesmo padrão
   // de permissão (produtos = editor/admin) já usado em Brindes, e mesmo
@@ -5753,7 +5931,7 @@
   function labelForKey(key) {
     return {
       trafegoPago: 'Tráfego Pago', acoesSazonais: 'Ações Sazonais', redesSociais: 'Redes Sociais', budget: 'Orçamento',
-      brindes: 'Brindes (editar)', produtos: 'Produtos (editar)', expositores: 'Expositores (editar)'
+      brindes: 'Brindes (editar)', produtos: 'Produtos (editar)', expositores: 'Expositores (editar)', campanhaCooperada: 'Campanha Cooperada (editar)'
     }[key] || key;
   }
 

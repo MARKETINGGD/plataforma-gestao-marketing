@@ -115,6 +115,10 @@
             <button class="navlink navlink-sub" id="navBrindesRetiradas" data-view="brindes-retiradas">Retiradas Internas</button>
           </div>
         </div>
+        <!-- 43ª rodada, pedido da Raquel: "adicione no menu o botao campanha
+             cooperada, logo abaixo de brindes" -- botão só, sem submenu
+             (igual a Feiras), com o filtro de marca dentro da própria tela. -->
+        <button class="navlink" id="navCampanhaCooperada" data-view="campanha-cooperada">Campanha Cooperada</button>
         <div class="navlink-group" id="navBudgetGroup">
           <button class="navlink navlink-parent" id="navBudgetParent" type="button">Budget</button>
           <div class="navlink-submenu" id="navBudgetSubmenu" hidden>
@@ -1158,6 +1162,83 @@
         <p class="muted" id="retiradasEmpty" hidden>Nenhuma retirada registrada ainda pra essa marca.</p>
       </section>
 
+      <!-- Campanha Cooperada (43ª rodada, pedido da Raquel) -->
+      <section id="view-campanha-cooperada" class="view" hidden>
+        <h2>Campanha Cooperada</h2>
+        <p class="muted">Cadastro de campanhas cooperadas por cliente/representante, com orçamento anexo e acompanhamento de aprovação, entrega, cobrança e finalização.</p>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-campanha-cooperada-brand="todos">Todas as marcas</button>
+          <button class="tab-btn" data-campanha-cooperada-brand="debacco">De Bacco</button>
+          <button class="tab-btn" data-campanha-cooperada-brand="ghelplus">GhelPlus</button>
+        </div>
+        <div class="view-toolbar-actions" style="margin:12px 0;">
+          <button class="btn-primary" id="campanhaCooperadaNewBtn">+ Nova campanha cooperada</button>
+        </div>
+
+        <div id="campanhaCooperadaFormWrap" class="form-card" hidden>
+          <h3 id="campanhaCooperadaFormTitle">Nova campanha cooperada</h3>
+          <div class="form-row">
+            <div><label>Marca</label>
+              <select id="campanhaCooperadaFormBrand">
+                <option value="debacco">De Bacco</option>
+                <option value="ghelplus">GhelPlus</option>
+              </select>
+            </div>
+            <div><label>Cliente</label><input id="campanhaCooperadaFormCliente" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Representante</label><input id="campanhaCooperadaFormRepresentante" type="text"></div>
+            <div><label>Produto</label><input id="campanhaCooperadaFormProduto" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Quantidade</label><input id="campanhaCooperadaFormQuantidade" type="number" min="0" step="1"></div>
+            <div><label>Motivo</label><input id="campanhaCooperadaFormMotivo" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Data do pedido</label><input id="campanhaCooperadaFormDataPedido" type="date"></div>
+            <div><label>Data da entrega</label><input id="campanhaCooperadaFormDataEntrega" type="date"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Aprovado</label>
+              <select id="campanhaCooperadaFormAprovado">
+                <option value="false">Não</option>
+                <option value="true">Sim</option>
+              </select>
+            </div>
+            <div><label>Cobrança enviada</label>
+              <select id="campanhaCooperadaFormCobranca">
+                <option value="false">Não</option>
+                <option value="true">Sim</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div><label>Finalizado</label>
+              <select id="campanhaCooperadaFormFinalizado">
+                <option value="false">Não</option>
+                <option value="true">Sim</option>
+              </select>
+            </div>
+            <div></div>
+          </div>
+          <label>Orçamento (documento)</label>
+          <div id="campanhaCooperadaOrcamento"></div>
+          <input type="file" id="campanhaCooperadaFileInput">
+          <div id="campanhaCooperadaFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="campanhaCooperadaFormSave" class="btn-primary">Salvar</button>
+            <button id="campanhaCooperadaFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead><tr><th>Marca</th><th>Cliente</th><th>Representante</th><th>Produto</th><th>Qtd.</th><th>Data pedido</th><th>Data entrega</th><th>Aprovado</th><th>Cobrança</th><th>Finalizado</th><th>Orçamento</th><th></th></tr></thead>
+          <tbody id="campanhaCooperadaBody"></tbody>
+        </table>
+        <p class="muted" id="campanhaCooperadaEmpty" hidden>Nenhuma campanha cooperada cadastrada ainda.</p>
+      </section>
+
       <section id="view-cronograma" class="view" hidden>
         <h2>Cronograma de Marketing</h2>
         <p class="muted">Visão visual de tudo que está no Agendamento para Redes Sociais — por calendário ou como vai aparecer no feed.</p>
@@ -1393,6 +1474,7 @@
             <div class="perm-row"><span>Brindes</span><select data-perm="brindes"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Produtos</span><select data-perm="produtos"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Expositores</span><select data-perm="expositores"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+            <div class="perm-row"><span>Campanha Cooperada</span><select data-perm="campanhaCooperada"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
           </div>
 
           <div id="userFormError" class="error" hidden></div>

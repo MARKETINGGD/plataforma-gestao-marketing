@@ -29,6 +29,8 @@ app.use('/api/produtos', require('./routes/produtos'));
 app.use('/api/feiras', require('./routes/feiras'));
 app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/chat', require('./routes/chat'));
+// Campanha Cooperada (43ª rodada) — ver routes/campanhaCooperada.js.
+app.use('/api/campanha-cooperada', require('./routes/campanhaCooperada'));
 
 // Importação automática (só roda uma vez) do orçamento 2026 real da
 // GhelPlus e da De Bacco, vindo das planilhas oficiais — agora linha a

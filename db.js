@@ -66,7 +66,12 @@ db.defaults({
   // Feiras (41ª rodada, pedido da Raquel) — cada feira (FEICON, ExpoRevestir
   // etc.) é uma edição por marca/ano/fluxo, com uma lista de itens (nome,
   // quantidade, fornecedor, valor mês a mês). Ver routes/feiras.js.
-  feiras: []
+  feiras: [],
+  // Campanha Cooperada (43ª rodada, pedido da Raquel: botão novo logo
+  // abaixo de Brindes) — cada registro é uma campanha cooperada com um
+  // cliente/representante, separada por marca (De Bacco / GhelPlus), com
+  // um documento de orçamento anexo. Ver routes/campanhaCooperada.js.
+  campanhasCooperadas: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

@@ -46,9 +46,12 @@ const uploadAvatar = multer({
 // quem pode EDITAR em cada uma. Produtos e Expositores ainda são só
 // placeholders na tela, mas o campo já fica pronto no cadastro de usuário
 // pra quando ganharem conteúdo de verdade.
-const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', produtos: 'none', expositores: 'none' };
-const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', produtos: 'admin', expositores: 'admin' };
-const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'produtos', 'expositores'];
+const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', produtos: 'none', expositores: 'none', campanhaCooperada: 'none' };
+const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', produtos: 'admin', expositores: 'admin', campanhaCooperada: 'admin' };
+// 43ª rodada, pedido da Raquel: nova chave 'campanhaCooperada' — mesmo
+// padrão de Brindes/Produtos/Expositores (view aberta a todo mundo, só
+// controla quem pode EDITAR).
+const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'produtos', 'expositores', 'campanhaCooperada'];
 
 // Cargo (função) da pessoa na equipe — usado pro Cronograma de Marketing:
 // a aba Calendário fica restrita a todo mundo, exceto quem tem cargo

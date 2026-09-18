@@ -122,6 +122,10 @@
             <button class="navlink navlink-sub" id="navBudgetGhelplus" data-view="budget" data-brand="ghelplus">GhelPlus</button>
           </div>
         </div>
+        <!-- 41ª rodada, pedido da Raquel: botão de menu novo pras duas
+             marcas, com o filtro de marca dentro da própria tela (mesmo
+             padrão já usado em Análise de Concorrência). -->
+        <button class="navlink" id="navFeiras" data-view="feiras">Feiras</button>
         <button class="navlink" id="navUsers" data-view="users" hidden>Usuários</button>
       </nav>
       <div class="sidebar-footer">
@@ -938,6 +942,76 @@
         </div>
       </section>
 
+      <!-- Feiras (41ª rodada, pedido da Raquel): cada feira (FEICON,
+           ExpoRevestir etc.) é uma edição por marca/ano/fluxo — reaproveita
+           os mesmos fluxos do Budget — com uma lista de itens (nome,
+           quantidade, fornecedor, valor mês a mês), igual à planilha
+           oficial. Item lançado aqui cria lançamento automático no Budget
+           (ver routes/feiras.js); itens importados do histórico (2025/2026)
+           não duplicam, porque já estão no Budget. -->
+      <section id="view-feiras" class="view" hidden>
+        <h2>Feiras</h2>
+        <p class="muted">Cadastro por feira/edição (ex.: FEICON 2026), com os itens mês a mês — igual à planilha oficial. Todo item novo lançado aqui entra automaticamente no Budget, no fluxo escolhido.</p>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-feiras-brand="todos">Todas as marcas</button>
+          <button class="tab-btn" data-feiras-brand="debacco">De Bacco</button>
+          <button class="tab-btn" data-feiras-brand="ghelplus">GhelPlus</button>
+        </div>
+
+        <div class="toolbar">
+          <button class="btn-primary" id="feiraNewBtn" hidden>+ Nova feira</button>
+        </div>
+
+        <div id="feiraFormWrap" class="form-card" hidden>
+          <h3 id="feiraFormTitle">Nova feira</h3>
+          <input type="hidden" id="feiraFormId">
+          <div class="form-row">
+            <div><label>Marca</label>
+              <select id="feiraFormBrand">
+                <option value="debacco">De Bacco</option>
+                <option value="ghelplus">GhelPlus</option>
+              </select>
+            </div>
+            <div><label>Nome da feira</label><input id="feiraFormNome" type="text" placeholder="Ex.: FEICON"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Ano</label><input id="feiraFormAno" type="number" placeholder="2027"></div>
+            <div><label>Fluxo (Budget)</label><select id="feiraFormFluxo"></select></div>
+          </div>
+          <div id="feiraFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="feiraFormSave" class="btn-primary">Salvar</button>
+            <button id="feiraFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <div id="feiraItemFormWrap" class="form-card form-card-wide" hidden>
+          <h3 id="feiraItemFormTitle">Novo item</h3>
+          <input type="hidden" id="feiraItemFormFeiraId">
+          <input type="hidden" id="feiraItemFormItemId">
+          <div class="form-row">
+            <div><label>Item</label><input id="feiraItemFormNome" type="text"></div>
+            <div><label>Fornecedor</label><input id="feiraItemFormFornecedor" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Quantidade</label><input id="feiraItemFormQuantidade" type="number" step="1"></div>
+            <div><label>Observações</label><input id="feiraItemFormObservacoes" type="text"></div>
+          </div>
+          <label>Valor por mês (R$)</label>
+          <div class="feira-item-months" id="feiraItemFormMonths"></div>
+          <p class="muted">Total: <span id="feiraItemFormTotal">R$ 0,00</span></p>
+          <div id="feiraItemFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="feiraItemFormSave" class="btn-primary">Salvar item</button>
+            <button id="feiraItemFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <div id="feirasList"></div>
+        <p class="muted" id="feirasEmpty" hidden>Nenhuma feira cadastrada ainda.</p>
+      </section>
+
       <section id="view-brindes" class="view" hidden>
         <h2>Brindes</h2>
         <div class="tabs">
@@ -1149,6 +1223,10 @@
                 </select>
               </div>
               <div><label>Concorrente</label><input id="concorrenciaFormConcorrente" type="text"></div>
+            </div>
+            <div class="form-row">
+              <div><label>Título da análise</label><input id="concorrenciaFormTitulo" type="text" placeholder="Ex.: Torneiras cozinha - set/2026"></div>
+              <div><label>Data</label><input id="concorrenciaFormData" type="date"></div>
             </div>
 
             <div class="compare-row">

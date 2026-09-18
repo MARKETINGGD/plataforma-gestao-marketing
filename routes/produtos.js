@@ -70,14 +70,20 @@ router.get('/concorrencia', requireAuth, (req, res) => {
 
 router.post('/concorrencia', requireAuth, requireProdutosEdit, (req, res) => {
   const {
-    brand, concorrente, produto, preco, diferenciais, link, observacoes,
+    brand, titulo, data, concorrente, produto, preco, diferenciais, link, observacoes,
     nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes
   } = req.body || {};
   const nome = str(concorrente);
   if (!nome) return res.status(400).json({ error: 'Informe o nome do concorrente.' });
+  const tituloTrim = str(titulo);
+  if (!tituloTrim) return res.status(400).json({ error: 'Informe o título da análise.' });
+  if (!data) return res.status(400).json({ error: 'Informe a data da análise.' });
   const item = {
     id: nanoid(),
     brand: validBrand(brand),
+    // ---- identificação da análise (41ª rodada) ----
+    titulo: tituloTrim,
+    data: data || null,
     // ---- lado do concorrente ----
     concorrente: nome,
     produto: str(produto),
@@ -104,11 +110,13 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
   const existing = db.get('concorrencia').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
   const {
-    brand, concorrente, produto, preco, diferenciais, link, observacoes,
+    brand, titulo, data, concorrente, produto, preco, diferenciais, link, observacoes,
     nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes
   } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (brand !== undefined) updates.brand = validBrand(brand);
+  if (titulo !== undefined) updates.titulo = str(titulo);
+  if (data !== undefined) updates.data = data || null;
   if (concorrente !== undefined) updates.concorrente = str(concorrente);
   if (produto !== undefined) updates.produto = str(produto);
   if (preco !== undefined) updates.preco = priceOrNull(preco);

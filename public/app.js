@@ -764,6 +764,7 @@
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
         if (b.dataset.view === 'chat') { loadChatConversations(); loadChat(); }
+        if (b.dataset.view === 'feiras') loadFeiras();
       }
     };
   });
@@ -4912,7 +4913,10 @@
     list.innerHTML = rows.map((it) => `
       <div class="compare-card">
         <div class="compare-card-head">
-          <h4>${BRAND_LABEL[it.brand] || it.brand} · ${it.concorrente}</h4>
+          <div>
+            <h4>${it.titulo ? escapeHtml(it.titulo) : (BRAND_LABEL[it.brand] || it.brand) + ' · ' + it.concorrente}</h4>
+            <div class="compare-card-meta">${BRAND_LABEL[it.brand] || it.brand} · ${it.concorrente}${it.data ? ' · ' + fmtDate(it.data) : ''}</div>
+          </div>
           ${canEditProdutos() ? `<span><button class="btn-link" data-edit-concorrencia="${it.id}">Editar</button> <button class="btn-link danger" data-del-concorrencia="${it.id}">Excluir</button></span>` : ''}
         </div>
         <div class="compare-card-body">
@@ -4952,6 +4956,8 @@
     editingConcorrenciaId = item ? item.id : null;
     $('#concorrenciaFormTitle').textContent = item ? 'Editar análise' : 'Nova análise';
     $('#concorrenciaFormBrand').value = item ? item.brand : 'debacco';
+    $('#concorrenciaFormTitulo').value = item ? (item.titulo || '') : '';
+    $('#concorrenciaFormData').value = item ? (item.data || '') : '';
     $('#concorrenciaFormConcorrente').value = item ? item.concorrente : '';
     $('#concorrenciaFormProduto').value = item ? (item.produto || '') : '';
     $('#concorrenciaFormPreco').value = item && item.preco !== null && item.preco !== undefined ? item.preco : '';
@@ -4971,6 +4977,8 @@
   $('#concorrenciaFormSave').onclick = async () => {
     const payload = {
       brand: $('#concorrenciaFormBrand').value,
+      titulo: $('#concorrenciaFormTitulo').value.trim(),
+      data: $('#concorrenciaFormData').value || null,
       concorrente: $('#concorrenciaFormConcorrente').value.trim(),
       produto: $('#concorrenciaFormProduto').value.trim(),
       preco: $('#concorrenciaFormPreco').value || null,
@@ -4983,6 +4991,16 @@
       nossoLink: $('#concorrenciaFormNossoLink').value.trim(),
       nossasObservacoes: $('#concorrenciaFormNossasObservacoes').value.trim()
     };
+    if (!payload.titulo) {
+      $('#concorrenciaFormError').textContent = 'Informe o título da análise.';
+      $('#concorrenciaFormError').hidden = false;
+      return;
+    }
+    if (!payload.data) {
+      $('#concorrenciaFormError').textContent = 'Informe a data da análise.';
+      $('#concorrenciaFormError').hidden = false;
+      return;
+    }
     if (!payload.concorrente) {
       $('#concorrenciaFormError').textContent = 'Informe o nome do concorrente.';
       $('#concorrenciaFormError').hidden = false;
@@ -5164,6 +5182,242 @@
     };
   });
   $('#homeGoLancamentos').onclick = () => { $('#navProdutosLancamentos').click(); };
+
+  // ---------- Feiras (41ª rodada) ----------
+  // Mesma permissão do Budget (`budgetAccess`, carregado em loadHome()) —
+  // uma feira só existe dentro de um fluxo do orçamento, então quem edita
+  // o Budget edita Feiras.
+  const MESES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  let feirasItems = [];
+  let feirasBrandFilter = 'todos';
+  let feirasFluxosCache = {};
+  let editingFeiraId = null;
+  let editingFeiraItemFeiraId = null;
+  let editingFeiraItemId = null;
+  const feiraCardsOpen = new Set();
+
+  function canEditFeiras() {
+    return budgetAccess === 'editor' || budgetAccess === 'admin';
+  }
+
+  async function loadFeiras() {
+    try {
+      const data = await api('/api/feiras');
+      feirasItems = data.feiras || [];
+      renderFeiras();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function feirasFluxosFor(brand) {
+    if (feirasFluxosCache[brand]) return feirasFluxosCache[brand];
+    const data = await api('/api/feiras/meta?brand=' + brand);
+    feirasFluxosCache[brand] = data.fluxos || [];
+    return feirasFluxosCache[brand];
+  }
+
+  function feiraItemTotal(valores) {
+    return (valores || []).reduce((s, v) => s + (Number(v) || 0), 0);
+  }
+
+  function renderFeiras() {
+    $('#feiraNewBtn').hidden = !canEditFeiras();
+    const rows = feirasItems
+      .filter((f) => feirasBrandFilter === 'todos' || f.brand === feirasBrandFilter)
+      .slice()
+      .sort((a, b) => (b.ano - a.ano) || a.nome.localeCompare(b.nome));
+    const list = $('#feirasList');
+    $('#feirasEmpty').hidden = rows.length > 0;
+    list.innerHTML = rows.map((f) => {
+      const total = (f.itens || []).reduce((s, it) => s + (it.total !== null && it.total !== undefined ? Number(it.total) : feiraItemTotal(it.valores)), 0);
+      const open = feiraCardsOpen.has(f.id);
+      const itensRows = (f.itens || []).slice().sort((a, b) => a.nome.localeCompare(b.nome)).map((it) => {
+        const itTotal = it.total !== null && it.total !== undefined ? Number(it.total) : feiraItemTotal(it.valores);
+        return `
+          <tr>
+            <td>${escapeHtml(it.nome)}${it.origem === 'import' ? '<span class="feira-item-import-tag">importado</span>' : ''}</td>
+            <td>${it.fornecedor ? escapeHtml(it.fornecedor) : '—'}</td>
+            <td>${it.quantidade !== null && it.quantidade !== undefined ? it.quantidade : '—'}</td>
+            <td>${fmtMoney(itTotal)}</td>
+            <td>${it.observacoes ? escapeHtml(it.observacoes) : '—'}</td>
+            <td>${canEditFeiras() ? `<button class="btn-link" data-edit-feira-item="${f.id}|${it.id}">Editar</button> <button class="btn-link danger" data-del-feira-item="${f.id}|${it.id}">Excluir</button>` : ''}</td>
+          </tr>`;
+      }).join('') || '<tr><td colspan="6" class="muted">Nenhum item lançado ainda.</td></tr>';
+      return `
+        <div class="feira-card">
+          <div class="feira-card-head">
+            <div>
+              <h3><button class="btn-link" data-toggle-feira="${f.id}">${open ? '▾' : '▸'} ${escapeHtml(f.nome)} ${f.ano}</button></h3>
+              <div class="feira-card-meta">${BRAND_LABEL[f.brand] || f.brand} · ${escapeHtml(f.fluxo)} · atualizado por ${escapeHtml(f.updatedBy || '—')}</div>
+            </div>
+            <div>
+              <span class="feira-card-total">${fmtMoney(total)}</span>
+              ${canEditFeiras() ? `<span> <button class="btn-link" data-edit-feira="${f.id}">Editar feira</button> <button class="btn-link" data-add-feira-item="${f.id}">+ Item</button> <button class="btn-link danger" data-del-feira="${f.id}">Excluir feira</button></span>` : ''}
+            </div>
+          </div>
+          ${open ? `
+          <table class="feira-items-table">
+            <thead><tr><th>Item</th><th>Fornecedor</th><th>Qtd.</th><th>Total</th><th>Observações</th><th></th></tr></thead>
+            <tbody>${itensRows}</tbody>
+          </table>` : ''}
+        </div>`;
+    }).join('');
+    $all('[data-toggle-feira]').forEach((b) => {
+      b.onclick = () => {
+        const id = b.dataset.toggleFeira;
+        if (feiraCardsOpen.has(id)) feiraCardsOpen.delete(id); else feiraCardsOpen.add(id);
+        renderFeiras();
+      };
+    });
+    $all('[data-edit-feira]').forEach((b) => {
+      b.onclick = () => openFeiraForm(feirasItems.find((f) => f.id === b.dataset.editFeira));
+    });
+    $all('[data-del-feira]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir esta feira? Os lançamentos que ela criou no Budget também serão removidos.')) return;
+        await api('/api/feiras/' + b.dataset.delFeira, { method: 'DELETE' });
+        await loadFeiras();
+      };
+    });
+    $all('[data-add-feira-item]').forEach((b) => {
+      b.onclick = () => openFeiraItemForm(b.dataset.addFeiraItem, null);
+    });
+    $all('[data-edit-feira-item]').forEach((b) => {
+      b.onclick = () => {
+        const [feiraId, itemId] = b.dataset.editFeiraItem.split('|');
+        const feira = feirasItems.find((f) => f.id === feiraId);
+        const item = feira && (feira.itens || []).find((it) => it.id === itemId);
+        openFeiraItemForm(feiraId, item);
+      };
+    });
+    $all('[data-del-feira-item]').forEach((b) => {
+      b.onclick = async () => {
+        const [feiraId, itemId] = b.dataset.delFeiraItem.split('|');
+        if (!confirm('Excluir este item? O lançamento correspondente no Budget também será removido (se houver).')) return;
+        await api(`/api/feiras/${feiraId}/itens/${itemId}`, { method: 'DELETE' });
+        await loadFeiras();
+      };
+    });
+  }
+
+  async function openFeiraForm(feira) {
+    editingFeiraId = feira ? feira.id : null;
+    $('#feiraFormTitle').textContent = feira ? 'Editar feira' : 'Nova feira';
+    $('#feiraFormBrand').value = feira ? feira.brand : 'debacco';
+    $('#feiraFormNome').value = feira ? feira.nome : '';
+    $('#feiraFormAno').value = feira ? feira.ano : new Date().getFullYear();
+    await fillFeiraFluxoSelect($('#feiraFormBrand').value, feira ? feira.fluxo : null);
+    $('#feiraFormBrand').onchange = () => fillFeiraFluxoSelect($('#feiraFormBrand').value, null);
+    $('#feiraFormError').hidden = true;
+    $('#feiraFormWrap').hidden = false;
+  }
+  async function fillFeiraFluxoSelect(brand, selected) {
+    const fluxos = await feirasFluxosFor(brand);
+    const sel = $('#feiraFormFluxo');
+    sel.innerHTML = fluxos.map((f) => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
+    if (selected) sel.value = selected;
+  }
+  $('#feiraNewBtn').onclick = () => openFeiraForm(null);
+  $('#feiraFormCancel').onclick = () => { $('#feiraFormWrap').hidden = true; };
+  $('#feiraFormSave').onclick = async () => {
+    const payload = {
+      brand: $('#feiraFormBrand').value,
+      nome: $('#feiraFormNome').value.trim(),
+      ano: $('#feiraFormAno').value,
+      fluxo: $('#feiraFormFluxo').value
+    };
+    if (!payload.nome) {
+      $('#feiraFormError').textContent = 'Informe o nome da feira.';
+      $('#feiraFormError').hidden = false;
+      return;
+    }
+    if (!payload.ano) {
+      $('#feiraFormError').textContent = 'Informe o ano da feira.';
+      $('#feiraFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingFeiraId) {
+        await api('/api/feiras/' + editingFeiraId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/feiras', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#feiraFormWrap').hidden = true;
+      await loadFeiras();
+    } catch (e) {
+      $('#feiraFormError').textContent = e.message;
+      $('#feiraFormError').hidden = false;
+    }
+  };
+
+  function renderFeiraItemMonths(valores) {
+    const wrap = $('#feiraItemFormMonths');
+    wrap.innerHTML = MESES_CURTO.map((m, idx) => `
+      <div><label>${m}</label><input type="number" step="0.01" data-month-input="${idx}" value="${valores && valores[idx] !== null && valores[idx] !== undefined ? valores[idx] : ''}"></div>
+    `).join('');
+    $all('[data-month-input]').forEach((inp) => { inp.oninput = updateFeiraItemFormTotal; });
+    updateFeiraItemFormTotal();
+  }
+  function readFeiraItemMonths() {
+    return MESES_CURTO.map((m, idx) => {
+      const v = $(`[data-month-input="${idx}"]`).value;
+      return v === '' ? null : Number(v);
+    });
+  }
+  function updateFeiraItemFormTotal() {
+    const total = feiraItemTotal(readFeiraItemMonths());
+    $('#feiraItemFormTotal').textContent = fmtMoney(total);
+  }
+
+  function openFeiraItemForm(feiraId, item) {
+    editingFeiraItemFeiraId = feiraId;
+    editingFeiraItemId = item ? item.id : null;
+    $('#feiraItemFormTitle').textContent = item ? 'Editar item' : 'Novo item';
+    $('#feiraItemFormFeiraId').value = feiraId;
+    $('#feiraItemFormItemId').value = item ? item.id : '';
+    $('#feiraItemFormNome').value = item ? item.nome : '';
+    $('#feiraItemFormFornecedor').value = item ? (item.fornecedor || '') : '';
+    $('#feiraItemFormQuantidade').value = item && item.quantidade !== null && item.quantidade !== undefined ? item.quantidade : '';
+    $('#feiraItemFormObservacoes').value = item ? (item.observacoes || '') : '';
+    renderFeiraItemMonths(item ? item.valores : null);
+    $('#feiraItemFormError').hidden = true;
+    $('#feiraItemFormWrap').hidden = false;
+  }
+  $('#feiraItemFormCancel').onclick = () => { $('#feiraItemFormWrap').hidden = true; };
+  $('#feiraItemFormSave').onclick = async () => {
+    const nome = $('#feiraItemFormNome').value.trim();
+    if (!nome) {
+      $('#feiraItemFormError').textContent = 'Informe o nome do item.';
+      $('#feiraItemFormError').hidden = false;
+      return;
+    }
+    const payload = {
+      nome,
+      fornecedor: $('#feiraItemFormFornecedor').value.trim(),
+      quantidade: $('#feiraItemFormQuantidade').value || null,
+      observacoes: $('#feiraItemFormObservacoes').value.trim(),
+      valores: readFeiraItemMonths()
+    };
+    try {
+      if (editingFeiraItemId) {
+        await api(`/api/feiras/${editingFeiraItemFeiraId}/itens/${editingFeiraItemId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api(`/api/feiras/${editingFeiraItemFeiraId}/itens`, { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#feiraItemFormWrap').hidden = true;
+      feiraCardsOpen.add(editingFeiraItemFeiraId);
+      await loadFeiras();
+    } catch (e) {
+      $('#feiraItemFormError').textContent = e.message;
+      $('#feiraItemFormError').hidden = false;
+    }
+  };
+  $all('.tab-btn[data-feiras-brand]').forEach((b) => {
+    b.onclick = () => {
+      feirasBrandFilter = b.dataset.feirasBrand;
+      $all('.tab-btn[data-feiras-brand]').forEach((x) => x.classList.toggle('active', x === b));
+      renderFeiras();
+    };
+  });
 
   // ---------- usuários (super admin) ----------
   async function loadUsers() {

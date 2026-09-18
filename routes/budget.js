@@ -4,6 +4,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName } = require('../utils/names');
+const { notifyAcoesSazonais } = require('../utils/acoesSazonaisSync');
 
 const router = express.Router();
 
@@ -82,6 +83,17 @@ function accessOf(req) {
   return user ? (user.permissions || {}).budget || 'none' : 'none';
 }
 
+// Usado por routes/feiras.js (41ª rodada) — só permite acesso a quem já tem
+// permissão de "budget", já que uma feira é sempre lançada dentro de um
+// fluxo do orçamento. Fica aqui pra não duplicar a checagem de permissão.
+function hasBudgetEdit(req) {
+  const access = accessOf(req);
+  return access === 'editor' || access === 'admin';
+}
+function hasBudgetView(req) {
+  return accessOf(req) !== 'none';
+}
+
 function requireBudgetView(req, res, next) {
   if (accessOf(req) === 'none') return res.status(403).json({ error: 'Você não tem acesso à aba de Orçamento.' });
   next();
@@ -132,6 +144,15 @@ router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
   };
   db.get('budgetEntries').push(entry).write();
   logAudit({ user: req.user, entityType: 'budgetEntry', entityId: entry.id, entityLabel: `${brand} · ${category} · ${month}/${year}`, action: 'create' });
+  // 41ª rodada, pedido da Raquel: "ao criar uma feira, showroom especial
+  // dentro do budget, se ele ainda não existir no dash, ele deve ser
+  // criado" — só dispara pra lançamento no fluxo de Showroom, com título
+  // da compra preenchido (usado como nome do lojista lá). Dedup por
+  // sourcePlataformaBudgetEntryId (ver routes/integrations.js do dashboard
+  // de Ações Sazonais). Best-effort, nunca falha o lançamento aqui.
+  if (entry.category.toLowerCase().startsWith('showroom') && entry.tituloCompra) {
+    notifyAcoesSazonais('sync-showroom', { brand: entry.brand, lojista: entry.tituloCompra, sourceBudgetEntryId: entry.id });
+  }
   res.json({ entry });
 });
 
@@ -166,5 +187,13 @@ router.delete('/:id', requireAuth, requireBudgetEdit, (req, res) => {
   logAudit({ user: req.user, entityType: 'budgetEntry', entityId: existing.id, entityLabel: `${existing.brand} · ${existing.category} · ${existing.month}/${existing.year}`, action: 'delete' });
   res.json({ ok: true });
 });
+
+// Exportado como propriedade do router (41ª rodada) pra routes/feiras.js
+// reaproveitar exatamente os mesmos fluxos e a mesma checagem de permissão
+// "budget" sem duplicar a lista (evita as duas listas ficarem
+// desatualizadas uma em relação à outra).
+router.FLUXOS_BY_BRAND = FLUXOS_BY_BRAND;
+router.hasBudgetEdit = hasBudgetEdit;
+router.hasBudgetView = hasBudgetView;
 
 module.exports = router;

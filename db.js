@@ -62,7 +62,11 @@ db.defaults({
   // listas independentes, por marca, com o mesmo padrão de permissão
   // "produtos" (editor/admin) já usado pra editar Brindes/Expositores.
   concorrencia: [],
-  lancamentosProdutos: []
+  lancamentosProdutos: [],
+  // Feiras (41ª rodada, pedido da Raquel) — cada feira (FEICON, ExpoRevestir
+  // etc.) é uma edição por marca/ano/fluxo, com uma lista de itens (nome,
+  // quantidade, fornecedor, valor mês a mês). Ver routes/feiras.js.
+  feiras: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

@@ -212,6 +212,22 @@ button{font-weight:700;}
 .compare-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;}
 .compare-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap;}
 .compare-card-head h4{margin:0;font-size:15px;}
+.compare-card-meta{font-size:12px;color:var(--muted,#888);margin-top:2px;}
+
+/* Feiras (41ª rodada) */
+.feira-item-months{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;}
+.feira-item-months div{display:flex;flex-direction:column;}
+.feira-item-months label{font-size:11px;color:var(--muted);margin:0 0 2px;}
+.feira-item-months input{width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:13px;}
+.feira-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px;}
+.feira-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px;}
+.feira-card-head h3{margin:0;font-size:16px;}
+.feira-card-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+.feira-card-total{font-size:14px;font-weight:600;}
+.feira-items-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px;}
+.feira-items-table th,.feira-items-table td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left;}
+.feira-item-import-tag{font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:1px 6px;margin-left:6px;}
+@media (max-width:700px){.feira-item-months{grid-template-columns:repeat(3,1fr);}}
 .compare-card-body{display:grid;grid-template-columns:1fr auto 1fr;gap:20px;}
 .compare-field{font-size:13px;margin-bottom:8px;}
 .compare-field b{display:block;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.02em;margin-bottom:2px;}

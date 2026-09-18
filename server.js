@@ -26,6 +26,8 @@ app.use('/api/brindes', require('./routes/brindes'));
 app.use('/api/retiradas-internas', require('./routes/retiradasInternas'));
 app.use('/api/influencers', require('./routes/influencers'));
 app.use('/api/produtos', require('./routes/produtos'));
+app.use('/api/feiras', require('./routes/feiras'));
+app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/chat', require('./routes/chat'));
 
 // Importação automática (só roda uma vez) do orçamento 2026 real da
@@ -37,6 +39,10 @@ app.use('/api/chat', require('./routes/chat'));
 // pra granular está documentada em cada um desses arquivos).
 require('./utils/seedBudget2026GhelplusGranular').seedBudget2026GhelplusGranular();
 require('./utils/seedBudget2026DebaccoGranular').seedBudget2026DebaccoGranular();
+// 41ª rodada: importação única do histórico de feiras (FEICON/GhelPlus
+// 2025+2026 — ver utils/seedFeirasGhelplus2025_2026.js; ExpoRevestir/De
+// Bacco entra numa próxima rodada, quando a Raquel mandar o link certo).
+require('./utils/seedFeirasGhelplus2025_2026').seedFeirasGhelplus2025_2026();
 // 34ª rodada: completa retroativamente demandas ligadas a agendamentos
 // já publicados, ou a grupos onde alguém já tinha concluído manualmente
 // antes desse recurso existir (ver utils/demandCascade.js).

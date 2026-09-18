@@ -639,6 +639,10 @@
         openMidiasHub();
       } else if (b.dataset.view === 'trafego-hub') {
         openTrafegoHub();
+      } else if (b.dataset.view === 'acoes-hub') {
+        openAcoesSazonaisHub();
+      } else if (b.dataset.view === 'expositores-hub') {
+        openExpositoresHub();
       } else if (b.dataset.dash) {
         openDashboard(b.dataset.dash);
       } else if (b.dataset.view === 'budget') {
@@ -1661,11 +1665,158 @@
 
   $('#trafegoTelaBack').onclick = () => openTrafegoHub();
 
-  // Recebe a altura real do conteúdo embutido (Mídias/Tráfego, 28ª rodada)
-  // e ajusta o iframe pra caber tudo, sem scroll interno próprio -- quem
-  // rola a página é só o scroll normal da Papoi (ver .iframe-wrap no
-  // style.css). Os dois painéis de destino mandam essa mensagem sozinhos,
-  // sempre que a altura do conteúdo deles muda.
+  // ---------- Ações Sazonais + Expositores Especiais (30ª rodada) ----------
+  // Mesmo tratamento de hub nativo dado a Mídias/Tráfego: uma central com
+  // um card por seção do painel de Ações Sazonais (dashboard-acoes-
+  // sazonais), abrindo o conteúdo daquela seção num iframe só, com a
+  // barra lateral do painel original escondida (ver .embedded-in-platform
+  // no index.html dele) e as cores/tipografia já ajustadas pra igualar à
+  // Papoi.
+  //
+  // Pedido da Raquel: os Expositores Especiais (Dashboard + cadastro)
+  // SAEM do hub de Ações Sazonais e viram um item de menu PRÓPRIO — mesmo
+  // painel de origem (mesma chave de dashboard, mesmo SSO), só que os
+  // cards do hub mostram só essas 2 seções em vez das outras. Por isso os
+  // dois hubs abaixo reaproveitam o mesmo dashboardLaunch('acoesSazonais')
+  // e a mesma lista de marcas, mas com listas de seção diferentes.
+  const ACOES_BRANDS = [
+    { id: 'ghelplus', label: 'GhelPlus' },
+    { id: 'debacco', label: 'De Bacco' },
+    { id: 'all', label: 'Todas as marcas' }
+  ];
+  const ACOES_SECTIONS = [
+    { id: 'dashboard', label: 'Dashboard Ações', desc: 'Visão geral das ações sazonais e resultados.' },
+    { id: 'acoes', label: 'Ações', desc: 'Cadastro, edição e relatórios de cada ação.' },
+    { id: 'historico', label: 'Histórico', desc: 'Quem criou, editou ou removeu cada registro.' },
+    { id: 'usuarios', label: 'Usuários', desc: 'Contas com acesso ao painel de Ações Sazonais.', adminOnly: true },
+    { id: 'link_publico', label: 'Link Público (do painel)', desc: 'Link de leitura própio do painel de Ações Sazonais, com estatísticas de acesso.', adminOnly: true }
+  ];
+  const EXPOSITORES_SECTIONS = [
+    { id: 'dashboard_showroom', label: 'Dashboard Expositores Especiais', desc: 'Visão geral dos expositores especiais e investimentos.' },
+    { id: 'showroom', label: 'Expositores Especiais', desc: 'Cadastro e acompanhamento de expositores especiais.' }
+  ];
+  let acoesBrand = 'ghelplus';
+  let expositoresBrand = 'ghelplus';
+
+  // Só mostra Usuários/Link Público do painel pra quem tem acesso admin
+  // NESSE dashboard (mesmo controle de acesso já usado pros outros 2
+  // dashboards) -- editor/visitante não vê esses cards no hub.
+  function acoesSazonaisAccess() {
+    return (dashboardsByKey.acoesSazonais || {}).access || 'none';
+  }
+
+  function openAcoesSazonaisHub() {
+    showView('acoes-hub');
+    $('#acoesHubPublicLinkBtn').hidden = !!dashboardPublicToken;
+    if (dashboardPublicToken) $('#acoesPublicLinkPanel').hidden = true;
+    renderAcoesBrandSwitch();
+    renderAcoesHubBody();
+  }
+
+  function renderAcoesBrandSwitch() {
+    const wrap = $('#acoesBrandSwitch');
+    wrap.innerHTML = ACOES_BRANDS.map((b) => `<button class="btn-secondary${b.id === acoesBrand ? ' active' : ''}" data-acoes-brand="${b.id}">${b.label}</button>`).join('');
+    wrap.querySelectorAll('[data-acoes-brand]').forEach((btn) => {
+      btn.onclick = () => { acoesBrand = btn.dataset.acoesBrand; renderAcoesBrandSwitch(); };
+    });
+  }
+
+  function renderAcoesHubBody() {
+    const access = acoesSazonaisAccess();
+    const sections = ACOES_SECTIONS.filter((s) => !s.adminOnly || access === 'admin');
+    $('#acoesHubGroups').innerHTML = `
+      <div class="card-grid">
+        ${sections.map((s) => `
+          <div class="dash-card" data-open-acoes-section="${s.id}">
+            <h3>${s.label}</h3>
+            <p>${s.desc}</p>
+            <button>Abrir →</button>
+          </div>`).join('')}
+      </div>`;
+    $all('[data-open-acoes-section]').forEach((card) => {
+      card.querySelector('button').onclick = () => openAcoesSection(card.dataset.openAcoesSection);
+    });
+  }
+
+  async function openAcoesSection(sectionId) {
+    try {
+      const data = await dashboardLaunch('acoesSazonais');
+      const url = new URL(data.url);
+      const baseUrl = url.origin;
+      const platformParams = url.search;
+      const params = new URLSearchParams();
+      params.set('embedBrand', acoesBrand);
+      params.set('embedView', sectionId);
+      const navSrc = baseUrl.replace(/\/$/, '') + '/?' + params.toString();
+      $('#acoesTelaFrame').style.height = '';
+      $('#acoesTelaFrame').src = navSrc + '&' + platformParams.slice(1);
+      const section = ACOES_SECTIONS.find((s) => s.id === sectionId) || {};
+      const brandLabel = (ACOES_BRANDS.find((b) => b.id === acoesBrand) || {}).label || acoesBrand;
+      $('#acoesTelaTitle').textContent = `${section.label || ''} — ${brandLabel}`;
+      showView('acoes-tela');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+  $('#acoesTelaBack').onclick = () => openAcoesSazonaisHub();
+
+  function openExpositoresHub() {
+    showView('expositores-hub');
+    renderExpositoresBrandSwitch();
+    renderExpositoresHubBody();
+  }
+
+  function renderExpositoresBrandSwitch() {
+    const wrap = $('#expositoresBrandSwitch');
+    wrap.innerHTML = ACOES_BRANDS.map((b) => `<button class="btn-secondary${b.id === expositoresBrand ? ' active' : ''}" data-expositores-brand="${b.id}">${b.label}</button>`).join('');
+    wrap.querySelectorAll('[data-expositores-brand]').forEach((btn) => {
+      btn.onclick = () => { expositoresBrand = btn.dataset.expositoresBrand; renderExpositoresBrandSwitch(); };
+    });
+  }
+
+  function renderExpositoresHubBody() {
+    $('#expositoresHubGroups').innerHTML = `
+      <div class="card-grid">
+        ${EXPOSITORES_SECTIONS.map((s) => `
+          <div class="dash-card" data-open-expositores-section="${s.id}">
+            <h3>${s.label}</h3>
+            <p>${s.desc}</p>
+            <button>Abrir →</button>
+          </div>`).join('')}
+      </div>`;
+    $all('[data-open-expositores-section]').forEach((card) => {
+      card.querySelector('button').onclick = () => openExpositoresSection(card.dataset.openExpositoresSection);
+    });
+  }
+
+  async function openExpositoresSection(sectionId) {
+    try {
+      const data = await dashboardLaunch('acoesSazonais');
+      const url = new URL(data.url);
+      const baseUrl = url.origin;
+      const platformParams = url.search;
+      const params = new URLSearchParams();
+      params.set('embedBrand', expositoresBrand);
+      params.set('embedView', sectionId);
+      const navSrc = baseUrl.replace(/\/$/, '') + '/?' + params.toString();
+      $('#expositoresTelaFrame').style.height = '';
+      $('#expositoresTelaFrame').src = navSrc + '&' + platformParams.slice(1);
+      const section = EXPOSITORES_SECTIONS.find((s) => s.id === sectionId) || {};
+      const brandLabel = (ACOES_BRANDS.find((b) => b.id === expositoresBrand) || {}).label || expositoresBrand;
+      $('#expositoresTelaTitle').textContent = `${section.label || ''} — ${brandLabel}`;
+      showView('expositores-tela');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+  $('#expositoresTelaBack').onclick = () => openExpositoresHub();
+
+  // Recebe a altura real do conteúdo embutido (Mídias/Tráfego/Ações
+  // Sazonais/Expositores Especiais, 28ª/30ª rodada) e ajusta o iframe pra
+  // caber tudo, sem scroll interno próprio -- quem rola a página é só o
+  // scroll normal da Papoi (ver .iframe-wrap no style.css). Os painéis de
+  // destino mandam essa mensagem sozinhos, sempre que a altura do
+  // conteúdo deles muda.
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data || data.type !== 'papoi-embed-height') return;
@@ -1674,6 +1825,10 @@
       $('#midiasCanalFrame').style.height = h + 'px';
     } else if ($('#trafegoTelaFrame') && event.source === $('#trafegoTelaFrame').contentWindow) {
       $('#trafegoTelaFrame').style.height = h + 'px';
+    } else if ($('#acoesTelaFrame') && event.source === $('#acoesTelaFrame').contentWindow) {
+      $('#acoesTelaFrame').style.height = h + 'px';
+    } else if ($('#expositoresTelaFrame') && event.source === $('#expositoresTelaFrame').contentWindow) {
+      $('#expositoresTelaFrame').style.height = h + 'px';
     }
   });
 
@@ -4470,6 +4625,7 @@
   }
   setupDashboardPublicLink('redesSociais', 'midias');
   setupDashboardPublicLink('trafegoPago', 'trafego');
+  setupDashboardPublicLink('acoesSazonais', 'acoes');
 
   boot();
 })();

@@ -91,8 +91,9 @@
         <button class="navlink" id="navCronograma" data-view="cronograma">Cronograma</button>
         <button class="navlink" id="navDashTrafego" data-view="trafego-hub" data-dash="trafegoPago">Tráfego Pago</button>
         <button class="navlink" id="navDashMidias" data-view="midias-hub" data-dash="redesSociais">Mídias</button>
-        <button class="navlink" id="navDashAcoes" data-view="embed" data-dash="acoesSazonais">Ações Sazonais</button>
+        <button class="navlink" id="navDashAcoes" data-view="acoes-hub">Ações Sazonais</button>
         <button class="navlink" id="navInfluencers" data-view="influencers">Influencers</button>
+        <button class="navlink" id="navExpositoresEspeciais" data-view="expositores-hub">Expositores Especiais</button>
         <button class="navlink" id="navExpositores" data-view="expositores">Expositores</button>
         <button class="navlink" id="navProdutos" data-view="produtos">Produtos</button>
         <button class="navlink" id="navBrindes" data-view="brindes">Brindes</button>
@@ -467,6 +468,81 @@
         </div>
         <div class="iframe-wrap">
           <iframe id="trafegoTelaFrame" title="Gerenciamento de Tráfego Pago"></iframe>
+        </div>
+      </section>
+
+      <!-- Ações Sazonais (30ª rodada): mesmo tratamento de hub nativo já
+           dado a Mídias/Tráfego -- central com um card por seção do painel
+           de Ações Sazonais, abrindo o conteúdo dessa seção num iframe só
+           (sem a barra lateral duplicada do outro painel). Os "Expositores
+           Especiais" (Dashboard + cadastro) SAÍRAM daqui, por pedido da
+           Raquel -- viraram o próprio item de menu logo abaixo
+           (view-expositores-hub), mesmo painel de origem, seções
+           diferentes. -->
+      <section id="view-acoes-hub" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Gerenciamento de Ações Sazonais</h2>
+          <div class="view-toolbar-actions" style="align-items:center;">
+            <div id="acoesBrandSwitch" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+            <button class="btn-secondary" id="acoesHubPublicLinkBtn">Link externo</button>
+          </div>
+        </div>
+        <p class="muted">Escolha uma seção do painel de Ações Sazonais pra abrir.</p>
+
+        <div id="acoesPublicLinkPanel" class="form-card" hidden>
+          <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link acessa todas as seções do Gerenciamento de Ações Sazonais (inclusive Expositores Especiais), mesmo sem estar logada na plataforma.</p>
+          <div id="acoesPublicLinkActive" hidden>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" id="acoesPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+              <button class="btn-secondary" id="acoesCopyLinkBtn">Copiar link</button>
+              <button class="btn-secondary" id="acoesRegenLinkBtn">Gerar novo link</button>
+              <button class="btn-secondary danger" id="acoesRevokeLinkBtn">Desativar</button>
+            </div>
+          </div>
+          <button class="btn-primary" id="acoesGenLinkBtn">Gerar link externo</button>
+        </div>
+
+        <div id="acoesHubGroups"></div>
+      </section>
+
+      <section id="view-acoes-tela" class="view" hidden>
+        <div class="view-toolbar">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="btn-secondary" id="acoesTelaBack">◀ Voltar</button>
+            <h2 id="acoesTelaTitle"></h2>
+          </div>
+        </div>
+        <div class="iframe-wrap">
+          <iframe id="acoesTelaFrame" title="Gerenciamento de Ações Sazonais"></iframe>
+        </div>
+      </section>
+
+      <!-- Expositores Especiais (30ª rodada, pedido da Raquel: "quero que
+           saia dele os expositores especiais, e fiquem em um botão
+           separado no menu") -- mesmo painel de origem do Ações Sazonais
+           (dashboard-acoes-sazonais), só que aqui só entram as duas seções
+           de Expositores Especiais (Dashboard + cadastro), num hub próprio
+           e independente do hub de Ações Sazonais acima. -->
+      <section id="view-expositores-hub" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Expositores Especiais</h2>
+          <div class="view-toolbar-actions" style="align-items:center;">
+            <div id="expositoresBrandSwitch" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+        </div>
+        <p class="muted">Escolha uma seção pra abrir.</p>
+        <div id="expositoresHubGroups"></div>
+      </section>
+
+      <section id="view-expositores-tela" class="view" hidden>
+        <div class="view-toolbar">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="btn-secondary" id="expositoresTelaBack">◀ Voltar</button>
+            <h2 id="expositoresTelaTitle"></h2>
+          </div>
+        </div>
+        <div class="iframe-wrap">
+          <iframe id="expositoresTelaFrame" title="Expositores Especiais"></iframe>
         </div>
       </section>
 

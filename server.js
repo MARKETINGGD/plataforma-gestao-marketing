@@ -43,6 +43,10 @@ require('./utils/migrateAutoCompleteDemandasFromPosts').migrateAutoCompleteDeman
 // 36ª rodada: dá lastCompletedAt retroativo pra demanda já concluída antes
 // desse campo existir (ver utils/migrateLastCompletedAt.js).
 require('./utils/migrateLastCompletedAt').migrateLastCompletedAt();
+// 37ª rodada: dá `brand` retroativo pra demanda que já veio de um
+// agendamento/ação de influencer antes desse campo existir (ver
+// utils/migrateDemandaBrand.js).
+require('./utils/migrateDemandaBrand').migrateDemandaBrand();
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).

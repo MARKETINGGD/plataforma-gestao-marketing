@@ -158,6 +158,10 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
       // delicado") -- o Kanban de Demandas usa isso pra mostrar o
       // ícone/nome da rede no card, sem precisar reabrir o agendamento.
       network: post.platform || null,
+      // Marca do agendamento de origem (37ª rodada, pedido da Raquel: ícone
+      // da marca no início do título do card) -- post.brand já é um dos 4
+      // valores válidos (mesma lista usada em routes/demandas.js BRANDS).
+      brand: post.brand || null,
       createdAt: new Date().toISOString(),
       createdBy: req.user.id,
       createdByName: req.user.name,

@@ -368,7 +368,11 @@ button{font-weight:700;}
 .kanban-card-creator{font-size:10.5px;color:var(--muted);margin-top:6px;}
 /* 36ª rodada: nome da rede + ícone, pequeno e discreto (não é um
    badge/quadro como os outros -- só uma linha de texto fina). */
-.kanban-card-network{font-size:10.5px;color:var(--muted);margin-top:3px;}
+.kanban-card-network{font-size:10.5px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:4px;}
+.kanban-card-network svg{flex:none;}
+/* Ícone da marca (37ª rodada) -- pequeno, colado no início do título. */
+.card-brand-icon{display:inline-flex;vertical-align:-3px;margin-right:5px;}
+.card-brand-icon svg{display:block;}
 /* 36ª rodada: fotinhos de quem mais está no card, vindo do mesmo agendamento. */
 .kanban-card-also-involved{margin-top:6px;}
 .badge{background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted);}

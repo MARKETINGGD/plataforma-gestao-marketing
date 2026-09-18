@@ -281,10 +281,42 @@
     { key: 'concluida', label: 'Concluída' }
   ];
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter', influencer: 'Influencer', blog: 'Blog' };
-  // Ícone pequeno por rede (36ª rodada, pedido da Raquel: card de
-  // demanda vindo de agendamento mostra a rede com um ícone pequeno e
-  // delicado) -- emoji, não tem nenhum arquivo de ícone no projeto ainda.
-  const NETWORK_ICON = { instagram: '📷', facebook: '📘', linkedin: '💼', tiktok: '🎵', youtube: '▶️', pinterest: '📌', newsletter: '📧', influencer: '🌟', blog: '📝' };
+  // Ícones reais das redes (37ª rodada, pedido da Raquel: "use os icones
+  // reais das redes sociais" no lugar dos emoji da 36ª rodada) -- SVG
+  // inline pequeno e leve, um por rede, nas cores reais de cada marca.
+  // Como isso é calculado na hora a partir de d.network/p.platform/p.rede
+  // (nunca gravado no banco), a troca já vale sozinha pra tudo que já
+  // existe na Plataforma -- não precisa de nenhuma migração de dados.
+  const NETWORK_ICON_SVG = {
+    instagram: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><rect x="2" y="2" width="20" height="20" rx="6" stroke="#E1306C" stroke-width="2.2"/><circle cx="12" cy="12" r="5" stroke="#E1306C" stroke-width="2.2"/><circle cx="17.3" cy="6.7" r="1.3" fill="#E1306C"/></svg>',
+    facebook: '<svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><circle cx="12" cy="12" r="11" fill="#1877F2"/><path d="M15.2 12.5h-2.15V20h-3v-7.5H8.4V10h1.65V8.4c0-2 1-3.4 3.4-3.4h2.25v2.6h-1.45c-.85 0-1.15.4-1.15 1.2V10h2.55l-.45 2.5Z" fill="#fff"/></svg>',
+    linkedin: '<svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><rect x="1" y="1" width="22" height="22" rx="5" fill="#0A66C2"/><circle cx="7.4" cy="7.8" r="1.7" fill="#fff"/><rect x="6.1" y="10.2" width="2.7" height="8.2" fill="#fff"/><path d="M11.4 10.2h2.6v1.25c.5-.85 1.45-1.45 2.75-1.45 2.05 0 3.35 1.35 3.35 4v4.95h-2.65v-4.5c0-1.25-.5-2.05-1.65-2.05s-1.85.8-1.85 2.05v4.5h-2.55V10.2Z" fill="#fff"/></svg>',
+    tiktok: '<svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><rect x="1" y="1" width="22" height="22" rx="6" fill="#010101"/><path d="M16.3 5.3c.4 1.7 1.55 2.85 3.3 3v2.35c-1.15 0-2.2-.3-3.1-.9v4.9c0 2.55-1.95 4.55-4.4 4.55-2.45 0-4.4-2-4.4-4.55 0-2.5 1.95-4.5 4.4-4.5.3 0 .6.05.9.1v2.4c-.3-.1-.6-.15-.9-.15-1.1 0-2.05.9-2.05 2.15 0 1.25.95 2.15 2.05 2.15 1.15 0 2.15-.9 2.15-2.55V5.3h1.9Z" fill="#fff"/><path d="M16.3 5.3c.4 1.7 1.55 2.85 3.3 3v1.15c-1.35-.25-2.5-.95-3.3-1.9v-2.25Z" fill="#25F4EE"/><path d="M9.2 12.65c-2 .35-3.5 2.15-3.5 4.3 0 .5.08.95.23 1.4a4.55 4.55 0 0 1-.63-2.3c0-2.5 1.95-4.5 4.4-4.5.3 0 .6.05.9.1v.85c-.4-.1-.85-.1-1.4.15Z" fill="#FE2C55"/></svg>',
+    youtube: '<svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><rect x="1" y="4" width="22" height="16" rx="5" fill="#FF0000"/><path d="M10 8.4 16.6 12 10 15.6V8.4Z" fill="#fff"/></svg>',
+    pinterest: '<svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><circle cx="12" cy="12" r="11" fill="#BD081C"/><path d="M12.2 5.3c-3.8 0-5.8 2.6-5.8 4.8 0 1.3.5 2.5 1.6 2.9.18.07.34 0 .4-.2l.16-.6c.05-.2.03-.27-.12-.44-.34-.4-.55-.93-.55-1.66 0-2.14 1.6-4.06 4.18-4.06 2.28 0 3.53 1.4 3.53 3.26 0 2.45-1.09 4.53-2.7 4.53-.9 0-1.56-.73-1.35-1.63.26-1.08.75-2.24.75-3.02 0-.7-.37-1.28-1.15-1.28-.9 0-1.63.93-1.63 2.18 0 .8.27 1.33.27 1.33s-.9 3.8-1.07 4.5c-.24 1-.1 2.2-.04 2.75.02.15.2.19.28.06.13-.18 1.14-1.41 1.5-2.7.1-.4.6-2.3.6-2.3.3.57 1.16 1.06 2.08 1.06 2.75 0 4.7-2.5 4.7-5.84 0-2.9-2.35-5.05-5.66-5.05Z" fill="#fff"/></svg>',
+    newsletter: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><rect x="2" y="5" width="20" height="14" rx="3" stroke="#6D63E0" stroke-width="2"/><path d="M3 7l9 6 9-6" stroke="#6D63E0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    influencer: '<svg viewBox="0 0 24 24" width="14" height="14" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.2 5.9-.8L12 3.5Z" fill="#F5A623"/></svg>',
+    blog: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><rect x="4" y="2.5" width="14" height="19" rx="2" stroke="#0EA5A4" stroke-width="2"/><path d="M7.5 8h7M7.5 12h7M7.5 16h4" stroke="#0EA5A4" stroke-width="1.6" stroke-linecap="round"/></svg>'
+  };
+  // Devolve o SVG da rede pronto pra usar num template, ou '' se não tiver
+  // rede/ícone (evita `undefined` aparecendo no HTML).
+  function networkIconHtml(network) {
+    return NETWORK_ICON_SVG[network] || '';
+  }
+  // Ícones das marcas (37ª rodada, pedido da Raquel): fica no início do
+  // título do card em Demandas. GhelPlus e Duranox usam só a letra da
+  // logo (G/D estilizado) na cor certa, como pedido; De Bacco e Boutique
+  // Inox usam o próprio símbolo da marca (não têm uma letra marcante),
+  // também na cor certa.
+  const BRAND_ICON_SVG = {
+    ghelplus: '<svg viewBox="0 0 24 24" width="15" height="15" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><path d="M18.2 7.6a8 8 0 1 0 0 8.8" stroke="#63711A" stroke-width="4.4" fill="none" stroke-linecap="round"/><path d="M13 12h6.3" stroke="#63711A" stroke-width="4.4" stroke-linecap="round"/></svg>',
+    duranox: '<svg viewBox="0 0 24 24" width="15" height="15" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><path d="M6 3h5a9 9 0 0 1 0 18H6V3Zm3.2 3.2v11.6h1.8a5.8 5.8 0 0 0 0-11.6H9.2Z" fill="#264268" fill-rule="evenodd"/></svg>',
+    debacco: '<svg viewBox="0 0 24 24" width="15" height="15" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><rect x="2" y="4" width="20" height="16" rx="6" fill="#000"/><rect x="0" y="9.5" width="8" height="5.5" rx="2.4" fill="#fff"/></svg>',
+    boutiqueinox: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><circle cx="7.6" cy="12" r="4.3" stroke="#010835" stroke-width="2.3"/><circle cx="14.6" cy="12" r="4.3" stroke="#010835" stroke-width="2.3"/></svg>'
+  };
+  function brandIconHtml(brand) {
+    return BRAND_ICON_SVG[brand] ? `<span class="card-brand-icon" title="${BRAND_LABEL[brand] || brand}">${BRAND_ICON_SVG[brand]}</span>` : '';
+  }
   const INFLUENCER_STATUS_LABEL = { a_publicar: 'A publicar', publicada: 'Publicada', cancelada: 'Cancelada' };
   // Cores da 15ª rodada: status em "farol" (amarelo/verde/vermelho) e cada
   // rede social com sua própria cor, pra dar de cara o panorama da tabela.
@@ -462,7 +494,7 @@
         }
         tr.innerHTML = `
           <td>${p.formato || '—'}</td>
-          <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+          <td>${networkIconHtml(p.rede)} ${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
           <td>${influencerStatusPillHTML(p.status, false)}</td>
           <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
           <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
@@ -2537,9 +2569,9 @@
           ${cardLabels.length > 0 ? `<div class="kanban-card-labels">${cardLabels.map((l) => `<span class="kanban-label-chip" title="${l.name}" style="background:${l.color}"></span>`).join('')}</div>` : ''}
           <div class="kanban-card-title-row">
             <button type="button" class="kanban-check-btn${d.status === 'concluida' ? ' checked' : ''}" title="${d.status === 'concluida' ? 'Marcar como não concluída' : 'Marcar como concluída'}"></button>
-            <div class="kanban-card-title">${d.title}</div>
+            <div class="kanban-card-title">${brandIconHtml(d.brand)}${d.title}</div>
           </div>
-          ${d.network ? `<div class="kanban-card-network">${NETWORK_ICON[d.network] || ''} ${SOCIAL_PLATFORM_LABEL[d.network] || d.network}</div>` : ''}
+          ${d.network ? `<div class="kanban-card-network">${networkIconHtml(d.network)} ${SOCIAL_PLATFORM_LABEL[d.network] || d.network}</div>` : ''}
           <div class="kanban-card-meta">
             <span class="badge">${statusLabel(d.status)}</span>
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
@@ -2908,6 +2940,11 @@
     $('#demCardTitle').value = demanda ? demanda.title : '';
     $('#demCardStatus').value = demanda ? demanda.status : 'a_fazer';
     $('#demCardDueDate').value = demanda ? (demanda.dueDate || '') : '';
+    // Marca (37ª rodada, pedido da Raquel): opcional -- mostra o ícone da
+    // marca no início do título do card. Demanda vinda de Agendamento/
+    // Influencer já chega com isso preenchido sozinho; quem cria direto
+    // aqui pode escolher.
+    $('#demCardBrand').value = demanda ? (demanda.brand || '') : '';
     $('#demCardRecurring').checked = demanda ? !!demanda.recurring : false;
     $('#demCardRecurringHint').hidden = !$('#demCardRecurring').checked;
     $('#demCardDescription').value = demanda ? (demanda.description || '') : '';
@@ -2960,6 +2997,7 @@
       color: selectedDemColor,
       link: $('#demCardLink').value.trim() || null,
       checklistTitle: $('#demChecklistTitle').value.trim() || 'Checklist',
+      brand: $('#demCardBrand').value || null,
       visibility: demandasScope
     };
     // Card novo: manda junto os itens de checklist montados no rascunho
@@ -3383,7 +3421,7 @@
     rows.forEach((p) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
+        <td>${networkIconHtml(p.platform)} ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
         <td>${SOCIAL_POST_TYPE_LABEL[p.postType] || p.postType || ''}</td>
         <td>${(p.subject || '').slice(0, 40)}${(p.subject || '').length > 40 ? '…' : ''}</td>
         <td>${fmtDate(p.scheduledDate)}</td>
@@ -3822,7 +3860,7 @@
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'cal-post-chip';
-        chip.innerHTML = `<b>${p.scheduledTime || '--:--'} · ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</b>${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}`;
+        chip.innerHTML = `<b>${networkIconHtml(p.platform)} ${p.scheduledTime || '--:--'} · ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</b>${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}`;
 
         // Tags coloridas pelo cargo de quem está envolvido no material:
         // designer = azul, videomaker = verde, designer 3D = verde neon
@@ -4007,7 +4045,7 @@
           <div class="feed-preview-headtext">
             <span class="feed-preview-account">${p.createdByName || accountLabel}</span>
             <span class="feed-preview-meta">${fmtDate(p.scheduledDate)}${p.scheduledTime ? ' · ' + p.scheduledTime : ''} · ${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}</span>
-            <span class="feed-preview-format">${formatLabel}</span>
+            <span class="feed-preview-format">${networkIconHtml(p.platform)} ${formatLabel}</span>
           </div>
         </div>`;
       // Pedido da Raquel (19ª rodada): quem criou o agendamento só aparece
@@ -4719,7 +4757,7 @@
         <td>${p.influencerName}</td>
         <td>${BRAND_LABEL[p.brand] || p.brand}</td>
         <td>${p.formato || '—'}</td>
-        <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+        <td>${networkIconHtml(p.rede)} ${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
         <td>${influencerStatusPillHTML(p.status, false)}</td>
         <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
         <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
@@ -4896,7 +4934,7 @@
       ].join('');
       tr.innerHTML = `
         <td>${p.formato || '—'}</td>
-        <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+        <td>${networkIconHtml(p.rede)} ${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
         <td>${influencerStatusPillHTML(p.status, true, p.id)}</td>
         <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
         <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>

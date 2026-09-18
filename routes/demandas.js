@@ -33,6 +33,13 @@ const router = express.Router();
 
 const STATUSES = ['a_fazer', 'andamento', 'aprovacao', 'concluida'];
 const VISIBILITIES = ['geral', 'pessoal'];
+// Marca (37ª rodada, pedido da Raquel): opcional -- mostra o ícone da marca
+// no início do título do card. Demanda criada automaticamente a partir de
+// um agendamento/ação de influencer já vem com isso preenchido sozinha
+// (ver createDemandCardsForNewInvolved em routes/socialPosts.js); quem cria
+// direto na aba Demandas pode escolher (ou deixar em branco). Mesmos 4
+// valores usados em Agendamento (routes/socialPosts.js BRANDS).
+const BRANDS = ['debacco', 'ghelplus', 'duranox', 'boutiqueinox'];
 
 // Quem pode ver/editar uma demanda pessoal: quem criou ou quem está marcado.
 // Demandas gerais continuam abertas pra qualquer pessoa logada, como antes.
@@ -75,6 +82,10 @@ function validUserId(id) {
   if (!id) return null;
   const users = db.get('users').value();
   return users.some((u) => u.id === id) ? id : null;
+}
+
+function validBrand(brand) {
+  return BRANDS.includes(brand) ? brand : null;
 }
 
 function validLabelIds(ids) {
@@ -172,6 +183,7 @@ function serialize(d) {
     color: d.color || null,
     link: d.link || null,
     checklistTitle: d.checklistTitle || 'Checklist',
+    brand: d.brand || null,
     // Responsável geral (30ª rodada, marcação passou a pontuar na 32ª):
     // pontua igual a qualquer outro marcado na demanda — ver GET
     // /reis-do-marketing abaixo.
@@ -411,7 +423,7 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist, responsibleId } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist, responsibleId, brand } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
   if (recurring && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
   const finalAssigneeIds = validUserIds(assigneeIds);
@@ -433,6 +445,7 @@ router.post('/', requireAuth, (req, res) => {
     color: validColor(color),
     link: validLink(link),
     checklistTitle: validChecklistTitle(checklistTitle),
+    brand: validBrand(brand),
     // 26ª rodada: o checklist agora pode ser montado antes de o card existir
     // (rascunho local no front) — o que chegar aqui já vira o checklist do
     // card assim que ele é criado, em vez de nascer sempre vazio.
@@ -471,7 +484,7 @@ router.put('/reorder', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, link, checklistTitle, responsibleId } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, link, checklistTitle, responsibleId, brand } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
@@ -507,6 +520,7 @@ router.put('/:id', requireAuth, (req, res) => {
   if (recurring !== undefined) updates.recurring = !!recurring;
   if (link !== undefined) updates.link = validLink(link);
   if (checklistTitle !== undefined) updates.checklistTitle = validChecklistTitle(checklistTitle);
+  if (brand !== undefined) updates.brand = validBrand(brand);
 
   // Recorrência (15ª rodada): se essa demanda é (ou está virando) recorrente,
   // precisa de data de entrega (é ela que define o "dia do mês"). Se o

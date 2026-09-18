@@ -329,8 +329,13 @@ router.get('/summary', requireAuth, (req, res) => {
 // Demandas RECORRENTES continuam de fora da fonte (1): ao marcar como
 // concluída elas voltam sozinhas pra "A Fazer" (ver PUT /:id acima), então
 // nunca ficam paradas em status 'concluida'. A fonte (2), por usar
-// `doneAt` do item, não tem essa limitação. Não conta demanda arquivada
-// nem pessoal (mesmo critério do /summary).
+// `doneAt` do item, não tem essa limitação. Não conta demanda arquivada.
+//
+// 33ª rodada, pedido da Raquel: demanda do quadro PESSOAL (visibility
+// 'pessoal') agora TAMBÉM pontua — antes só o quadro geral contava (mesmo
+// filtro usado no /summary, que continua só-geral porque aquele card é
+// especificamente sobre o quadro geral). Aqui no ranking não faz mais essa
+// distinção: pontua igual, venha de onde vier.
 //
 // Importante: essa rota calcula tudo na hora, direto dos dados atuais —
 // não é um placar guardado à parte. Então já vale automaticamente pra
@@ -346,7 +351,7 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
   const counts = {};
   function addPoint(id) { if (id && !excludedIds.has(id)) counts[id] = (counts[id] || 0) + 1; }
   db.get('demandas').value().forEach((d) => {
-    if (d.archived || d.visibility === 'pessoal') return;
+    if (d.archived) return;
     // (1) card inteiro concluído neste mês -- marcados + responsável geral,
     // sem duplicar ponto pra quem for as duas coisas ao mesmo tempo.
     if (d.status === 'concluida' && d.updatedAt && d.updatedAt.slice(0, 7) === ym) {

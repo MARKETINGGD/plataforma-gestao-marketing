@@ -42,7 +42,13 @@ db.defaults({
   // Influencers: um token por dashboard (Mídias, Tráfego Pago), pra gente
   // de fora acompanhar sem precisar de conta na Plataforma. Um registro
   // por dashboard, upsert por 'key' (ver routes/dashboards.js).
-  dashboardPublicLinks: []
+  dashboardPublicLinks: [],
+  // Produtos (33ª rodada, pedido da Raquel: "no botão produtos deve ter um
+  // sub menu com: análise de concorrência, lançamentos de produtos") — duas
+  // listas independentes, por marca, com o mesmo padrão de permissão
+  // "produtos" (editor/admin) já usado pra editar Brindes/Expositores.
+  concorrencia: [],
+  lancamentosProdutos: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

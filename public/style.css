@@ -220,7 +220,11 @@ button{font-weight:700;}
 .table-scroll .data-table{border-radius:12px;}
 
 /* ---------- Início ---------- */
-.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-top:16px;}
+/* 33ª rodada, pedido da Raquel: "a página inicial está muito amontoada,
+   deixe os resumos um pouco mais separado do gráfico e recados" --
+   margin-top bem maior que antes (16px), só entre o .home-top-row (REIS +
+   Recados) e essa grade de resumos. */
+.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-top:44px;}
 /* Cards mais "delicados" (18ª rodada: "esta feio visualmente tudo separado
    em quadrados") — sombra suave em vez de borda dura, cantos mais
    arredondados, sem a grade de caixinhas de número que existia antes. */

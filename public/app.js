@@ -389,6 +389,11 @@
       $('#navBudgetParent').classList.add('active');
       $('#navBudgetSubmenu').hidden = false;
     }
+    // Produtos (33ª rodada) -- mesmo padrão do Budget acima.
+    if (id === 'navProdutosConcorrencia' || id === 'navProdutosLancamentos') {
+      $('#navProdutosParent').classList.add('active');
+      $('#navProdutosSubmenu').hidden = false;
+    }
   }
 
   function showView(name) {
@@ -646,8 +651,12 @@
     const sub = $('#navBudgetSubmenu');
     sub.hidden = !sub.hidden;
   };
+  $('#navProdutosParent').onclick = () => {
+    const sub = $('#navProdutosSubmenu');
+    sub.hidden = !sub.hidden;
+  };
   $all('.navlink').forEach((b) => {
-    if (b.id === 'navBudgetParent') return;
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent') return;
     b.onclick = () => {
       setActiveNav(b.id);
       // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio
@@ -665,6 +674,8 @@
         openDashboard(b.dataset.dash);
       } else if (b.dataset.view === 'budget') {
         openBudget(b.dataset.brand);
+      } else if (b.dataset.view === 'produtos') {
+        openProdutos(b.dataset.produtosTab);
       } else {
         showView(b.dataset.view);
         if (b.dataset.view === 'demandas') loadDemandas();
@@ -785,6 +796,32 @@
         wrap.appendChild(row);
       });
     } catch (e) { /* ignora falha pontual */ }
+
+    // Produtos próximo do lançamento (33ª rodada) -- os 6 lançamentos mais
+    // próximos (que ainda não foram marcados como "lançado"), sem data vai
+    // pro fim da lista.
+    try {
+      const lanc = await api('/api/produtos/lancamentos');
+      const wrap = $('#proximosLancamentosList');
+      wrap.innerHTML = '';
+      const proximos = (lanc.items || [])
+        .filter((p) => p.status !== 'lancado')
+        .sort((a, b) => {
+          if (!a.dataLancamento && !b.dataLancamento) return 0;
+          if (!a.dataLancamento) return 1;
+          if (!b.dataLancamento) return -1;
+          return a.dataLancamento.localeCompare(b.dataLancamento);
+        })
+        .slice(0, 6);
+      $('#proximosLancamentosEmpty').hidden = proximos.length > 0;
+      proximos.forEach((p) => {
+        const row = document.createElement('div');
+        row.className = 'lowstock-row';
+        const dataTxt = p.dataLancamento ? fmtDate(p.dataLancamento) : 'sem data';
+        row.innerHTML = `<span class="lowstock-name">${p.nome}</span><span class="lowstock-qty">${dataTxt} (${BRAND_LABEL[p.brand] || p.brand})</span>`;
+        wrap.appendChild(row);
+      });
+    } catch (e) { /* ignora falha pontual */ }
   }
 
   // ---------- REIS DO MARKETING (28ª rodada) ----------
@@ -822,9 +859,14 @@
 
     const maxCount = Math.max(1, ...rows.map((r) => r.count));
     const BASE_BAR_H = 140; // px -- altura do 1º colocado; os outros são proporcionais
+    // 33ª rodada, pedido da Raquel: em caso de empate na pontuação, todo
+    // mundo empatado em 1º recebe a coroa -- não só quem aparece primeiro
+    // na lista (o desempate por nome em .sort() acima é só pra ordem
+    // visual, não decide quem é "o" campeão).
+    const topCount = rows.length ? rows[0].count : 0;
     wrap.innerHTML = rows.map((r, idx) => {
       const barH = Math.max(10, Math.round(BASE_BAR_H * (r.count / maxCount)));
-      const isChamp = idx === 0 && r.count > 0;
+      const isChamp = r.count > 0 && r.count === topCount;
       const initials = (r.fullName || '?').trim().charAt(0).toUpperCase();
       const photoStyle = r.photoUrl ? `background-image:url('${r.photoUrl}');` : '';
       return `
@@ -4147,6 +4189,167 @@
       .catch((e) => alert(e.message));
   }
   $('#brindesLogNewBtn').onclick = openBrindeLogForm;
+
+  // ---------- Produtos (33ª rodada) ----------
+  // "Análise de Concorrência" e "Lançamentos de Produtos" -- mesmo padrão
+  // de permissão (produtos = editor/admin) já usado em Brindes, e mesmo
+  // estilo de formulário simples via prompt() já usado lá também (rápido
+  // de usar, sem precisar de um modal novo pra cada campo).
+  const BRANDS_PRODUTOS = ['debacco', 'ghelplus'];
+  let produtosTab = 'concorrencia';
+  let concorrenciaItems = [];
+  let lancamentosItems = [];
+  let concorrenciaBrandFilter = 'todos';
+  let lancamentosBrandFilter = 'todos';
+  const LANCAMENTO_STATUS_LABEL = { planejado: 'Planejado', em_andamento: 'Em andamento', lancado: 'Lançado' };
+
+  function canEditProdutos() {
+    if (!currentUser) return false;
+    if (currentUser.isSuperAdmin) return true;
+    const access = (currentUser.permissions || {}).produtos || 'none';
+    return access === 'editor' || access === 'admin';
+  }
+
+  async function openProdutos(tab) {
+    produtosTab = tab === 'lancamentos' ? 'lancamentos' : 'concorrencia';
+    showView('produtos');
+    $('#produtosConcorrenciaWrap').hidden = produtosTab !== 'concorrencia';
+    $('#produtosLancamentosWrap').hidden = produtosTab !== 'lancamentos';
+    $('#produtosTitle').textContent = produtosTab === 'lancamentos' ? 'Produtos — Lançamentos de Produtos' : 'Produtos — Análise de Concorrência';
+    if (produtosTab === 'concorrencia') {
+      await loadConcorrencia();
+    } else {
+      await loadLancamentos();
+    }
+  }
+
+  async function loadConcorrencia() {
+    try {
+      const data = await api('/api/produtos/concorrencia');
+      concorrenciaItems = data.items || [];
+      renderConcorrencia();
+    } catch (e) { alert(e.message); }
+  }
+
+  function renderConcorrencia() {
+    $('#concorrenciaNewBtn').hidden = !canEditProdutos();
+    const rows = concorrenciaItems.filter((it) => concorrenciaBrandFilter === 'todos' || it.brand === concorrenciaBrandFilter);
+    const body = $('#concorrenciaBody');
+    $('#concorrenciaEmpty').hidden = rows.length > 0;
+    body.innerHTML = rows.map((it) => `
+      <tr>
+        <td>${BRAND_LABEL[it.brand] || it.brand}</td>
+        <td>${it.concorrente}</td>
+        <td>${it.produto || '—'}</td>
+        <td>${it.preco === null || it.preco === undefined ? '—' : fmtMoney(it.preco)}</td>
+        <td>${it.observacoes || '—'}</td>
+        <td>${it.link ? `<a href="${it.link}" target="_blank" rel="noopener">Link</a>` : '—'}</td>
+        <td>${canEditProdutos() ? `<button class="btn-link" data-edit-concorrencia="${it.id}">Editar</button> <button class="btn-link danger" data-del-concorrencia="${it.id}">Excluir</button>` : ''}</td>
+      </tr>
+    `).join('');
+    $all('[data-edit-concorrencia]').forEach((b) => {
+      b.onclick = () => openConcorrenciaForm(concorrenciaItems.find((it) => it.id === b.dataset.editConcorrencia));
+    });
+    $all('[data-del-concorrencia]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir esta análise de concorrência?')) return;
+        await api('/api/produtos/concorrencia/' + b.dataset.delConcorrencia, { method: 'DELETE' });
+        await loadConcorrencia();
+      };
+    });
+  }
+
+  function openConcorrenciaForm(item) {
+    const brand = (prompt('Marca (debacco ou ghelplus):', item ? item.brand : 'debacco') || '').trim();
+    if (!BRANDS_PRODUTOS.includes(brand)) { if (brand) alert('Marca inválida — use debacco ou ghelplus.'); return; }
+    const concorrente = prompt('Nome do concorrente:', item ? item.concorrente : '');
+    if (!concorrente) return;
+    const produto = prompt('Produto (opcional):', item ? item.produto : '');
+    const preco = prompt('Preço do concorrente (opcional):', item && item.preco !== null ? item.preco : '');
+    const link = prompt('Link de referência (opcional):', item ? item.link || '' : '');
+    const observacoes = prompt('Observações (opcional):', item ? item.observacoes : '');
+    const payload = { brand, concorrente, produto, preco: preco || null, link, observacoes };
+    const call = item
+      ? api('/api/produtos/concorrencia/' + item.id, { method: 'PUT', body: JSON.stringify(payload) })
+      : api('/api/produtos/concorrencia', { method: 'POST', body: JSON.stringify(payload) });
+    call.then(loadConcorrencia).catch((e) => alert(e.message));
+  }
+  $('#concorrenciaNewBtn').onclick = () => openConcorrenciaForm(null);
+  $all('.tab-btn[data-concorrencia-brand]').forEach((b) => {
+    b.onclick = () => {
+      concorrenciaBrandFilter = b.dataset.concorrenciaBrand;
+      $all('.tab-btn[data-concorrencia-brand]').forEach((x) => x.classList.toggle('active', x === b));
+      renderConcorrencia();
+    };
+  });
+
+  async function loadLancamentos() {
+    try {
+      const data = await api('/api/produtos/lancamentos');
+      lancamentosItems = data.items || [];
+      renderLancamentos();
+    } catch (e) { alert(e.message); }
+  }
+
+  function renderLancamentos() {
+    $('#lancamentosNewBtn').hidden = !canEditProdutos();
+    const rows = lancamentosItems
+      .filter((it) => lancamentosBrandFilter === 'todos' || it.brand === lancamentosBrandFilter)
+      .slice()
+      .sort((a, b) => {
+        if (!a.dataLancamento && !b.dataLancamento) return 0;
+        if (!a.dataLancamento) return 1;
+        if (!b.dataLancamento) return -1;
+        return a.dataLancamento.localeCompare(b.dataLancamento);
+      });
+    const body = $('#lancamentosBody');
+    $('#lancamentosEmpty').hidden = rows.length > 0;
+    body.innerHTML = rows.map((it) => `
+      <tr>
+        <td>${BRAND_LABEL[it.brand] || it.brand}</td>
+        <td>${it.nome}</td>
+        <td>${it.dataLancamento ? fmtDate(it.dataLancamento) : '—'}</td>
+        <td>${LANCAMENTO_STATUS_LABEL[it.status] || it.status}</td>
+        <td>${it.descricao || '—'}</td>
+        <td>${canEditProdutos() ? `<button class="btn-link" data-edit-lancamento="${it.id}">Editar</button> <button class="btn-link danger" data-del-lancamento="${it.id}">Excluir</button>` : ''}</td>
+      </tr>
+    `).join('');
+    $all('[data-edit-lancamento]').forEach((b) => {
+      b.onclick = () => openLancamentoForm(lancamentosItems.find((it) => it.id === b.dataset.editLancamento));
+    });
+    $all('[data-del-lancamento]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir este lançamento?')) return;
+        await api('/api/produtos/lancamentos/' + b.dataset.delLancamento, { method: 'DELETE' });
+        await loadLancamentos();
+      };
+    });
+  }
+
+  function openLancamentoForm(item) {
+    const brand = (prompt('Marca (debacco ou ghelplus):', item ? item.brand : 'debacco') || '').trim();
+    if (!BRANDS_PRODUTOS.includes(brand)) { if (brand) alert('Marca inválida — use debacco ou ghelplus.'); return; }
+    const nome = prompt('Nome do produto:', item ? item.nome : '');
+    if (!nome) return;
+    const dataLancamento = prompt('Data de lançamento (AAAA-MM-DD, opcional):', item ? item.dataLancamento || '' : '');
+    const status = (prompt('Status (planejado, em_andamento ou lancado):', item ? item.status : 'planejado') || '').trim();
+    if (!['planejado', 'em_andamento', 'lancado'].includes(status)) { alert('Status inválido — use planejado, em_andamento ou lancado.'); return; }
+    const descricao = prompt('Descrição (opcional):', item ? item.descricao : '');
+    const payload = { brand, nome, dataLancamento: dataLancamento || null, status, descricao };
+    const call = item
+      ? api('/api/produtos/lancamentos/' + item.id, { method: 'PUT', body: JSON.stringify(payload) })
+      : api('/api/produtos/lancamentos', { method: 'POST', body: JSON.stringify(payload) });
+    call.then(loadLancamentos).catch((e) => alert(e.message));
+  }
+  $('#lancamentosNewBtn').onclick = () => openLancamentoForm(null);
+  $all('.tab-btn[data-lancamentos-brand]').forEach((b) => {
+    b.onclick = () => {
+      lancamentosBrandFilter = b.dataset.lancamentosBrand;
+      $all('.tab-btn[data-lancamentos-brand]').forEach((x) => x.classList.toggle('active', x === b));
+      renderLancamentos();
+    };
+  });
+  $('#homeGoLancamentos').onclick = () => { $('#navProdutosLancamentos').click(); };
 
   // ---------- usuários (super admin) ----------
   async function loadUsers() {

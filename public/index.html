@@ -95,7 +95,16 @@
         <button class="navlink" id="navInfluencers" data-view="influencers">Influencers</button>
         <button class="navlink" id="navExpositoresEspeciais" data-view="expositores-hub">Expositores Especiais</button>
         <button class="navlink" id="navExpositores" data-view="expositores">Expositores</button>
-        <button class="navlink" id="navProdutos" data-view="produtos">Produtos</button>
+        <!-- 33ª rodada, pedido da Raquel: "no botão produtos deve ter um sub
+             menu com: análise de concorrência, lançamentos de produtos" --
+             mesmo padrão de submenu já usado no Budget (25ª rodada). -->
+        <div class="navlink-group" id="navProdutosGroup">
+          <button class="navlink navlink-parent" id="navProdutosParent" type="button">Produtos</button>
+          <div class="navlink-submenu" id="navProdutosSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navProdutosConcorrencia" data-view="produtos" data-produtos-tab="concorrencia">Análise de Concorrência</button>
+            <button class="navlink navlink-sub" id="navProdutosLancamentos" data-view="produtos" data-produtos-tab="lancamentos">Lançamentos de Produtos</button>
+          </div>
+        </div>
         <button class="navlink" id="navBrindes" data-view="brindes">Brindes</button>
         <div class="navlink-group" id="navBudgetGroup">
           <button class="navlink navlink-parent" id="navBudgetParent" type="button">Budget</button>
@@ -200,9 +209,11 @@
             <button class="btn-secondary" id="homeGoBrindes">Ver Brindes →</button>
           </div>
 
-          <div class="home-card home-card-muted">
+          <div class="home-card" id="proximosLancamentosCard">
             <h3>Produtos próximo do lançamento</h3>
-            <p class="muted">Nenhum produto cadastrado ainda. Assim que a área de Produtos ganhar conteúdo, os próximos lançamentos aparecem aqui.</p>
+            <div id="proximosLancamentosList" class="lowstock-list"></div>
+            <p class="muted" id="proximosLancamentosEmpty" hidden>Nenhum lançamento cadastrado ainda. Assim que a área de Produtos ganhar conteúdo, os próximos lançamentos aparecem aqui.</p>
+            <button class="btn-secondary" id="homeGoLancamentos">Ver lançamentos →</button>
           </div>
         </div>
       </section>
@@ -956,9 +967,43 @@
         </div>
       </section>
 
+      <!-- Produtos (33ª rodada): "Análise de Concorrência" e "Lançamentos de
+           Produtos", cada um com seu filtro por marca -- navegado pelo
+           submenu da barra lateral (mesmo padrão do Budget). -->
       <section id="view-produtos" class="view" hidden>
-        <h2>Produtos</h2>
-        <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar o catálogo de produtos por aqui — me conta o que precisa ter nela.</p>
+        <h2 id="produtosTitle">Produtos</h2>
+
+        <div id="produtosConcorrenciaWrap">
+          <div class="tabs">
+            <button class="tab-btn active" data-concorrencia-brand="todos">Todas as marcas</button>
+            <button class="tab-btn" data-concorrencia-brand="debacco">De Bacco</button>
+            <button class="tab-btn" data-concorrencia-brand="ghelplus">GhelPlus</button>
+          </div>
+          <div class="view-toolbar-actions" style="margin:12px 0;">
+            <button class="btn-primary" id="concorrenciaNewBtn">+ Nova análise</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Marca</th><th>Concorrente</th><th>Produto</th><th>Preço</th><th>Observações</th><th>Link</th><th></th></tr></thead>
+            <tbody id="concorrenciaBody"></tbody>
+          </table>
+          <p class="muted" id="concorrenciaEmpty" hidden>Nenhuma análise de concorrência cadastrada ainda.</p>
+        </div>
+
+        <div id="produtosLancamentosWrap" hidden>
+          <div class="tabs">
+            <button class="tab-btn active" data-lancamentos-brand="todos">Todas as marcas</button>
+            <button class="tab-btn" data-lancamentos-brand="debacco">De Bacco</button>
+            <button class="tab-btn" data-lancamentos-brand="ghelplus">GhelPlus</button>
+          </div>
+          <div class="view-toolbar-actions" style="margin:12px 0;">
+            <button class="btn-primary" id="lancamentosNewBtn">+ Novo lançamento</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Marca</th><th>Produto</th><th>Data de lançamento</th><th>Status</th><th>Descrição</th><th></th></tr></thead>
+            <tbody id="lancamentosBody"></tbody>
+          </table>
+          <p class="muted" id="lancamentosEmpty" hidden>Nenhum lançamento cadastrado ainda.</p>
+        </div>
       </section>
 
       <section id="view-expositores" class="view" hidden>

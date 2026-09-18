@@ -241,13 +241,17 @@ button{font-weight:700;}
 .home-budget-brand h4{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
 .home-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 .home-card button.btn-secondary{margin-top:12px;}
-/* 32ª rodada, pedido da Raquel: "os botões ainda estão estranhos, deixe
-   uma transparência atrás deles, pra não ficar tão destacado assim" --
-   fundo branco sólido chapava demais sobre a cor de fundo da Início
-   (color-dot-btn). Troca só aqui (não no .btn-secondary global, usado em
-   telas com fundo branco normal, onde já funciona bem). */
-#view-home .btn-secondary{background:rgba(255,255,255,.55);border-color:rgba(0,0,0,.08);backdrop-filter:blur(2px);}
-#view-home .btn-secondary:hover{background:rgba(255,255,255,.8);}
+/* 35ª rodada, pedido da Raquel: "esses botões escrito Ver, estão mto feio,
+   deixe eles sem o quadro em volta, somente a palavra e a flexinha" --
+   troca o botão com fundo/borda (herdado de 32ª rodada, que só tinha
+   deixado o fundo translúcido) por um link de texto puro, sem nenhum
+   quadro em volta. Continua um <button> no HTML (só estilo muda), pra não
+   mexer em nenhum onclick já existente. */
+#view-home .btn-secondary{
+  background:none;border:none;padding:0;border-radius:0;backdrop-filter:none;
+  color:var(--primary);font-weight:600;cursor:pointer;
+}
+#view-home .btn-secondary:hover{background:none;text-decoration:underline;}
 
 /* REIS DO MARKETING (28ª rodada) -- ranking de quem mais concluiu demandas
    no mês, com a foto de cada um "subindo" junto com a barra (a barra e a

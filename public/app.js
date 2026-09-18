@@ -4161,43 +4161,98 @@
     });
   }
 
+  // 35ª rodada, pedido da Raquel: "todo lançamento, em brindes e
+  // produtos, seja no formato que esta em budget fica mais facil
+  // preencher assim, aquele poop up flutuante esta ruim, dificil de
+  // entender" -- troca a cadeia de prompt() por um card inline (mesmo
+  // .form-card/.form-row/.form-actions do Budget).
   function openBrindeForm(item, brand) {
     editingBrindeId = item ? item.id : null;
-    const brandLabel = BRAND_LABEL[brand] || brand;
-    const code = prompt('Código:', item ? item.code : '') ?? null;
-    if (code === null) return;
-    const name = prompt('Nome do item:', item ? item.item : '');
-    if (!name) return;
-    const multiplo = prompt('Múltiplo:', item ? item.multiplo : '1');
-    const valor = prompt('Valor (R$):', item ? item.valor : '');
-    const estoquePR = prompt('Estoque PR:', item ? item.estoquePR : '0');
-    const estoqueSP = prompt('Estoque SP:', item ? item.estoqueSP : '0');
-    const estoquePE = prompt('Estoque PE:', item ? item.estoquePE : '0');
-    const status = prompt('Status:', item ? item.status : '');
-    const payload = { brand, code, item: name, multiplo, valor, estoquePR, estoqueSP, estoquePE, status };
-    const call = editingBrindeId
-      ? api('/api/brindes/catalog/' + editingBrindeId, { method: 'PUT', body: JSON.stringify(payload) })
-      : api('/api/brindes/catalog', { method: 'POST', body: JSON.stringify(payload) });
-    call.then(loadBrindes).catch((e) => alert(e.message));
+    $('#brindeFormTitle').textContent = item ? 'Editar item' : 'Novo item';
+    $('#brindeFormBrand').value = brand;
+    $('#brindeFormCode').value = item ? (item.code || '') : '';
+    $('#brindeFormItem').value = item ? item.item : '';
+    $('#brindeFormMultiplo').value = item ? (item.multiplo || '') : '1';
+    $('#brindeFormValor').value = item && item.valor !== null && item.valor !== undefined ? item.valor : '';
+    $('#brindeFormEstoquePR').value = item ? item.estoquePR : '0';
+    $('#brindeFormEstoqueSP').value = item ? item.estoqueSP : '0';
+    $('#brindeFormEstoquePE').value = item ? item.estoquePE : '0';
+    $('#brindeFormStatus').value = item ? (item.status || '') : '';
+    $('#brindeFormError').hidden = true;
+    $('#brindeFormWrap').hidden = false;
   }
   $('#brindesCatalogNewBtn').onclick = () => openBrindeForm(null, brindesTab === 'log' ? 'debacco' : brindesTab);
+  $('#brindeFormCancel').onclick = () => { $('#brindeFormWrap').hidden = true; };
+  $('#brindeFormSave').onclick = async () => {
+    const payload = {
+      brand: $('#brindeFormBrand').value,
+      code: $('#brindeFormCode').value.trim(),
+      item: $('#brindeFormItem').value.trim(),
+      multiplo: $('#brindeFormMultiplo').value.trim(),
+      valor: $('#brindeFormValor').value,
+      estoquePR: $('#brindeFormEstoquePR').value,
+      estoqueSP: $('#brindeFormEstoqueSP').value,
+      estoquePE: $('#brindeFormEstoquePE').value,
+      status: $('#brindeFormStatus').value.trim()
+    };
+    if (!payload.item) {
+      $('#brindeFormError').textContent = 'Informe o nome do item.';
+      $('#brindeFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingBrindeId) {
+        await api('/api/brindes/catalog/' + editingBrindeId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/brindes/catalog', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#brindeFormWrap').hidden = true;
+      await loadBrindes();
+    } catch (e) {
+      $('#brindeFormError').textContent = e.message;
+      $('#brindeFormError').hidden = false;
+    }
+  };
 
   function openBrindeLogForm() {
-    const brand = prompt('Marca (debacco ou ghelplus):', 'debacco');
-    if (!brand) return;
-    const date = prompt('Data (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
-    const representante = prompt('Representante:', '');
-    const estado = prompt('Estado:', '');
-    const cliente = prompt('Cliente:', '');
-    const quantidade = prompt('Quantidade:', '1');
-    const item = prompt('Item:', '');
-    if (!item) return;
-    const motivo = prompt('Motivo:', '');
-    api('/api/brindes/log', { method: 'POST', body: JSON.stringify({ brand, date, representante, estado, cliente, quantidade, item, motivo }) })
-      .then(loadBrindes)
-      .catch((e) => alert(e.message));
+    $('#brindeLogFormBrand').value = 'debacco';
+    $('#brindeLogFormDate').value = new Date().toISOString().slice(0, 10);
+    $('#brindeLogFormRepresentante').value = '';
+    $('#brindeLogFormEstado').value = '';
+    $('#brindeLogFormCliente').value = '';
+    $('#brindeLogFormQuantidade').value = '1';
+    $('#brindeLogFormItem').value = '';
+    $('#brindeLogFormMotivo').value = '';
+    $('#brindeLogFormError').hidden = true;
+    $('#brindeLogFormWrap').hidden = false;
   }
   $('#brindesLogNewBtn').onclick = openBrindeLogForm;
+  $('#brindeLogFormCancel').onclick = () => { $('#brindeLogFormWrap').hidden = true; };
+  $('#brindeLogFormSave').onclick = async () => {
+    const payload = {
+      brand: $('#brindeLogFormBrand').value,
+      date: $('#brindeLogFormDate').value,
+      representante: $('#brindeLogFormRepresentante').value.trim(),
+      estado: $('#brindeLogFormEstado').value.trim(),
+      cliente: $('#brindeLogFormCliente').value.trim(),
+      quantidade: $('#brindeLogFormQuantidade').value,
+      item: $('#brindeLogFormItem').value.trim(),
+      motivo: $('#brindeLogFormMotivo').value.trim()
+    };
+    if (!payload.item) {
+      $('#brindeLogFormError').textContent = 'Informe o item.';
+      $('#brindeLogFormError').hidden = false;
+      return;
+    }
+    try {
+      await api('/api/brindes/log', { method: 'POST', body: JSON.stringify(payload) });
+      $('#brindeLogFormWrap').hidden = true;
+      await loadBrindes();
+    } catch (e) {
+      $('#brindeLogFormError').textContent = e.message;
+      $('#brindeLogFormError').hidden = false;
+    }
+  };
 
   // ---------- Produtos (33ª rodada) ----------
   // "Análise de Concorrência" e "Lançamentos de Produtos" -- mesmo padrão
@@ -4210,6 +4265,8 @@
   let lancamentosItems = [];
   let concorrenciaBrandFilter = 'todos';
   let lancamentosBrandFilter = 'todos';
+  let editingConcorrenciaId = null;
+  let editingLancamentoId = null;
   const LANCAMENTO_STATUS_LABEL = { planejado: 'Planejado', em_andamento: 'Em andamento', lancado: 'Lançado' };
 
   function canEditProdutos() {
@@ -4269,21 +4326,46 @@
   }
 
   function openConcorrenciaForm(item) {
-    const brand = (prompt('Marca (debacco ou ghelplus):', item ? item.brand : 'debacco') || '').trim();
-    if (!BRANDS_PRODUTOS.includes(brand)) { if (brand) alert('Marca inválida — use debacco ou ghelplus.'); return; }
-    const concorrente = prompt('Nome do concorrente:', item ? item.concorrente : '');
-    if (!concorrente) return;
-    const produto = prompt('Produto (opcional):', item ? item.produto : '');
-    const preco = prompt('Preço do concorrente (opcional):', item && item.preco !== null ? item.preco : '');
-    const link = prompt('Link de referência (opcional):', item ? item.link || '' : '');
-    const observacoes = prompt('Observações (opcional):', item ? item.observacoes : '');
-    const payload = { brand, concorrente, produto, preco: preco || null, link, observacoes };
-    const call = item
-      ? api('/api/produtos/concorrencia/' + item.id, { method: 'PUT', body: JSON.stringify(payload) })
-      : api('/api/produtos/concorrencia', { method: 'POST', body: JSON.stringify(payload) });
-    call.then(loadConcorrencia).catch((e) => alert(e.message));
+    editingConcorrenciaId = item ? item.id : null;
+    $('#concorrenciaFormTitle').textContent = item ? 'Editar análise' : 'Nova análise';
+    $('#concorrenciaFormBrand').value = item ? item.brand : 'debacco';
+    $('#concorrenciaFormConcorrente').value = item ? item.concorrente : '';
+    $('#concorrenciaFormProduto').value = item ? (item.produto || '') : '';
+    $('#concorrenciaFormPreco').value = item && item.preco !== null && item.preco !== undefined ? item.preco : '';
+    $('#concorrenciaFormLink').value = item ? (item.link || '') : '';
+    $('#concorrenciaFormObservacoes').value = item ? (item.observacoes || '') : '';
+    $('#concorrenciaFormError').hidden = true;
+    $('#concorrenciaFormWrap').hidden = false;
   }
   $('#concorrenciaNewBtn').onclick = () => openConcorrenciaForm(null);
+  $('#concorrenciaFormCancel').onclick = () => { $('#concorrenciaFormWrap').hidden = true; };
+  $('#concorrenciaFormSave').onclick = async () => {
+    const payload = {
+      brand: $('#concorrenciaFormBrand').value,
+      concorrente: $('#concorrenciaFormConcorrente').value.trim(),
+      produto: $('#concorrenciaFormProduto').value.trim(),
+      preco: $('#concorrenciaFormPreco').value || null,
+      link: $('#concorrenciaFormLink').value.trim(),
+      observacoes: $('#concorrenciaFormObservacoes').value.trim()
+    };
+    if (!payload.concorrente) {
+      $('#concorrenciaFormError').textContent = 'Informe o nome do concorrente.';
+      $('#concorrenciaFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingConcorrenciaId) {
+        await api('/api/produtos/concorrencia/' + editingConcorrenciaId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/produtos/concorrencia', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#concorrenciaFormWrap').hidden = true;
+      await loadConcorrencia();
+    } catch (e) {
+      $('#concorrenciaFormError').textContent = e.message;
+      $('#concorrenciaFormError').hidden = false;
+    }
+  };
   $all('.tab-btn[data-concorrencia-brand]').forEach((b) => {
     b.onclick = () => {
       concorrenciaBrandFilter = b.dataset.concorrenciaBrand;
@@ -4336,21 +4418,44 @@
   }
 
   function openLancamentoForm(item) {
-    const brand = (prompt('Marca (debacco ou ghelplus):', item ? item.brand : 'debacco') || '').trim();
-    if (!BRANDS_PRODUTOS.includes(brand)) { if (brand) alert('Marca inválida — use debacco ou ghelplus.'); return; }
-    const nome = prompt('Nome do produto:', item ? item.nome : '');
-    if (!nome) return;
-    const dataLancamento = prompt('Data de lançamento (AAAA-MM-DD, opcional):', item ? item.dataLancamento || '' : '');
-    const status = (prompt('Status (planejado, em_andamento ou lancado):', item ? item.status : 'planejado') || '').trim();
-    if (!['planejado', 'em_andamento', 'lancado'].includes(status)) { alert('Status inválido — use planejado, em_andamento ou lancado.'); return; }
-    const descricao = prompt('Descrição (opcional):', item ? item.descricao : '');
-    const payload = { brand, nome, dataLancamento: dataLancamento || null, status, descricao };
-    const call = item
-      ? api('/api/produtos/lancamentos/' + item.id, { method: 'PUT', body: JSON.stringify(payload) })
-      : api('/api/produtos/lancamentos', { method: 'POST', body: JSON.stringify(payload) });
-    call.then(loadLancamentos).catch((e) => alert(e.message));
+    editingLancamentoId = item ? item.id : null;
+    $('#lancamentoFormTitle').textContent = item ? 'Editar lançamento' : 'Novo lançamento';
+    $('#lancamentoFormBrand').value = item ? item.brand : 'debacco';
+    $('#lancamentoFormNome').value = item ? item.nome : '';
+    $('#lancamentoFormData').value = item ? (item.dataLancamento || '') : '';
+    $('#lancamentoFormStatus').value = item ? item.status : 'planejado';
+    $('#lancamentoFormDescricao').value = item ? (item.descricao || '') : '';
+    $('#lancamentoFormError').hidden = true;
+    $('#lancamentoFormWrap').hidden = false;
   }
   $('#lancamentosNewBtn').onclick = () => openLancamentoForm(null);
+  $('#lancamentoFormCancel').onclick = () => { $('#lancamentoFormWrap').hidden = true; };
+  $('#lancamentoFormSave').onclick = async () => {
+    const payload = {
+      brand: $('#lancamentoFormBrand').value,
+      nome: $('#lancamentoFormNome').value.trim(),
+      dataLancamento: $('#lancamentoFormData').value || null,
+      status: $('#lancamentoFormStatus').value,
+      descricao: $('#lancamentoFormDescricao').value.trim()
+    };
+    if (!payload.nome) {
+      $('#lancamentoFormError').textContent = 'Informe o nome do produto.';
+      $('#lancamentoFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingLancamentoId) {
+        await api('/api/produtos/lancamentos/' + editingLancamentoId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/produtos/lancamentos', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#lancamentoFormWrap').hidden = true;
+      await loadLancamentos();
+    } catch (e) {
+      $('#lancamentoFormError').textContent = e.message;
+      $('#lancamentoFormError').hidden = false;
+    }
+  };
   $all('.tab-btn[data-lancamentos-brand]').forEach((b) => {
     b.onclick = () => {
       lancamentosBrandFilter = b.dataset.lancamentosBrand;

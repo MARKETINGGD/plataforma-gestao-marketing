@@ -911,6 +911,36 @@
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="brindesCatalogNewBtn">+ Novo item</button>
           </div>
+
+          <!-- 35ª rodada: card inline no formato do Budget, no lugar da
+               sequência de prompt() -- "aquele poop up flutuante esta
+               ruim, dificil de entender". -->
+          <div id="brindeFormWrap" class="form-card" hidden>
+            <h3 id="brindeFormTitle">Novo item</h3>
+            <input type="hidden" id="brindeFormBrand">
+            <div class="form-row">
+              <div><label>Código</label><input id="brindeFormCode" type="text"></div>
+              <div><label>Nome do item</label><input id="brindeFormItem" type="text"></div>
+            </div>
+            <div class="form-row">
+              <div><label>Múltiplo</label><input id="brindeFormMultiplo" type="text" placeholder="1"></div>
+              <div><label>Valor (R$)</label><input id="brindeFormValor" type="number" step="0.01"></div>
+            </div>
+            <div class="form-row">
+              <div><label>Estoque PR</label><input id="brindeFormEstoquePR" type="number" step="1" min="0"></div>
+              <div><label>Estoque SP</label><input id="brindeFormEstoqueSP" type="number" step="1" min="0"></div>
+            </div>
+            <div class="form-row">
+              <div><label>Estoque PE</label><input id="brindeFormEstoquePE" type="number" step="1" min="0"></div>
+              <div><label>Status</label><input id="brindeFormStatus" type="text"></div>
+            </div>
+            <div id="brindeFormError" class="error" hidden></div>
+            <div class="form-actions">
+              <button id="brindeFormSave" class="btn-primary">Salvar</button>
+              <button id="brindeFormCancel" class="btn-secondary">Cancelar</button>
+            </div>
+          </div>
+
           <table class="data-table">
             <thead>
               <tr><th>Código</th><th>Item</th><th>Múltiplo</th><th>Valor</th><th>Estoque PR</th><th>Estoque SP</th><th>Estoque PE</th><th>Total</th><th>Status</th><th></th></tr>
@@ -923,6 +953,37 @@
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="brindesLogNewBtn">+ Registrar saída</button>
           </div>
+
+          <div id="brindeLogFormWrap" class="form-card" hidden>
+            <h3>Registrar saída</h3>
+            <div class="form-row">
+              <div><label>Marca</label>
+                <select id="brindeLogFormBrand">
+                  <option value="debacco">De Bacco</option>
+                  <option value="ghelplus">GhelPlus</option>
+                </select>
+              </div>
+              <div><label>Data</label><input id="brindeLogFormDate" type="date"></div>
+            </div>
+            <div class="form-row">
+              <div><label>Representante</label><input id="brindeLogFormRepresentante" type="text"></div>
+              <div><label>Estado</label><input id="brindeLogFormEstado" type="text"></div>
+            </div>
+            <div class="form-row">
+              <div><label>Cliente</label><input id="brindeLogFormCliente" type="text"></div>
+              <div><label>Quantidade</label><input id="brindeLogFormQuantidade" type="number" step="1" min="0"></div>
+            </div>
+            <label>Item</label>
+            <input id="brindeLogFormItem" type="text">
+            <label>Motivo</label>
+            <input id="brindeLogFormMotivo" type="text">
+            <div id="brindeLogFormError" class="error" hidden></div>
+            <div class="form-actions">
+              <button id="brindeLogFormSave" class="btn-primary">Salvar</button>
+              <button id="brindeLogFormCancel" class="btn-secondary">Cancelar</button>
+            </div>
+          </div>
+
           <table class="data-table">
             <thead>
               <tr><th>Marca</th><th>Data</th><th>Representante</th><th>Cliente</th><th>Qtd</th><th>Item</th><th>Motivo</th><th></th></tr>
@@ -982,6 +1043,33 @@
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="concorrenciaNewBtn">+ Nova análise</button>
           </div>
+
+          <div id="concorrenciaFormWrap" class="form-card" hidden>
+            <h3 id="concorrenciaFormTitle">Nova análise</h3>
+            <div class="form-row">
+              <div><label>Marca</label>
+                <select id="concorrenciaFormBrand">
+                  <option value="debacco">De Bacco</option>
+                  <option value="ghelplus">GhelPlus</option>
+                </select>
+              </div>
+              <div><label>Concorrente</label><input id="concorrenciaFormConcorrente" type="text"></div>
+            </div>
+            <div class="form-row">
+              <div><label>Produto</label><input id="concorrenciaFormProduto" type="text"></div>
+              <div><label>Preço do concorrente (R$)</label><input id="concorrenciaFormPreco" type="number" step="0.01"></div>
+            </div>
+            <label>Link de referência</label>
+            <input id="concorrenciaFormLink" type="text" placeholder="https://...">
+            <label>Observações</label>
+            <textarea id="concorrenciaFormObservacoes" rows="3"></textarea>
+            <div id="concorrenciaFormError" class="error" hidden></div>
+            <div class="form-actions">
+              <button id="concorrenciaFormSave" class="btn-primary">Salvar</button>
+              <button id="concorrenciaFormCancel" class="btn-secondary">Cancelar</button>
+            </div>
+          </div>
+
           <table class="data-table">
             <thead><tr><th>Marca</th><th>Concorrente</th><th>Produto</th><th>Preço</th><th>Observações</th><th>Link</th><th></th></tr></thead>
             <tbody id="concorrenciaBody"></tbody>
@@ -998,6 +1086,37 @@
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="lancamentosNewBtn">+ Novo lançamento</button>
           </div>
+
+          <div id="lancamentoFormWrap" class="form-card" hidden>
+            <h3 id="lancamentoFormTitle">Novo lançamento</h3>
+            <div class="form-row">
+              <div><label>Marca</label>
+                <select id="lancamentoFormBrand">
+                  <option value="debacco">De Bacco</option>
+                  <option value="ghelplus">GhelPlus</option>
+                </select>
+              </div>
+              <div><label>Nome do produto</label><input id="lancamentoFormNome" type="text"></div>
+            </div>
+            <div class="form-row">
+              <div><label>Data de lançamento</label><input id="lancamentoFormData" type="date"></div>
+              <div><label>Status</label>
+                <select id="lancamentoFormStatus">
+                  <option value="planejado">Planejado</option>
+                  <option value="em_andamento">Em andamento</option>
+                  <option value="lancado">Lançado</option>
+                </select>
+              </div>
+            </div>
+            <label>Descrição</label>
+            <textarea id="lancamentoFormDescricao" rows="3"></textarea>
+            <div id="lancamentoFormError" class="error" hidden></div>
+            <div class="form-actions">
+              <button id="lancamentoFormSave" class="btn-primary">Salvar</button>
+              <button id="lancamentoFormCancel" class="btn-secondary">Cancelar</button>
+            </div>
+          </div>
+
           <table class="data-table">
             <thead><tr><th>Marca</th><th>Produto</th><th>Data de lançamento</th><th>Status</th><th>Descrição</th><th></th></tr></thead>
             <tbody id="lancamentosBody"></tbody>

@@ -393,6 +393,34 @@ router.get('/summary', requireAuth, (req, res) => {
 // especificamente sobre o quadro geral). Aqui no ranking não faz mais essa
 // distinção: pontua igual, venha de onde vier.
 //
+// 39ª rodada, pedido da Raquel: "quando finalizamos um card que não é do
+// mês vigente, ele não deve pontuar". Antes, as duas fontes só olhavam pra
+// quando a conclusão aconteceu (`lastCompletedAt`/`doneAt`) — um card com
+// entrega de AGOSTO, concluído com atraso em SETEMBRO, pontuava pra
+// setembro do mesmo jeito que um card que era mesmo de setembro. Agora as
+// duas fontes também exigem que a DATA DE ENTREGA (do card, fonte 1, ou do
+// item do checklist, fonte 2) caia no mesmo mês da conclusão — só assim
+// conta como "do mês vigente". Card/item SEM data de entrega continua
+// pontuando normalmente (sem data, não dá pra dizer que "não é do mês
+// vigente" — não fica de fora).
+//
+// Card RECORRENTE precisa de um campo à parte pra isso: a `dueDate` dele
+// já é empurrada pro mês seguinte NA MESMA gravação em que é concluído
+// (ver "PUT /:id" abaixo), então na hora que essa rota lê o card, o campo
+// `dueDate` já não é mais a data de entrega que estava valendo quando ele
+// foi concluído — é a da PRÓXIMA ocorrência. Por isso o `lastCompletedAt`
+// agora vem acompanhado de `lastCompletedDueDate` (gravado no mesmo
+// instante, com a data de entrega que valia ANTES do empurrão), e é esse
+// campo que essa rota usa pra checar o mês — não a `dueDate` atual.
+//
+// Retroativo: como o cálculo é sempre ao vivo (não é um placar guardado),
+// o ajuste já vale sozinho pra qualquer conclusão já registrada. A única
+// ressalva é card RECORRENTE concluído ANTES desta rodada: esses não têm
+// `lastCompletedDueDate` gravado (campo novo), então caem no fallback
+// abaixo (usa a `dueDate` atual) — que pra card recorrente já vai estar
+// um mês à frente da que valia na conclusão. Não afeta o card comum (não
+// recorrente), cuja `dueDate` nunca muda sozinha.
+//
 // Importante: essa rota calcula tudo na hora, direto dos dados atuais —
 // não é um placar guardado à parte. Então já vale automaticamente pra
 // toda demanda concluída neste mês até agora e pra qualquer uma concluída
@@ -406,6 +434,12 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
   );
   const counts = {};
   function addPoint(id) { if (id && !excludedIds.has(id)) counts[id] = (counts[id] || 0) + 1; }
+  // "É do mês vigente?" — sem data de entrega, conta (não dá pra dizer
+  // que não é do mês); com data, só conta se ela cair no mesmo mês `ym`
+  // da conclusão que estamos somando.
+  function isMesVigente(dueDate) {
+    return !dueDate || dueDate.slice(0, 7) === ym;
+  }
   db.get('demandas').value().forEach((d) => {
     // 36ª rodada, pedido da Raquel: demanda arquivada continua pontuando,
     // desde que a conclusão em si tenha acontecido dentro do mês --
@@ -420,15 +454,26 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
     // então nunca fica parada em 'concluida' -- antes disso, recorrente
     // nunca pontuava por essa fonte). Marcados + responsável geral, sem
     // duplicar ponto pra quem for as duas coisas ao mesmo tempo.
+    //
+    // 39ª rodada: só pontua se a data de entrega que valia na conclusão
+    // (`lastCompletedDueDate`; card de antes desta rodada cai no fallback
+    // pra `dueDate` atual) também for desse mesmo mês -- card sem nenhuma
+    // data de entrega continua pontuando normalmente.
     if (d.lastCompletedAt && d.lastCompletedAt.slice(0, 7) === ym) {
-      const pontuamNesseCard = new Set(d.assigneeIds || []);
-      if (d.responsibleId) pontuamNesseCard.add(d.responsibleId);
-      pontuamNesseCard.forEach(addPoint);
+      const dueDateNaConclusao = d.lastCompletedDueDate !== undefined ? d.lastCompletedDueDate : d.dueDate;
+      if (isMesVigente(dueDateNaConclusao)) {
+        const pontuamNesseCard = new Set(d.assigneeIds || []);
+        if (d.responsibleId) pontuamNesseCard.add(d.responsibleId);
+        pontuamNesseCard.forEach(addPoint);
+      }
     }
     // (2) itens de checklist concluídos neste mês -- 1 ponto por item, à
-    // parte da pontuação do card (soma, não substitui).
+    // parte da pontuação do card (soma, não substitui). 39ª rodada: mesma
+    // regra do mês vigente, usando a data de entrega do PRÓPRIO item (o
+    // item não tem recorrência, então não precisa de campo separado --
+    // `dueDate` do item nunca é empurrada sozinha).
     (d.checklist || []).forEach((it) => {
-      if (it.assigneeId && it.done && it.doneAt && it.doneAt.slice(0, 7) === ym) {
+      if (it.assigneeId && it.done && it.doneAt && it.doneAt.slice(0, 7) === ym && isMesVigente(it.dueDate)) {
         addPoint(it.assigneeId);
       }
     });
@@ -505,18 +550,6 @@ router.put('/:id', requireAuth, (req, res) => {
   if (description !== undefined) updates.description = description;
   if (dueDate !== undefined) updates.dueDate = dueDate || null;
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
-  // lastCompletedAt (36ª rodada, pedido da Raquel): guarda o momento exato
-  // da conclusão, separado do `status`/`updatedAt` -- sobrevive ao "bounce"
-  // de demanda recorrente (que volta sozinha pra "a_fazer" na MESMA
-  // gravação, ver bloco de recorrência abaixo) e não é apagado quando a
-  // demanda é arquivada depois. O REIS DO MARKETING usa esse campo (não o
-  // status atual) pra saber se/quando um card foi concluído no mês --
-  // antes, demanda recorrente NUNCA pontuava por essa fonte (nunca ficava
-  // parada em status 'concluida'), e demanda arquivada era ignorada por
-  // inteiro na pontuação.
-  if (updates.status === 'concluida' && demanda.status !== 'concluida') {
-    updates.lastCompletedAt = updates.updatedAt;
-  }
   if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
   // Responsável geral (30ª rodada): valida contra os marcados que vão valer
   // DEPOIS dessa atualização (novos assigneeIds, se vieram junto; senão os
@@ -547,6 +580,28 @@ router.put('/:id', requireAuth, (req, res) => {
   const effectiveDueDate = updates.dueDate !== undefined ? updates.dueDate : demanda.dueDate;
   if (effectiveRecurring && !effectiveDueDate) {
     return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
+  }
+  // lastCompletedAt (36ª rodada, pedido da Raquel): guarda o momento exato
+  // da conclusão, separado do `status`/`updatedAt` -- sobrevive ao "bounce"
+  // de demanda recorrente (que volta sozinha pra "a_fazer" logo abaixo) e
+  // não é apagado quando a demanda é arquivada depois. O REIS DO MARKETING
+  // usa esse campo (não o status atual) pra saber se/quando um card foi
+  // concluído no mês -- antes, demanda recorrente NUNCA pontuava por essa
+  // fonte (nunca ficava parada em status 'concluida'), e demanda arquivada
+  // era ignorada por inteiro na pontuação.
+  //
+  // lastCompletedDueDate (39ª rodada, pedido da Raquel): guarda, JUNTO com
+  // `lastCompletedAt`, a data de entrega que valia NESTE exato momento --
+  // ou seja, `effectiveDueDate`, calculado ACIMA, antes do bloco de
+  // recorrência logo abaixo empurrar `updates.dueDate` pro mês seguinte.
+  // Precisa ser capturado aqui (e não lido depois, do banco) porque pra
+  // card recorrente a `dueDate` muda na MESMA gravação em que é concluído
+  // -- se o REIS DO MARKETING fosse olhar a `dueDate` atual do card, já
+  // estaria vendo a data da PRÓXIMA ocorrência, não a que valia quando essa
+  // conclusão aconteceu.
+  if (updates.status === 'concluida' && demanda.status !== 'concluida') {
+    updates.lastCompletedAt = updates.updatedAt;
+    updates.lastCompletedDueDate = effectiveDueDate || null;
   }
   let recurringReset = null;
   if (updates.status === 'concluida' && effectiveRecurring && effectiveDueDate) {

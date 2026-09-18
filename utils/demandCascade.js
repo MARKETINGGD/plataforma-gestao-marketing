@@ -29,7 +29,11 @@ function cascadeCompleteDemandas(sourceSocialPostId, excludeId, req) {
   );
   const now = new Date().toISOString();
   targets.forEach((d) => {
-    db.get('demandas').find({ id: d.id }).assign({ status: 'concluida', updatedAt: now }).write();
+    // lastCompletedAt (36ª rodada) -- mesma marcação de "quando foi
+    // concluída de verdade" já feita no PUT /:id manual (ver
+    // routes/demandas.js), aplicada aqui também pra quem é completada
+    // automaticamente pela cascata.
+    db.get('demandas').find({ id: d.id }).assign({ status: 'concluida', updatedAt: now, lastCompletedAt: now }).write();
     if (req && req.user) {
       logAudit({
         user: req.user,

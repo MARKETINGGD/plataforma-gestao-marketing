@@ -8,6 +8,10 @@ const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { cascadeCompleteDemandas, alsoInvolvedUserIds } = require('../utils/demandCascade');
+// 36ª rodada: sincronização de 3 vias Influencers <-> Agendamento <-> Demandas
+// (ver utils/tripleSync.js). Seguro exigir aqui -- tripleSync.js não exige
+// demandas.js de volta, então não cria require circular.
+const { markSocialPostPublished, deleteInfluencerTriad } = require('../utils/tripleSync');
 
 const router = express.Router();
 
@@ -154,6 +158,14 @@ function serialize(d) {
   // agendamento (34ª rodada, pedido da Raquel) — sem isso a marcação
   // original só existia "escondida" em cards separados de cada pessoa.
   const alsoInvolvedNames = alsoInvolvedUserIds(d).map((id) => resolveUserName(id, '')).filter(Boolean);
+  // 36ª rodada, pedido da Raquel: o card precisa mostrar quem mais está
+  // envolvido do MESMO jeito que aparece no Agendamento (fotinho/avatar,
+  // não só o nome em texto) -- facilita reconhecer de cara e evitar
+  // demanda duplicada pra quem já está marcado em outro card do mesmo
+  // agendamento.
+  const alsoInvolvedPeople = alsoInvolvedUserIds(d).map((id) => ({
+    id, name: resolveUserName(id, ''), photoUrl: resolveUserPhoto(id)
+  })).filter((p) => p.name);
   return Object.assign({}, d, {
     assigneeIds: d.assigneeIds || [],
     labelIds: d.labelIds || [],
@@ -168,6 +180,7 @@ function serialize(d) {
     overdue: isOverdue(d),
     order: cardOrder(d),
     alsoInvolvedNames,
+    alsoInvolvedPeople,
     // Nome/foto de quem criou, resolvidos ao vivo (20ª/22ª rodada) — ver utils/names.js.
     createdByName: resolveUserName(d.createdBy, d.createdByName),
     createdByPhoto: resolveUserPhoto(d.createdBy),
@@ -334,10 +347,19 @@ router.get('/summary', requireAuth, (req, res) => {
 // 31ª rodada (mantido): quem tem cargo "Gerente" ou "Coordenador(a)" some
 // do gráfico e não pontua de jeito nenhum, por nenhuma das duas fontes.
 //
-// Demandas RECORRENTES continuam de fora da fonte (1): ao marcar como
-// concluída elas voltam sozinhas pra "A Fazer" (ver PUT /:id acima), então
-// nunca ficam paradas em status 'concluida'. A fonte (2), por usar
-// `doneAt` do item, não tem essa limitação. Não conta demanda arquivada.
+// 36ª rodada, pedido da Raquel: demanda RECORRENTE agora pontua pela fonte
+// (1) também -- antes ficava de fora, porque ao marcar como concluída ela
+// volta sozinha pra "A Fazer" na mesma gravação (ver PUT /:id acima) e
+// nunca ficava parada em status 'concluida', que era o que a fonte (1)
+// checava. Resolvido com um campo `lastCompletedAt`, gravado no momento
+// exato da conclusão e que sobrevive ao "bounce" de volta pra "A Fazer" --
+// a fonte (1) agora olha pra esse campo, não pro status atual. A fonte
+// (2), por usar `doneAt` do item, nunca teve essa limitação.
+//
+// 36ª rodada também: demanda ARQUIVADA agora continua pontuando (antes
+// era ignorada por inteiro) -- desde que a conclusão em si (`lastCompletedAt`)
+// tenha caído dentro do mês. Arquivar é só uma forma de tirar do quadro
+// ativo, não deveria apagar ponto já ganho.
 //
 // 33ª rodada, pedido da Raquel: demanda do quadro PESSOAL (visibility
 // 'pessoal') agora TAMBÉM pontua — antes só o quadro geral contava (mesmo
@@ -359,10 +381,20 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
   const counts = {};
   function addPoint(id) { if (id && !excludedIds.has(id)) counts[id] = (counts[id] || 0) + 1; }
   db.get('demandas').value().forEach((d) => {
-    if (d.archived) return;
-    // (1) card inteiro concluído neste mês -- marcados + responsável geral,
-    // sem duplicar ponto pra quem for as duas coisas ao mesmo tempo.
-    if (d.status === 'concluida' && d.updatedAt && d.updatedAt.slice(0, 7) === ym) {
+    // 36ª rodada, pedido da Raquel: demanda arquivada continua pontuando,
+    // desde que a conclusão em si tenha acontecido dentro do mês --
+    // arquivar é só "tirar do quadro ativo", não deveria zerar ponto já
+    // ganho. (Antes, `if (d.archived) return;` tirava a demanda inteira da
+    // contagem, inclusive a fonte 1 abaixo.)
+    //
+    // (1) card inteiro concluído neste mês -- usa `lastCompletedAt` (36ª
+    // rodada) em vez de `status === 'concluida' && updatedAt`: pontua
+    // igual pra demanda comum (que fica parada em 'concluida') e pra
+    // demanda RECORRENTE (que volta sozinha pra 'a_fazer' na mesma hora,
+    // então nunca fica parada em 'concluida' -- antes disso, recorrente
+    // nunca pontuava por essa fonte). Marcados + responsável geral, sem
+    // duplicar ponto pra quem for as duas coisas ao mesmo tempo.
+    if (d.lastCompletedAt && d.lastCompletedAt.slice(0, 7) === ym) {
       const pontuamNesseCard = new Set(d.assigneeIds || []);
       if (d.responsibleId) pontuamNesseCard.add(d.responsibleId);
       pontuamNesseCard.forEach(addPoint);
@@ -445,6 +477,18 @@ router.put('/:id', requireAuth, (req, res) => {
   if (description !== undefined) updates.description = description;
   if (dueDate !== undefined) updates.dueDate = dueDate || null;
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
+  // lastCompletedAt (36ª rodada, pedido da Raquel): guarda o momento exato
+  // da conclusão, separado do `status`/`updatedAt` -- sobrevive ao "bounce"
+  // de demanda recorrente (que volta sozinha pra "a_fazer" na MESMA
+  // gravação, ver bloco de recorrência abaixo) e não é apagado quando a
+  // demanda é arquivada depois. O REIS DO MARKETING usa esse campo (não o
+  // status atual) pra saber se/quando um card foi concluído no mês --
+  // antes, demanda recorrente NUNCA pontuava por essa fonte (nunca ficava
+  // parada em status 'concluida'), e demanda arquivada era ignorada por
+  // inteiro na pontuação.
+  if (updates.status === 'concluida' && demanda.status !== 'concluida') {
+    updates.lastCompletedAt = updates.updatedAt;
+  }
   if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
   // Responsável geral (30ª rodada): valida contra os marcados que vão valer
   // DEPOIS dessa atualização (novos assigneeIds, se vieram junto; senão os
@@ -492,6 +536,14 @@ router.put('/:id', requireAuth, (req, res) => {
   // marcada deve concluir pra todas.
   if (updates.status === 'concluida' && demanda.sourceSocialPostId) {
     cascadeCompleteDemandas(demanda.sourceSocialPostId, demanda.id, req);
+    // 36ª rodada: se o agendamento de origem veio de uma ação da planilha
+    // de influencers, concluir a demanda aqui também publica o
+    // agendamento e a ação de influencer ligados -- "tudo se altera
+    // junto", pedido da Raquel.
+    const linkedPost = db.get('socialPosts').find({ id: demanda.sourceSocialPostId }).value();
+    if (linkedPost && linkedPost.sourceInfluencerPostId) {
+      markSocialPostPublished(demanda.sourceSocialPostId, req);
+    }
   }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()), recurringReset });
 });
@@ -508,6 +560,20 @@ router.put('/:id/archive', requireAuth, (req, res) => {
 router.delete('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
+  // 36ª rodada: se essa demanda veio (via sourceSocialPostId) de um
+  // agendamento criado a partir de uma ação de influencer, apagar o card
+  // apaga o trio inteiro (demanda(s) irmãs + agendamento + ação de
+  // influencer) -- pedido da Raquel: "se a ação é excluída... tudo que
+  // está ligado a ela deve ser alterado também". Agendamento comum
+  // (sem vínculo de influencer) mantém o comportamento de sempre: só a
+  // própria demanda some.
+  if (demanda.sourceSocialPostId) {
+    const linkedPost = db.get('socialPosts').find({ id: demanda.sourceSocialPostId }).value();
+    if (linkedPost && linkedPost.sourceInfluencerPostId) {
+      deleteInfluencerTriad({ socialPostId: linkedPost.id }, req);
+      return res.json({ ok: true });
+    }
+  }
   db.get('demandas').remove({ id: req.params.id }).write();
   const dir = path.join(uploadsRoot, req.params.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });

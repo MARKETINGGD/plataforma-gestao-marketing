@@ -76,6 +76,9 @@
   let editingSocialPostId = null;
   let socialTab = 'debacco'; // 'debacco' | 'ghelplus'
   let socialInvolvedIds = new Set();
+  // 36ª rodada: mesmo padrão, agora pro chip-picker de "Pessoas envolvidas"
+  // da ação de influencer (ver openInfluencerPostForm / renderInfluencerInvolvedChips).
+  let influencerInvolvedIds = new Set();
   let socialCarouselBriefings = []; // array de textos, um por card do carrossel
 
   let cronogramaTab = 'calendario'; // 'calendario' | 'feed'
@@ -176,6 +179,19 @@
     return `<div class="avatar-fallback${cls}" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px;" title="${name}">${initial}</div>`;
   }
 
+  // Empilhado de fotinhos (até 3 + "+N") -- mesmo visual já usado no chip
+  // do calendário do Cronograma (ver renderCronogramaCalendar), agora
+  // reaproveitado pra mostrar "quem mais está no card" numa demanda vinda
+  // de agendamento (36ª rodada, pedido da Raquel: "deve aparecer quem mais
+  // esta no card, da mesma forma que fica... pela aba agendamento").
+  function avatarStackHtml(people, size) {
+    size = size || 18;
+    const MAX = 3;
+    const shown = people.slice(0, MAX);
+    const extra = people.length - shown.length;
+    return `<div class="avatar-stack">${shown.map((p) => avatarHtml(p, size)).join('')}${extra > 0 ? `<span class="avatar-stack-more">+${extra}</span>` : ''}</div>`;
+  }
+
   // ---------- Histórico de Demandas (22ª rodada) ----------
   // Rótulos em PT de cada tipo de ação registrada no histórico — espelham
   // as `action` gravadas pelo backend (ver routes/demandas.js).
@@ -264,7 +280,11 @@
     { key: 'aprovacao', label: 'Em Aprovação' },
     { key: 'concluida', label: 'Concluída' }
   ];
-  const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
+  const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter', influencer: 'Influencer', blog: 'Blog' };
+  // Ícone pequeno por rede (36ª rodada, pedido da Raquel: card de
+  // demanda vindo de agendamento mostra a rede com um ícone pequeno e
+  // delicado) -- emoji, não tem nenhum arquivo de ícone no projeto ainda.
+  const NETWORK_ICON = { instagram: '📷', facebook: '📘', linkedin: '💼', tiktok: '🎵', youtube: '▶️', pinterest: '📌', newsletter: '📧', influencer: '🌟', blog: '📝' };
   const INFLUENCER_STATUS_LABEL = { a_publicar: 'A publicar', publicada: 'Publicada', cancelada: 'Cancelada' };
   // Cores da 15ª rodada: status em "farol" (amarelo/verde/vermelho) e cada
   // rede social com sua própria cor, pra dar de cara o panorama da tabela.
@@ -2519,16 +2539,17 @@
             <button type="button" class="kanban-check-btn${d.status === 'concluida' ? ' checked' : ''}" title="${d.status === 'concluida' ? 'Marcar como não concluída' : 'Marcar como concluída'}"></button>
             <div class="kanban-card-title">${d.title}</div>
           </div>
+          ${d.network ? `<div class="kanban-card-network">${NETWORK_ICON[d.network] || ''} ${SOCIAL_PLATFORM_LABEL[d.network] || d.network}</div>` : ''}
           <div class="kanban-card-meta">
             <span class="badge">${statusLabel(d.status)}</span>
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
             ${d.recurring ? '<span class="badge badge-muted" title="Repete todo mês">↻ mensal</span>' : ''}
             ${(d.assigneeIds || []).length > 1 ? `<span class="badge">${d.assigneeIds.length} pessoas</span>` : ''}
-            ${(d.alsoInvolvedNames || []).length > 0 ? `<span class="badge" title="Também marcado(a) no mesmo agendamento: ${d.alsoInvolvedNames.join(', ')}">👥 +${d.alsoInvolvedNames.length}</span>` : ''}
             ${total > 0 ? `<span class="badge">✓ ${doneCount}/${total}</span>` : ''}
             ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
             ${d.link ? '<span class="badge" title="Tem link">🔗</span>' : ''}
           </div>
+          ${(d.alsoInvolvedPeople || []).length > 0 ? `<div class="kanban-card-also-involved" title="Também marcado(a) no mesmo agendamento: ${(d.alsoInvolvedNames || []).join(', ')}">${avatarStackHtml(d.alsoInvolvedPeople, 18)}</div>` : ''}
           ${d.createdByName ? `<div class="kanban-card-creator">Criado por: ${d.createdByName}</div>` : ''}
         `;
         if (d.color) {
@@ -2901,10 +2922,15 @@
     // cards que a Plataforma criou automaticamente a partir de um
     // agendamento de redes sociais com mais de 1 pessoa envolvida.
     const alsoInvolved = demanda ? (demanda.alsoInvolvedNames || []) : [];
+    const alsoInvolvedPeople = demanda ? (demanda.alsoInvolvedPeople || []) : [];
     $('#demAlsoInvolvedNote').textContent = alsoInvolved.length > 0
       ? `Também marcado(a) no mesmo agendamento: ${alsoInvolved.join(', ')}. Concluir esta demanda conclui a de todos eles também.`
       : '';
     $('#demAlsoInvolvedNote').hidden = alsoInvolved.length === 0;
+    // Fotinhos (36ª rodada) -- mesmo visual do Agendamento, além do texto
+    // acima (que continua existindo pra quem prefere ler os nomes).
+    $('#demAlsoInvolvedStack').innerHTML = alsoInvolvedPeople.length > 0 ? avatarStackHtml(alsoInvolvedPeople, 22) : '';
+    $('#demAlsoInvolvedStack').hidden = alsoInvolvedPeople.length === 0;
     renderLabelChips();
     renderDemColorSwatches();
     renderChecklist(demanda || { checklist: [] });
@@ -3479,6 +3505,29 @@
     });
   }
 
+  // 36ª rodada: chip-picker de "Pessoas envolvidas" na ação de influencer
+  // -- mesmo comportamento de renderInvolvedChips (Agendamento), só que
+  // aponta pro wrap e pro Set da ação de influencer.
+  function renderInfluencerInvolvedChips() {
+    const wrap = $('#influencerPostFormInvolvedList');
+    wrap.innerHTML = '';
+    if (teamMembers.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Nenhum usuário cadastrado ainda.</span>';
+      return;
+    }
+    teamMembers.forEach((u) => {
+      const chip = document.createElement('label');
+      chip.className = 'chip-toggle' + (influencerInvolvedIds.has(u.id) ? ' active' : '');
+      const cargoTag = u.cargo ? ` (${CARGO_LABEL[u.cargo] || u.cargo})` : '';
+      chip.innerHTML = `<input type="checkbox" ${influencerInvolvedIds.has(u.id) ? 'checked' : ''}> ${u.name}${cargoTag}`;
+      chip.querySelector('input').onchange = (ev) => {
+        if (ev.target.checked) influencerInvolvedIds.add(u.id); else influencerInvolvedIds.delete(u.id);
+        chip.classList.toggle('active', ev.target.checked);
+      };
+      wrap.appendChild(chip);
+    });
+  }
+
   function openSocialPostForm(post) {
     editingSocialPostId = post ? post.id : null;
     $('#socialPostFormTitle').textContent = post ? 'Editar agendamento' : 'Novo agendamento';
@@ -3756,7 +3805,11 @@
       const dateStr = `${cellYear}-${String(cellMonth + 1).padStart(2, '0')}-${String(cellDay).padStart(2, '0')}`;
 
       const cell = document.createElement('div');
-      cell.className = 'cal-day' + (otherMonth ? ' other-month' : '') + (dateStr === todayStr ? ' today' : '');
+      // "past" (36ª rodada, pedido da Raquel: "os dias que já passaram
+      // devem ficar em verde, pra mostrar que já passou aquela etapa do
+      // cronograma") -- comparação de string funciona direto porque as
+      // datas estão sempre no formato YYYY-MM-DD.
+      cell.className = 'cal-day' + (otherMonth ? ' other-month' : '') + (dateStr === todayStr ? ' today' : '') + (dateStr < todayStr ? ' past' : '');
       const num = document.createElement('div');
       num.className = 'cal-day-num';
       num.textContent = cellDay;
@@ -4904,6 +4957,8 @@
     $('#influencerPostFormSaidaWrap').hidden = $('#influencerPostFormParceria').value !== 'permuta';
     $('#influencerPostFormNotaFiscal').value = '';
     $('#influencerPostFormNotaFiscalAtual').textContent = post && post.notaFiscal ? ('Nota fiscal atual: ' + post.notaFiscal.name) : '';
+    influencerInvolvedIds = new Set(post ? (post.involvedUserIds || []) : []);
+    renderInfluencerInvolvedChips();
     $('#influencerPostFormError').hidden = true;
     $('#influencerPostFormWrap').hidden = false;
   }
@@ -4922,7 +4977,8 @@
       observacoes: $('#influencerPostFormObs').value.trim(),
       notas: $('#influencerPostFormNotas').value.trim(),
       tipoParceria: $('#influencerPostFormParceria').value || null,
-      dataSaida: $('#influencerPostFormParceria').value === 'permuta' ? ($('#influencerPostFormDataSaida').value || null) : null
+      dataSaida: $('#influencerPostFormParceria').value === 'permuta' ? ($('#influencerPostFormDataSaida').value || null) : null,
+      involvedUserIds: Array.from(influencerInvolvedIds)
     };
     try {
       let postId = editingInfluencerPostId;

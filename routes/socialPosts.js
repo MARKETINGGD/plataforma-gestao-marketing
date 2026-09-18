@@ -19,7 +19,11 @@ const router = express.Router();
 // 'newsletter' entra como mais uma rede — usada pros agendamentos de
 // news (layout + briefing), com nome de tipo diferente por marca (ver
 // POST_TYPES abaixo).
-const PLATFORMS = ['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube', 'pinterest', 'newsletter'];
+// Influencer e Blog entraram na 36ª rodada, pedido da Raquel: "adicionar
+// Influencer e blog" nas opções de rede -- sem regra especial nenhuma,
+// contam como mais uma rede normal (igual newsletter, sem o tratamento
+// por marca que newsletter tem).
+const PLATFORMS = ['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube', 'pinterest', 'newsletter', 'influencer', 'blog'];
 const STATUSES = ['rascunho', 'agendado', 'publicado'];
 // Tipo do post — lista definida pela Raquel (16/09, 7ª rodada). g_news e
 // contatto só fazem sentido com platform 'newsletter' — g_news é o nome
@@ -49,7 +53,7 @@ const APPROVAL_STATUSES = ['pendente', 'aprovado', 'reprovado'];
 // Labels em PT usados só aqui no backend, pra montar o título/descrição do
 // card de Demanda criado automaticamente quando alguém é marcado como
 // pessoa envolvida num agendamento (ver createDemandCardsForNewInvolved).
-const PLATFORM_LABEL_PT = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter' };
+const PLATFORM_LABEL_PT = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter', influencer: 'Influencer', blog: 'Blog' };
 const POST_TYPE_LABEL_PT = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
 const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus', duranox: 'Duranox', boutiqueinox: 'Boutique Inox' };
 
@@ -149,6 +153,11 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
       checklist: [],
       files: [],
       sourceSocialPostId: post.id,
+      // Rede do agendamento de origem (36ª rodada, pedido da Raquel: "onde
+      // diz o nome da rede social, deve ter o icone da rede, pequeno e
+      // delicado") -- o Kanban de Demandas usa isso pra mostrar o
+      // ícone/nome da rede no card, sem precisar reabrir o agendamento.
+      network: post.platform || null,
       createdAt: new Date().toISOString(),
       createdBy: req.user.id,
       createdByName: req.user.name,
@@ -320,6 +329,28 @@ router.put('/:id', requireAuth, (req, res) => {
   if (updates.status === 'publicado' && previousStatus !== 'publicado') {
     cascadeCompleteDemandas(fresh.id, null, req);
   }
+  // 36ª rodada: se esse agendamento nasceu de uma ação da planilha de
+  // influencers (fresh.sourceInfluencerPostId), qualquer edição feita
+  // AQUI (pela aba Agendamento) precisa refletir de volta na ação de
+  // influencer ligada -- pedido da Raquel: "se tiver alterações no
+  // agendamento... tudo se altera junto". Escrita direta no db (sem
+  // exigir utils/tripleSync.js) de propósito: tripleSync.js já exige
+  // este arquivo (pra chamar createDemandCardsForNewInvolved), então
+  // este arquivo exigir tripleSync.js de volta criaria um require
+  // circular.
+  if (fresh.sourceInfluencerPostId) {
+    const infPost = db.get('influencerPosts').find({ id: fresh.sourceInfluencerPostId }).value();
+    if (infPost) {
+      const infUpdates = {};
+      if (updates.platform !== undefined) infUpdates.rede = updates.platform;
+      if (updates.scheduledDate !== undefined) infUpdates.dataPostagem = updates.scheduledDate;
+      if (updates.caption !== undefined) infUpdates.observacoes = updates.caption;
+      if (updates.status === 'publicado' && infPost.status !== 'publicada') infUpdates.status = 'publicada';
+      if (Object.keys(infUpdates).length > 0) {
+        db.get('influencerPosts').find({ id: infPost.id }).assign(infUpdates).write();
+      }
+    }
+  }
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update' });
   res.json({ post: serialize(fresh) });
 });
@@ -351,6 +382,36 @@ router.put('/:id/approval', requireAuth, (req, res) => {
 router.delete('/:id', requireAuth, (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
+  // 36ª rodada: se esse agendamento nasceu de uma ação de influencer,
+  // apagar por aqui também apaga o trio inteiro (ação + demandas ligadas)
+  // -- pedido da Raquel: "tudo que está ligado a ela deve ser alterado
+  // também". Lógica inline (em vez de chamar utils/tripleSync.js) pra
+  // não criar require circular (ver comentário equivalente no PUT acima).
+  // Agendamento comum (sem essa origem) mantém o comportamento de
+  // sempre: só o próprio post some.
+  if (post.sourceInfluencerPostId) {
+    const infPost = db.get('influencerPosts').find({ id: post.sourceInfluencerPostId }).value();
+    const linkedDemandas = db.get('demandas').value().filter((d) => d.sourceSocialPostId === post.id);
+    linkedDemandas.forEach((d) => {
+      db.get('demandas').remove({ id: d.id }).write();
+      const demandaDir = path.join(__dirname, '..', 'data', 'uploads', 'demandas', d.id);
+      if (fs.existsSync(demandaDir)) fs.rmSync(demandaDir, { recursive: true, force: true });
+      logAudit({ user: req.user, entityType: 'demanda', entityId: d.id, entityLabel: d.title, action: 'delete', details: 'Excluída automaticamente junto com o agendamento/ação de influencer de origem.', meta: { visibility: d.visibility } });
+    });
+    if (infPost) {
+      const uploadsRootInfluencers = path.join(__dirname, '..', 'data', 'uploads', 'influencers');
+      db.get('influencerPosts').remove({ id: infPost.id }).write();
+      if (infPost.arquivo && infPost.arquivo.url) {
+        const p = path.join(uploadsRootInfluencers, infPost.influencerId, path.basename(infPost.arquivo.url));
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      }
+      if (infPost.notaFiscal && infPost.notaFiscal.url) {
+        const p = path.join(uploadsRootInfluencers, infPost.influencerId, 'nota-fiscal', path.basename(infPost.notaFiscal.url));
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      }
+      logAudit({ user: req.user, entityType: 'influencerPost', entityId: infPost.id, entityLabel: infPost.formato, action: 'delete', details: 'Excluída automaticamente junto com o agendamento/demandas ligados a ela.' });
+    }
+  }
   db.get('socialPosts').remove({ id: req.params.id }).write();
   const dir = path.join(uploadsRoot, req.params.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
@@ -454,4 +515,9 @@ router.delete('/:id/script-file', requireAuth, (req, res) => {
   res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });
 });
 
+// createDemandCardsForNewInvolved exposta (36ª rodada) pra ser
+// reaproveitada por utils/tripleSync.js, quando uma ação de influencer
+// cria um agendamento vinculado -- mesma função, mesmo comportamento,
+// sem duplicar código.
+router.createDemandCardsForNewInvolved = createDemandCardsForNewInvolved;
 module.exports = router;

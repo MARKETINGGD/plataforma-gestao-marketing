@@ -722,6 +722,14 @@
               <select id="influencerPostFormRede"></select>
             </div>
           </div>
+
+          <!-- Pessoas envolvidas (36ª rodada, pedido da Raquel): toda ação
+               criada aqui gera um card ligado na aba Demandas pra cada
+               pessoa marcada, e um agendamento em Redes Sociais -- mesmo
+               padrão de chip-picker usado lá em Agendamento. -->
+          <label>Pessoas envolvidas</label>
+          <div id="influencerPostFormInvolvedList" class="chip-picker"></div>
+
           <div class="form-row">
             <div>
               <label>Status</label>
@@ -1239,6 +1247,7 @@
 
       <label>Responsáveis <span class="muted" style="font-weight:400;">(o card aparece na lista de cada pessoa marcada)</span></label>
       <div id="demAssigneeList" class="chip-picker"></div>
+      <div id="demAlsoInvolvedStack" style="margin:-4px 0 0;" hidden></div>
       <p class="muted" id="demAlsoInvolvedNote" style="font-size:12px;margin:-8px 0 0;" hidden></p>
 
       <label>Etiquetas <button type="button" id="demLabelManageBtn" class="btn-link" style="font-size:12px;">gerenciar etiquetas</button></label>

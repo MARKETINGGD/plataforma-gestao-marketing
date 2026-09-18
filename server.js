@@ -40,6 +40,9 @@ require('./utils/seedBudget2026DebaccoGranular').seedBudget2026DebaccoGranular()
 // já publicados, ou a grupos onde alguém já tinha concluído manualmente
 // antes desse recurso existir (ver utils/demandCascade.js).
 require('./utils/migrateAutoCompleteDemandasFromPosts').migrateAutoCompleteDemandasFromPosts();
+// 36ª rodada: dá lastCompletedAt retroativo pra demanda já concluída antes
+// desse campo existir (ver utils/migrateLastCompletedAt.js).
+require('./utils/migrateLastCompletedAt').migrateLastCompletedAt();
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).

@@ -7,6 +7,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { createLinkedSocialPost, syncInfluencerActionToSocialPost, deleteInfluencerTriad } = require('../utils/tripleSync');
 
 const router = express.Router();
 
@@ -30,6 +31,16 @@ const STATUSES = ['a_publicar', 'publicada', 'cancelada'];
 const TIPOS_PARCERIA = ['paga', 'permuta'];
 
 function validColor() { return null; } // reservado — sem cor por enquanto
+
+// Pessoas envolvidas numa ação (36ª rodada, pedido da Raquel: campo novo,
+// não existia antes -- é o que permite gerar a demanda com "as pessoas
+// envolvidas" quando a ação é criada). Mesma validação simples já usada em
+// Demandas/Agendamento (filtra contra a lista de usuários existentes).
+function validUserIds(ids) {
+  if (!Array.isArray(ids)) return [];
+  const users = db.get('users').value();
+  return ids.filter((id) => users.some((u) => u.id === id));
+}
 
 // Dados pessoais + contrato (21ª rodada, pedido da Raquel: "na hora de
 // cadastrar a influencer, temos que colocar os dados dela, dados pessoais,
@@ -236,7 +247,7 @@ router.get('/:id', requireAuth, (req, res) => {
 router.post('/:id/posts', requireAuth, (req, res) => {
   const inf = findInfluencerOr404(req, res);
   if (!inf) return;
-  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida } = req.body || {};
+  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds } = req.body || {};
   const post = {
     id: nanoid(),
     influencerId: inf.id,
@@ -251,11 +262,18 @@ router.post('/:id/posts', requireAuth, (req, res) => {
     tipoParceria: TIPOS_PARCERIA.includes(tipoParceria) ? tipoParceria : null,
     dataSaida: dataSaida || null,
     notaFiscal: null,
+    // Pessoas envolvidas + agendamento ligado (36ª rodada, ver
+    // utils/tripleSync.js) — toda ação nova já nasce com um agendamento em
+    // Redes Sociais e, pra cada pessoa marcada aqui, uma demanda no quadro.
+    involvedUserIds: validUserIds(involvedUserIds),
+    linkedSocialPostId: null,
     createdAt: new Date().toISOString()
   };
   db.get('influencerPosts').push(post).write();
+  const linkedPost = createLinkedSocialPost(inf, post, req);
+  db.get('influencerPosts').find({ id: post.id }).assign({ linkedSocialPostId: linkedPost.id }).write();
   logAudit({ user: req.user, entityType: 'influencerPost', entityId: post.id, entityLabel: `${inf.name} · ${post.formato}`, action: 'create' });
-  res.json({ post });
+  res.json({ post: db.get('influencerPosts').find({ id: post.id }).value() });
 });
 
 router.put('/:id/posts/:postId', requireAuth, (req, res) => {
@@ -263,7 +281,7 @@ router.put('/:id/posts/:postId', requireAuth, (req, res) => {
   if (!inf) return;
   const post = db.get('influencerPosts').find({ id: req.params.postId, influencerId: inf.id }).value();
   if (!post) return res.status(404).json({ error: 'Item não encontrado.' });
-  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida } = req.body || {};
+  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds } = req.body || {};
   const updates = {};
   if (formato !== undefined) updates.formato = (formato || '').trim();
   if (rede !== undefined) updates.rede = REDES.includes(rede) ? rede : null;
@@ -273,7 +291,11 @@ router.put('/:id/posts/:postId', requireAuth, (req, res) => {
   if (notas !== undefined) updates.notas = (notas || '').trim();
   if (tipoParceria !== undefined) updates.tipoParceria = TIPOS_PARCERIA.includes(tipoParceria) ? tipoParceria : null;
   if (dataSaida !== undefined) updates.dataSaida = dataSaida || null;
+  if (involvedUserIds !== undefined) updates.involvedUserIds = validUserIds(involvedUserIds);
   db.get('influencerPosts').find({ id: post.id }).assign(updates).write();
+  // 36ª rodada: propaga a edição pro agendamento ligado a essa ação (rede,
+  // data, status, envolvidos etc.) — ver utils/tripleSync.js.
+  syncInfluencerActionToSocialPost(post, updates, req);
   logAudit({ user: req.user, entityType: 'influencerPost', entityId: post.id, entityLabel: `${inf.name} · ${updates.formato || post.formato}`, action: 'update' });
   res.json({ post: db.get('influencerPosts').find({ id: post.id }).value() });
 });
@@ -283,16 +305,12 @@ router.delete('/:id/posts/:postId', requireAuth, (req, res) => {
   if (!inf) return;
   const post = db.get('influencerPosts').find({ id: req.params.postId, influencerId: inf.id }).value();
   if (!post) return res.status(404).json({ error: 'Item não encontrado.' });
-  if (post.arquivo && post.arquivo.url) {
-    const filePath = path.join(__dirname, '..', 'data', 'uploads', 'influencers', inf.id, path.basename(post.arquivo.url));
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  }
-  if (post.notaFiscal && post.notaFiscal.url) {
-    const nfPath = path.join(__dirname, '..', 'data', 'uploads', 'influencers', inf.id, 'nota-fiscal', path.basename(post.notaFiscal.url));
-    if (fs.existsSync(nfPath)) fs.unlinkSync(nfPath);
-  }
-  db.get('influencerPosts').remove({ id: post.id }).write();
-  logAudit({ user: req.user, entityType: 'influencerPost', entityId: post.id, entityLabel: `${inf.name} · ${post.formato}`, action: 'delete' });
+  // 36ª rodada: excluir a ação já apaga junto o agendamento e TODAS as
+  // demandas ligadas a ela (inclusive os arquivos de arquivo/nota fiscal
+  // da própria ação) — ver utils/tripleSync.js. Antes disso, registrava
+  // um 'delete' comum; agora quem registra é o deleteInfluencerTriad,
+  // então não duplica a linha de auditoria aqui.
+  deleteInfluencerTriad({ influencerPostId: post.id }, req);
   res.json({ ok: true });
 });
 

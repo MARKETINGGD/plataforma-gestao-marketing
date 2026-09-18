@@ -783,7 +783,12 @@
   function renderReisDoMarketing(counts) {
     const wrap = $('#reisMarketingChart');
     if (!wrap) return;
+    // 31ª rodada, pedido da Raquel: quem tem cargo "Gerente" ou
+    // "Coordenador(a)" nem aparece no gráfico — não é só zerar a pontuação,
+    // a barra da pessoa some de vez (a regra de não pontuar já é garantida
+    // pelo backend em /api/demandas/reis-do-marketing).
     const rows = (teamMembers || [])
+      .filter((u) => u.cargo !== 'gerente' && u.cargo !== 'coordenador')
       .map((u) => ({
         id: u.id,
         fullName: u.name || u.username,
@@ -2581,8 +2586,15 @@
     list.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'checklist-item';
-      row.innerHTML = `<label><input type="checkbox" ${item.done ? 'checked' : ''}> <span>${item.text}</span></label><select class="checklist-assignee-select">${checklistAssigneeOptionsHTML(item.assigneeId || null)}</select>`;
-      row.querySelector('input').onchange = async (ev) => {
+      row.innerHTML = `
+        <label class="checklist-item-main">
+          <input type="checkbox" ${item.done ? 'checked' : ''}>
+          <span class="checklist-item-text">${item.text}</span>
+        </label>
+        <input type="date" class="checklist-due-input" title="Data de entrega deste item (opcional)" value="${item.dueDate || ''}">
+        <select class="checklist-assignee-select">${checklistAssigneeOptionsHTML(item.assigneeId || null)}</select>
+      `;
+      row.querySelector('input[type="checkbox"]').onchange = async (ev) => {
         if (isDraft) {
           item.done = ev.target.checked;
           return;
@@ -2591,6 +2603,20 @@
         editingDemandaId = demanda.id;
         await refreshOpenDemanda();
         refreshReisDoMarketingSoon();
+      };
+      // Data de entrega individual do item (31ª rodada, pedido da Raquel:
+      // "adicione a função de por a data de entrega de cada um dos itens de
+      // check liste, de forma individual") — independente da data de
+      // entrega do card, cada item guarda a própria data (opcional).
+      row.querySelector('.checklist-due-input').onchange = async (ev) => {
+        const dueDate = ev.target.value || null;
+        if (isDraft) {
+          item.dueDate = dueDate;
+          return;
+        }
+        await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'PUT', body: JSON.stringify({ dueDate }) });
+        editingDemandaId = demanda.id;
+        await refreshOpenDemanda();
       };
       row.querySelector('.checklist-assignee-select').onchange = async (ev) => {
         const assigneeId = ev.target.value || null;
@@ -2602,6 +2628,50 @@
         editingDemandaId = demanda.id;
         await refreshOpenDemanda();
       };
+      // Editar o texto do item (31ª rodada, pedido da Raquel: "a opção de
+      // editar o item do check list") — troca o texto por um campo editável
+      // na hora, sem precisar apagar e recriar o item.
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.textContent = '✎';
+      editBtn.className = 'btn-link';
+      editBtn.title = 'Editar item';
+      editBtn.onclick = () => {
+        const span = row.querySelector('.checklist-item-text');
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'checklist-edit-input';
+        input.value = item.text;
+        span.replaceWith(input);
+        input.focus();
+        input.select();
+        const commitEdit = async () => {
+          const newText = input.value.trim();
+          if (!newText || newText === item.text) {
+            renderChecklist(demanda);
+            return;
+          }
+          if (isDraft) {
+            item.text = newText;
+            renderChecklist(demanda);
+            return;
+          }
+          await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'PUT', body: JSON.stringify({ text: newText }) });
+          editingDemandaId = demanda.id;
+          await refreshOpenDemanda();
+        };
+        input.onblur = commitEdit;
+        input.onkeydown = (ev) => {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            input.blur();
+          } else if (ev.key === 'Escape') {
+            input.onblur = null;
+            renderChecklist(demanda);
+          }
+        };
+      };
+      row.appendChild(editBtn);
       const delBtn = document.createElement('button');
       delBtn.textContent = '✕';
       delBtn.className = 'btn-link';

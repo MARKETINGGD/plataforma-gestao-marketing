@@ -117,7 +117,13 @@ function sanitizeChecklistInput(items) {
         text: String((it || {}).text || '').trim(),
         done,
         assigneeId: validUserId((it || {}).assigneeId),
-        doneAt: done ? new Date().toISOString() : null
+        doneAt: done ? new Date().toISOString() : null,
+        // Data de entrega do item (31ª rodada, pedido da Raquel: "adicione a
+        // função de por a data de entrega de cada um dos itens de check
+        // liste, de forma individual") — opcional, independente da data de
+        // entrega do card. Mesmo padrão simples de validação já usado pra
+        // dueDate do card inteiro (só aceita string não-vazia ou null).
+        dueDate: (it || {}).dueDate || null
       };
     })
     .filter((it) => it.text);
@@ -314,8 +320,16 @@ router.get('/summary', requireAuth, (req, res) => {
 // (mesmo critério do /summary).
 router.get('/reis-do-marketing', requireAuth, (req, res) => {
   const ym = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+  // 31ª rodada, pedido da Raquel: quem tem cargo "Gerente" ou "Coordenador(a)"
+  // some do gráfico e não pontua de jeito nenhum — nem quando marcado num
+  // item de checklist, nem como responsável de um card concluído.
+  const excludedIds = new Set(
+    db.get('users').value()
+      .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
+      .map((u) => u.id)
+  );
   const counts = {};
-  function addPoint(id) { if (id) counts[id] = (counts[id] || 0) + 1; }
+  function addPoint(id) { if (id && !excludedIds.has(id)) counts[id] = (counts[id] || 0) + 1; }
   db.get('demandas').value().forEach((d) => {
     if (d.archived || d.visibility === 'pessoal') return;
     const checklist = d.checklist || [];
@@ -328,7 +342,7 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
       (d.assigneeIds || []).forEach(addPoint);
     }
   });
-  res.json({ month: ym, counts });
+  res.json({ month: ym, counts, excludedIds: Array.from(excludedIds) });
 });
 
 router.post('/', requireAuth, (req, res) => {
@@ -491,7 +505,9 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
   // Responsável do item (30ª rodada): opcional, quem for marcado aqui passa
   // a pontuar no REIS DO MARKETING quando o item for concluído.
   const assigneeId = validUserId((req.body || {}).assigneeId);
-  const item = { id: nanoid(), text, done: false, assigneeId, doneAt: null };
+  // Data de entrega do item (31ª rodada) — opcional, aceita já na criação.
+  const dueDate = (req.body || {}).dueDate || null;
+  const item = { id: nanoid(), text, done: false, assigneeId, doneAt: null, dueDate };
   const checklist = [...(demanda.checklist || []), item];
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_add', details: `Item adicionado ao checklist: "${text}"`, meta: { visibility: demanda.visibility } });
@@ -501,7 +517,7 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
 router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { text, done, assigneeId } = req.body || {};
+  const { text, done, assigneeId, dueDate } = req.body || {};
   const before = (demanda.checklist || []).find((it) => it.id === req.params.itemId);
   const checklist = (demanda.checklist || []).map((it) => {
     if (it.id !== req.params.itemId) return it;
@@ -509,7 +525,10 @@ router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
       {},
       text !== undefined ? { text } : {},
       done !== undefined ? { done: !!done } : {},
-      assigneeId !== undefined ? { assigneeId: validUserId(assigneeId) } : {}
+      assigneeId !== undefined ? { assigneeId: validUserId(assigneeId) } : {},
+      // Data de entrega do item (31ª rodada) — envia string vazia/null pra
+      // limpar, igual ao padrão já usado na dueDate do card inteiro.
+      dueDate !== undefined ? { dueDate: dueDate || null } : {}
     );
     // doneAt (30ª rodada): marca o instante em que o item foi concluído —
     // é o que o REIS DO MARKETING usa pra saber se a conclusão foi NESTE
@@ -531,6 +550,8 @@ router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
       detail = (after.done ? 'Item do checklist marcado como concluído: ' : 'Item do checklist desmarcado: ') + `"${after.text}"`;
     } else if (after && text !== undefined && text !== before.text) {
       detail = `Item do checklist renomeado para "${after.text}"`;
+    } else if (after && dueDate !== undefined && (after.dueDate || null) !== (before.dueDate || null)) {
+      detail = `Data de entrega do item "${after.text}" ajustada para ${after.dueDate ? after.dueDate : 'sem data'}`;
     }
     if (detail) logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_update', details: detail, meta: { visibility: demanda.visibility } });
   }

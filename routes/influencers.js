@@ -188,6 +188,43 @@ router.delete('/:id/public-link', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- "Todas as ações" (30ª rodada, pedido da Raquel) ----------
+// Aba agregada dentro de Influencers: reúne os itens de TODAS as tabelas
+// (de todos os influencers, de todas as marcas) numa lista só, ordenada
+// pela data de entrega (dataPostagem) -- pra acompanhar cada ação separada
+// sem abrir influencer por influencer, e também dá pra ver tudo junto.
+// Sempre lê os dados direto do banco na hora da chamada (não guarda cópia
+// em lugar nenhum), então qualquer item novo adicionado na planilha
+// pessoal de um influencer já aparece aqui automaticamente, sem precisar
+// de nenhuma sincronização manual. `?brand=` filtra por marca, igual à
+// listagem normal de influencers -- o front usa isso pra "dividir por
+// marca" dentro da própria aba.
+// Fica ANTES de "GET /:id" de propósito: como é uma rota fixa de dois
+// segmentos (sem parâmetro no primeiro), não colide com ela, mas é mais
+// claro deixar perto do topo do bloco de rotas de tabela.
+router.get('/all/posts', requireAuth, (req, res) => {
+  const brand = BRANDS.includes(req.query.brand) ? req.query.brand : null;
+  let influencers = db.get('influencers').value();
+  if (brand) influencers = influencers.filter((i) => i.brand === brand);
+  const byId = {};
+  influencers.forEach((i) => { byId[i.id] = i; });
+  const posts = db.get('influencerPosts').value()
+    .filter((p) => byId[p.influencerId])
+    .map((p) => Object.assign({}, p, {
+      influencerName: byId[p.influencerId].name,
+      brand: byId[p.influencerId].brand
+    }))
+    .sort((a, b) => {
+      // Item sem data vai pro fim da lista -- não dá pra "acompanhar pela
+      // data de entrega" algo que ainda não tem data definida.
+      if (!a.dataPostagem && !b.dataPostagem) return (a.createdAt || '').localeCompare(b.createdAt || '');
+      if (!a.dataPostagem) return 1;
+      if (!b.dataPostagem) return -1;
+      return a.dataPostagem.localeCompare(b.dataPostagem);
+    });
+  res.json({ posts });
+});
+
 // ---------- tabela (posts) do influencer ----------
 router.get('/:id', requireAuth, (req, res) => {
   const inf = findInfluencerOr404(req, res);

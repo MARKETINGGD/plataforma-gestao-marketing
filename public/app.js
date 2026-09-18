@@ -90,8 +90,13 @@
   let editingBrindeLogId = null;
 
   // ---------- Gerenciamento de Influencers (14ª rodada) ----------
-  let influencersTab = 'debacco'; // 'debacco' | 'ghelplus'
+  let influencersTab = 'debacco'; // 'debacco' | 'ghelplus' | 'todas'
   let influencersList = [];
+  // "Todas as ações" (30ª rodada) -- lista agregada de todos os itens de
+  // todos os influencers, com filtro por marca próprio (independente da
+  // aba debacco/ghelplus, que é pra gerenciar influencer por influencer).
+  let influencerAllPosts = [];
+  let influencerAllBrandFilter = 'todos'; // 'todos' | 'debacco' | 'ghelplus'
   let editingInfluencerId = null;
   let currentInfluencer = null; // influencer aberto na tela de tabela
   let currentInfluencerPosts = [];
@@ -4037,13 +4042,73 @@
   }
 
   // ---------- Gerenciamento de Influencers (14ª rodada) ----------
+  function applyInfluencersTabView() {
+    if (influencersTab === 'todas') {
+      $('#influencersList').hidden = true;
+      $('#influencersEmpty').hidden = true;
+      $('#influencerNewBtn').hidden = true;
+      $('#influencerAllWrap').hidden = false;
+      loadInfluencerAllPosts();
+    } else {
+      $('#influencerAllWrap').hidden = true;
+      $('#influencerNewBtn').hidden = false;
+      $('#influencersList').hidden = false;
+      renderInfluencersList();
+    }
+  }
+
   $all('[data-inf-tab]').forEach((b) => {
     b.onclick = () => {
       influencersTab = b.dataset.infTab;
       $all('[data-inf-tab]').forEach((x) => x.classList.toggle('active', x.dataset.infTab === influencersTab));
-      renderInfluencersList();
+      $('#influencerTableWrap').hidden = true;
+      $('#influencerFormWrap').hidden = true;
+      applyInfluencersTabView();
     };
   });
+
+  $all('[data-all-brand]').forEach((b) => {
+    b.onclick = () => {
+      influencerAllBrandFilter = b.dataset.allBrand;
+      $all('[data-all-brand]').forEach((x) => x.classList.toggle('active', x.dataset.allBrand === influencerAllBrandFilter));
+      renderInfluencerAllPosts();
+    };
+  });
+
+  async function loadInfluencerAllPosts() {
+    try {
+      const data = await api('/api/influencers/all/posts');
+      influencerAllPosts = data.posts;
+      renderInfluencerAllPosts();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  function renderInfluencerAllPosts() {
+    const body = $('#influencerAllBody');
+    body.innerHTML = '';
+    const list = influencerAllBrandFilter === 'todos' ? influencerAllPosts : influencerAllPosts.filter((p) => p.brand === influencerAllBrandFilter);
+    $('#influencerAllEmpty').hidden = list.length > 0;
+    list.forEach((p) => {
+      const tr = document.createElement('tr');
+      if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
+        tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+      }
+      tr.innerHTML = `
+        <td>${p.influencerName}</td>
+        <td>${BRAND_LABEL[p.brand] || p.brand}</td>
+        <td>${p.formato || '—'}</td>
+        <td>${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+        <td>${influencerStatusPillHTML(p.status, false)}</td>
+        <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
+        <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+        <td>${p.observacoes || '—'}</td>
+        <td>${p.notas || '—'}</td>
+      `;
+      body.appendChild(tr);
+    });
+  }
 
   async function loadInfluencers() {
     $('#influencerTableWrap').hidden = true;
@@ -4059,7 +4124,7 @@
     try {
       const data = await api('/api/influencers');
       influencersList = data.influencers;
-      renderInfluencersList();
+      applyInfluencersTabView();
     } catch (e) {
       alert(e.message);
     }

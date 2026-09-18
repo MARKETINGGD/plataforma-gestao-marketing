@@ -481,10 +481,42 @@
         <div class="tabs">
           <button class="tab-btn active" data-inf-tab="debacco">De Bacco</button>
           <button class="tab-btn" data-inf-tab="ghelplus">GhelPlus</button>
+          <button class="tab-btn" data-inf-tab="todas">Todas as ações</button>
         </div>
 
         <div id="influencersList" class="card-grid"></div>
         <p id="influencersEmpty" class="muted" hidden>Nenhum influencer cadastrado ainda nessa marca.</p>
+
+        <!-- "Todas as ações" (30ª rodada, pedido da Raquel): junta os itens
+             de TODAS as tabelas de influencer numa lista só, em ordem da
+             data de entrega -- dá pra acompanhar cada ação separada, ou ver
+             tudo junto, e dividir por marca com o filtro abaixo. Reflete
+             qualquer item novo adicionado na planilha pessoal de um
+             influencer automaticamente (recarrega sempre que a aba abre). -->
+        <div id="influencerAllWrap" hidden>
+          <div class="tabs" style="margin-bottom:14px;">
+            <button class="tab-btn active" data-all-brand="todos">Todas as marcas</button>
+            <button class="tab-btn" data-all-brand="debacco">De Bacco</button>
+            <button class="tab-btn" data-all-brand="ghelplus">GhelPlus</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Influencer</th>
+                <th>Marca</th>
+                <th>Formato de conteúdo</th>
+                <th>Rede</th>
+                <th>Status</th>
+                <th>Data de entrega</th>
+                <th>Arquivo</th>
+                <th>Observações</th>
+                <th>Notas extras</th>
+              </tr>
+            </thead>
+            <tbody id="influencerAllBody"></tbody>
+          </table>
+          <p id="influencerAllEmpty" class="muted" hidden>Nenhuma ação cadastrada ainda.</p>
+        </div>
 
         <div id="influencerFormWrap" class="form-card" hidden>
           <h3 id="influencerFormTitle">Novo influencer</h3>

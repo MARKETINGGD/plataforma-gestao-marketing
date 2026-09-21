@@ -371,7 +371,7 @@
           <label>Legenda / texto do agendamento</label>
           <textarea id="socialPostFormCaption" rows="3"></textarea>
 
-          <label>Link</label>
+          <label>Link <span id="socialPostFormLinkHint" class="muted" style="font-weight:400;"></span></label>
           <input id="socialPostFormLink" type="text" placeholder="https://...">
 
           <label>Sugestões de layout (imagens)</label>
@@ -381,6 +381,12 @@
           <label>Criativo final (imagem/vídeo)</label>
           <div id="socialPostFormFiles" class="file-list"></div>
           <input id="socialPostFormFileInput" type="file">
+
+          <div id="socialPostFormThumbnailWrap" hidden>
+            <label>Capa (thumbnail) do vídeo</label>
+            <div id="socialPostFormThumbnailFile" class="file-list"></div>
+            <input id="socialPostFormThumbnailFileInput" type="file" accept="image/*">
+          </div>
 
           <label>Briefing</label>
           <textarea id="socialPostFormBriefingText" rows="7" placeholder="Escreva o briefing aqui..."></textarea>
@@ -1282,6 +1288,11 @@
           <div class="tabs">
             <button class="tab-btn active" data-feed-network="ig_fb">Instagram / Facebook</button>
             <button class="tab-btn" data-feed-network="linkedin">LinkedIn</button>
+            <button class="tab-btn" data-feed-network="tiktok">TikTok</button>
+            <button class="tab-btn" data-feed-network="youtube">YouTube</button>
+            <button class="tab-btn" data-feed-network="pinterest">Pinterest (Pin)</button>
+            <button class="tab-btn" data-feed-network="newsletter">Newsletter</button>
+            <button class="tab-btn" data-feed-network="blog">Blog</button>
           </div>
           <div id="cronogramaFeedList" class="feed-preview-list"></div>
           <p id="cronogramaFeedEmpty" class="muted" hidden>Nenhum agendamento pra essa rede nesse mês.</p>

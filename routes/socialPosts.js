@@ -79,6 +79,9 @@ function serialize(p) {
     files: p.files || [],
     layoutFiles: p.layoutFiles || [],
     briefingFile: p.briefingFile || null,
+    // Capa/thumbnail (45ª rodada) -- só faz sentido pra YouTube, mas o
+    // campo existe pra qualquer post (fica null se não usado).
+    thumbnailFile: p.thumbnailFile || null,
     briefingText: p.briefingText || '',
     scriptFile: p.scriptFile || null,
     scriptText: p.scriptText || '',
@@ -120,6 +123,37 @@ function canApprove(req) {
   if (req.user.role === 'super_admin') return true;
   const user = db.get('users').find({ id: req.user.id }).value();
   return !!user && (user.cargo === 'gerente' || user.cargo === 'coordenador');
+}
+
+// Aviso de "pronto pra aprovar" (45ª rodada, pedido da Raquel: "é possivel
+// que ao ter legenda e a arte do post, o sistema avise com um recado na
+// tela inicial, para a coordenadora aprovar?"). Sempre que uma edição
+// deixa o post com legenda E arte (criativo em `files`) preenchidos,
+// dispara um recado automático (mesma estrutura de Recados já usada no
+// aviso de aprovação, 44ª rodada) pra quem pode aprovar (cargo gerente ou
+// coordenador — mesmo público de `canApprove` acima). Confirmado com a
+// Raquel: dispara de novo a CADA edição feita nesse estado (não só na
+// primeira vez que fica completo) — por isso é chamado a cada PUT/upload
+// de criativo, sem guardar "já avisei antes".
+function notifyReadyForApproval(post) {
+  const hasLegenda = !!(post.caption && post.caption.trim());
+  const hasArte = (post.files || []).length > 0;
+  if (!hasLegenda || !hasArte) return;
+  const recipientIds = db.get('users').value()
+    .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
+    .map((u) => u.id);
+  if (recipientIds.length === 0) return;
+  const postTitle = post.subject && post.subject.trim()
+    ? post.subject.trim()
+    : `${PLATFORM_LABEL_PT[post.platform] || post.platform} · ${post.scheduledDate || 'sem data'}`;
+  createAutoRecado({
+    recipientIds,
+    text: 'Aviso Papoi: Este post está com legenda e arte prontos, aguardando aprovação.',
+    postTitle,
+    postBrand: post.brand,
+    postNetwork: post.platform,
+    sourceSocialPostId: post.id
+  });
 }
 
 // Cria automaticamente, no quadro geral de Demandas, um card pra cada
@@ -197,6 +231,7 @@ const upload = makeUpload('creative');
 const uploadLayout = makeUpload('layout');
 const uploadBriefing = makeUpload('briefing');
 const uploadScript = makeUpload('script');
+const uploadThumbnail = makeUpload('thumbnail');
 
 function fileMetaFrom(req, subdir) {
   return {
@@ -358,6 +393,7 @@ router.put('/:id', requireAuth, (req, res) => {
     }
   }
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update' });
+  notifyReadyForApproval(fresh);
   res.json({ post: serialize(fresh) });
 });
 
@@ -455,7 +491,9 @@ router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Selecione um arquivo.' });
   const files = [...(post.files || []), fileMetaFrom(req, 'creative')];
   db.get('socialPosts').find({ id: req.params.id }).assign({ files, updatedAt: new Date().toISOString() }).write();
-  res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });
+  const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
+  notifyReadyForApproval(fresh);
+  res.json({ post: serialize(fresh) });
 });
 
 router.delete('/:id/files/:fileId', requireAuth, (req, res) => {
@@ -468,7 +506,9 @@ router.delete('/:id/files/:fileId', requireAuth, (req, res) => {
     const filePath = path.join(uploadsRoot, req.params.id, 'creative', path.basename(target.url));
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   }
-  res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });
+  const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
+  notifyReadyForApproval(fresh);
+  res.json({ post: serialize(fresh) });
 });
 
 // ---------- sugestões de layout (imagens, várias) ----------
@@ -541,6 +581,36 @@ router.delete('/:id/script-file', requireAuth, (req, res) => {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   }
   db.get('socialPosts').find({ id: req.params.id }).assign({ scriptFile: null, updatedAt: new Date().toISOString() }).write();
+  res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });
+});
+
+// ---------- capa/thumbnail (arquivo único — pensado pra YouTube) ----------
+// 45ª rodada, pedido da Raquel: "you tube (deve ter a thumb- que é a
+// capinha...)". Mesmo padrão de arquivo único já usado em Briefing/
+// Roteiro (novo upload substitui o anterior, arquivo velho é apagado do
+// disco) -- funciona pra qualquer rede, não só YouTube, mas só aparece no
+// formulário quando a rede escolhida é YouTube (ver public/app.js).
+router.post('/:id/thumbnail-file', requireAuth, uploadThumbnail.single('file'), (req, res) => {
+  const post = findOr404(req, res);
+  if (!post) return;
+  if (!req.file) return res.status(400).json({ error: 'Selecione uma imagem.' });
+  if (post.thumbnailFile) {
+    const oldPath = path.join(uploadsRoot, req.params.id, 'thumbnail', path.basename(post.thumbnailFile.url));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  const thumbnailFile = fileMetaFrom(req, 'thumbnail');
+  db.get('socialPosts').find({ id: req.params.id }).assign({ thumbnailFile, updatedAt: new Date().toISOString() }).write();
+  res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });
+});
+
+router.delete('/:id/thumbnail-file', requireAuth, (req, res) => {
+  const post = findOr404(req, res);
+  if (!post) return;
+  if (post.thumbnailFile) {
+    const filePath = path.join(uploadsRoot, req.params.id, 'thumbnail', path.basename(post.thumbnailFile.url));
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+  db.get('socialPosts').find({ id: req.params.id }).assign({ thumbnailFile: null, updatedAt: new Date().toISOString() }).write();
   res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });
 });
 

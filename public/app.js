@@ -96,9 +96,70 @@
   let socialCarouselBriefings = []; // array de textos, um por card do carrossel
 
   let cronogramaTab = 'calendario'; // 'calendario' | 'feed'
-  let cronogramaFeedNetwork = 'ig_fb'; // 'ig_fb' | 'linkedin'
+  let cronogramaFeedNetwork = 'ig_fb'; // uma chave de FEED_NETWORKS abaixo
   let cronogramaBrand = 'debacco'; // 'debacco' | 'ghelplus'
   let cronogramaCalMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+  // Prévia do Feed: uma aba por rede, cada uma com seu próprio formato de
+  // card (45ª rodada, pedido da Raquel: aba própria pra TikTok, YouTube,
+  // Pinterest/Pin, Newsletter e Blog, além do Instagram/Facebook e
+  // LinkedIn que já existiam desde antes) -- mesmo padrão de abas de marca
+  // + aprovação já usado, só o conteúdo/proporção do card muda por rede.
+  const FEED_NETWORKS = {
+    ig_fb: {
+      match: (p) => p.platform === 'instagram' || p.platform === 'facebook',
+      cardClass: '',
+      formatLabel: (p) => `Feed ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform} · formato 1080×1440`,
+      showActions: true,
+      captionFirst: false
+    },
+    linkedin: {
+      match: (p) => p.platform === 'linkedin',
+      cardClass: 'linkedin',
+      formatLabel: () => 'Feed LinkedIn · formato 1080×1350',
+      showActions: false,
+      captionFirst: true
+    },
+    tiktok: {
+      match: (p) => p.platform === 'tiktok',
+      cardClass: 'tiktok',
+      formatLabel: () => 'TikTok · vídeo vertical 1080×1920',
+      showActions: false,
+      captionFirst: false
+    },
+    youtube: {
+      match: (p) => p.platform === 'youtube',
+      cardClass: 'youtube',
+      formatLabel: () => 'YouTube · capa 1280×720',
+      showActions: false,
+      captionFirst: false,
+      // Usa a capa/thumbnail como mídia principal do card, quando ela
+      // existe -- vídeo em si é outra coisa (arquivo em "Criativo final"),
+      // avisado à parte se ainda não foi anexado.
+      useThumbnail: true
+    },
+    pinterest: {
+      match: (p) => p.platform === 'pinterest',
+      cardClass: 'pinterest',
+      formatLabel: () => 'Pinterest (Pin) · formato 1000×1500',
+      showActions: false,
+      captionFirst: false
+    },
+    newsletter: {
+      match: (p) => p.platform === 'newsletter',
+      cardClass: 'newsletter',
+      formatLabel: () => 'Newsletter',
+      showActions: false,
+      captionFirst: false
+    },
+    blog: {
+      match: (p) => p.platform === 'blog',
+      cardClass: 'blog',
+      formatLabel: () => 'Blog · imagem + texto',
+      showActions: false,
+      captionFirst: false
+    }
+  };
 
   let brindesTab = 'debacco'; // 'debacco' | 'ghelplus' | 'log'
   let brindesCatalog = [];
@@ -3893,6 +3954,8 @@
     if (keepValue && options.includes(keepValue)) sel.value = keepValue;
     updateScriptVisibility();
     updateCarouselVisibility();
+    updateThumbnailVisibility();
+    updateLinkHint();
   }
 
   // Roteiro só faz sentido quando o agendamento é de vídeo (Reels, ou
@@ -3902,6 +3965,28 @@
     const type = $('#socialPostFormType').value;
     const isVideo = socialVideoPostTypes.includes(type) || socialVideoPlatforms.includes(platform);
     $('#socialPostFormScriptWrap').hidden = !isVideo;
+  }
+
+  // Capa/thumbnail (45ª rodada, pedido da Raquel: "you tube deve ter a
+  // thumb- que é a capinha") -- só faz sentido pra YouTube.
+  function updateThumbnailVisibility() {
+    const platform = $('#socialPostFormPlatform').value;
+    $('#socialPostFormThumbnailWrap').hidden = platform !== 'youtube';
+  }
+
+  // O campo "Link", genérico, ganha uma dica de uso diferente conforme a
+  // rede (45ª rodada, pedido da Raquel): em TikTok/YouTube serve pra
+  // colar o link do vídeo quando ele é grande demais pra anexar direto;
+  // em Newsletter serve pro link da própria news. Nas demais redes fica
+  // sem dica (campo continua opcional e genérico, como já era).
+  const LINK_HINT_BY_PLATFORM = {
+    tiktok: '(vídeo muito longo? cole aqui o link dele)',
+    youtube: '(vídeo muito longo? cole aqui o link dele)',
+    newsletter: '(link da news)'
+  };
+  function updateLinkHint() {
+    const platform = $('#socialPostFormPlatform').value;
+    $('#socialPostFormLinkHint').textContent = LINK_HINT_BY_PLATFORM[platform] || '';
   }
 
   // Briefing por card só faz sentido pra Carrossel — o bloco fica
@@ -4080,6 +4165,10 @@
     renderSocialSingleFile('#socialPostFormScriptFile', post ? post.scriptFile : null, `/api/social-posts/${post ? post.id : ''}/script-file`, renderScriptFile);
   }
 
+  function renderThumbnailFile(post) {
+    renderSocialSingleFile('#socialPostFormThumbnailFile', post ? post.thumbnailFile : null, `/api/social-posts/${post ? post.id : ''}/thumbnail-file`, renderThumbnailFile);
+  }
+
   function renderInvolvedChips() {
     const wrap = $('#socialPostFormInvolvedList');
     wrap.innerHTML = '';
@@ -4163,11 +4252,16 @@
     $('#socialPostFormBriefingFileInput').style.display = post ? '' : 'none';
     $('#socialPostFormScriptFileInput').value = '';
     $('#socialPostFormScriptFileInput').style.display = post ? '' : 'none';
+    $('#socialPostFormThumbnailFileInput').value = '';
+    $('#socialPostFormThumbnailFileInput').style.display = post ? '' : 'none';
 
     renderSocialPostFiles(post || { files: [] });
     renderSocialLayoutFiles(post || { layoutFiles: [] });
     renderBriefingFile(post);
     renderScriptFile(post);
+    renderThumbnailFile(post);
+    updateThumbnailVisibility();
+    updateLinkHint();
 
     $('#socialPostFormError').hidden = true;
     $('#socialPostFormWrap').hidden = false;
@@ -4281,6 +4375,23 @@
       socialPosts = fresh.posts;
       const updated = socialPosts.find((x) => x.id === editingSocialPostId);
       if (updated) renderScriptFile(updated);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $('#socialPostFormThumbnailFileInput').onchange = async () => {
+    const file = $('#socialPostFormThumbnailFileInput').files[0];
+    if (!file || !editingSocialPostId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/social-posts/${editingSocialPostId}/thumbnail-file`, { method: 'POST', body: fd });
+      $('#socialPostFormThumbnailFileInput').value = '';
+      const fresh = await api('/api/social-posts');
+      socialPosts = fresh.posts;
+      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
+      if (updated) renderThumbnailFile(updated);
     } catch (e) {
       alert(e.message);
     }
@@ -4588,7 +4699,7 @@
   function renderCronogramaFeed() {
     const list = $('#cronogramaFeedList');
     list.innerHTML = '';
-    const isLinkedin = cronogramaFeedNetwork === 'linkedin';
+    const netConf = FEED_NETWORKS[cronogramaFeedNetwork] || FEED_NETWORKS.ig_fb;
     // 40ª rodada, pedido da Raquel: "previa do feed, ele deve mostrar mês a
     // mês. Não deve misturar os meses." — reaproveita o mesmo mês
     // selecionado no Calendário (`cronogramaCalMonth`), com a mesma barra
@@ -4597,7 +4708,7 @@
     const feedMonth = cronogramaCalMonth.getMonth();
     const posts = socialPosts
       .filter((p) => (p.brand || 'debacco') === cronogramaBrand)
-      .filter((p) => (isLinkedin ? p.platform === 'linkedin' : (p.platform === 'instagram' || p.platform === 'facebook')))
+      .filter(netConf.match)
       .filter((p) => {
         if (!p.scheduledDate) return false;
         const d = new Date(p.scheduledDate + 'T00:00:00');
@@ -4608,23 +4719,33 @@
 
     posts.forEach((p) => {
       const card = document.createElement('div');
-      card.className = 'feed-preview-card' + (isLinkedin ? ' linkedin' : '');
+      card.className = 'feed-preview-card' + (netConf.cardClass ? ' ' + netConf.cardClass : '');
       card.style.cursor = 'pointer';
 
       const files = p.files || [];
-      const file = files[0];
-      const isVideo = !!file && /\.(mp4|mov|webm|avi|mkv)$/i.test(file.name || file.url || '');
+      // YouTube (45ª rodada): a capa/thumbnail é a mídia principal do card
+      // quando existe — o vídeo em si é outro arquivo (Criativo final),
+      // avisado à parte se ainda faltar anexar.
+      const thumbnailFile = netConf.useThumbnail ? p.thumbnailFile : null;
+      const file = thumbnailFile || files[0];
+      const isVideo = !thumbnailFile && !!file && /\.(mp4|mov|webm|avi|mkv)$/i.test(file.name || file.url || '');
       // Carrossel com mais de uma imagem (22ª rodada, pedido da Raquel:
       // "quando o agendamento for carrossel, ele terá mais de um card...
       // deve ter a opção de clicar no post e ver os demais card, como se
       // fosse um carrossel no feed mesmo") — usa o mesmo array de
       // "Criativo final" já existente (já aceitava vários arquivos), só
       // mostrando um indicador "1/N" por cima da primeira imagem.
-      const isCarousel = p.postType === 'carrossel' && files.length > 1;
+      const isCarousel = !thumbnailFile && p.postType === 'carrossel' && files.length > 1;
       const carouselBadge = isCarousel ? `<span class="feed-preview-carousel-badge">🖼 1/${files.length}</span>` : '';
       const mediaHtml = file
         ? (isVideo ? `<video src="${file.url}" controls></video>` : `<img src="${file.url}" alt="">`) + carouselBadge
         : `<div class="feed-preview-noimg">Sem criativo anexado ainda</div>`;
+      // YouTube: capa e vídeo são coisas diferentes -- avisa separado
+      // quando o vídeo de verdade (Criativo final) ainda não foi anexado,
+      // mesmo já tendo capa.
+      const videoMissingHtml = (netConf.useThumbnail && files.length === 0)
+        ? '<div class="feed-preview-video-missing">⚠ Vídeo ainda não anexado</div>'
+        : '';
 
       const accountLabel = SOCIAL_PLATFORM_LABEL[p.platform] || p.platform;
       // Foto de quem criou o agendamento (20ª rodada) — antes esse círculo
@@ -4632,11 +4753,10 @@
       // não de quem criou o post; corrigido junto pra fazer sentido com a
       // foto de verdade agora disponível.
       const avatarPerson = { name: p.createdByName, photoUrl: p.createdByPhotoUrl };
-      // Formato de cada rede (pedido da Raquel, 16ª rodada): Feed Insta em
-      // 1080x1440, Feed LinkedIn em 1080x1350 — mostrado como referência
-      // pra quem está montando o criativo, além de já bater com a
-      // proporção do preview (ver .feed-preview-media no CSS).
-      const formatLabel = isLinkedin ? 'Feed LinkedIn · formato 1080×1350' : `Feed ${accountLabel} · formato 1080×1440`;
+      // Formato de cada rede (pedido da Raquel, 16ª/45ª rodada): mostrado
+      // como referência pra quem está montando o criativo, além de já
+      // bater com a proporção do preview (ver .feed-preview-media no CSS).
+      const formatLabel = netConf.formatLabel(p);
       const header = `
         <div class="feed-preview-header">
           ${avatarHtml(avatarPerson, 32, 'feed-preview-avatar')}
@@ -4651,10 +4771,18 @@
       // verdade, quem "assina" a legenda é a conta/marca, não a pessoa.
       const brandLabel = BRAND_LABEL[p.brand] || BRAND_LABEL.debacco;
       const captionHtml = `<div class="feed-preview-caption"><b>${brandLabel}</b> ${p.caption || '(sem legenda)'}</div>`;
+      // Link (45ª rodada): TikTok/YouTube usam pra vídeo longo hospedado
+      // fora, Newsletter usa pro link da própria news -- mostrado como uma
+      // linha clicável só quando preenchido, em qualquer rede.
+      const linkHtml = p.link
+        ? `<div class="feed-preview-link"><a href="${p.link}" target="_blank" rel="noopener">🔗 ${p.link}</a></div>`
+        : '';
+      const mediaBlock = `<div class="feed-preview-media">${mediaHtml}</div>${videoMissingHtml}`;
+      const actionsHtml = netConf.showActions ? '<div class="feed-preview-actions">♡ ⤳ ✉</div>' : '';
 
-      card.innerHTML = isLinkedin
-        ? header + captionHtml + `<div class="feed-preview-media">${mediaHtml}</div>`
-        : header + `<div class="feed-preview-media">${mediaHtml}</div><div class="feed-preview-actions">♡ ⤳ ✉</div>` + captionHtml;
+      card.innerHTML = netConf.captionFirst
+        ? header + captionHtml + linkHtml + mediaBlock
+        : header + mediaBlock + actionsHtml + captionHtml + linkHtml;
 
       card.appendChild(renderApprovalWidget(p));
 
@@ -4665,7 +4793,9 @@
       // nada, ver 16ª rodada — só faltava um jeito de ver o arquivo
       // original em vez da miniatura recortada). stopPropagation pra não
       // também abrir o agendamento pra edição (clique no resto do card
-      // continua abrindo a edição, como sempre).
+      // continua abrindo a edição, como sempre). Sempre abre o(s)
+      // arquivo(s) de "Criativo final" (`files`), mesmo quando a mídia
+      // mostrada no card é a capa/thumbnail do YouTube.
       if (files.length > 0) {
         const mediaEl = card.querySelector('.feed-preview-media');
         mediaEl.style.cursor = 'zoom-in';
@@ -4674,6 +4804,8 @@
           openFeedLightbox(files, 0);
         };
       }
+      const linkEl = card.querySelector('.feed-preview-link a');
+      if (linkEl) linkEl.onclick = (ev) => ev.stopPropagation();
 
       card.onclick = () => openPostFromCronograma(p.id);
       list.appendChild(card);

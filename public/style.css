@@ -617,10 +617,23 @@ button{font-weight:700;}
    original (sem thumbnail/recompressão do servidor), pra ficar nítida. */
 .feed-preview-media{width:100%;aspect-ratio:1080/1440;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;}
 .feed-preview-card.linkedin .feed-preview-media{aspect-ratio:1080/1350;}
+/* 45ª rodada, pedido da Raquel: abas novas de rede na Prévia do Feed, cada
+   uma com o formato certo -- TikTok vertical (vídeo), YouTube widescreen
+   (capa), Pinterest/Pin no formato vertical alongado da própria rede. */
+.feed-preview-card.tiktok .feed-preview-media{aspect-ratio:9/16;}
+.feed-preview-card.youtube .feed-preview-media{aspect-ratio:16/9;}
+.feed-preview-card.pinterest .feed-preview-media{aspect-ratio:2/3;}
 .feed-preview-media img,.feed-preview-media video{width:100%;height:100%;object-fit:cover;image-rendering:auto;}
 .feed-preview-noimg{color:var(--muted);font-size:12px;padding:20px;text-align:center;}
 .feed-preview-actions{display:flex;gap:14px;padding:8px 12px;color:var(--muted);font-size:17px;}
 .feed-preview-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px 10px;}
+/* Link do post (45ª rodada) -- TikTok/YouTube (vídeo muito longo) e
+   Newsletter (link da própria news). */
+.feed-preview-link{padding:0 12px 10px;font-size:12px;}
+.feed-preview-link a{color:var(--primary);word-break:break-all;}
+/* YouTube: capa e vídeo são coisas diferentes -- avisa quando só a capa
+   foi anexada. */
+.feed-preview-video-missing{padding:5px 12px;font-size:11.5px;color:#9a3412;background:#fff7ed;}
 
 /* ---------- aprovação na Prévia do Feed (quadradinho aprovado/reprovado) ---------- */
 .approval-widget{padding:0 12px 12px;display:flex;flex-direction:column;gap:6px;cursor:default;}

@@ -101,15 +101,19 @@
         <button class="navlink" id="navDashMidias" data-view="midias-hub" data-dash="redesSociais">Mídias</button>
         <button class="navlink" id="navDashAcoes" data-view="acoes-hub">Ações Sazonais</button>
         <button class="navlink" id="navInfluencers" data-view="influencers">Influencers</button>
-        <button class="navlink" id="navExpositoresEspeciais" data-view="expositores-hub">Expositores Especiais</button>
         <!-- 46ª rodada, pedido da Raquel: "em expositores coloque: sub menu-
              book técnico (com link externo de compartilhamento) / orçamentos" --
              mesmo padrão de submenu já usado em Budget/Produtos/Brindes. Por
              enquanto (confirmado com a Raquel) as duas telas são só a
-             navegação, sem conteúdo/campos ainda. -->
+             navegação, sem conteúdo/campos ainda.
+             50ª rodada, pedido da Raquel: "Expositores Especiais" (que era
+             um botão solto desde a 30ª rodada) virou um 3º item deste mesmo
+             submenu, em vez de ficar separado -- mesma tela/lógica de
+             sempre (expositores-hub), só mudou onde o botão mora no menu. -->
         <div class="navlink-group" id="navExpositoresGroup">
           <button class="navlink navlink-parent" id="navExpositoresParent" type="button">Expositores</button>
           <div class="navlink-submenu" id="navExpositoresSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navExpositoresEspeciais" data-view="expositores-hub">Expositores Especiais</button>
             <button class="navlink navlink-sub" id="navExpositoresBookTecnico" data-view="expositores-book-tecnico">Book Técnico</button>
             <button class="navlink navlink-sub" id="navExpositoresOrcamentos" data-view="expositores-orcamentos">Orçamentos</button>
           </div>
@@ -127,17 +131,20 @@
         <!-- 38ª rodada, pedido da Raquel: "em brindes, adicione um sub menu:
              Controle Geral / Retiradas Internas" -- mesmo padrão de submenu
              já usado em Budget/Produtos. -->
+        <!-- 43ª rodada, pedido da Raquel: "adicione no menu o botao campanha
+             cooperada, logo abaixo de brindes" -- nasceu como botão solto,
+             com o filtro de marca dentro da própria tela.
+             50ª rodada, pedido da Raquel: virou um 3º item do submenu de
+             Brindes, em vez de ficar separado -- mesma tela/lógica de
+             sempre (campanha-cooperada), só mudou onde o botão mora. -->
         <div class="navlink-group" id="navBrindesGroup">
           <button class="navlink navlink-parent" id="navBrindesParent" type="button">Brindes</button>
           <div class="navlink-submenu" id="navBrindesSubmenu" hidden>
             <button class="navlink navlink-sub" id="navBrindesControleGeral" data-view="brindes">Controle Geral</button>
             <button class="navlink navlink-sub" id="navBrindesRetiradas" data-view="brindes-retiradas">Retiradas Internas</button>
+            <button class="navlink navlink-sub" id="navCampanhaCooperada" data-view="campanha-cooperada">Campanha Cooperada</button>
           </div>
         </div>
-        <!-- 43ª rodada, pedido da Raquel: "adicione no menu o botao campanha
-             cooperada, logo abaixo de brindes" -- botão só, sem submenu
-             (igual a Feiras), com o filtro de marca dentro da própria tela. -->
-        <button class="navlink" id="navCampanhaCooperada" data-view="campanha-cooperada">Campanha Cooperada</button>
         <div class="navlink-group" id="navBudgetGroup">
           <button class="navlink navlink-parent" id="navBudgetParent" type="button">Budget</button>
           <div class="navlink-submenu" id="navBudgetSubmenu" hidden>

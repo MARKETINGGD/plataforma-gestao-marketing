@@ -527,13 +527,15 @@
       $('#navProdutosParent').classList.add('active');
       $('#navProdutosSubmenu').hidden = false;
     }
-    // Brindes (38ª rodada) -- mesmo padrão do Budget/Produtos acima.
-    if (id === 'navBrindesControleGeral' || id === 'navBrindesRetiradas') {
+    // Brindes (38ª rodada; Campanha Cooperada entrou como 3º item na 50ª) --
+    // mesmo padrão do Budget/Produtos acima.
+    if (id === 'navBrindesControleGeral' || id === 'navBrindesRetiradas' || id === 'navCampanhaCooperada') {
       $('#navBrindesParent').classList.add('active');
       $('#navBrindesSubmenu').hidden = false;
     }
-    // Expositores (46ª rodada) -- mesmo padrão do Budget/Produtos/Brindes acima.
-    if (id === 'navExpositoresBookTecnico' || id === 'navExpositoresOrcamentos') {
+    // Expositores (46ª rodada; Expositores Especiais entrou como 3º item na
+    // 50ª) -- mesmo padrão do Budget/Produtos/Brindes acima.
+    if (id === 'navExpositoresBookTecnico' || id === 'navExpositoresOrcamentos' || id === 'navExpositoresEspeciais') {
       $('#navExpositoresParent').classList.add('active');
       $('#navExpositoresSubmenu').hidden = false;
     }
@@ -1059,6 +1061,10 @@
       // startReisMarketingWiggle) por uma classe aplicada só em quem tem a
       // coroa, com o balanço disparado por CSS no :hover dela (ver
       // .reis-bar-photo-champ:hover no style.css).
+      // 50ª rodada, pedido da Raquel: "não precisa ter os nomes no
+      // gráfico, apenas as fotinhos" -- removido o rótulo de nome embaixo
+      // da barra; o nome completo continua disponível só como tooltip
+      // nativo (passar o mouse por cima), sem aparecer escrito na tela.
       return `
         <div class="reis-bar-col" title="${r.fullName}: ${r.count} demanda${r.count === 1 ? '' : 's'} concluída${r.count === 1 ? '' : 's'} este mês">
           <div class="reis-bar-photo${r.photoUrl ? '' : ' reis-bar-photo-fallback'}${isChamp ? ' reis-bar-photo-champ' : ''}" style="${photoStyle}">
@@ -1067,7 +1073,6 @@
           </div>
           <div class="reis-bar-value">${r.count}</div>
           <div class="reis-bar" style="height:${barH}px;${isChamp ? 'background:#F5A623;' : ''}"></div>
-          <div class="reis-bar-name">${r.firstName}</div>
         </div>
       `;
     }).join('');
@@ -1126,26 +1131,50 @@
         // senão tocaria pra recados que já estavam esperando de antes do
         // login, e a ideia é avisar sobre o que chega NOVO durante o uso.
         recadoSoundSeenIds = ids;
-        return;
+      } else {
+        const novos = data.recados.filter((r) => !recadoSoundSeenIds.has(r.id));
+        if (novos.length > 0) {
+          playRecadoSound();
+          // Notificação flutuante (22ª rodada, pedido da Raquel: "quando
+          // tiver notificação de recado ou demandas novas, deve subir um
+          // card pequeno na tela, do lado direito... pra ter a opção de
+          // clicar e ir ver ela") — mostra o mais recente dos que chegaram
+          // nesse ciclo, por data de criação (não pela ordem em que a API
+          // devolveu a lista).
+          const r = novos.slice().sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))[novos.length - 1];
+          showNotifToast({
+            title: '📨 Novo recado',
+            text: r.text,
+            person: { name: r.createdByName, photoUrl: r.createdByPhoto },
+            onClick: () => { $('#navHome').click(); }
+          });
+        }
+        recadoSoundSeenIds = ids;
       }
-      const novos = data.recados.filter((r) => !recadoSoundSeenIds.has(r.id));
-      if (novos.length > 0) {
-        playRecadoSound();
-        // Notificação flutuante (22ª rodada, pedido da Raquel: "quando
-        // tiver notificação de recado ou demandas novas, deve subir um
-        // card pequeno na tela, do lado direito... pra ter a opção de
-        // clicar e ir ver ela") — mostra o mais recente dos que chegaram
-        // nesse ciclo, por data de criação (não pela ordem em que a API
-        // devolveu a lista).
-        const r = novos.slice().sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))[novos.length - 1];
-        showNotifToast({
-          title: '📨 Novo recado',
-          text: r.text,
-          person: { name: r.createdByName, photoUrl: r.createdByPhoto },
-          onClick: () => { $('#navHome').click(); }
-        });
+      // 50ª rodada, pedido da Raquel: "os recados e atualizações devem
+      // aparecer na hora, sem a necessidade de atualizar a tela" — antes,
+      // esse watcher só comparava ids pra decidir se tocava o som/aviso;
+      // a lista visível de Recados na Início só era recarregada quando a
+      // tela era aberta (loadHome), então um recado novo (ou marcado como
+      // lido/excluído por outra pessoa) só aparecia depois de sair e
+      // voltar pra Início, ou de um F5. Agora, sempre que a Início está
+      // aberta, a lista é atualizada com os dados já buscados aqui em
+      // cima — sem precisar de uma chamada extra à API.
+      if (activeViewName === 'home') {
+        recadosForMe = data.recados;
+        renderRecadosForMe();
+        // A tabela "Ver meus recados (enviados e recebidos)" só é
+        // recarregada se estiver aberta no momento — economiza uma
+        // chamada à API quando ninguém está olhando pra ela.
+        if (!$('#recadosAllWrap').hidden) {
+          try {
+            const all = await api('/api/recados');
+            recadosAll = all.recados;
+            recadoSuggestedColors = all.suggestedColors || [];
+            renderRecadosAll();
+          } catch (e2) { /* ignora falha pontual */ }
+        }
       }
-      recadoSoundSeenIds = ids;
     } catch (e) { /* ignora falha de rede pontual */ }
   }
   // Demanda nova atribuída a mim (17ª rodada) — olha tanto o quadro geral
@@ -1274,11 +1303,17 @@
     checkNewDemandas();
     checkNewPostApprovals();
     if (notificationSoundTimer) clearInterval(notificationSoundTimer);
+    // Intervalo reduzido de 20s pra 10s na 50ª rodada, pedido da Raquel:
+    // "os recados e atualizações devem aparecer na hora, sem a
+    // necessidade de atualizar a tela" -- checkNewRecados() agora também
+    // mantém a lista de Recados da Início sempre atualizada (ver acima),
+    // então um ciclo mais curto faz o recado novo aparecer bem mais
+    // rápido, sem precisar de F5 nem trocar de tela.
     notificationSoundTimer = setInterval(() => {
       checkNewRecados();
       checkNewDemandas();
       checkNewPostApprovals();
-    }, 20000);
+    }, 10000);
   }
 
   // ---------- Chat da Equipe (18ª rodada) ----------

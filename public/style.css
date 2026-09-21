@@ -317,8 +317,8 @@ button{font-weight:700;}
    junto. */
 .home-top-row{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:start;margin-top:40px;}
 @media (max-width:900px){ .home-top-row{grid-template-columns:1fr;} }
-.reis-marketing-chart{display:flex;align-items:flex-end;gap:22px;overflow-x:auto;padding:12px 4px 4px;min-height:230px;}
-.reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:76px;height:230px;}
+.reis-marketing-chart{display:flex;align-items:flex-end;gap:22px;overflow-x:auto;padding:12px 4px 4px;min-height:190px;}
+.reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:76px;height:190px;}
 .reis-bar-photo{position:relative;width:52px;height:52px;border-radius:50%;background:var(--primary) center/cover no-repeat;border:3px solid #fff;box-shadow:0 2px 6px rgba(20,10,40,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:18px;flex:0 0 auto;}
 .reis-bar-photo-fallback{background-image:none !important;}
 .reis-crown{position:absolute;top:-20px;left:50%;transform:translateX(-50%) rotate(-8deg);font-size:22px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25));}
@@ -344,7 +344,6 @@ button{font-weight:700;}
 .reis-bar-photo-champ:hover{animation:reisWiggle .9s ease-in-out;cursor:pointer;}
 .reis-bar-value{font-size:12.5px;font-weight:700;color:var(--ink);margin:6px 0 4px;}
 .reis-bar{width:38px;border-radius:8px 8px 3px 3px;background:var(--primary);transition:height .4s ease;}
-.reis-bar-name{margin-top:8px;font-size:12px;color:var(--muted);text-align:center;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* Resumo da Início em lista + barrinhas, no lugar dos quadrados de número
    (18ª rodada) — mais visual sem virar um gráfico pesado/externo. */
 .stat-list{display:flex;flex-direction:column;gap:12px;margin-bottom:4px;}

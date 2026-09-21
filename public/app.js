@@ -818,6 +818,11 @@
   $('#navPonto').onclick = () => {
     window.open($('#navPonto').dataset.external, '_blank');
   };
+  // Gestor (49ª rodada): mesmo padrão do Ponto -- só abre o sistema
+  // externo numa aba nova, sem mudar a navegação/view atual.
+  $('#navGestor').onclick = () => {
+    window.open($('#navGestor').dataset.external, '_blank');
+  };
   // Book Técnico / Orçamentos (46ª rodada): por enquanto são só telas de
   // navegação (sem conteúdo ainda, pedido da Raquel) -- as abas de marca só
   // trocam qual botão fica marcado como ativo.
@@ -832,7 +837,7 @@
     };
   });
   $all('.navlink').forEach((b) => {
-    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto') return;
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor') return;
     b.onclick = () => {
       setActiveNav(b.id);
       // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio

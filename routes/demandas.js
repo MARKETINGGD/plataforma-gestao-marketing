@@ -64,8 +64,8 @@ const NETWORKS = ['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube', 'pin
 // `recurring` continua sendo gravado (como antes) só por compatibilidade
 // com qualquer leitura antiga desse campo — a fonte de verdade a partir de
 // agora é `recurrence`.
-const RECURRENCE_VALUES = ['none', 'mensal', 'diaria'];
-const RECURRENCE_LABEL_PT = { none: 'nenhuma', mensal: 'mensal', diaria: 'diária' };
+const RECURRENCE_VALUES = ['none', 'mensal', 'semanal', 'diaria'];
+const RECURRENCE_LABEL_PT = { none: 'nenhuma', mensal: 'mensal', semanal: 'semanal', diaria: 'diária' };
 function validRecurrence(v) {
   return RECURRENCE_VALUES.includes(v) ? v : null;
 }
@@ -114,8 +114,22 @@ function addOneDay(dateStr) {
   return `${yy}-${mm}-${dd}`;
 }
 
+// Recorrência semanal (46ª rodada): mesmo "bounce", empurrando 7 dias —
+// cai sempre no mesmo dia da semana.
+function addOneWeek(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + 7);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 function advanceDueDate(dateStr, recurrence) {
-  return recurrence === 'diaria' ? addOneDay(dateStr) : addOneMonthSameDay(dateStr);
+  if (recurrence === 'diaria') return addOneDay(dateStr);
+  if (recurrence === 'semanal') return addOneWeek(dateStr);
+  return addOneMonthSameDay(dateStr);
 }
 
 function validUserIds(ids) {

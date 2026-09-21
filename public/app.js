@@ -532,6 +532,11 @@
       $('#navBrindesParent').classList.add('active');
       $('#navBrindesSubmenu').hidden = false;
     }
+    // Expositores (46ª rodada) -- mesmo padrão do Budget/Produtos/Brindes acima.
+    if (id === 'navExpositoresBookTecnico' || id === 'navExpositoresOrcamentos') {
+      $('#navExpositoresParent').classList.add('active');
+      $('#navExpositoresSubmenu').hidden = false;
+    }
   }
 
   function showView(name) {
@@ -804,8 +809,25 @@
     const sub = $('#navBrindesSubmenu');
     sub.hidden = !sub.hidden;
   };
+  $('#navExpositoresParent').onclick = () => {
+    const sub = $('#navExpositoresSubmenu');
+    sub.hidden = !sub.hidden;
+  };
+  // Book Técnico / Orçamentos (46ª rodada): por enquanto são só telas de
+  // navegação (sem conteúdo ainda, pedido da Raquel) -- as abas de marca só
+  // trocam qual botão fica marcado como ativo.
+  $all('.tab-btn[data-expositores-book-brand]').forEach((b) => {
+    b.onclick = () => {
+      $all('.tab-btn[data-expositores-book-brand]').forEach((x) => x.classList.toggle('active', x === b));
+    };
+  });
+  $all('.tab-btn[data-expositores-orcamentos-brand]').forEach((b) => {
+    b.onclick = () => {
+      $all('.tab-btn[data-expositores-orcamentos-brand]').forEach((x) => x.classList.toggle('active', x === b));
+    };
+  });
   $all('.navlink').forEach((b) => {
-    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent') return;
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent') return;
     b.onclick = () => {
       setActiveNav(b.id);
       // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio
@@ -3182,6 +3204,7 @@
             <span class="badge">${statusLabel(d.status)}</span>
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
             ${d.recurrence === 'mensal' ? '<span class="badge badge-muted" title="Repete todo mês">↻ mensal</span>' : ''}
+            ${d.recurrence === 'semanal' ? '<span class="badge badge-muted" title="Repete toda semana">↻ semanal</span>' : ''}
             ${d.recurrence === 'diaria' ? '<span class="badge badge-muted" title="Repete todo dia">↻ diária</span>' : ''}
             ${(d.assigneeIds || []).length > 1 ? `<span class="badge">${d.assigneeIds.length} pessoas</span>` : ''}
             ${total > 0 ? `<span class="badge">✓ ${doneCount}/${total}</span>` : ''}

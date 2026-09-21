@@ -94,7 +94,18 @@
         <button class="navlink" id="navDashAcoes" data-view="acoes-hub">Ações Sazonais</button>
         <button class="navlink" id="navInfluencers" data-view="influencers">Influencers</button>
         <button class="navlink" id="navExpositoresEspeciais" data-view="expositores-hub">Expositores Especiais</button>
-        <button class="navlink" id="navExpositores" data-view="expositores">Expositores</button>
+        <!-- 46ª rodada, pedido da Raquel: "em expositores coloque: sub menu-
+             book técnico (com link externo de compartilhamento) / orçamentos" --
+             mesmo padrão de submenu já usado em Budget/Produtos/Brindes. Por
+             enquanto (confirmado com a Raquel) as duas telas são só a
+             navegação, sem conteúdo/campos ainda. -->
+        <div class="navlink-group" id="navExpositoresGroup">
+          <button class="navlink navlink-parent" id="navExpositoresParent" type="button">Expositores</button>
+          <div class="navlink-submenu" id="navExpositoresSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navExpositoresBookTecnico" data-view="expositores-book-tecnico">Book Técnico</button>
+            <button class="navlink navlink-sub" id="navExpositoresOrcamentos" data-view="expositores-orcamentos">Orçamentos</button>
+          </div>
+        </div>
         <!-- 33ª rodada, pedido da Raquel: "no botão produtos deve ter um sub
              menu com: análise de concorrência, lançamentos de produtos" --
              mesmo padrão de submenu já usado no Budget (25ª rodada). -->
@@ -1430,9 +1441,27 @@
         </div>
       </section>
 
-      <section id="view-expositores" class="view" hidden>
-        <h2>Expositores</h2>
-        <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar expositores por aqui — me conta o que precisa ter nela.</p>
+      <!-- Book Técnico (46ª rodada): por enquanto só a navegação/aba por
+           marca, sem conteúdo -- a Raquel pediu "deixe em branco por
+           enquanto, só crie ele no sub menu". O link externo de
+           compartilhamento mencionado por ela fica pra uma próxima rodada. -->
+      <section id="view-expositores-book-tecnico" class="view" hidden>
+        <h2>Expositores — Book Técnico</h2>
+        <div class="tabs">
+          <button class="tab-btn active" data-expositores-book-brand="debacco">De Bacco</button>
+          <button class="tab-btn" data-expositores-book-brand="ghelplus">GhelPlus</button>
+        </div>
+        <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar o book técnico (com link externo de compartilhamento) por aqui.</p>
+      </section>
+
+      <!-- Orçamentos (46ª rodada): idem -- "apenas crie o sub menu". -->
+      <section id="view-expositores-orcamentos" class="view" hidden>
+        <h2>Expositores — Orçamentos</h2>
+        <div class="tabs">
+          <button class="tab-btn active" data-expositores-orcamentos-brand="debacco">De Bacco</button>
+          <button class="tab-btn" data-expositores-orcamentos-brand="ghelplus">GhelPlus</button>
+        </div>
+        <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar orçamentos de expositores por aqui.</p>
       </section>
 
       <section id="view-users" class="view" hidden>
@@ -1570,10 +1599,11 @@
         <select id="demCardRecurrence">
           <option value="none">Não recorrente</option>
           <option value="mensal">Recorrente mensal — repete todo mês, no mesmo dia da data de entrega</option>
+          <option value="semanal">Recorrente semanal — repete toda semana, no mesmo dia da semana</option>
           <option value="diaria">Recorrente diária — repete todo dia</option>
         </select>
       </div>
-      <p class="muted" id="demCardRecurringHint" style="font-size:12px;margin:4px 0 0;" hidden>Ao marcar essa demanda como "Concluída", ela volta sozinha pra "A Fazer" com a data de entrega empurrada (1 mês ou 1 dia, conforme a recorrência escolhida acima).</p>
+      <p class="muted" id="demCardRecurringHint" style="font-size:12px;margin:4px 0 0;" hidden>Ao marcar essa demanda como "Concluída", ela volta sozinha pra "A Fazer" com a data de entrega empurrada (1 mês, 1 semana ou 1 dia, conforme a recorrência escolhida acima).</p>
 
       <label>Responsáveis <span class="muted" style="font-weight:400;">(o card aparece na lista de cada pessoa marcada)</span></label>
       <div id="demAssigneeList" class="chip-picker"></div>

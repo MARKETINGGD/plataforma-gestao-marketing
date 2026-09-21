@@ -148,9 +148,17 @@ button{font-weight:700;}
 .sidebar-brand-logo{width:128px;height:auto;display:block;}
 .sidebar-brand-sub{font-weight:400;font-size:12px;color:rgba(255,255,255,.65);}
 .sidebar-nav{display:flex;flex-direction:column;padding:10px;gap:2px;flex:1;}
+/* 48ª rodada, pedido da Raquel: "deixe esse menu padronizado, tudo em
+   maiusculo" -- o botão PONTO (47ª rodada) já nasceu digitado em
+   maiúsculo e destoava do resto do menu (Início, Chat, etc., em title
+   case). Em vez de reescrever o texto de cada botão um por um (inclusive
+   os do submenu -- Budget/Produtos/Brindes/Expositores todos usam a
+   mesma classe .navlink), um `text-transform` só resolve pra tudo de
+   uma vez, incluindo qualquer item novo que entrar no menu depois. */
 .navlink{
   background:none;border:none;padding:10px 12px;border-radius:8px;cursor:pointer;
   font-size:13.5px;color:rgba(255,255,255,.82);text-align:left;line-height:1.3;
+  text-transform:uppercase;letter-spacing:.2px;
 }
 .navlink:hover{background:rgba(255,255,255,.08);color:#fff;}
 .navlink.active{background:var(--brand-gradient);color:#fff;}

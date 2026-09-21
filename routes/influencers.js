@@ -30,6 +30,16 @@ const STATUSES = ['a_publicar', 'publicada', 'cancelada'];
 // anteriores a essa rodada) simplesmente não mostra essa parte.
 const TIPOS_PARCERIA = ['paga', 'permuta'];
 
+// Chaves do link externo agregado da aba "Todas as ações" (51ª rodada,
+// pedido da Raquel: "a planilha geral de influencers e aquela separada por
+// marcas, tbm deve ter link externo") -- 'todos' é a planilha geral (todas
+// as marcas juntas), 'debacco'/'ghelplus' são a mesma tabela filtrada só
+// por marca (o mesmo filtro que a aba já usa por dentro da Plataforma).
+const GROUP_KEYS = ['todos', 'debacco', 'ghelplus'];
+function groupKeyBrand(key) {
+  return (key === 'debacco' || key === 'ghelplus') ? key : null;
+}
+
 function validColor() { return null; } // reservado — sem cor por enquanto
 
 // Pessoas envolvidas numa ação (36ª rodada, pedido da Raquel: campo novo,
@@ -127,6 +137,44 @@ router.get('/public/:token', (req, res) => {
   res.json({ influencer: serializeInfluencerPublic(inf), posts: posts.map(serializePostPublic) });
 });
 
+// Versão de cada item pro link externo da tabela AGREGADA (51ª rodada) —
+// mesma sanitização de serializePostPublic (sem dados de parceria/nota
+// fiscal/envolvidos, que são internos), com influencerName/brand
+// adicionados, igual ao que a própria aba "Todas as ações" já mostra pra
+// quem está logado.
+function serializePostPublicGroup(p, byId) {
+  const base = serializePostPublic(p);
+  return Object.assign({}, base, {
+    influencerName: byId[p.influencerId].name,
+    brand: byId[p.influencerId].brand
+  });
+}
+
+// Link externo agregado (51ª rodada) — mesma ideia do link por influencer
+// acima, só que reúne os itens de vários influencers (toda a "planilha
+// geral", ou só a de uma marca), igual ao que GET /all/posts monta pra
+// quem está logado. Path com dois segmentos depois de /public/ (não colide
+// com a rota /public/:token acima, que só casa com UM segmento).
+router.get('/public/group/:token', (req, res) => {
+  const link = db.get('influencerGroupLinks').find({ token: req.params.token }).value();
+  if (!link) return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const brand = groupKeyBrand(link.key);
+  let influencers = db.get('influencers').value();
+  if (brand) influencers = influencers.filter((i) => i.brand === brand);
+  const byId = {};
+  influencers.forEach((i) => { byId[i.id] = i; });
+  const posts = db.get('influencerPosts').value()
+    .filter((p) => byId[p.influencerId])
+    .map((p) => serializePostPublicGroup(p, byId))
+    .sort((a, b) => {
+      if (!a.dataPostagem && !b.dataPostagem) return (a.createdAt || '').localeCompare(b.createdAt || '');
+      if (!a.dataPostagem) return 1;
+      if (!b.dataPostagem) return -1;
+      return a.dataPostagem.localeCompare(b.dataPostagem);
+    });
+  res.json({ key: link.key, posts });
+});
+
 // Lista influencers de uma marca
 router.get('/', requireAuth, (req, res) => {
   const brand = BRANDS.includes(req.query.brand) ? req.query.brand : null;
@@ -199,6 +247,41 @@ router.delete('/:id/public-link', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- link externo agregado ("Todas as ações", 51ª rodada) ----------
+// Mesmo padrão CRUD do link por influencer acima, só que por "chave"
+// (todos/debacco/ghelplus) em vez de por id de influencer -- upsert em vez
+// de sempre um registro (o registro só existe depois do primeiro "Gerar").
+router.get('/group-links', requireAuth, (req, res) => {
+  const links = db.get('influencerGroupLinks').value();
+  const out = {};
+  GROUP_KEYS.forEach((key) => {
+    const l = links.find((x) => x.key === key);
+    out[key] = l ? l.token : null;
+  });
+  res.json({ links: out });
+});
+
+router.post('/group-links/:key/generate', requireAuth, (req, res) => {
+  const key = req.params.key;
+  if (!GROUP_KEYS.includes(key)) return res.status(400).json({ error: 'Chave inválida.' });
+  const token = crypto.randomBytes(20).toString('hex');
+  if (db.get('influencerGroupLinks').find({ key }).value()) {
+    db.get('influencerGroupLinks').find({ key }).assign({ token }).write();
+  } else {
+    db.get('influencerGroupLinks').push({ key, token }).write();
+  }
+  logAudit({ user: req.user, entityType: 'influencerGroupLink', entityId: key, entityLabel: key, action: 'generate_public_link' });
+  res.json({ token });
+});
+
+router.delete('/group-links/:key', requireAuth, (req, res) => {
+  const key = req.params.key;
+  if (!GROUP_KEYS.includes(key)) return res.status(400).json({ error: 'Chave inválida.' });
+  db.get('influencerGroupLinks').remove({ key }).write();
+  logAudit({ user: req.user, entityType: 'influencerGroupLink', entityId: key, entityLabel: key, action: 'revoke_public_link' });
+  res.json({ ok: true });
+});
+
 // ---------- "Todas as ações" (30ª rodada, pedido da Raquel) ----------
 // Aba agregada dentro de Influencers: reúne os itens de TODAS as tabelas
 // (de todos os influencers, de todas as marcas) numa lista só, ordenada
@@ -247,7 +330,8 @@ router.get('/:id', requireAuth, (req, res) => {
 router.post('/:id/posts', requireAuth, (req, res) => {
   const inf = findInfluencerOr404(req, res);
   if (!inf) return;
-  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds } = req.body || {};
+  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds, responsibleId } = req.body || {};
+  const finalInvolvedIds = validUserIds(involvedUserIds);
   const post = {
     id: nanoid(),
     influencerId: inf.id,
@@ -265,7 +349,11 @@ router.post('/:id/posts', requireAuth, (req, res) => {
     // Pessoas envolvidas + agendamento ligado (36ª rodada, ver
     // utils/tripleSync.js) — toda ação nova já nasce com um agendamento em
     // Redes Sociais e, pra cada pessoa marcada aqui, uma demanda no quadro.
-    involvedUserIds: validUserIds(involvedUserIds),
+    involvedUserIds: finalInvolvedIds,
+    // Responsável geral (51ª rodada, pedido da Raquel: mesma marcação já
+    // usada em Demandas) — precisa ser uma das pessoas envolvidas marcadas
+    // acima, senão não é gravado.
+    responsibleId: finalInvolvedIds.includes(responsibleId) ? responsibleId : null,
     linkedSocialPostId: null,
     createdAt: new Date().toISOString()
   };
@@ -281,7 +369,7 @@ router.put('/:id/posts/:postId', requireAuth, (req, res) => {
   if (!inf) return;
   const post = db.get('influencerPosts').find({ id: req.params.postId, influencerId: inf.id }).value();
   if (!post) return res.status(404).json({ error: 'Item não encontrado.' });
-  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds } = req.body || {};
+  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds, responsibleId } = req.body || {};
   const updates = {};
   if (formato !== undefined) updates.formato = (formato || '').trim();
   if (rede !== undefined) updates.rede = REDES.includes(rede) ? rede : null;
@@ -292,6 +380,17 @@ router.put('/:id/posts/:postId', requireAuth, (req, res) => {
   if (tipoParceria !== undefined) updates.tipoParceria = TIPOS_PARCERIA.includes(tipoParceria) ? tipoParceria : null;
   if (dataSaida !== undefined) updates.dataSaida = dataSaida || null;
   if (involvedUserIds !== undefined) updates.involvedUserIds = validUserIds(involvedUserIds);
+  // Responsável geral (51ª rodada) — mesma validação/queda automática já
+  // usada em Demandas (routes/demandas.js): precisa estar entre os
+  // envolvidos que vão valer DEPOIS dessa atualização; se o responsável
+  // atual sair da lista de envolvidos nessa mesma edição, a marcação cai
+  // junto.
+  if (responsibleId !== undefined) {
+    const effectiveInvolvedIds = updates.involvedUserIds !== undefined ? updates.involvedUserIds : (post.involvedUserIds || []);
+    updates.responsibleId = effectiveInvolvedIds.includes(responsibleId) ? responsibleId : null;
+  } else if (updates.involvedUserIds !== undefined && post.responsibleId && !updates.involvedUserIds.includes(post.responsibleId)) {
+    updates.responsibleId = null;
+  }
   db.get('influencerPosts').find({ id: post.id }).assign(updates).write();
   // 36ª rodada: propaga a edição pro agendamento ligado a essa ação (rede,
   // data, status, envolvidos etc.) — ver utils/tripleSync.js.

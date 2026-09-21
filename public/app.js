@@ -93,6 +93,12 @@
   // 36ª rodada: mesmo padrão, agora pro chip-picker de "Pessoas envolvidas"
   // da ação de influencer (ver openInfluencerPostForm / renderInfluencerInvolvedChips).
   let influencerInvolvedIds = new Set();
+  // Responsável geral (51ª rodada, pedido da Raquel: "em todo local que da
+  // pra marcar as pessoas envolvidas, precisa ter a opção de marcar o
+  // responsável geral") — mesmo padrão do selectedResponsibleId de Demandas
+  // acima, um pro Agendamento e outro pra ação de Influencer.
+  let socialResponsibleId = null;
+  let influencerResponsibleId = null;
   let socialCarouselBriefings = []; // array de textos, um por card do carrossel
 
   let cronogramaTab = 'calendario'; // 'calendario' | 'feed'
@@ -508,7 +514,7 @@
   }
 
   function showScreen(name) {
-    ['loading', 'setup', 'login', 'app', 'influencer-public'].forEach((s) => {
+    ['loading', 'setup', 'login', 'app', 'influencer-public', 'influencer-group-public'].forEach((s) => {
       $('#screen-' + s).hidden = s !== name;
     });
   }
@@ -603,6 +609,44 @@
     }
   }
 
+  // Link externo agregado da aba "Todas as ações" (51ª rodada) — mesma
+  // ideia da função acima, só que a resposta já vem com influencerName/
+  // brand em cada item (ver GET /api/influencers/public/group/:token).
+  const GROUP_KEY_LABEL = { todos: 'todas as marcas', debacco: 'De Bacco', ghelplus: 'GhelPlus' };
+  async function loadInfluencerGroupPublicPage(pubToken) {
+    try {
+      const data = await fetch('/api/influencers/public/group/' + encodeURIComponent(pubToken)).then((r) => r.json().then((body) => ({ ok: r.ok, body })));
+      if (!data.ok) throw new Error(data.body.error || 'Link inválido.');
+      const { key, posts } = data.body;
+      $('#pubInfGroupName').textContent = 'Todas as ações — ' + (GROUP_KEY_LABEL[key] || key);
+      const body = $('#pubInfGroupPostsBody');
+      body.innerHTML = '';
+      $('#pubInfGroupEmpty').hidden = posts.length > 0;
+      posts.forEach((p) => {
+        const tr = document.createElement('tr');
+        if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
+          tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+        }
+        tr.innerHTML = `
+          <td>${p.influencerName}</td>
+          <td>${BRAND_LABEL[p.brand] || p.brand}</td>
+          <td>${p.formato || '—'}</td>
+          <td>${networkIconHtml(p.rede)} ${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+          <td>${influencerStatusPillHTML(p.status, false)}</td>
+          <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
+          <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+          <td>${p.observacoes || '—'}</td>
+          <td>${p.notas || '—'}</td>
+        `;
+        body.appendChild(tr);
+      });
+      showScreen('influencer-group-public');
+    } catch (e) {
+      $('#pubInfGroupError').hidden = false;
+      showScreen('influencer-group-public');
+    }
+  }
+
   // Link externo por dashboard (28ª rodada) — mesmo espírito do link do
   // influencer, mas pro hub inteiro de Mídias ou Tráfego. Resolve o token
   // (GET /api/dashboards/public/:token, sem login), reaproveita a MESMA tela
@@ -641,6 +685,14 @@
     if (pubToken) {
       showScreen('loading');
       await loadInfluencerPublicPage(pubToken);
+      return;
+    }
+    // Link externo agregado da aba "Todas as ações" (51ª rodada) — mesma
+    // ideia, só que pra tabela junta de vários influencers.
+    const pubGroupToken = new URLSearchParams(window.location.search).get('influencerGroupPublic');
+    if (pubGroupToken) {
+      showScreen('loading');
+      await loadInfluencerGroupPublicPage(pubGroupToken);
       return;
     }
     // Link externo por dashboard — Mídias/Tráfego (28ª rodada) — mesma ideia,
@@ -2055,10 +2107,22 @@
           <div class="recado-card-text">${recadoPostNoticeHtml(r)}${r.text}<span class="recado-card-meta">de ${r.createdByName}</span></div>
         </div>
       `;
+      // Clicar leva até o local (51ª rodada, pedido da Raquel: "ao clicar
+      // em cima do recado, devemos ser levados até o local") — mesma
+      // navegação já usada pelo aviso flutuante (showNotifToast) desse
+      // mesmo recado automático; só se aplica quando o recado carrega uma
+      // referência de origem (por enquanto, os recados automáticos de post
+      // pronto pra aprovar/aprovado, que sempre trazem sourceSocialPostId).
+      if (r.sourceSocialPostId) {
+        card.classList.add('recado-card-clickable');
+        card.title = 'Clique para ir até o post';
+        card.onclick = () => { openPostFromCronograma(r.sourceSocialPostId); };
+      }
       const btn = document.createElement('button');
       btn.className = 'btn-secondary';
       btn.textContent = 'Marcar como lido';
-      btn.onclick = async () => {
+      btn.onclick = async (ev) => {
+        ev.stopPropagation();
         await api('/api/recados/' + r.id + '/read', { method: 'PUT' });
         await loadRecados();
       };
@@ -4249,9 +4313,32 @@
       chip.className = 'chip-toggle' + (socialInvolvedIds.has(u.id) ? ' active' : '');
       const cargoTag = u.cargo ? ` (${CARGO_LABEL[u.cargo] || u.cargo})` : '';
       chip.innerHTML = `<input type="checkbox" ${socialInvolvedIds.has(u.id) ? 'checked' : ''}> ${u.name}${cargoTag}`;
+      // Responsável geral (51ª rodada, pedido da Raquel) — mesmo botão ★/☆
+      // já usado em Demandas (ver renderAssigneeChips), reaproveitando a
+      // mesma classe CSS .chip-responsible-btn (genérica, não é exclusiva
+      // de Demandas). É quem recebe o recado de "post aprovado" (ver
+      // routes/socialPosts.js, PUT /:id/approval).
+      const respBtn = document.createElement('button');
+      respBtn.type = 'button';
+      respBtn.className = 'chip-responsible-btn' + (socialResponsibleId === u.id ? ' active' : '');
+      respBtn.title = socialResponsibleId === u.id ? 'Responsável geral — clique para remover' : 'Marcar como responsável geral';
+      respBtn.textContent = socialResponsibleId === u.id ? '★' : '☆';
+      respBtn.hidden = !socialInvolvedIds.has(u.id);
+      respBtn.onclick = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        socialResponsibleId = socialResponsibleId === u.id ? null : u.id;
+        renderInvolvedChips();
+      };
+      chip.appendChild(respBtn);
       chip.querySelector('input').onchange = (ev) => {
-        if (ev.target.checked) socialInvolvedIds.add(u.id); else socialInvolvedIds.delete(u.id);
-        chip.classList.toggle('active', ev.target.checked);
+        if (ev.target.checked) {
+          socialInvolvedIds.add(u.id);
+        } else {
+          socialInvolvedIds.delete(u.id);
+          if (socialResponsibleId === u.id) socialResponsibleId = null;
+        }
+        renderInvolvedChips();
       };
       wrap.appendChild(chip);
     });
@@ -4272,9 +4359,29 @@
       chip.className = 'chip-toggle' + (influencerInvolvedIds.has(u.id) ? ' active' : '');
       const cargoTag = u.cargo ? ` (${CARGO_LABEL[u.cargo] || u.cargo})` : '';
       chip.innerHTML = `<input type="checkbox" ${influencerInvolvedIds.has(u.id) ? 'checked' : ''}> ${u.name}${cargoTag}`;
+      // Responsável geral (51ª rodada) — mesmo botão ★/☆ de Demandas/
+      // Agendamento acima.
+      const respBtn = document.createElement('button');
+      respBtn.type = 'button';
+      respBtn.className = 'chip-responsible-btn' + (influencerResponsibleId === u.id ? ' active' : '');
+      respBtn.title = influencerResponsibleId === u.id ? 'Responsável geral — clique para remover' : 'Marcar como responsável geral';
+      respBtn.textContent = influencerResponsibleId === u.id ? '★' : '☆';
+      respBtn.hidden = !influencerInvolvedIds.has(u.id);
+      respBtn.onclick = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        influencerResponsibleId = influencerResponsibleId === u.id ? null : u.id;
+        renderInfluencerInvolvedChips();
+      };
+      chip.appendChild(respBtn);
       chip.querySelector('input').onchange = (ev) => {
-        if (ev.target.checked) influencerInvolvedIds.add(u.id); else influencerInvolvedIds.delete(u.id);
-        chip.classList.toggle('active', ev.target.checked);
+        if (ev.target.checked) {
+          influencerInvolvedIds.add(u.id);
+        } else {
+          influencerInvolvedIds.delete(u.id);
+          if (influencerResponsibleId === u.id) influencerResponsibleId = null;
+        }
+        renderInfluencerInvolvedChips();
       };
       wrap.appendChild(chip);
     });
@@ -4310,6 +4417,7 @@
     renderCarouselCards();
 
     socialInvolvedIds = new Set(post ? (post.involvedUserIds || []) : []);
+    socialResponsibleId = post ? (post.responsibleId || null) : null;
     renderInvolvedChips();
 
     $('#socialPostFormFileInput').value = '';
@@ -4348,6 +4456,7 @@
       caption: $('#socialPostFormCaption').value,
       subject: $('#socialPostFormSubject').value,
       involvedUserIds: Array.from(socialInvolvedIds),
+      responsibleId: socialResponsibleId,
       changeSuggestions: $('#socialPostFormSuggestions').value,
       link: $('#socialPostFormLink').value,
       briefingText: $('#socialPostFormBriefingText').value,
@@ -6289,6 +6398,7 @@
 
   // ---------- Gerenciamento de Influencers (14ª rodada) ----------
   function applyInfluencersTabView() {
+    $('#influencerAllPublicLinkPanel').hidden = true;
     if (influencersTab === 'todas') {
       $('#influencersList').hidden = true;
       $('#influencersEmpty').hidden = true;
@@ -6314,10 +6424,13 @@
   });
 
   $all('[data-all-brand]').forEach((b) => {
-    b.onclick = () => {
+    b.onclick = async () => {
       influencerAllBrandFilter = b.dataset.allBrand;
       $all('[data-all-brand]').forEach((x) => x.classList.toggle('active', x.dataset.allBrand === influencerAllBrandFilter));
       renderInfluencerAllPosts();
+      // Se o painel de link externo já estava aberto, atualiza pra mostrar
+      // o link da marca recém-selecionada (cada marca tem o seu próprio).
+      if (!$('#influencerAllPublicLinkPanel').hidden) await refreshInfluencerAllPublicLink();
     };
   });
 
@@ -6584,6 +6697,7 @@
     $('#influencerPostFormNotaFiscal').value = '';
     $('#influencerPostFormNotaFiscalAtual').textContent = post && post.notaFiscal ? ('Nota fiscal atual: ' + post.notaFiscal.name) : '';
     influencerInvolvedIds = new Set(post ? (post.involvedUserIds || []) : []);
+    influencerResponsibleId = post ? (post.responsibleId || null) : null;
     renderInfluencerInvolvedChips();
     $('#influencerPostFormError').hidden = true;
     $('#influencerPostFormWrap').hidden = false;
@@ -6604,7 +6718,8 @@
       notas: $('#influencerPostFormNotas').value.trim(),
       tipoParceria: $('#influencerPostFormParceria').value || null,
       dataSaida: $('#influencerPostFormParceria').value === 'permuta' ? ($('#influencerPostFormDataSaida').value || null) : null,
-      involvedUserIds: Array.from(influencerInvolvedIds)
+      involvedUserIds: Array.from(influencerInvolvedIds),
+      responsibleId: influencerResponsibleId
     };
     try {
       let postId = editingInfluencerPostId;
@@ -6669,6 +6784,49 @@
   };
   $('#influencerCopyLinkBtn').onclick = () => {
     const field = $('#influencerPublicLinkField');
+    field.select();
+    navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+  };
+
+  // ---------- link externo agregado ("Todas as ações", 51ª rodada) ----------
+  // Mesmo padrão do link por influencer acima, só que a "chave" é a marca
+  // selecionada nas abas de dentro de "Todas as ações" (influencerAllBrandFilter
+  // já vale 'todos'/'debacco'/'ghelplus', igual às chaves do backend).
+  $('#influencerAllPublicLinkBtn').onclick = async () => {
+    const panel = $('#influencerAllPublicLinkPanel');
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) await refreshInfluencerAllPublicLink();
+  };
+  async function refreshInfluencerAllPublicLink() {
+    $('#influencerAllPublicLinkScope').textContent = GROUP_KEY_LABEL[influencerAllBrandFilter] || influencerAllBrandFilter;
+    try {
+      const data = await api('/api/influencers/group-links');
+      setInfluencerAllPublicLinkUI(data.links[influencerAllBrandFilter]);
+    } catch (e) { /* ignora */ }
+  }
+  function setInfluencerAllPublicLinkUI(pubToken) {
+    const active = !!pubToken;
+    $('#influencerAllPublicLinkActive').hidden = !active;
+    $('#influencerAllGenLinkBtn').hidden = active;
+    if (active) {
+      $('#influencerAllPublicLinkField').value = `${window.location.origin}/?influencerGroupPublic=${pubToken}`;
+    }
+  }
+  $('#influencerAllGenLinkBtn').onclick = $('#influencerAllRegenLinkBtn').onclick = async () => {
+    try {
+      const data = await api(`/api/influencers/group-links/${influencerAllBrandFilter}/generate`, { method: 'POST' });
+      setInfluencerAllPublicLinkUI(data.token);
+    } catch (e) { alert(e.message); }
+  };
+  $('#influencerAllRevokeLinkBtn').onclick = async () => {
+    if (!confirm('Desativar o link externo dessa tabela? Quem tiver o link atual deixa de conseguir ver.')) return;
+    try {
+      await api(`/api/influencers/group-links/${influencerAllBrandFilter}`, { method: 'DELETE' });
+      setInfluencerAllPublicLinkUI(null);
+    } catch (e) { alert(e.message); }
+  };
+  $('#influencerAllCopyLinkBtn').onclick = () => {
+    const field = $('#influencerAllPublicLinkField');
     field.select();
     navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
   };

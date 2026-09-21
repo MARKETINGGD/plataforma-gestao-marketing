@@ -87,6 +87,11 @@ function serialize(p) {
     scriptText: p.scriptText || '',
     scriptLink: p.scriptLink || '',
     involvedUserIds: p.involvedUserIds || [],
+    // Responsável geral (51ª rodada, pedido da Raquel) — mesma marcação já
+    // usada em Demandas, ver comentário em routes/demandas.js. É o que
+    // decide quem recebe o recado de "post aprovado" (ver PUT /:id/approval
+    // abaixo), em vez de todo mundo marcado como envolvido.
+    responsibleId: p.responsibleId || null,
     changeSuggestions: p.changeSuggestions || '',
     changeSuggestionsAt: p.changeSuggestionsAt || null,
     link: p.link || '',
@@ -285,10 +290,11 @@ function validCarouselBriefings(list) {
 }
 
 router.post('/', requireAuth, (req, res) => {
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, responsibleId, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
   if (!PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Escolha uma rede social válida.' });
   if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco, GhelPlus, Duranox ou Boutique Inox).' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
+  const finalInvolvedIds = validInvolvedIds(involvedUserIds);
   const post = Object.assign({
     id: nanoid(),
     brand,
@@ -300,7 +306,9 @@ router.post('/', requireAuth, (req, res) => {
     status: STATUSES.includes(status) ? status : 'rascunho',
     postType: POST_TYPES.includes(postType) ? postType : 'estatico',
     carouselBriefings: validCarouselBriefings(carouselBriefings),
-    involvedUserIds: validInvolvedIds(involvedUserIds),
+    involvedUserIds: finalInvolvedIds,
+    // Responsável geral (51ª rodada) — ver comentário em serialize() acima.
+    responsibleId: finalInvolvedIds.includes(responsibleId) ? responsibleId : null,
     changeSuggestions: changeSuggestions || '',
     link: link || '',
     briefingText: briefingText || '',
@@ -336,7 +344,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // (não dava mais pra comparar "era publicado antes?" usando `post`
   // depois dessa linha).
   const previousStatus = post.status;
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, responsibleId, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
   if (brand !== undefined && BRANDS.includes(brand)) updates.brand = brand;
@@ -348,6 +356,15 @@ router.put('/:id', requireAuth, (req, res) => {
   if (postType !== undefined && POST_TYPES.includes(postType)) updates.postType = postType;
   if (carouselBriefings !== undefined) updates.carouselBriefings = validCarouselBriefings(carouselBriefings);
   if (involvedUserIds !== undefined) updates.involvedUserIds = validInvolvedIds(involvedUserIds);
+  // Responsável geral (51ª rodada) — mesmo padrão de validação/queda
+  // automática já usado em Demandas e na ação de influencer (ver comentário
+  // equivalente em routes/influencers.js).
+  if (responsibleId !== undefined) {
+    const effectiveInvolvedIds = updates.involvedUserIds !== undefined ? updates.involvedUserIds : (post.involvedUserIds || []);
+    updates.responsibleId = effectiveInvolvedIds.includes(responsibleId) ? responsibleId : null;
+  } else if (updates.involvedUserIds !== undefined && post.responsibleId && !updates.involvedUserIds.includes(post.responsibleId)) {
+    updates.responsibleId = null;
+  }
   if (changeSuggestions !== undefined) {
     updates.changeSuggestions = changeSuggestions;
     Object.assign(updates, changeSuggestionsMeta(changeSuggestions, post.changeSuggestions, req));
@@ -427,8 +444,18 @@ router.put('/:id/approval', requireAuth, (req, res) => {
   // existente, sem aba nova nenhuma. Dispara em toda transição pra
   // "aprovado" (inclusive reaprovação depois de uma reprovação), igual ao
   // toast geral já faz.
+  // 51ª rodada, pedido da Raquel: "O recado avisando que o post foi
+  // aprovado, só deve aparecer para quem é o responsável pela demanda
+  // (aquele que tem a estrelinha marcada), e não para todos" — agora
+  // endereça só pro responsável geral marcado (fresh.responsibleId). Posts
+  // sem ninguém marcado como responsável (cadastros antigos de antes dessa
+  // rodada, ou alguém que simplesmente esqueceu de marcar a estrelinha)
+  // caem no comportamento antigo como fallback, pra ninguém deixar de ser
+  // avisado por falta de marcação.
   if (approvalStatus === 'aprovado') {
-    const recipientIds = Array.from(new Set([fresh.createdBy, ...(fresh.involvedUserIds || [])].filter(Boolean)));
+    const recipientIds = fresh.responsibleId
+      ? [fresh.responsibleId]
+      : Array.from(new Set([fresh.createdBy, ...(fresh.involvedUserIds || [])].filter(Boolean)));
     const postTitle = fresh.subject && fresh.subject.trim()
       ? fresh.subject.trim()
       : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;

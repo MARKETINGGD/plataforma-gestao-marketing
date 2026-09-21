@@ -38,6 +38,36 @@
   <p id="pubInfError" class="error" hidden>Link inválido ou desativado.</p>
 </div>
 
+<!-- Link externo agregado da aba "Todas as ações" (51ª rodada, pedido da
+     Raquel: "a planilha geral de influencers e aquela separada por marcas,
+     tbm deve ter link externo") — mesma ideia da página acima, só que junta
+     os itens de vários influencers (acessada com ?influencerGroupPublic=TOKEN). -->
+<div id="screen-influencer-group-public" class="screen" hidden style="padding:32px;max-width:1100px;margin:0 auto;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+    <img src="/img/papoi-logo.png" alt="Papoi" style="width:100px;height:auto;">
+  </div>
+  <h2 id="pubInfGroupName" style="margin:18px 0 2px;"></h2>
+  <p class="muted" style="margin:0 0 18px;">Tabela de ações de influencers — link externo, somente leitura.</p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Influencer</th>
+        <th>Marca</th>
+        <th>Formato de conteúdo</th>
+        <th>Rede</th>
+        <th>Status</th>
+        <th>Data de entrega</th>
+        <th>Arquivo</th>
+        <th>Observações</th>
+        <th>Notas extras</th>
+      </tr>
+    </thead>
+    <tbody id="pubInfGroupPostsBody"></tbody>
+  </table>
+  <p id="pubInfGroupEmpty" class="muted" hidden>Nenhuma ação cadastrada ainda.</p>
+  <p id="pubInfGroupError" class="error" hidden>Link inválido ou desativado.</p>
+</div>
+
 <div id="screen-setup" class="screen center" hidden>
   <div class="auth-card">
     <h1>Seja bem-vindo(a) ao Papoi</h1>
@@ -664,11 +694,33 @@
              qualquer item novo adicionado na planilha pessoal de um
              influencer automaticamente (recarrega sempre que a aba abre). -->
         <div id="influencerAllWrap" hidden>
-          <div class="tabs" style="margin-bottom:14px;">
-            <button class="tab-btn active" data-all-brand="todos">Todas as marcas</button>
-            <button class="tab-btn" data-all-brand="debacco">De Bacco</button>
-            <button class="tab-btn" data-all-brand="ghelplus">GhelPlus</button>
+          <div class="view-toolbar" style="margin-bottom:0;">
+            <div class="tabs" style="margin-bottom:14px;">
+              <button class="tab-btn active" data-all-brand="todos">Todas as marcas</button>
+              <button class="tab-btn" data-all-brand="debacco">De Bacco</button>
+              <button class="tab-btn" data-all-brand="ghelplus">GhelPlus</button>
+            </div>
+            <div class="view-toolbar-actions">
+              <button class="btn-secondary" id="influencerAllPublicLinkBtn">Link externo</button>
+            </div>
           </div>
+
+          <!-- Link externo agregado (51ª rodada) — sempre referente à marca
+               selecionada nas abas acima (todos/debacco/ghelplus), mesmo
+               padrão visual do link por influencer mais abaixo. -->
+          <div id="influencerAllPublicLinkPanel" class="form-card" hidden>
+            <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver esta tabela (<span id="influencerAllPublicLinkScope"></span>), mesmo sem estar logada na plataforma.</p>
+            <div id="influencerAllPublicLinkActive" hidden>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="influencerAllPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                <button class="btn-secondary" id="influencerAllCopyLinkBtn">Copiar link</button>
+                <button class="btn-secondary" id="influencerAllRegenLinkBtn">Gerar novo link</button>
+                <button class="btn-secondary danger" id="influencerAllRevokeLinkBtn">Desativar</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="influencerAllGenLinkBtn">Gerar link externo</button>
+          </div>
+
           <table class="data-table">
             <thead>
               <tr>

@@ -79,7 +79,15 @@ db.defaults({
   // segundos. Ver utils/pontoReminders.js — entradas antigas (+ de alguns
   // dias) são limpas automaticamente a cada checagem, pra não crescer à
   // toa.
-  pontoFired: []
+  pontoFired: [],
+  // Link externo agregado dos Influencers (51ª rodada, pedido da Raquel: "A
+  // planilha geral de influencers e aquela separada por marcas, tbm deve ter
+  // link externo") — mesmo espírito do link por influencer (publicToken),
+  // só que 1 link por "chave" da aba "Todas as ações": 'todos' (todas as
+  // marcas), 'debacco' ou 'ghelplus'. Upsert por `key`, mesmo padrão de
+  // dashboardPublicLinks acima (coleção separada porque é outro recurso —
+  // aqui é a tabela agregada de posts, não um dashboard SSO).
+  influencerGroupLinks: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

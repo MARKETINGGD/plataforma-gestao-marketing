@@ -6,6 +6,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { resolveUserName } = require('../utils/names');
 
 const router = express.Router();
 
@@ -56,13 +57,28 @@ function toQuantidade(v) {
 function toDate(v) {
   return v ? String(v) : null;
 }
+// Gerente responsável (44ª rodada, pedido da Raquel): select com a lista de
+// usuários da equipe, mesmo padrão já usado em "responsável" de outras
+// telas (ex.: responsável por item de checklist em Demandas) — só aceita
+// um id que exista de verdade em `users`, senão vira `null` (sem gerente
+// responsável), em vez de dar erro.
+function validUserId(id) {
+  if (!id) return null;
+  return db.get('users').find({ id }).value() ? id : null;
+}
+function serialize(r) {
+  return Object.assign({}, r, {
+    responsavelId: r.responsavelId || null,
+    responsavelNome: resolveUserName(r.responsavelId, '')
+  });
+}
 
 router.get('/', requireAuth, (req, res) => {
   const { brand } = req.query;
   let rows = db.get('campanhasCooperadas').value();
   if (brand && brand !== 'todos') rows = rows.filter((r) => r.brand === brand);
   rows = rows.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-  res.json({ items: rows });
+  res.json({ items: rows.map(serialize) });
 });
 
 router.post('/', requireAuth, requireEdit, (req, res) => {
@@ -77,6 +93,7 @@ router.post('/', requireAuth, requireEdit, (req, res) => {
     cliente,
     representante: str(b.representante),
     produto: str(b.produto),
+    responsavelId: validUserId(b.responsavelId),
     quantidade: toQuantidade(b.quantidade),
     motivo: str(b.motivo),
     orcamento: null,
@@ -92,7 +109,7 @@ router.post('/', requireAuth, requireEdit, (req, res) => {
   };
   db.get('campanhasCooperadas').push(row).write();
   logAudit({ user: req.user, entityType: 'campanhaCooperada', entityId: row.id, entityLabel: `${row.cliente}${row.produto ? ' · ' + row.produto : ''}`, action: 'create' });
-  res.json({ item: row });
+  res.json({ item: serialize(row) });
 });
 
 router.put('/:id', requireAuth, requireEdit, (req, res) => {
@@ -111,6 +128,7 @@ router.put('/:id', requireAuth, requireEdit, (req, res) => {
   }
   if (b.representante !== undefined) updates.representante = str(b.representante);
   if (b.produto !== undefined) updates.produto = str(b.produto);
+  if (b.responsavelId !== undefined) updates.responsavelId = validUserId(b.responsavelId);
   if (b.quantidade !== undefined) updates.quantidade = toQuantidade(b.quantidade);
   if (b.motivo !== undefined) updates.motivo = str(b.motivo);
   if (b.aprovado !== undefined) updates.aprovado = toBool(b.aprovado);
@@ -120,7 +138,7 @@ router.put('/:id', requireAuth, requireEdit, (req, res) => {
   if (b.finalizado !== undefined) updates.finalizado = toBool(b.finalizado);
   db.get('campanhasCooperadas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'campanhaCooperada', entityId: existing.id, entityLabel: updates.cliente || existing.cliente, action: 'update' });
-  res.json({ item: db.get('campanhasCooperadas').find({ id: req.params.id }).value() });
+  res.json({ item: serialize(db.get('campanhasCooperadas').find({ id: req.params.id }).value()) });
 });
 
 router.delete('/:id', requireAuth, requireEdit, (req, res) => {
@@ -168,7 +186,7 @@ router.post('/:id/orcamento', requireAuth, requireEdit, uploadOrcamento.single('
   };
   db.get('campanhasCooperadas').find({ id: req.params.id }).assign({ orcamento: fileMeta, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'campanhaCooperada', entityId: existing.id, entityLabel: existing.cliente, action: 'file_upload', details: `Orçamento enviado: ${fileMeta.name}` });
-  res.json({ item: db.get('campanhasCooperadas').find({ id: req.params.id }).value() });
+  res.json({ item: serialize(db.get('campanhasCooperadas').find({ id: req.params.id }).value()) });
 });
 
 router.delete('/:id/orcamento', requireAuth, requireEdit, (req, res) => {
@@ -180,7 +198,7 @@ router.delete('/:id/orcamento', requireAuth, requireEdit, (req, res) => {
     logAudit({ user: req.user, entityType: 'campanhaCooperada', entityId: existing.id, entityLabel: existing.cliente, action: 'file_delete', details: `Orçamento removido: ${existing.orcamento.name}` });
   }
   db.get('campanhasCooperadas').find({ id: req.params.id }).assign({ orcamento: null, updatedAt: new Date().toISOString() }).write();
-  res.json({ item: db.get('campanhasCooperadas').find({ id: req.params.id }).value() });
+  res.json({ item: serialize(db.get('campanhasCooperadas').find({ id: req.params.id }).value()) });
 });
 
 module.exports = router;

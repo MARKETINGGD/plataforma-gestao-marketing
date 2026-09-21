@@ -8,6 +8,7 @@ const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { cascadeCompleteDemandas } = require('../utils/demandCascade');
+const { createAutoRecado } = require('./recados');
 
 const router = express.Router();
 
@@ -381,7 +382,30 @@ router.put('/:id/approval', requireAuth, (req, res) => {
   };
   db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update', details: `Aprovação: ${approvalStatus}` });
-  res.json({ post: serialize(db.get('socialPosts').find({ id: req.params.id }).value()) });
+  const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
+  // Aviso direcionado em Recados (44ª rodada, pedido da Raquel): diferente
+  // do toast geral já existente desde a 42ª rodada (que qualquer pessoa
+  // logada vê na hora, via polling de checkNewPostApprovals), este é um
+  // recado automático endereçado só a quem criou o post ou está marcado
+  // como envolvido nele — reaproveita a mesma estrutura/tela de Recados já
+  // existente, sem aba nova nenhuma. Dispara em toda transição pra
+  // "aprovado" (inclusive reaprovação depois de uma reprovação), igual ao
+  // toast geral já faz.
+  if (approvalStatus === 'aprovado') {
+    const recipientIds = Array.from(new Set([fresh.createdBy, ...(fresh.involvedUserIds || [])].filter(Boolean)));
+    const postTitle = fresh.subject && fresh.subject.trim()
+      ? fresh.subject.trim()
+      : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;
+    createAutoRecado({
+      recipientIds,
+      text: 'Aviso Papoi: Seu post foi aprovado e está pronto para ser agendado.',
+      postTitle,
+      postBrand: fresh.brand,
+      postNetwork: fresh.platform,
+      sourceSocialPostId: fresh.id
+    });
+  }
+  res.json({ post: serialize(fresh) });
 });
 
 router.delete('/:id', requireAuth, (req, res) => {

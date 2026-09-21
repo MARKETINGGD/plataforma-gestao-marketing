@@ -1887,6 +1887,16 @@
     return u ? u.name : '(usuário removido)';
   }
 
+  // Recado automático de post aprovado (44ª rodada, pedido da Raquel):
+  // além do texto fixo, mostra o título do post e a marca/rede SÓ como
+  // ícones -- reaproveita networkIconHtml/brandIconHtml, os mesmos ícones
+  // já usados nos cards de Demandas (nunca inventa ícone novo).
+  function recadoPostNoticeHtml(r) {
+    if (!r.postTitle) return '';
+    const icons = `${networkIconHtml(r.postNetwork)}${brandIconHtml(r.postBrand)}`;
+    return `<div class="recado-card-post">${icons ? `<span class="recado-card-post-icons">${icons}</span> ` : ''}<b>${r.postTitle}</b></div>`;
+  }
+
   async function loadRecados() {
     try {
       const [forMe, all] = await Promise.all([api('/api/recados/for-me'), api('/api/recados')]);
@@ -1914,7 +1924,7 @@
       card.innerHTML = `
         <div class="recado-card-row">
           ${avatarHtml({ name: r.createdByName, photoUrl: r.createdByPhoto }, 28)}
-          <div class="recado-card-text">${r.text}<span class="recado-card-meta">de ${r.createdByName}</span></div>
+          <div class="recado-card-text">${recadoPostNoticeHtml(r)}${r.text}<span class="recado-card-meta">de ${r.createdByName}</span></div>
         </div>
       `;
       const btn = document.createElement('button');
@@ -1942,7 +1952,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span class="label-color-dot" style="background:${r.color}"></span></td>
-        <td>${r.text}</td>
+        <td>${recadoPostNoticeHtml(r)}${r.text}</td>
         <td><div style="display:flex;align-items:center;gap:6px;">${avatarHtml({ name: r.createdByName, photoUrl: r.createdByPhoto }, 22)}${r.createdByName}</div></td>
         <td>${targets.join(', ')}</td>
         <td>${readCount}/${targets.length}</td>
@@ -3110,7 +3120,8 @@
           <div class="kanban-card-meta">
             <span class="badge">${statusLabel(d.status)}</span>
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
-            ${d.recurring ? '<span class="badge badge-muted" title="Repete todo mês">↻ mensal</span>' : ''}
+            ${d.recurrence === 'mensal' ? '<span class="badge badge-muted" title="Repete todo mês">↻ mensal</span>' : ''}
+            ${d.recurrence === 'diaria' ? '<span class="badge badge-muted" title="Repete todo dia">↻ diária</span>' : ''}
             ${(d.assigneeIds || []).length > 1 ? `<span class="badge">${d.assigneeIds.length} pessoas</span>` : ''}
             ${total > 0 ? `<span class="badge">✓ ${doneCount}/${total}</span>` : ''}
             ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
@@ -3486,8 +3497,12 @@
     // aqui também pode escolher, pra demanda de post/rede social criada
     // manualmente.
     $('#demCardNetwork').value = demanda ? (demanda.network || '') : '';
-    $('#demCardRecurring').checked = demanda ? !!demanda.recurring : false;
-    $('#demCardRecurringHint').hidden = !$('#demCardRecurring').checked;
+    // Recorrência (44ª rodada): virou seletor de frequência (não-recorrente/
+    // mensal/diária) -- card antigo com `recorrente: true` e sem
+    // `recurrence` gravado (tratado como 'mensal' pelo backend) já chega
+    // aqui com `demanda.recurrence` resolvido certo (ver serialize()).
+    $('#demCardRecurrence').value = demanda ? (demanda.recurrence || 'none') : 'none';
+    $('#demCardRecurringHint').hidden = $('#demCardRecurrence').value === 'none';
     $('#demCardDescription').value = demanda ? (demanda.description || '') : '';
     $('#demCardLink').value = demanda ? (demanda.link || '') : '';
     $('#demChecklistTitle').value = demanda ? (demanda.checklistTitle || 'Checklist') : 'Checklist';
@@ -3523,7 +3538,7 @@
     $('#demandaModal').hidden = false;
   }
   $('#demCardClose').onclick = () => { $('#demandaModal').hidden = true; loadDemandas(); };
-  $('#demCardRecurring').onchange = () => { $('#demCardRecurringHint').hidden = !$('#demCardRecurring').checked; };
+  $('#demCardRecurrence').onchange = () => { $('#demCardRecurringHint').hidden = $('#demCardRecurrence').value === 'none'; };
 
   $('#demCardSave').onclick = async () => {
     const payload = {
@@ -3531,7 +3546,7 @@
       description: $('#demCardDescription').value,
       status: $('#demCardStatus').value,
       dueDate: $('#demCardDueDate').value || null,
-      recurring: $('#demCardRecurring').checked,
+      recurrence: $('#demCardRecurrence').value,
       assigneeIds: Array.from(selectedAssigneeIds),
       responsibleId: selectedResponsibleId,
       labelIds: Array.from(selectedLabelIds),
@@ -3553,7 +3568,7 @@
       $('#demCardError').hidden = false;
       return;
     }
-    if (payload.recurring && !payload.dueDate) {
+    if (payload.recurrence !== 'none' && !payload.dueDate) {
       $('#demCardError').textContent = 'Defina uma data de entrega para usar recorrência.';
       $('#demCardError').hidden = false;
       return;
@@ -4888,6 +4903,17 @@
     }
   };
 
+  // Item retirado no Registro de Saídas (44ª rodada): virou um select vindo
+  // do catálogo (mesmo catálogo já usado em Controle Geral/Retiradas
+  // Internas), em vez de texto livre — precisa saber exatamente qual item
+  // do catálogo descontar, já que a saída passou a descontar do estoque
+  // automaticamente (ver routes/brindes.js). `brindesCatalog` já vem
+  // carregado com os itens das duas marcas (loadBrindes).
+  function brindeLogItemOptionsHTML(brand) {
+    const items = brindesCatalog.filter((it) => it.brand === brand).slice().sort((a, b) => (a.item || '').localeCompare(b.item || ''));
+    if (items.length === 0) return '<option value="">Nenhum item cadastrado nessa marca ainda</option>';
+    return items.map((it) => `<option value="${it.id}">${it.item}${it.group ? ' — ' + it.group : ''} (estoque: ${it.estoqueTotal})</option>`).join('');
+  }
   function openBrindeLogForm() {
     $('#brindeLogFormBrand').value = 'debacco';
     $('#brindeLogFormDate').value = new Date().toISOString().slice(0, 10);
@@ -4895,14 +4921,19 @@
     $('#brindeLogFormEstado').value = '';
     $('#brindeLogFormCliente').value = '';
     $('#brindeLogFormQuantidade').value = '1';
-    $('#brindeLogFormItem').value = '';
+    $('#brindeLogFormItem').innerHTML = brindeLogItemOptionsHTML('debacco');
     $('#brindeLogFormMotivo').value = '';
     $('#brindeLogFormError').hidden = true;
     $('#brindeLogFormWrap').hidden = false;
   }
   $('#brindesLogNewBtn').onclick = openBrindeLogForm;
   $('#brindeLogFormCancel').onclick = () => { $('#brindeLogFormWrap').hidden = true; };
+  $('#brindeLogFormBrand').onchange = () => {
+    $('#brindeLogFormItem').innerHTML = brindeLogItemOptionsHTML($('#brindeLogFormBrand').value);
+  };
   $('#brindeLogFormSave').onclick = async () => {
+    const catalogItemId = $('#brindeLogFormItem').value;
+    const catalogItem = brindesCatalog.find((it) => it.id === catalogItemId);
     const payload = {
       brand: $('#brindeLogFormBrand').value,
       date: $('#brindeLogFormDate').value,
@@ -4910,11 +4941,12 @@
       estado: $('#brindeLogFormEstado').value.trim(),
       cliente: $('#brindeLogFormCliente').value.trim(),
       quantidade: $('#brindeLogFormQuantidade').value,
-      item: $('#brindeLogFormItem').value.trim(),
+      catalogItemId: catalogItemId || null,
+      item: catalogItem ? catalogItem.item : '',
       motivo: $('#brindeLogFormMotivo').value.trim()
     };
     if (!payload.item) {
-      $('#brindeLogFormError').textContent = 'Informe o item.';
+      $('#brindeLogFormError').textContent = 'Escolha o item retirado.';
       $('#brindeLogFormError').hidden = false;
       return;
     }
@@ -5103,6 +5135,7 @@
         <td>${it.cliente}</td>
         <td>${it.representante || '—'}</td>
         <td>${it.produto || '—'}</td>
+        <td>${it.responsavelNome || '—'}</td>
         <td>${it.quantidade != null ? it.quantidade : '—'}</td>
         <td>${it.dataPedido ? fmtDate(it.dataPedido) : '—'}</td>
         <td>${it.dataEntrega ? fmtDate(it.dataEntrega) : '—'}</td>
@@ -5156,6 +5189,11 @@
     $('#campanhaCooperadaFormCliente').value = item ? item.cliente : '';
     $('#campanhaCooperadaFormRepresentante').value = item ? (item.representante || '') : '';
     $('#campanhaCooperadaFormProduto').value = item ? (item.produto || '') : '';
+    // Gerente responsável (44ª rodada): select com a equipe, mesmo padrão
+    // já usado em "responsável" de outras telas (ex.: Demandas).
+    $('#campanhaCooperadaFormGerente').innerHTML = ['<option value="">Sem gerente responsável</option>'].concat(
+      teamMembers.map((u) => `<option value="${u.id}"${item && item.responsavelId === u.id ? ' selected' : ''}>${u.name}</option>`)
+    ).join('');
     $('#campanhaCooperadaFormQuantidade').value = item && item.quantidade != null ? item.quantidade : '';
     $('#campanhaCooperadaFormMotivo').value = item ? (item.motivo || '') : '';
     $('#campanhaCooperadaFormDataPedido').value = item ? (item.dataPedido || '') : '';
@@ -5195,6 +5233,7 @@
       cliente: $('#campanhaCooperadaFormCliente').value.trim(),
       representante: $('#campanhaCooperadaFormRepresentante').value.trim(),
       produto: $('#campanhaCooperadaFormProduto').value.trim(),
+      responsavelId: $('#campanhaCooperadaFormGerente').value || null,
       quantidade: $('#campanhaCooperadaFormQuantidade').value === '' ? null : Number($('#campanhaCooperadaFormQuantidade').value),
       motivo: $('#campanhaCooperadaFormMotivo').value.trim(),
       dataPedido: $('#campanhaCooperadaFormDataPedido').value || null,

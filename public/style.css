@@ -480,6 +480,10 @@ button{font-weight:700;}
 .recado-card-text{font-size:13.5px;flex:1;min-width:200px;}
 .recado-card-meta{font-size:11.5px;color:var(--muted);display:block;margin-top:2px;}
 .recado-empty{color:var(--muted);font-size:13px;}
+/* Recado automático de post aprovado (44ª rodada) — título do post com os
+   ícones de marca/rede acima do texto fixo do aviso. */
+.recado-card-post{margin-bottom:2px;}
+.recado-card-post-icons{display:inline-flex;align-items:center;gap:3px;margin-right:2px;}
 
 /* ---------- gerenciar etiquetas ---------- */
 .modal-small{max-width:420px;}

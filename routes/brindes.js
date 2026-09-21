@@ -31,6 +31,59 @@ function sumStock(pr, sp, pe) {
   return (Number(pr) || 0) + (Number(sp) || 0) + (Number(pe) || 0);
 }
 
+// Desconto automático de estoque no Registro de Saídas de Controle Geral
+// (44ª rodada, pedido da Raquel: "ao registrar uma retirada/saída no
+// Controle Geral, o item retirado deve descontar do estoque
+// automaticamente" — hoje era só um log, sem descontar nada). Retiradas
+// Internas (routes/retiradasInternas.js) continua exatamente como estava,
+// de propósito — não desconta (decisão da Raquel, mantida sem mudança).
+//
+// O catálogo guarda o estoque em 3 praças (PR/SP/PE) — o formulário de
+// saída não pergunta de qual praça o item saiu, então a baixa é feita em
+// cascata (primeiro PR, depois SP, depois PE), sem deixar nenhuma praça
+// ficar negativa. Guardamos exatamente quanto foi tirado de cada praça
+// (`estoqueDeduzido`) no próprio registro de saída, pra dar pra desfazer
+// certinho se o registro for editado ou excluído depois — mesmo espírito
+// de "reversível" já usado na sincronia Feiras→Budget (41ª rodada).
+function decrementCatalogStock(catalogItemId, quantidade) {
+  const qty = Math.max(0, Math.round(Number(quantidade) || 0));
+  if (!catalogItemId || !qty) return null;
+  const item = db.get('brindesCatalog').find({ id: catalogItemId }).value();
+  if (!item) return null;
+  let remaining = qty;
+  const deduction = { estoquePR: 0, estoqueSP: 0, estoquePE: 0 };
+  const updates = {
+    estoquePR: Number(item.estoquePR) || 0,
+    estoqueSP: Number(item.estoqueSP) || 0,
+    estoquePE: Number(item.estoquePE) || 0
+  };
+  ['estoquePR', 'estoqueSP', 'estoquePE'].forEach((field) => {
+    if (remaining <= 0) return;
+    const take = Math.min(remaining, updates[field]);
+    updates[field] -= take;
+    deduction[field] = take;
+    remaining -= take;
+  });
+  updates.estoqueTotal = sumStock(updates.estoquePR, updates.estoqueSP, updates.estoquePE);
+  updates.updatedAt = new Date().toISOString();
+  db.get('brindesCatalog').find({ id: catalogItemId }).assign(updates).write();
+  return deduction;
+}
+
+function restoreCatalogStock(catalogItemId, deduction) {
+  if (!catalogItemId || !deduction) return;
+  const item = db.get('brindesCatalog').find({ id: catalogItemId }).value();
+  if (!item) return; // item pode ter sido excluído do catálogo nesse meio tempo
+  const updates = {
+    estoquePR: (Number(item.estoquePR) || 0) + (Number(deduction.estoquePR) || 0),
+    estoqueSP: (Number(item.estoqueSP) || 0) + (Number(deduction.estoqueSP) || 0),
+    estoquePE: (Number(item.estoquePE) || 0) + (Number(deduction.estoquePE) || 0)
+  };
+  updates.estoqueTotal = sumStock(updates.estoquePR, updates.estoqueSP, updates.estoquePE);
+  updates.updatedAt = new Date().toISOString();
+  db.get('brindesCatalog').find({ id: catalogItemId }).assign(updates).write();
+}
+
 function catalogItem(brand, group, code, item, multiplo, valor, pr, sp, pe, status, obs) {
   return {
     id: nanoid(),
@@ -175,8 +228,18 @@ router.get('/log', requireAuth, (req, res) => {
 });
 
 router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
-  const { brand, date, gerente, representante, estado, cliente, quantidade, item, motivo, obs } = req.body || {};
+  const { brand, date, gerente, representante, estado, cliente, quantidade, item, motivo, obs, catalogItemId } = req.body || {};
   if (!brand || !item) return res.status(400).json({ error: 'Preencha marca e item.' });
+  const finalQuantidade = Number(quantidade) || 0;
+  // catalogItemId é como a Plataforma sabe de qual item do catálogo
+  // descontar — sem ele (ex.: registro antigo/vindo de outro fluxo), o
+  // registro é salvo normalmente, só que sem desconto (não tem de onde
+  // descontar).
+  let finalCatalogItemId = catalogItemId || null;
+  if (finalCatalogItemId && !db.get('brindesCatalog').find({ id: finalCatalogItemId }).value()) {
+    finalCatalogItemId = null;
+  }
+  const estoqueDeduzido = finalCatalogItemId ? decrementCatalogStock(finalCatalogItemId, finalQuantidade) : null;
   const row = {
     id: nanoid(),
     brand,
@@ -185,8 +248,10 @@ router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
     representante: representante || '',
     estado: estado || '',
     cliente: cliente || '',
-    quantidade: Number(quantidade) || 0,
+    quantidade: finalQuantidade,
     item,
+    catalogItemId: finalCatalogItemId,
+    estoqueDeduzido,
     motivo: motivo || '',
     obs: obs || '',
     createdAt: new Date().toISOString(),
@@ -207,6 +272,19 @@ router.put('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
     if (b[k] !== undefined) updates[k] = b[k];
   });
   if (b.quantidade !== undefined) updates.quantidade = Number(b.quantidade) || 0;
+  if (b.catalogItemId !== undefined) {
+    updates.catalogItemId = (b.catalogItemId && db.get('brindesCatalog').find({ id: b.catalogItemId }).value()) ? b.catalogItemId : null;
+  }
+  // Se o item vinculado ou a quantidade mudou, desfaz o desconto antigo
+  // por inteiro e aplica o novo do zero — mesmo espírito "uma edição
+  // sempre apaga e recria" já usado na sincronia Feiras→Budget (41ª
+  // rodada): mais simples e seguro do que calcular só a diferença.
+  if (updates.catalogItemId !== undefined || updates.quantidade !== undefined) {
+    restoreCatalogStock(existing.catalogItemId, existing.estoqueDeduzido);
+    const newCatalogItemId = updates.catalogItemId !== undefined ? updates.catalogItemId : (existing.catalogItemId || null);
+    const newQuantidade = updates.quantidade !== undefined ? updates.quantidade : existing.quantidade;
+    updates.estoqueDeduzido = newCatalogItemId ? decrementCatalogStock(newCatalogItemId, newQuantidade) : null;
+  }
   db.get('brindesLog').find({ id: req.params.id }).assign(updates).write();
   res.json({ item: db.get('brindesLog').find({ id: req.params.id }).value() });
 });
@@ -214,6 +292,7 @@ router.put('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
 router.delete('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesLog').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
+  restoreCatalogStock(existing.catalogItemId, existing.estoqueDeduzido);
   db.get('brindesLog').remove({ id: req.params.id }).write();
   res.json({ ok: true });
 });

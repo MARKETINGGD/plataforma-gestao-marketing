@@ -97,13 +97,67 @@ router.put('/:id/read', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Exclusão (44ª rodada — corrige pendência conhecida desde a 18ª: "hoje
+// qualquer destinatário consegue excluir um recado pra todo mundo"). Regra
+// correta: quem apaga sendo o DONO do recado (quem escreveu) apaga pra todo
+// mundo; quem apaga sendo um DESTINATÁRIO (não o dono) apaga só pra si —
+// o recado continua existindo pros outros destinatários e pro dono. Um
+// recado automático do sistema (ver createAutoRecado abaixo, `createdBy:
+// null`) não tem dono humano nenhum — nesse caso NINGUÉM que o recebe tem
+// o "poder" de apagar pra todo mundo, então qualquer exclusão por um
+// destinatário sempre cai no caso "só pra si" (trata o sistema/a aprovação
+// como se fosse o dono, exatamente como pedido).
 router.delete('/:id', requireAuth, (req, res) => {
   const recado = db.get('recados').find({ id: req.params.id }).value();
   if (!recado) return res.status(404).json({ error: 'Recado não encontrado.' });
   if (!canAccess(recado, req.user.id)) return res.status(403).json({ error: 'Esse recado não é seu.' });
-  db.get('recados').remove({ id: req.params.id }).write();
-  logAudit({ user: req.user, entityType: 'recado', entityId: recado.id, entityLabel: recado.text.slice(0, 40), action: 'delete' });
+  const isOwner = !!recado.createdBy && recado.createdBy === req.user.id;
+  if (isOwner) {
+    db.get('recados').remove({ id: req.params.id }).write();
+    logAudit({ user: req.user, entityType: 'recado', entityId: recado.id, entityLabel: recado.text.slice(0, 40), action: 'delete' });
+    return res.json({ ok: true });
+  }
+  const remainingTargets = (recado.targetUserIds || []).filter((id) => id !== req.user.id);
+  const remainingReadBy = (recado.readBy || []).filter((id) => id !== req.user.id);
+  if (remainingTargets.length === 0 && !recado.createdBy) {
+    // Recado sem dono humano (gerado pelo sistema) que ficou sem nenhum
+    // destinatário — não faz sentido manter órfão no banco.
+    db.get('recados').remove({ id: req.params.id }).write();
+  } else {
+    db.get('recados').find({ id: req.params.id }).assign({ targetUserIds: remainingTargets, readBy: remainingReadBy }).write();
+  }
+  logAudit({ user: req.user, entityType: 'recado', entityId: recado.id, entityLabel: recado.text.slice(0, 40), action: 'delete', details: 'Removido só para o destinatário que apagou' });
   res.json({ ok: true });
 });
 
+// ---------- Recados automáticos do sistema ----------
+// Usado por outras rotas (ex.: routes/socialPosts.js, ao aprovar um post na
+// Prévia do Feed — 44ª rodada) pra gerar um recado sem um dono humano,
+// endereçado só a pessoas específicas. `createdBy: null` é o que faz esse
+// recado seguir a regra "sistema/aprovação = dono" na exclusão acima —
+// nenhum destinatário consegue apagar pra todo mundo, só pra si mesmo.
+function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwork, sourceSocialPostId }) {
+  const ids = validUserIds(recipientIds);
+  if (ids.length === 0) return null;
+  const recado = {
+    id: nanoid(),
+    text,
+    color: '#6D63E0',
+    targetUserIds: ids,
+    readBy: [],
+    archived: false,
+    createdAt: new Date().toISOString(),
+    createdBy: null,
+    createdByName: 'Papoi',
+    system: true,
+    postTitle: postTitle || null,
+    postBrand: postBrand || null,
+    postNetwork: postNetwork || null,
+    sourceSocialPostId: sourceSocialPostId || null
+  };
+  db.get('recados').push(recado).write();
+  return recado;
+}
+
 module.exports = router;
+module.exports.createAutoRecado = createAutoRecado;

@@ -1097,8 +1097,8 @@
               <div><label>Cliente</label><input id="brindeLogFormCliente" type="text"></div>
               <div><label>Quantidade</label><input id="brindeLogFormQuantidade" type="number" step="1" min="0"></div>
             </div>
-            <label>Item</label>
-            <input id="brindeLogFormItem" type="text">
+            <label>Item <span class="muted" style="font-weight:400;">(desconta do estoque automaticamente)</span></label>
+            <select id="brindeLogFormItem"></select>
             <label>Motivo</label>
             <input id="brindeLogFormMotivo" type="text">
             <div id="brindeLogFormError" class="error" hidden></div>
@@ -1192,6 +1192,12 @@
             <div><label>Produto</label><input id="campanhaCooperadaFormProduto" type="text"></div>
           </div>
           <div class="form-row">
+            <div><label>Gerente responsável</label>
+              <select id="campanhaCooperadaFormGerente"></select>
+            </div>
+            <div></div>
+          </div>
+          <div class="form-row">
             <div><label>Quantidade</label><input id="campanhaCooperadaFormQuantidade" type="number" min="0" step="1"></div>
             <div><label>Motivo</label><input id="campanhaCooperadaFormMotivo" type="text"></div>
           </div>
@@ -1233,7 +1239,7 @@
         </div>
 
         <table class="data-table">
-          <thead><tr><th>Marca</th><th>Cliente</th><th>Representante</th><th>Produto</th><th>Qtd.</th><th>Data pedido</th><th>Data entrega</th><th>Aprovado</th><th>Cobrança</th><th>Finalizado</th><th>Orçamento</th><th></th></tr></thead>
+          <thead><tr><th>Marca</th><th>Cliente</th><th>Representante</th><th>Produto</th><th>Gerente responsável</th><th>Qtd.</th><th>Data pedido</th><th>Data entrega</th><th>Aprovado</th><th>Cobrança</th><th>Finalizado</th><th>Orçamento</th><th></th></tr></thead>
           <tbody id="campanhaCooperadaBody"></tbody>
         </table>
         <p class="muted" id="campanhaCooperadaEmpty" hidden>Nenhuma campanha cooperada cadastrada ainda.</p>
@@ -1548,11 +1554,15 @@
         </div>
       </div>
 
-      <div class="checkbox-row">
-        <input type="checkbox" id="demCardRecurring">
-        <label for="demCardRecurring" style="margin:0;">Recorrente — repete todo mês, no mesmo dia da data de entrega</label>
+      <div>
+        <label>Recorrência</label>
+        <select id="demCardRecurrence">
+          <option value="none">Não recorrente</option>
+          <option value="mensal">Recorrente mensal — repete todo mês, no mesmo dia da data de entrega</option>
+          <option value="diaria">Recorrente diária — repete todo dia</option>
+        </select>
       </div>
-      <p class="muted" id="demCardRecurringHint" style="font-size:12px;margin:-8px 0 0;" hidden>Ao marcar essa demanda como "Concluída", ela volta sozinha pra "A Fazer" com a data de entrega empurrada pro mesmo dia do mês seguinte.</p>
+      <p class="muted" id="demCardRecurringHint" style="font-size:12px;margin:4px 0 0;" hidden>Ao marcar essa demanda como "Concluída", ela volta sozinha pra "A Fazer" com a data de entrega empurrada (1 mês ou 1 dia, conforme a recorrência escolhida acima).</p>
 
       <label>Responsáveis <span class="muted" style="font-weight:400;">(o card aparece na lista de cada pessoa marcada)</span></label>
       <div id="demAssigneeList" class="chip-picker"></div>

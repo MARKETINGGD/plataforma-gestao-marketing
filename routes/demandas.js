@@ -49,6 +49,30 @@ const BRANDS = ['debacco', 'ghelplus', 'duranox', 'boutiqueinox'];
 // cria direto na aba Demandas também pode escolher (ou deixar em branco).
 // Mesmos valores usados em Agendamento (routes/socialPosts.js PLATFORMS).
 const NETWORKS = ['instagram', 'facebook', 'linkedin', 'tiktok', 'youtube', 'pinterest', 'newsletter', 'influencer', 'blog'];
+// Recorrência (44ª rodada, pedido da Raquel: "demandas recorrentes hoje só
+// suportam recorrência mensal" -- pendência 16 do handoff -- adicionar
+// também recorrência DIÁRIA). Antes disso era só um booleano (`recurring`)
+// com bounce sempre mensal; agora é uma frequência (`recurrence`), com o
+// mesmo comportamento de bounce pras duas (ao concluir, em vez de arquivar,
+// o card volta sozinho pra "A Fazer" com a `dueDate` empurrada — só muda
+// quanto: 1 mês pra 'mensal', 1 dia pra 'diaria').
+//
+// Compatibilidade retroativa, sem migração de dados: todo card criado antes
+// desta rodada só tem o booleano `recurring` (sem `recurrence` nenhum) —
+// `effectiveRecurrence()` abaixo trata `recurring: true` sem `recurrence`
+// como 'mensal', exatamente o comportamento que esse card já tinha. Campo
+// `recurring` continua sendo gravado (como antes) só por compatibilidade
+// com qualquer leitura antiga desse campo — a fonte de verdade a partir de
+// agora é `recurrence`.
+const RECURRENCE_VALUES = ['none', 'mensal', 'diaria'];
+const RECURRENCE_LABEL_PT = { none: 'nenhuma', mensal: 'mensal', diaria: 'diária' };
+function validRecurrence(v) {
+  return RECURRENCE_VALUES.includes(v) ? v : null;
+}
+function effectiveRecurrence(d) {
+  if (d && d.recurrence && RECURRENCE_VALUES.includes(d.recurrence)) return d.recurrence;
+  return d && d.recurring ? 'mensal' : 'none';
+}
 
 // Quem pode ver/editar uma demanda pessoal: quem criou ou quem está marcado.
 // Demandas gerais continuam abertas pra qualquer pessoa logada, como antes.
@@ -76,6 +100,22 @@ function addOneMonthSameDay(dateStr) {
   const mm = String(targetMonth0 + 1).padStart(2, '0');
   const dd = String(targetDay).padStart(2, '0');
   return `${targetYear}-${mm}-${dd}`;
+}
+
+// Recorrência diária (44ª rodada): mesmo "bounce", só empurrando 1 dia em
+// vez de 1 mês.
+function addOneDay(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + 1);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function advanceDueDate(dateStr, recurrence) {
+  return recurrence === 'diaria' ? addOneDay(dateStr) : addOneMonthSameDay(dateStr);
 }
 
 function validUserIds(ids) {
@@ -202,7 +242,11 @@ function serialize(d) {
     // pontua igual a qualquer outro marcado na demanda — ver GET
     // /reis-do-marketing abaixo.
     responsibleId: d.responsibleId || null,
-    recurring: !!d.recurring,
+    // recurrence é a fonte de verdade a partir da 44ª rodada (mensal/
+    // diária); `recurring` continua sendo devolvido, recalculado ao vivo,
+    // só por compatibilidade com qualquer leitura antiga desse campo.
+    recurrence: effectiveRecurrence(d),
+    recurring: effectiveRecurrence(d) !== 'none',
     overdue: isOverdue(d),
     order: cardOrder(d),
     alsoInvolvedNames,
@@ -250,8 +294,8 @@ function describeChanges(before, updates) {
   if (updates.color !== undefined && updates.color !== (before.color || null)) {
     parts.push('cor do card alterada');
   }
-  if (updates.recurring !== undefined && updates.recurring !== !!before.recurring) {
-    parts.push(updates.recurring ? 'marcada como recorrente' : 'recorrência removida');
+  if (updates.recurrence !== undefined && updates.recurrence !== effectiveRecurrence(before)) {
+    parts.push(`recorrência: ${RECURRENCE_LABEL_PT[effectiveRecurrence(before)]} → ${RECURRENCE_LABEL_PT[updates.recurrence]}`);
   }
   if (updates.link !== undefined && updates.link !== (before.link || null)) {
     parts.push(updates.link ? 'link alterado' : 'link removido');
@@ -482,9 +526,14 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, link, checklistTitle, checklist, responsibleId, brand, network } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, recurrence, link, checklistTitle, checklist, responsibleId, brand, network } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
-  if (recurring && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
+  // Aceita tanto o campo novo (`recurrence`: 'none'/'mensal'/'diaria')
+  // quanto o booleano antigo (`recurring`, mapeado pra 'mensal' — mesmo
+  // comportamento de sempre), pra não quebrar nenhum chamador que ainda
+  // mande só o booleano.
+  const finalRecurrence = validRecurrence(recurrence) || (recurring ? 'mensal' : 'none');
+  if (finalRecurrence !== 'none' && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
   const finalAssigneeIds = validUserIds(assigneeIds);
   const demanda = {
     id: nanoid(),
@@ -494,7 +543,8 @@ router.post('/', requireAuth, (req, res) => {
     visibility: VISIBILITIES.includes(visibility) ? visibility : 'geral',
     archived: false,
     dueDate: dueDate || null,
-    recurring: !!recurring,
+    recurrence: finalRecurrence,
+    recurring: finalRecurrence !== 'none',
     assigneeIds: finalAssigneeIds,
     // Responsável geral (30ª rodada): precisa estar entre os marcados na
     // demanda, senão não faz sentido (não dá pra marcar como responsável
@@ -544,7 +594,7 @@ router.put('/reorder', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, link, checklistTitle, responsibleId, brand, network } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, network } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
@@ -565,7 +615,15 @@ router.put('/:id', requireAuth, (req, res) => {
   }
   if (labelIds !== undefined) updates.labelIds = validLabelIds(labelIds);
   if (color !== undefined) updates.color = validColor(color);
-  if (recurring !== undefined) updates.recurring = !!recurring;
+  // recurrence (campo novo) tem prioridade; recurring (booleano antigo)
+  // continua aceito por compatibilidade, mapeado pra 'mensal'/'none'.
+  if (recurrence !== undefined) {
+    updates.recurrence = validRecurrence(recurrence) || 'none';
+    updates.recurring = updates.recurrence !== 'none';
+  } else if (recurring !== undefined) {
+    updates.recurrence = recurring ? 'mensal' : 'none';
+    updates.recurring = !!recurring;
+  }
   if (link !== undefined) updates.link = validLink(link);
   if (checklistTitle !== undefined) updates.checklistTitle = validChecklistTitle(checklistTitle);
   if (brand !== undefined) updates.brand = validBrand(brand);
@@ -576,9 +634,9 @@ router.put('/:id', requireAuth, (req, res) => {
   // status está sendo marcado como "Concluída", em vez de ficar concluída
   // ela volta sozinha pra "A Fazer" com a data empurrada pro mesmo dia do
   // mês seguinte — sem criar card novo.
-  const effectiveRecurring = updates.recurring !== undefined ? updates.recurring : !!demanda.recurring;
+  const effectiveRecurrenceValue = updates.recurrence !== undefined ? updates.recurrence : effectiveRecurrence(demanda);
   const effectiveDueDate = updates.dueDate !== undefined ? updates.dueDate : demanda.dueDate;
-  if (effectiveRecurring && !effectiveDueDate) {
+  if (effectiveRecurrenceValue !== 'none' && !effectiveDueDate) {
     return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
   }
   // lastCompletedAt (36ª rodada, pedido da Raquel): guarda o momento exato
@@ -604,9 +662,9 @@ router.put('/:id', requireAuth, (req, res) => {
     updates.lastCompletedDueDate = effectiveDueDate || null;
   }
   let recurringReset = null;
-  if (updates.status === 'concluida' && effectiveRecurring && effectiveDueDate) {
+  if (updates.status === 'concluida' && effectiveRecurrenceValue !== 'none' && effectiveDueDate) {
     updates.status = 'a_fazer';
-    updates.dueDate = addOneMonthSameDay(effectiveDueDate);
+    updates.dueDate = advanceDueDate(effectiveDueDate, effectiveRecurrenceValue);
     recurringReset = updates.dueDate;
   }
 

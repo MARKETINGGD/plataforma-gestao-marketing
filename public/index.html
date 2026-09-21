@@ -85,6 +85,10 @@
       </div>
       <nav class="sidebar-nav">
         <button class="navlink" id="navHome" data-view="home">Início</button>
+        <!-- 47ª rodada, pedido da Raquel: botão "PONTO" no menu, que só abre
+             o sistema de ponto da TOTVS numa aba nova (não é uma tela da
+             Plataforma, não tem view própria). -->
+        <button class="navlink" id="navPonto" type="button" data-external="https://totvs.ghelplus.com.br/totvs-login/loginForm">PONTO</button>
         <button class="navlink" id="navChat" data-view="chat">Chat</button>
         <button class="navlink" id="navDemandas" data-view="demandas">Demandas</button>
         <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamentos de Redes Sociais</button>
@@ -1509,6 +1513,33 @@
             <option value="videomaker">Videomaker</option>
           </select>
           <p class="muted" style="margin:4px 0 0;font-size:12px;">Usado pro Cronograma de Marketing: só quem tem cargo "Gerente" fica sem acesso à aba Calendário. Também define a cor da tag do agendamento no calendário (Designer, Designer 3D, Videomaker).</p>
+
+          <!-- Horário de ponto (47ª rodada, pedido da Raquel): campo que só
+               o admin vê e ajusta -- fica dentro da tela Usuários, que já é
+               restrita a super admin. Usado pra disparar os lembretes
+               automáticos de bater o ponto (ver utils/pontoReminders.js). -->
+          <label>Horário de ponto <span class="muted" style="font-weight:400;">(só o admin vê — usado pro lembrete automático de bater o ponto)</span></label>
+          <div class="form-row">
+            <div>
+              <label style="font-weight:400;font-size:12px;">Entrada (manhã)</label>
+              <input id="userFormPontoEntradaManha" type="time">
+            </div>
+            <div>
+              <label style="font-weight:400;font-size:12px;">Saída (almoço)</label>
+              <input id="userFormPontoSaidaAlmoco" type="time">
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label style="font-weight:400;font-size:12px;">Volta (almoço)</label>
+              <input id="userFormPontoVoltaAlmoco" type="time">
+            </div>
+            <div>
+              <label style="font-weight:400;font-size:12px;">Saída (fim do expediente)</label>
+              <input id="userFormPontoSaidaFinal" type="time">
+            </div>
+          </div>
+          <p class="muted" style="margin:4px 0 0;font-size:12px;">Deixe todos em branco se a pessoa não bate ponto (ex.: administradores). Os lembretes disparam só de segunda a sexta, 5 minutos antes e 5 minutos depois de cada horário preenchido, de forma privada (só a própria pessoa recebe).</p>
 
           <div id="userFormPermissions">
             <label>Permissões por dashboard</label>

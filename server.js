@@ -66,6 +66,16 @@ require('./utils/migrateDemandaBrand').migrateDemandaBrand();
 // utils/seedConcorrenciaGhelplusImport2026.js).
 require('./utils/migrateConcorrenciaMultiMarca').migrateConcorrenciaMultiMarca();
 require('./utils/seedConcorrenciaGhelplusImport2026').seedConcorrenciaGhelplusImport2026();
+// 47ª rodada: importação única dos horários de ponto que a Raquel mandou
+// por print, casando pelo nome já cadastrado (ver
+// utils/migratePontoScheduleInicial.js).
+require('./utils/migratePontoScheduleInicial').migratePontoScheduleInicial();
+
+// 47ª rodada: lembretes automáticos de bater o ponto (5 min antes/depois
+// de cada horário cadastrado por pessoa, só dias úteis) — primeiro recurso
+// da Plataforma que precisa de um temporizador de verdade rodando sozinho
+// no servidor (ver utils/pontoReminders.js).
+require('./utils/pontoReminders').startPontoReminderScheduler();
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).

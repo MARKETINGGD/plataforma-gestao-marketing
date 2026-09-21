@@ -813,6 +813,11 @@
     const sub = $('#navExpositoresSubmenu');
     sub.hidden = !sub.hidden;
   };
+  // PONTO (47ª rodada): não é uma tela da Plataforma -- só abre o sistema
+  // de ponto da TOTVS numa aba nova, sem mudar a navegação/view atual.
+  $('#navPonto').onclick = () => {
+    window.open($('#navPonto').dataset.external, '_blank');
+  };
   // Book Técnico / Orçamentos (46ª rodada): por enquanto são só telas de
   // navegação (sem conteúdo ainda, pedido da Raquel) -- as abas de marca só
   // trocam qual botão fica marcado como ativo.
@@ -827,7 +832,7 @@
     };
   });
   $all('.navlink').forEach((b) => {
-    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent') return;
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto') return;
     b.onclick = () => {
       setActiveNav(b.id);
       // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio
@@ -6142,6 +6147,13 @@
     $('#userFormPasswordLabel').textContent = user ? 'Nova senha (deixe em branco para manter)' : 'Senha (mínimo 6 caracteres)';
     $('#userFormSuperAdmin').checked = user ? user.isSuperAdmin : false;
     $('#userFormCargo').value = user ? (user.cargo || '') : '';
+    // Horário de ponto (47ª rodada) -- só existe no payload devolvido pelas
+    // rotas /users (admin); em branco quando a pessoa não bate ponto.
+    const ponto = (user && user.pontoSchedule) || {};
+    $('#userFormPontoEntradaManha').value = ponto.entradaManha || '';
+    $('#userFormPontoSaidaAlmoco').value = ponto.saidaAlmoco || '';
+    $('#userFormPontoVoltaAlmoco').value = ponto.voltaAlmoco || '';
+    $('#userFormPontoSaidaFinal').value = ponto.saidaFinal || '';
     const perms = (user && user.permissions) || { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none' };
     $all('[data-perm]').forEach((sel) => { sel.value = perms[sel.dataset.perm] || 'none'; });
     $('#userFormError').hidden = true;
@@ -6184,6 +6196,12 @@
       password: $('#userFormPassword').value,
       isSuperAdmin: $('#userFormSuperAdmin').checked,
       cargo: $('#userFormCargo').value,
+      pontoSchedule: {
+        entradaManha: $('#userFormPontoEntradaManha').value,
+        saidaAlmoco: $('#userFormPontoSaidaAlmoco').value,
+        voltaAlmoco: $('#userFormPontoVoltaAlmoco').value,
+        saidaFinal: $('#userFormPontoSaidaFinal').value
+      },
       permissions
     };
     try {

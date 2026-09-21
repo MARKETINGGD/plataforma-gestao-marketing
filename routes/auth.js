@@ -59,6 +59,37 @@ const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget
 // usuários antigos que ainda não tiveram o cargo cadastrado.
 const CARGOS = ['gerente', 'analista', 'auxiliar', 'coordenador', 'designer', 'designer3d', 'videomaker'];
 
+// Horário de ponto (47ª rodada, pedido da Raquel: "cada colaborador tem um
+// horário diferente de entrada e saida... deixe um campo que apenas o
+// admin pode ver, para ajustar os horarios quando necessário"). 4 horários
+// por pessoa (entrada da manhã, saída pro almoço, volta do almoço, saída
+// final) — usados por utils/pontoReminders.js pra disparar os lembretes
+// automáticos em Recados. Campo NÃO exposto por publicUser() (usado em
+// /me, /team e no login) — só as rotas /users (já restritas a super
+// admin) devolvem esse campo, exatamente como a Raquel pediu ("só o admin
+// vê"). Pessoa sem nenhum horário preenchido (`pontoSchedule: null`, ou
+// os 4 campos vazios) simplesmente não recebe nenhum lembrete — é assim
+// que a Raquel/Melissa, que não batem ponto, ficam de fora, sem precisar
+// de nenhuma flag especial.
+const PONTO_SLOTS = ['entradaManha', 'saidaAlmoco', 'voltaAlmoco', 'saidaFinal'];
+function validTimeHHMM(v) {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(s) ? s : null;
+}
+function sanitizePontoSchedule(input) {
+  if (!input || typeof input !== 'object') return null;
+  const out = {};
+  let any = false;
+  PONTO_SLOTS.forEach((k) => {
+    const v = validTimeHHMM(input[k]);
+    out[k] = v;
+    if (v) any = true;
+  });
+  return any ? out : null;
+}
+
 // Cores customizáveis pedidas pela Raquel na 13ª rodada: a cor da lista de
 // cada pessoa no quadro de Demandas (columnColor) e a cor de fundo da
 // própria tela Início (homeColor, preferência pessoal — cada um escolhe a
@@ -252,13 +283,18 @@ router.delete('/team/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Gestão de usuários da plataforma — só super admin
+// Gestão de usuários da plataforma — só super admin. `pontoSchedule` (47ª
+// rodada) só é devolvido/aceito por essas rotas (admin) — nunca por /me
+// ou /team, que qualquer pessoa logada pode chamar.
+function adminUserView(u) {
+  return { ...publicUser(u), pontoSchedule: u.pontoSchedule || null };
+}
 router.get('/users', requireAuth, requireSuperAdmin, (req, res) => {
-  res.json({ users: db.get('users').value().map(publicUser) });
+  res.json({ users: db.get('users').value().map(adminUserView) });
 });
 
 router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {
-  const { username, password, name, isSuperAdmin, permissions, cargo } = req.body || {};
+  const { username, password, name, isSuperAdmin, permissions, cargo, pontoSchedule } = req.body || {};
   if (!username || !password || password.length < 6) {
     return res.status(400).json({ error: 'Informe um usuário e uma senha com pelo menos 6 caracteres.' });
   }
@@ -273,17 +309,18 @@ router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {
     isSuperAdmin: !!isSuperAdmin,
     permissions: isSuperAdmin ? FULL_PERMISSIONS : sanitizePermissions(permissions),
     cargo: CARGOS.includes(cargo) ? cargo : '',
+    pontoSchedule: sanitizePontoSchedule(pontoSchedule),
     createdAt: new Date().toISOString()
   };
   db.get('users').push(user).write();
   logAudit({ user: req.user, entityType: 'user', entityId: user.id, entityLabel: user.username, action: 'create', details: `Super admin: ${user.isSuperAdmin}` });
-  res.json({ user: publicUser(user) });
+  res.json({ user: adminUserView(user) });
 });
 
 router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
   const target = db.get('users').find({ id: req.params.id }).value();
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  const { name, username, password, isSuperAdmin, permissions, cargo } = req.body || {};
+  const { name, username, password, isSuperAdmin, permissions, cargo, pontoSchedule } = req.body || {};
   const updates = {};
   if (name) updates.name = name.trim();
   if (username && username.trim() !== target.username) {
@@ -296,6 +333,7 @@ router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
   }
   if (typeof isSuperAdmin === 'boolean') updates.isSuperAdmin = isSuperAdmin;
   if (cargo !== undefined) updates.cargo = CARGOS.includes(cargo) ? cargo : '';
+  if (pontoSchedule !== undefined) updates.pontoSchedule = sanitizePontoSchedule(pontoSchedule);
   updates.permissions = updates.isSuperAdmin || (updates.isSuperAdmin === undefined && target.isSuperAdmin)
     ? FULL_PERMISSIONS
     : sanitizePermissions(permissions || target.permissions);
@@ -305,7 +343,7 @@ router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
   }
   db.get('users').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'user', entityId: target.id, entityLabel: target.username, action: 'update', details: 'Permissões/dados atualizados' });
-  res.json({ user: publicUser(db.get('users').find({ id: req.params.id }).value()) });
+  res.json({ user: adminUserView(db.get('users').find({ id: req.params.id }).value()) });
 });
 
 // Foto de perfil — pela tela Usuários, um super admin pode cadastrar/trocar
@@ -342,3 +380,6 @@ router.delete('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
 });
 
 module.exports = router;
+// Reaproveitado por utils/pontoReminders.js (47ª rodada) — mesma lista de
+// horários e mesma regex de validação usada aqui, sem duplicar a fonte.
+module.exports.PONTO_SLOTS = PONTO_SLOTS;

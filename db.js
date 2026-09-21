@@ -71,7 +71,15 @@ db.defaults({
   // abaixo de Brindes) — cada registro é uma campanha cooperada com um
   // cliente/representante, separada por marca (De Bacco / GhelPlus), com
   // um documento de orçamento anexo. Ver routes/campanhaCooperada.js.
-  campanhasCooperadas: []
+  campanhasCooperadas: [],
+  // Ponto (47ª rodada, pedido da Raquel) — log de dedup dos lembretes
+  // automáticos de bater o ponto (5 min antes / 5 min depois de cada
+  // horário cadastrado por pessoa), pra garantir que cada lembrete dispara
+  // no máximo 1 vez por dia mesmo com o servidor checando a cada poucos
+  // segundos. Ver utils/pontoReminders.js — entradas antigas (+ de alguns
+  // dias) são limpas automaticamente a cada checagem, pra não crescer à
+  // toa.
+  pontoFired: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

@@ -486,6 +486,11 @@ button{font-weight:700;}
 .recado-card-text{font-size:13.5px;flex:1;min-width:200px;}
 .recado-card-meta{font-size:11.5px;color:var(--muted);display:block;margin-top:2px;}
 .recado-empty{color:var(--muted);font-size:13px;}
+/* Ações em lote nos recados (53ª rodada) — "Selecionar todos" + marcar/
+   excluir os selecionados de uma vez, mesma barra acima da lista. */
+.recado-bulk-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:10px 0 0;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:13px;}
+.recado-bulk-selectall{display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;}
+.recado-card-checkbox{margin-right:2px;}
 /* Clicar no recado leva até o local (51ª rodada) — só os recados
    automáticos que carregam uma referência de origem ganham esse cursor. */
 .recado-card-clickable{cursor:pointer;}

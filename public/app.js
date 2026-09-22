@@ -50,6 +50,9 @@
 
   let recadosForMe = [];
   let recadosAll = [];
+  // Ações em lote nos recados (53ª rodada, pedido da Raquel) — ids
+  // selecionados pra marcar como lido/excluir todos de uma vez.
+  let selectedRecadoIds = new Set();
   let chatLastId = null; // último id de mensagem já mostrado, pra buscar só as novas no polling
   let chatPollTimer = null;
   // 40ª rodada: grupos + conversas privadas -- a tela cheia do Chat passou
@@ -2093,9 +2096,31 @@
     } catch (e) { /* ignora */ }
   }
 
+  // Ações em lote (53ª rodada, pedido da Raquel: "quero a opção de
+  // selecionar todos os recados e dar lido em todos de uma vez ou excluir
+  // todos de uma vez") — atualiza a barra acima da lista: mostra/esconde
+  // conforme tem recado ou não, mantém o "Selecionar todos" em sincronia
+  // (marcado só quando TODOS os visíveis estão selecionados) e habilita os
+  // 2 botões só quando tem pelo menos 1 selecionado.
+  function updateRecadosBulkBar() {
+    const bar = $('#recadosForMeBulkBar');
+    bar.hidden = recadosForMe.length === 0;
+    const total = recadosForMe.length;
+    const selecionados = recadosForMe.filter((r) => selectedRecadoIds.has(r.id)).length;
+    $('#recadosForMeSelectAll').checked = total > 0 && selecionados === total;
+    $('#recadosForMeSelectAll').indeterminate = selecionados > 0 && selecionados < total;
+    $('#recadosForMeBulkRead').disabled = selecionados === 0;
+    $('#recadosForMeBulkDelete').disabled = selecionados === 0;
+  }
+
   function renderRecadosForMe() {
     const wrap = $('#recadosForMe');
     wrap.innerHTML = '';
+    // Limpa da seleção qualquer id que não esteja mais na lista (recado já
+    // lido/excluído por outra via, ex.: polling ao vivo da 50ª rodada).
+    const idsAtuais = new Set(recadosForMe.map((r) => r.id));
+    Array.from(selectedRecadoIds).forEach((id) => { if (!idsAtuais.has(id)) selectedRecadoIds.delete(id); });
+    updateRecadosBulkBar();
     if (recadosForMe.length === 0) {
       wrap.innerHTML = '<div class="recado-empty">Nenhum recado novo pra você.</div>';
       return;
@@ -2105,13 +2130,21 @@
       card.className = 'recado-card';
       card.style.borderLeftColor = r.color;
       // Fotinho de quem mandou (22ª rodada, pedido da Raquel: "em recados,
-      // deve aparecer a fotinho de quem mandou o recado").
+      // deve aparecer a fotinho de quem mandou o recado"). Checkbox de
+      // seleção (53ª rodada) vem antes da fotinho, mesma linha.
       card.innerHTML = `
         <div class="recado-card-row">
+          <input type="checkbox" class="recado-card-checkbox" ${selectedRecadoIds.has(r.id) ? 'checked' : ''}>
           ${avatarHtml({ name: r.createdByName, photoUrl: r.createdByPhoto }, 28)}
           <div class="recado-card-text">${recadoPostNoticeHtml(r)}${r.text}<span class="recado-card-meta">de ${r.createdByName}</span></div>
         </div>
       `;
+      const checkbox = card.querySelector('.recado-card-checkbox');
+      checkbox.onclick = (ev) => { ev.stopPropagation(); };
+      checkbox.onchange = (ev) => {
+        if (ev.target.checked) selectedRecadoIds.add(r.id); else selectedRecadoIds.delete(r.id);
+        updateRecadosBulkBar();
+      };
       // Clicar leva até o local (51ª rodada, pedido da Raquel: "ao clicar
       // em cima do recado, devemos ser levados até o local") — mesma
       // navegação já usada pelo aviso flutuante (showNotifToast) desse
@@ -2135,6 +2168,34 @@
       wrap.appendChild(card);
     });
   }
+
+  $('#recadosForMeSelectAll').onchange = (ev) => {
+    if (ev.target.checked) {
+      recadosForMe.forEach((r) => selectedRecadoIds.add(r.id));
+    } else {
+      selectedRecadoIds.clear();
+    }
+    renderRecadosForMe();
+  };
+  $('#recadosForMeBulkRead').onclick = async () => {
+    const ids = Array.from(selectedRecadoIds);
+    if (ids.length === 0) return;
+    for (const id of ids) {
+      await api('/api/recados/' + id + '/read', { method: 'PUT' });
+    }
+    selectedRecadoIds.clear();
+    await loadRecados();
+  };
+  $('#recadosForMeBulkDelete').onclick = async () => {
+    const ids = Array.from(selectedRecadoIds);
+    if (ids.length === 0) return;
+    if (!confirm(`Excluir ${ids.length} recado(s) selecionado(s)? Recado que você não criou some só pra você; o que você criou some pra todo mundo que recebeu.`)) return;
+    for (const id of ids) {
+      await api('/api/recados/' + id, { method: 'DELETE' });
+    }
+    selectedRecadoIds.clear();
+    await loadRecados();
+  };
 
   function renderRecadosAll() {
     const body = $('#recadosAllBody');
@@ -3728,7 +3789,14 @@
     renderFiles(demanda || { files: [] });
     $('#demCardArchive').textContent = demanda && demanda.archived ? 'Desarquivar' : 'Arquivar';
     $('#demCardArchive').hidden = !demanda;
-    $('#demCardDelete').hidden = !demanda;
+    // Excluir/Sair do card (53ª rodada, pedido da Raquel): excluir de vez
+    // (some pra todo mundo) só pra quem criou o card; quem só está
+    // marcado (assigneeIds) e não é quem criou só pode "Sair do card"
+    // (some só da lista dela, o card continua pras demais pessoas).
+    const isCardCreator = !!(demanda && currentUser && demanda.createdBy === currentUser.id);
+    const isCardAssignee = !!(demanda && currentUser && (demanda.assigneeIds || []).includes(currentUser.id));
+    $('#demCardDelete').hidden = !demanda || !isCardCreator;
+    $('#demCardLeave').hidden = !demanda || !isCardAssignee;
     // O checklist agora fica sempre liberado, mesmo num card ainda não
     // salvo — os itens ficam no rascunho local até o Save (26ª rodada).
     $('#demFileInput').style.display = demanda ? '' : 'none';
@@ -3851,10 +3919,29 @@
   $('#demCardDelete').onclick = async () => {
     if (!editingDemandaId) return;
     if (!confirm('Excluir esta demanda definitivamente? Essa ação não pode ser desfeita.')) return;
-    await api('/api/demandas/' + editingDemandaId, { method: 'DELETE' });
-    $('#demandaModal').hidden = true;
-    await loadDemandas();
-    refreshReisDoMarketingSoon();
+    try {
+      await api('/api/demandas/' + editingDemandaId, { method: 'DELETE' });
+      $('#demandaModal').hidden = true;
+      await loadDemandas();
+      refreshReisDoMarketingSoon();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  // Sair do card (53ª rodada, pedido da Raquel) — tira só quem clicou dos
+  // marcados; o card em si não é tocado pra ninguém mais.
+  $('#demCardLeave').onclick = async () => {
+    if (!editingDemandaId) return;
+    if (!confirm('Sair desta demanda? Ela vai sumir da sua lista, mas continua existindo pras outras pessoas marcadas nela.')) return;
+    try {
+      await api('/api/demandas/' + editingDemandaId + '/leave', { method: 'POST' });
+      $('#demandaModal').hidden = true;
+      await loadDemandas();
+      refreshReisDoMarketingSoon();
+    } catch (e) {
+      alert(e.message);
+    }
   };
 
   // ---------- Etiquetas (gerenciamento) ----------

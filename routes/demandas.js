@@ -729,9 +729,41 @@ router.put('/:id/archive', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Sair do card (53ª rodada, pedido da Raquel: "se eu for colocada em um
+// card, e quiser sair dele, eu posso sair e aí o card some automaticamente
+// da minha lista. Mas ele permanece para as demais pessoas. Independente
+// da forma que o card foi criado, por demanda, por planilha de influencer,
+// por agendamento"). Tira só quem pediu de `assigneeIds` (e do
+// `responsibleId`, se era ela a marcada) -- o card em si nunca é tocado
+// pras outras pessoas, seja lá de onde ele tiver nascido (criado direto
+// aqui, ou automaticamente a partir de um Agendamento/ação de Influencer:
+// pra essa rota não faz diferença nenhuma, é sempre o mesmo campo
+// `assigneeIds` do mesmo tipo de registro `demanda`).
+router.post('/:id/leave', requireAuth, (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) return;
+  if (!(demanda.assigneeIds || []).includes(req.user.id)) {
+    return res.status(400).json({ error: 'Você não está marcado(a) nessa demanda.' });
+  }
+  const assigneeIds = (demanda.assigneeIds || []).filter((id) => id !== req.user.id);
+  const updates = { assigneeIds, updatedAt: new Date().toISOString() };
+  if (demanda.responsibleId === req.user.id) updates.responsibleId = null;
+  db.get('demandas').find({ id: demanda.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'update', details: `${req.user.name} saiu do card`, meta: { visibility: demanda.visibility } });
+  res.json({ ok: true });
+});
+
 router.delete('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
+  // 53ª rodada, pedido da Raquel: antes, qualquer pessoa marcada (ou, no
+  // Quadro Geral, qualquer pessoa logada) conseguia excluir a demanda pra
+  // todo mundo. Agora só quem CRIOU o card pode excluir de vez -- quem só
+  // foi marcado e quer se desvincular usa "Sair do card" (rota acima), que
+  // não mexe em nada pra ninguém além de quem saiu.
+  if (demanda.createdBy !== req.user.id) {
+    return res.status(403).json({ error: 'Só quem criou a demanda pode excluí-la. Se você foi marcado(a) nela e quer sair, use "Sair do card".' });
+  }
   // 36ª rodada: se essa demanda veio (via sourceSocialPostId) de um
   // agendamento criado a partir de uma ação de influencer, apagar o card
   // apaga o trio inteiro (demanda(s) irmãs + agendamento + ação de

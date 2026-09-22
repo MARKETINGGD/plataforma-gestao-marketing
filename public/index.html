@@ -245,6 +245,15 @@
               <h3 style="margin:0;">Recados</h3>
               <button class="btn-secondary" id="recadosNewBtn">+ Novo recado</button>
             </div>
+            <!-- Ações em lote (53ª rodada, pedido da Raquel: "quero a opção
+                 de selecionar todos os recados e dar lido em todos de uma
+                 vez ou excluir todos de uma vez"). Só aparece quando tem
+                 pelo menos 1 recado na lista. -->
+            <div id="recadosForMeBulkBar" class="recado-bulk-bar" hidden>
+              <label class="recado-bulk-selectall"><input type="checkbox" id="recadosForMeSelectAll"> Selecionar todos</label>
+              <button class="btn-secondary" id="recadosForMeBulkRead" disabled>Marcar selecionados como lido</button>
+              <button class="btn-secondary danger" id="recadosForMeBulkDelete" disabled>Excluir selecionados</button>
+            </div>
             <div id="recadosForMe" class="recado-list"></div>
             <button class="btn-link" id="recadosToggleAll">Ver meus recados (enviados e recebidos)</button>
             <div id="recadosAllWrap" hidden>
@@ -1748,6 +1757,12 @@
     <div class="modal-footer">
       <button id="demCardSave" class="btn-primary">Salvar</button>
       <button id="demCardArchive" class="btn-secondary">Arquivar</button>
+      <!-- Sair do card (53ª rodada, pedido da Raquel) — só aparece pra
+           quem está marcado (assigneeIds) no card; some da lista de quem
+           saiu, continua existindo pras demais pessoas marcadas. -->
+      <button id="demCardLeave" class="btn-secondary danger">Sair do card</button>
+      <!-- Excluir (53ª rodada: agora só quem CRIOU o card vê/usa esse
+           botão — quem só foi marcado usa "Sair do card" acima). -->
       <button id="demCardDelete" class="btn-secondary danger">Excluir</button>
     </div>
   </div>

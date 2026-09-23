@@ -85,6 +85,28 @@ function verifyState(token) {
   return jwt.verify(token, JWT_SECRET);
 }
 
+// ---------- escolha de Página pendente (6ª correção, 23/09/2026) ----------
+// Achado ao vivo pela Raquel: como ela administra as Páginas de MAIS de
+// uma marca com a MESMA conta do Facebook, `getManagedPages` pode devolver
+// várias Páginas com Instagram vinculado numa única autorização -- e o
+// Facebook, depois da 1ª vez, nem sempre volta a perguntar quais Páginas
+// conceder (ele reaproveita a concessão anterior). Resultado: conectar
+// "De Bacco" escolhia sozinho a MESMA Página já usada pra "GhelPlus".
+// Em vez de adivinhar (`.find()` no primeiro resultado), a Papoi agora
+// SEMPRE para no meio do caminho e pede confirmação explícita de qual
+// Página é a certa pra essa marca -- guardado em memória (nunca no
+// banco: carrega token de acesso, é bem curto -- 15 min -- e cai sozinho
+// se ninguém confirmar). Precisa ficar em memória (não em socialAccounts)
+// porque ainda não é uma conexão de verdade até a pessoa confirmar.
+const PENDING_TTL_MS = 15 * 60 * 1000;
+const pendingSelections = new Map();
+function cleanupExpiredSelections() {
+  const now = Date.now();
+  for (const [id, sel] of pendingSelections) {
+    if (sel.expiresAt < now) pendingSelections.delete(id);
+  }
+}
+
 // ---------- listar status das conexões (tela "Integrações") ----------
 router.get('/', requireAuth, requireSuperAdmin, (req, res) => {
   const accounts = META_BRANDS.map((brand) => {
@@ -169,47 +191,92 @@ router.get('/meta/callback', async (req, res) => {
       shortLivedToken: shortLived.access_token
     });
     const pages = await metaGraph.getManagedPages({ userAccessToken: longLived.access_token });
-    const pageWithInstagram = pages.find((p) => p.instagram_business_account);
-    if (!pageWithInstagram) {
+    const pagesWithInstagram = pages.filter((p) => p.instagram_business_account);
+    if (pagesWithInstagram.length === 0) {
       return redirectBack({
         integracoes: 'erro',
         motivo: 'Nenhuma Página do Facebook com conta do Instagram vinculada foi encontrada nessa conta. Confirme se a Página certa foi selecionada na tela de permissão do Facebook.'
       });
     }
 
-    const nowIso = new Date().toISOString();
     // Token de longa duração da Meta dura ~60 dias — grava a data de
     // expiração pra o publicador (utils/metaPublisher.js) avisar antes de
     // vencer, em vez de só falhar silenciosamente lá na frente.
     const expiresInSeconds = longLived.expires_in || 60 * 24 * 60 * 60;
     const tokenExpiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
-    const existing = db.get('socialAccounts').find({ brand, platform: 'meta' }).value();
-    const accountData = {
+    // 6ª correção: nunca mais escolhe sozinha (`.find()`) qual Página é a
+    // certa -- sempre para aqui e pede confirmação explícita, mesmo
+    // quando só veio 1 candidata (evita qualquer engano futuro se um dia
+    // a mesma conta do Facebook passar a administrar mais Páginas ainda).
+    cleanupExpiredSelections();
+    const selectionId = nanoid();
+    pendingSelections.set(selectionId, {
       brand,
-      platform: 'meta',
-      igUserId: pageWithInstagram.instagram_business_account.id,
-      igUsername: pageWithInstagram.instagram_business_account.username || null,
-      pageId: pageWithInstagram.id,
-      pageName: pageWithInstagram.name,
-      pageAccessToken: pageWithInstagram.access_token,
       tokenExpiresAt,
-      connectedBy: requestingUser.id,
-      connectedByName: requestingUser.name || requestingUser.username,
-      connectedAt: nowIso
-    };
-    if (existing) {
-      db.get('socialAccounts').find({ id: existing.id }).assign(accountData).write();
-    } else {
-      db.get('socialAccounts').push(Object.assign({ id: nanoid() }, accountData)).write();
-    }
-    logAudit({ user: requestingUser, entityType: 'socialAccount', entityId: brand, entityLabel: `Meta · ${BRAND_LABEL_PT[brand] || brand}`, action: existing ? 'update' : 'create', details: `Conectado como @${accountData.igUsername || accountData.pageName}` });
-
-    return redirectBack({ integracoes: 'ok', brand });
+      expiresAt: Date.now() + PENDING_TTL_MS,
+      candidates: pagesWithInstagram.map((p) => ({
+        pageId: p.id,
+        pageName: p.name,
+        pageAccessToken: p.access_token,
+        igUserId: p.instagram_business_account.id,
+        igUsername: p.instagram_business_account.username || null
+      }))
+    });
+    return redirectBack({ integracoes: 'escolher', brand, selectionId });
   } catch (e) {
     const motivo = e instanceof metaGraph.MetaGraphError ? e.message : 'Erro inesperado ao conectar com a Meta.';
     return redirectBack({ integracoes: 'erro', motivo });
   }
+});
+
+// ---------- ver as Páginas candidatas de uma escolha pendente ----------
+router.get('/meta/pending/:selectionId', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredSelections();
+  const sel = pendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta Meta" de novo.' });
+  res.json({
+    brand: sel.brand,
+    brandLabel: BRAND_LABEL_PT[sel.brand] || sel.brand,
+    // Token de acesso da Página NUNCA sai daqui — só o suficiente pra
+    // pessoa reconhecer visualmente qual Página é qual.
+    candidates: sel.candidates.map((c) => ({ pageId: c.pageId, pageName: c.pageName, igUsername: c.igUsername }))
+  });
+});
+
+// ---------- confirmar qual Página é a certa pra essa marca ----------
+router.post('/meta/pending/:selectionId/confirm', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredSelections();
+  const sel = pendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta Meta" de novo.' });
+  const { pageId } = req.body || {};
+  const chosen = sel.candidates.find((c) => c.pageId === pageId);
+  if (!chosen) return res.status(400).json({ error: 'Página inválida.' });
+
+  const nowIso = new Date().toISOString();
+  const accountData = {
+    brand: sel.brand,
+    platform: 'meta',
+    igUserId: chosen.igUserId,
+    igUsername: chosen.igUsername,
+    pageId: chosen.pageId,
+    pageName: chosen.pageName,
+    pageAccessToken: chosen.pageAccessToken,
+    tokenExpiresAt: sel.tokenExpiresAt,
+    connectedBy: req.user.id,
+    connectedByName: req.user.name || req.user.username,
+    connectedAt: nowIso
+  };
+  const existing = db.get('socialAccounts').find({ brand: sel.brand, platform: 'meta' }).value();
+  if (existing) {
+    db.get('socialAccounts').find({ id: existing.id }).assign(accountData).write();
+  } else {
+    db.get('socialAccounts').push(Object.assign({ id: nanoid() }, accountData)).write();
+  }
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: sel.brand, entityLabel: `Meta · ${BRAND_LABEL_PT[sel.brand] || sel.brand}`, action: existing ? 'update' : 'create', details: `Conectado como @${accountData.igUsername || accountData.pageName}` });
+
+  pendingSelections.delete(req.params.selectionId);
+  res.json({ ok: true, brand: sel.brand, igUsername: accountData.igUsername, pageName: accountData.pageName });
 });
 
 // ---------- desconectar ----------

@@ -6429,26 +6429,92 @@
   }
 
   // Depois de voltar do fluxo de autorização da Meta (54ª/55ª rodada,
-  // 3ª correção): o backend (GET /api/social-accounts/meta/callback em
-  // routes/socialAccounts.js) já trocou o code por token e salvou a
-  // conexão no servidor ANTES de redirecionar o navegador de volta pra
-  // cá -- chega só um resultado em query string mesmo
-  // (?integracoes=ok&brand=... ou ?integracoes=erro&motivo=...), sem
-  // token nenhum passando pelo navegador. Limpa a URL logo em seguida pra
-  // não ficar poluindo o histórico/favoritos com esses parâmetros.
+  // correções seguintes): o backend (GET /api/social-accounts/meta/callback
+  // em routes/socialAccounts.js) troca o code por token e, se achar pelo
+  // menos 1 Página com Instagram vinculado, PARA e devolve
+  // ?integracoes=escolher&selectionId=... em vez de já salvar sozinho --
+  // a 6ª correção tirou a escolha automática (`.find()`) depois da Raquel
+  // administrar Páginas de mais de uma marca com a mesma conta do
+  // Facebook, o que fazia conectar "De Bacco" reusar sem querer a mesma
+  // Página já conectada como "GhelPlus". Chega só um resultado em query
+  // string mesmo (nunca token nenhum passando pelo navegador). Limpa a
+  // URL logo em seguida pra não ficar poluindo o histórico/favoritos com
+  // esses parâmetros.
   function checkIntegracoesRedirectResult() {
     const params = new URLSearchParams(window.location.search);
     if (!params.has('integracoes')) return;
     const resultado = params.get('integracoes');
     const brand = params.get('brand');
     const motivo = params.get('motivo');
+    const selectionId = params.get('selectionId');
     window.history.replaceState({}, '', window.location.pathname);
     if (resultado === 'ok') {
       alert(`Conta da Meta conectada com sucesso para ${BRAND_LABEL[brand] || brand || ''}!`);
+      if (activeViewName === 'integracoes') loadIntegracoes();
+    } else if (resultado === 'escolher' && selectionId) {
+      openMetaPageChooser(selectionId, brand);
     } else {
       alert('Não foi possível conectar com a Meta: ' + (motivo || 'erro desconhecido.'));
+      if (activeViewName === 'integracoes') loadIntegracoes();
     }
-    if (activeViewName === 'integracoes') loadIntegracoes();
+  }
+
+  // Modal de escolha da Página certa (6ª correção) -- lista as Páginas com
+  // Instagram vinculado que a autorização devolveu (sem token nenhum, só o
+  // suficiente pra reconhecer visualmente) e só grava a conexão de
+  // verdade depois da pessoa confirmar qual é a certa pra essa marca.
+  async function openMetaPageChooser(selectionId, brandHint) {
+    let data;
+    try {
+      data = await api('/api/social-accounts/meta/pending/' + encodeURIComponent(selectionId));
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar as Páginas encontradas -- tente conectar de novo.');
+      return;
+    }
+    const modal = $('#metaPageChooserModal');
+    const list = $('#metaPageChooserList');
+    const errorEl = $('#metaPageChooserError');
+    const confirmBtn = $('#metaPageChooserConfirm');
+    errorEl.hidden = true;
+    confirmBtn.disabled = true;
+    $('#metaPageChooserHint').textContent = `Encontramos ${data.candidates.length > 1 ? 'estas Páginas' : 'esta Página'} do Facebook -- qual é a certa pra ${data.brandLabel || brandHint || 'essa marca'}?`;
+    list.innerHTML = '';
+    let selectedPageId = null;
+    data.candidates.forEach((c, idx) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;';
+      row.innerHTML = `
+        <input type="radio" name="metaPageChoice" value="${c.pageId}" ${data.candidates.length === 1 ? 'checked' : ''}>
+        <span><strong>${c.pageName || '—'}</strong><br><span class="muted" style="font-size:12px;">@${c.igUsername || '—'}</span></span>
+      `;
+      list.appendChild(row);
+      if (data.candidates.length === 1) selectedPageId = c.pageId;
+    });
+    confirmBtn.disabled = !selectedPageId;
+    $all('#metaPageChooserList input[name="metaPageChoice"]').forEach((input) => {
+      input.onchange = () => { selectedPageId = input.value; confirmBtn.disabled = false; };
+    });
+    const close = () => { modal.hidden = true; };
+    $('#metaPageChooserClose').onclick = close;
+    $('#metaPageChooserCancel').onclick = close;
+    confirmBtn.onclick = async () => {
+      if (!selectedPageId) return;
+      confirmBtn.disabled = true;
+      try {
+        const result = await api('/api/social-accounts/meta/pending/' + encodeURIComponent(selectionId) + '/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ pageId: selectedPageId })
+        });
+        close();
+        alert(`Conta da Meta conectada com sucesso para ${BRAND_LABEL[result.brand] || result.brand}: @${result.igUsername || result.pageName}.`);
+        if (activeViewName === 'integracoes') loadIntegracoes();
+      } catch (e) {
+        errorEl.textContent = e.message || 'Não foi possível confirmar essa Página.';
+        errorEl.hidden = false;
+        confirmBtn.disabled = false;
+      }
+    };
+    modal.hidden = false;
   }
 
   function labelForKey(key) {

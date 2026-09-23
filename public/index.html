@@ -1666,6 +1666,32 @@
   </div>
 </div>
 
+<!-- Escolher a Página certa depois de voltar do Facebook (55ª rodada,
+     6ª correção): a Raquel administra a Página do Facebook de mais de
+     uma marca com a MESMA conta do Facebook -- quando a autorização
+     devolve mais de uma Página com Instagram vinculado (ou pra sempre
+     pedir uma confirmação consciente, mesmo com só 1), a Papoi não
+     escolhe sozinha qual é a certa pra essa marca; mostra a lista e
+     espera a pessoa confirmar. Ver GET/POST /api/social-accounts/meta/pending/:id
+     em routes/socialAccounts.js. -->
+<div id="metaPageChooserModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Qual Página é essa marca?</div>
+      <button id="metaPageChooserClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="metaPageChooserHint" class="muted"></p>
+      <div id="metaPageChooserList"></div>
+      <div id="metaPageChooserError" class="error" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button id="metaPageChooserConfirm" class="btn-primary" disabled>Conectar esta Página</button>
+      <button id="metaPageChooserCancel" class="btn-secondary">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <div id="demandaModal" class="modal-overlay" hidden>
   <div class="modal">
     <div class="modal-header">

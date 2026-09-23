@@ -30,11 +30,19 @@ const META_REDIRECT_URI = process.env.META_REDIRECT_URI || `${APP_BASE_URL}/api/
 // Permissões pedidas no fluxo "clássico" (Facebook Login for Business +
 // Página vinculada) — ver PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md pro
 // levantamento completo de cada uma.
+//
+// `instagram_business_content_publish` (o nome que a documentação da Meta
+// e o painel de "Permissões e recursos" do App mostravam) foi tentado
+// primeiro, mas o próprio diálogo de autorização do Facebook devolveu
+// "Invalid Scopes: instagram_business_content_publish" na hora H (testado
+// ao vivo com a Raquel em 23/09/2026) -- o nome que o diálogo de OAuth
+// aceita de verdade pra esse fluxo é `instagram_content_publish` (sem
+// "business" no meio), mesmo a conta sendo Business/ligada a uma Página.
 const META_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_posts',
-  'instagram_business_content_publish',
+  'instagram_content_publish',
   'business_management'
 ].join(',');
 

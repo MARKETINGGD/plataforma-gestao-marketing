@@ -93,6 +93,49 @@ async function publishInstagramMediaContainer({ igUserId, pageAccessToken, creat
   return graphFetch(`/${igUserId}/media_publish?${qs.toString()}`, { method: 'POST' });
 }
 
+// 7ª correção (23/09/2026): a Raquel achou ao vivo -- funcionou pra
+// GhelPlus, mas o post de teste da De Bacco falhou com "Media ID is not
+// available" (erro clássico da Graph API, código 9007). A documentação
+// da própria Meta diz que pra 1 imagem não precisaria checar o status do
+// container antes de publicar -- mas na prática (confirmado por vários
+// relatos de outros desenvolvedores com o mesmo erro) a Meta processa o
+// download/validação da imagem em segundo plano DEPOIS de criar o
+// container, e publicar cedo demais (antes desse processamento acabar)
+// dá exatamente esse erro -- mais chance de acontecer com imagem maior/
+// mais lenta pra baixar, o que bate com só a De Bacco ter falhado.
+// `waitForMediaContainerReady` espera o status virar `FINISHED` antes de
+// deixar `attemptPublish` (metaPublisher.js) seguir pro passo de
+// publicar -- e, se der `ERROR` de verdade (imagem inválida/inacessível),
+// erra com uma mensagem BEM mais clara que o "Media ID is not available"
+// genérico.
+const CONTAINER_POLL_INTERVAL_MS = 2000;
+const CONTAINER_POLL_TIMEOUT_MS = 60000; // 1 minuto (Meta recomenda checar no máximo por ~5 min, mas o publicador roda a cada 2 min -- 1 min de espera aqui é suficiente pra maioria dos casos sem travar a fila)
+
+async function getMediaContainerStatus({ containerId, pageAccessToken }) {
+  const qs = new URLSearchParams({ fields: 'status_code,status', access_token: pageAccessToken });
+  return graphFetch(`/${containerId}?${qs.toString()}`);
+}
+
+async function waitForMediaContainerReady({ containerId, pageAccessToken }) {
+  const deadline = Date.now() + CONTAINER_POLL_TIMEOUT_MS;
+  let lastStatus = null;
+  for (;;) {
+    const body = await getMediaContainerStatus({ containerId, pageAccessToken });
+    lastStatus = body.status_code;
+    if (lastStatus === 'FINISHED') return;
+    if (lastStatus === 'ERROR') {
+      throw new MetaGraphError(`A Meta não conseguiu processar a imagem (container deu erro)${body.status ? ' -- ' + body.status : ''}. Confirme se o arquivo é uma foto JPEG/PNG válida.`, body);
+    }
+    if (lastStatus === 'EXPIRED') {
+      throw new MetaGraphError('O container de mídia expirou antes de conseguir publicar -- tente de novo.', body);
+    }
+    if (Date.now() >= deadline) {
+      throw new MetaGraphError(`A Meta ainda estava processando a imagem depois de ${CONTAINER_POLL_TIMEOUT_MS / 1000}s (status: ${lastStatus || 'desconhecido'}) -- tente de novo em alguns minutos.`, body);
+    }
+    await new Promise((resolve) => setTimeout(resolve, CONTAINER_POLL_INTERVAL_MS));
+  }
+}
+
 // Publicação direta na Página do Facebook (1 passo só, mais simples que o
 // Instagram) — `imageUrl` opcional (post só de texto é permitido no
 // Facebook, diferente do Instagram).
@@ -120,6 +163,8 @@ module.exports = {
   getLongLivedUserToken,
   getManagedPages,
   createInstagramMediaContainer,
+  getMediaContainerStatus,
+  waitForMediaContainerReady,
   publishInstagramMediaContainer,
   publishFacebookPagePost,
   getPermalink

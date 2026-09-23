@@ -71,6 +71,16 @@ async function attemptPublish(post, account) {
       imageUrl,
       caption: post.caption
     });
+    // 7ª correção: espera a Meta terminar de baixar/processar a imagem
+    // antes de publicar -- publicar cedo demais é o que causava o erro
+    // "Media ID is not available" (achado ao vivo pela Raquel, só na De
+    // Bacco -- provavelmente por causa do tamanho/tempo de download da
+    // imagem daquele post específico). Ver comentário completo em
+    // utils/metaGraphClient.js.
+    await metaGraph.waitForMediaContainerReady({
+      containerId: container.id,
+      pageAccessToken: account.pageAccessToken
+    });
     const published = await metaGraph.publishInstagramMediaContainer({
       igUserId: account.igUserId,
       pageAccessToken: account.pageAccessToken,

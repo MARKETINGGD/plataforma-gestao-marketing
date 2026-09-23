@@ -191,6 +191,10 @@
              padrão já usado em Análise de Concorrência). -->
         <button class="navlink" id="navFeiras" data-view="feiras">Feiras</button>
         <button class="navlink" id="navUsers" data-view="users" hidden>Usuários</button>
+        <!-- 54ª rodada, pedido da Raquel: conectar o Agendamento de Redes
+             Sociais às APIs de verdade (começando pela Meta) -- tela nova,
+             restrita a super admin, mesmo padrão do botão Usuários acima. -->
+        <button class="navlink" id="navIntegracoes" data-view="integracoes" hidden>Integrações</button>
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-user">
@@ -1643,6 +1647,19 @@
           </thead>
           <tbody id="usersTableBody"></tbody>
         </table>
+      </section>
+
+      <!-- Integrações (54ª rodada, pedido da Raquel: "conectar o Agendamento
+           de Redes Sociais às apis de verdade"). Um cartão por marca com
+           conta Meta prevista (De Bacco/GhelPlus) mostrando se está
+           conectada, com quê, e um botão pra conectar/desconectar -- ver
+           routes/socialAccounts.js. Restrita a super admin, mesmo padrão da
+           tela Usuários acima. -->
+      <section id="view-integracoes" class="view" hidden>
+        <h2>Integrações — Redes Sociais</h2>
+        <p class="muted">Conecte a conta do Instagram/Facebook de cada marca para o Agendamento publicar sozinho, no horário certo. Por enquanto só post <strong>Estático</strong> (1 imagem) é publicado automaticamente — Carrossel, Reels e vídeo continuam manuais, com a mesma tela de sempre.</p>
+        <div id="integracoesMetaWarning" class="error" hidden>A Papoi ainda não tem o App da Meta configurado no servidor (META_APP_ID/META_APP_SECRET) — conecte com quem cuida do deploy antes de tentar aqui.</div>
+        <div id="integracoesList"></div>
       </section>
 
     </main>

@@ -87,7 +87,19 @@ db.defaults({
   // marcas), 'debacco' ou 'ghelplus'. Upsert por `key`, mesmo padrão de
   // dashboardPublicLinks acima (coleção separada porque é outro recurso —
   // aqui é a tabela agregada de posts, não um dashboard SSO).
-  influencerGroupLinks: []
+  influencerGroupLinks: [],
+  // Contas de redes sociais conectadas de verdade (54ª rodada, pedido da
+  // Raquel: "conectar o agendamento de redes sociais às apis de verdade").
+  // Uma conta por marca+plataforma — hoje só 'meta' (Instagram+Facebook,
+  // via Login do Facebook para Empresas), uma pra 'ghelplus' e uma pra
+  // 'debacco' (as duas únicas marcas com Página do Facebook/Instagram
+  // Business já prontas). Cada registro: {id, brand, platform: 'meta',
+  // igUserId, igUsername, pageId, pageName, pageAccessToken,
+  // tokenExpiresAt, connectedBy, connectedByName, connectedAt}. O token
+  // NUNCA é devolvido pro frontend (ver serialize() em
+  // routes/socialAccounts.js) — só usado no servidor, pelo publicador
+  // automático (ver utils/metaPublisher.js).
+  socialAccounts: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

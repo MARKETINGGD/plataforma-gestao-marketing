@@ -682,6 +682,10 @@
   }
 
   async function boot() {
+    // Volta do fluxo de autorização da Meta (54ª rodada) — mostra o
+    // resultado (sucesso/erro) e limpa o parâmetro da URL. Independe de
+    // login (só lê a URL), por isso roda antes de qualquer outra checagem.
+    checkIntegracoesRedirectResult();
     // Link externo por influencer (14ª rodada) — não exige login, funciona
     // pra quem não está dentro da plataforma. Checa antes de qualquer coisa.
     const pubToken = new URLSearchParams(window.location.search).get('influencerPublic');
@@ -728,6 +732,7 @@
   async function startApp() {
     $('#topbarUserName').textContent = currentUser.name || currentUser.username;
     $('#navUsers').hidden = !currentUser.isSuperAdmin;
+    $('#navIntegracoes').hidden = !currentUser.isSuperAdmin;
     showScreen('app');
     try {
       const team = await api('/api/auth/team');
@@ -923,6 +928,7 @@
         showView(b.dataset.view);
         if (b.dataset.view === 'demandas') loadDemandas();
         if (b.dataset.view === 'users') loadUsers();
+        if (b.dataset.view === 'integracoes') loadIntegracoes();
         if (b.dataset.view === 'brindes') loadBrindes();
         if (b.dataset.view === 'brindes-retiradas') loadRetiradas();
         if (b.dataset.view === 'agendamento') loadSocialPosts();
@@ -6366,6 +6372,74 @@
       }
       body.appendChild(tr);
     });
+  }
+
+  // ---------- Integrações (54ª rodada) ----------
+  // Um cartão por marca com conta Meta prevista (De Bacco/GhelPlus) --
+  // mostra se está conectada, com quê, e o botão de conectar/desconectar.
+  // Ver routes/socialAccounts.js.
+  async function loadIntegracoes() {
+    if (!currentUser.isSuperAdmin) return;
+    const data = await api('/api/social-accounts');
+    $('#integracoesMetaWarning').hidden = !!data.metaConfigured;
+    const list = $('#integracoesList');
+    list.innerHTML = '';
+    data.accounts.forEach((entry) => {
+      const card = document.createElement('div');
+      card.className = 'form-card';
+      const statusStyle = entry.connected
+        ? 'background:#d6f5d6;color:#1c6b1c;border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;'
+        : 'background:#eee;color:#666;border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;';
+      const statusLabel = entry.connected ? 'Conectado' : 'Não conectado';
+      const details = entry.connected
+        ? `<p class="muted" style="margin:8px 0 0;">Conectado como <strong>@${entry.account.igUsername || '—'}</strong> (Página ${entry.account.pageName || '—'}) por ${entry.account.connectedByName || '—'} em ${fmtDate((entry.account.connectedAt || '').slice(0, 10))}.</p>`
+        : '';
+      card.innerHTML = `
+        <h3 style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">${entry.brandLabel} <span style="${statusStyle}">${statusLabel}</span></h3>
+        ${details}
+        <div class="form-actions" style="margin-top:12px;">
+          <button class="btn-primary" data-integ-connect="${entry.brand}" ${data.metaConfigured ? '' : 'disabled'}>${entry.connected ? 'Reconectar conta Meta' : 'Conectar conta Meta'}</button>
+          ${entry.connected ? `<button class="btn-secondary" data-integ-disconnect="${entry.brand}">Desconectar</button>` : ''}
+        </div>
+      `;
+      list.appendChild(card);
+    });
+    $all('#integracoesList [data-integ-connect]').forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          const { redirectUrl } = await api('/api/social-accounts/meta/connect?brand=' + encodeURIComponent(btn.dataset.integConnect));
+          window.location.href = redirectUrl;
+        } catch (e) {
+          alert(e.message || 'Não foi possível iniciar a conexão com a Meta.');
+        }
+      };
+    });
+    $all('#integracoesList [data-integ-disconnect]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm('Desconectar essa conta? O Agendamento para de publicar sozinho nessa marca até conectar de novo.')) return;
+        try {
+          await api('/api/social-accounts/meta/' + encodeURIComponent(btn.dataset.integDisconnect), { method: 'DELETE' });
+          loadIntegracoes();
+        } catch (e) {
+          alert(e.message || 'Não foi possível desconectar.');
+        }
+      };
+    });
+  }
+
+  // Depois de voltar do fluxo de autorização da Meta (routes/socialAccounts.js
+  // redireciona pra cá com ?integracoes=ok|erro na URL) -- mostra o
+  // resultado e limpa a URL, sem deixar o parâmetro preso no endereço.
+  function checkIntegracoesRedirectResult() {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get('integracoes');
+    if (!result) return;
+    if (result === 'ok') {
+      alert(`Conta da Meta conectada com sucesso para ${BRAND_LABEL[params.get('brand')] || params.get('brand')}!`);
+    } else if (result === 'erro') {
+      alert('Não foi possível conectar com a Meta: ' + (params.get('motivo') || 'erro desconhecido.'));
+    }
+    window.history.replaceState({}, '', window.location.pathname);
   }
 
   function labelForKey(key) {

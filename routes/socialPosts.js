@@ -94,6 +94,19 @@ function serialize(p) {
     responsibleId: p.responsibleId || null,
     changeSuggestions: p.changeSuggestions || '',
     changeSuggestionsAt: p.changeSuggestionsAt || null,
+    // Publicação automática de verdade (54ª rodada) — só faz sentido pra
+    // platform 'instagram'/'facebook' com conta Meta conectada pra marca
+    // do post (ver routes/socialAccounts.js/utils/metaPublisher.js).
+    // publishStatus null = ainda não tentou publicar sozinho (post comum,
+    // continua 100% manual se não houver conta conectada); 'publishing' =
+    // tentativa em andamento; 'published' = publicado de verdade, com
+    // externalPostId/externalPermalink preenchidos; 'failed' = tentou e
+    // não conseguiu, publishError tem o motivo (editar o post relevante
+    // volta o status pra null, pra tentar de novo).
+    publishStatus: p.publishStatus || null,
+    externalPostId: p.externalPostId || null,
+    externalPermalink: p.externalPermalink || null,
+    publishError: p.publishError || null,
     link: p.link || '',
     subject: p.subject || '',
     postType: migratePostType(p),
@@ -248,6 +261,22 @@ function fileMetaFrom(req, subdir) {
   };
 }
 
+// Publicação automática (54ª rodada): se um post tinha falhado ao tentar
+// publicar sozinho (publishStatus 'failed'), e a edição mexeu em algo que
+// pode ter corrigido o problema (rede, marca, data/hora, legenda), volta o
+// status pra null -- assim o publicador (utils/metaPublisher.js) tenta de
+// novo no próximo ciclo, em vez de ficar preso em erro pra sempre. Nunca
+// mexe num post já 'published' (não tenta publicar de novo sozinho só
+// porque alguém editou algo depois).
+function clearFailedPublishIfContentChanged(post, updates) {
+  if (post.publishStatus !== 'failed') return;
+  const touchedRelevant = ['platform', 'brand', 'scheduledDate', 'scheduledTime', 'caption'].some((k) => updates[k] !== undefined);
+  if (touchedRelevant) {
+    updates.publishStatus = null;
+    updates.publishError = null;
+  }
+}
+
 function findOr404(req, res) {
   const post = db.get('socialPosts').find({ id: req.params.id }).value();
   if (!post) {
@@ -373,6 +402,7 @@ router.put('/:id', requireAuth, (req, res) => {
   if (briefingText !== undefined) updates.briefingText = briefingText;
   if (scriptText !== undefined) updates.scriptText = scriptText;
   if (scriptLink !== undefined) updates.scriptLink = scriptLink;
+  clearFailedPublishIfContentChanged(post, updates);
   db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
   const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
   if (updates.involvedUserIds !== undefined) {
@@ -517,7 +547,16 @@ router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
   if (!post) return;
   if (!req.file) return res.status(400).json({ error: 'Selecione um arquivo.' });
   const files = [...(post.files || []), fileMetaFrom(req, 'creative')];
-  db.get('socialPosts').find({ id: req.params.id }).assign({ files, updatedAt: new Date().toISOString() }).write();
+  const fileUpdates = { files, updatedAt: new Date().toISOString() };
+  // Trocar o criativo é o jeito mais comum de corrigir uma falha de
+  // publicação (arte que não carregou, formato rejeitado pela Meta etc.) —
+  // sempre reseta o erro aqui, sem precisar da mesma checagem de "campo
+  // relevante tocado" usada no PUT geral (ver clearFailedPublishIfContentChanged).
+  if (post.publishStatus === 'failed') {
+    fileUpdates.publishStatus = null;
+    fileUpdates.publishError = null;
+  }
+  db.get('socialPosts').find({ id: req.params.id }).assign(fileUpdates).write();
   const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
   notifyReadyForApproval(fresh);
   res.json({ post: serialize(fresh) });

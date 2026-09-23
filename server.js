@@ -22,6 +22,9 @@ app.use('/api/demandas', require('./routes/demandas'));
 app.use('/api/labels', require('./routes/labels'));
 app.use('/api/recados', require('./routes/recados'));
 app.use('/api/social-posts', require('./routes/socialPosts'));
+// Conectar Agendamento de Redes Sociais à API de verdade da Meta (54ª
+// rodada) — ver routes/socialAccounts.js.
+app.use('/api/social-accounts', require('./routes/socialAccounts'));
 app.use('/api/brindes', require('./routes/brindes'));
 app.use('/api/retiradas-internas', require('./routes/retiradasInternas'));
 app.use('/api/influencers', require('./routes/influencers'));
@@ -76,6 +79,11 @@ require('./utils/migratePontoScheduleInicial').migratePontoScheduleInicial();
 // da Plataforma que precisa de um temporizador de verdade rodando sozinho
 // no servidor (ver utils/pontoReminders.js).
 require('./utils/pontoReminders').startPontoReminderScheduler();
+
+// 54ª rodada: publicador automático da Meta -- checa a cada 2 minutos se
+// tem post de Instagram/Facebook (estático) com a data/hora batendo e conta
+// conectada, e publica sozinho (ver utils/metaPublisher.js).
+require('./utils/metaPublisher').startMetaPublisherScheduler();
 
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).

@@ -31,25 +31,23 @@ const META_REDIRECT_URI = process.env.META_REDIRECT_URI || `${APP_BASE_URL}/api/
 // histórico completo das tentativas (o nome certo dessa permissão foi bem
 // mais difícil de achar do que parecia).
 //
-// **3ª correção, 23/09/2026 — a definitiva**: nem
-// `instagram_business_content_publish` nem `instagram_content_publish`
-// (sem "ing" no final) são o nome certo -- o próprio painel do App, na
-// tela "API do Instagram com login do Facebook" → "Configuração da API
-// com login..." → "Gerenciar conteúdo no Instagram", lista o nome
-// EXATO exigido por esse fluxo específico: **`instagram_content_publishing`**
-// (com "-ing"). Essa tela também confirma que esse é o fluxo certo pro
-// caso da Raquel ("o profissional precisa conectar a conta do Instagram
-// dele a uma Página do Facebook e autorizar o app de terceiros pelo Login
-// do Facebook para Empresas") e que a lista completa exigida é só estas 5
-// -- sem precisar de `pages_manage_posts` nem dos parâmetros especiais
-// (`display`/`extras`) e sem precisar de `response_type=token` que
-// tinham sido tentados antes por engano (baseado em documentação de um
-// fluxo diferente, "Business Login for Instagram" via Instagram Login,
-// que não é o caso daqui) -- fluxo clássico `response_type=code` mesmo,
-// com troca de code por token no servidor.
+// **5ª correção, 23/09/2026 — a definitiva**: a tela "API do Instagram
+// com login do Facebook" do painel (usada na 3ª correção) mostrava
+// `instagram_content_publishing` (com "-ing"), mas isso também foi
+// rejeitado ao vivo. O nome de verdade só foi confirmado pelo
+// Explorador da Graph API (developers.facebook.com/tools/explorer,
+// selecionando o App "Papoi - Agendamento Social" e buscando
+// "instagram" no campo de permissões) — que lista o catálogo real de
+// permissões do próprio App, sem depender de nenhum texto de tela ou
+// documentação escrita à mão: o nome certo é **`instagram_content_publish`**
+// (sem "-ing", sem "business_" — a 2ª correção já tinha esse nome certo,
+// só que ainda não funcionava; ver `utils/metaGraphClient.js` pra
+// entender por quê — tudo indica que era a versão antiga da URL de
+// autorização abaixo, não o nome da permissão). Continua o fluxo
+// clássico `response_type=code`, sem parâmetros especiais.
 const META_SCOPES = [
   'instagram_basic',
-  'instagram_content_publishing',
+  'instagram_content_publish',
   'pages_read_engagement',
   'business_management',
   'pages_show_list'
@@ -125,7 +123,10 @@ router.get('/meta/connect', requireAuth, requireSuperAdmin, (req, res) => {
     scope: META_SCOPES,
     response_type: 'code'
   });
-  res.json({ redirectUrl: `https://www.facebook.com/v21.0/dialog/oauth?${qs.toString()}` });
+  // Mesma versão da Graph API usada em utils/metaGraphClient.js (5ª
+  // correção: a v21.0 antiga é a suspeita nº 1 de rejeitar um escopo que
+  // o próprio catálogo de permissões do App já reconhece como válido).
+  res.json({ redirectUrl: `https://www.facebook.com/${metaGraph.GRAPH_VERSION}/dialog/oauth?${qs.toString()}` });
 });
 
 // ---------- callback (o Facebook redireciona o NAVEGADOR pra cá) ----------

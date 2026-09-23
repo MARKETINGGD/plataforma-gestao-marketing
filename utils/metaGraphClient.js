@@ -12,7 +12,21 @@
 // alheio), então essa parte fica documentada como teste manual (ver
 // PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md).
 
-const GRAPH_VERSION = 'v21.0';
+// 5ª correção (23/09/2026): o Explorador da Graph API (que lista o
+// catálogo de permissões direto do próprio App "Papoi - Agendamento
+// Social", sem depender de nome escrito à mão) confirmou que
+// `instagram_content_publish` (a 2ª tentativa, sem "-ing" e sem
+// "business_") É um nome válido de verdade -- mas o Explorador estava
+// usando v25.0/v26.0, bem mais nova que a v21.0 usada aqui desde o
+// começo. Como o nome exato já tinha sido tentado antes (commit
+// `2f3cac6`) e rejeitado pela autorização de produção, a explicação que
+// sobra é a versão antiga da URL de autorização
+// (`/v21.0/dialog/oauth`, ver routes/socialAccounts.js) não reconhecendo
+// esse escopo -- por isso subiu junto pra v23.0 (bem estabelecida, com
+// anos de suporte pela frente, sem ser a mais nova de todas). Registrado
+// com essa ressalva porque não há como confirmar 100% sem testar de
+// novo ao vivo.
+const GRAPH_VERSION = 'v23.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
 class MetaGraphError extends Error {
@@ -100,6 +114,7 @@ async function getPermalink({ objectId, pageAccessToken }) {
 }
 
 module.exports = {
+  GRAPH_VERSION,
   MetaGraphError,
   exchangeCodeForToken,
   getLongLivedUserToken,

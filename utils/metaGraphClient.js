@@ -136,6 +136,31 @@ async function waitForMediaContainerReady({ containerId, pageAccessToken }) {
   }
 }
 
+// Carrossel do Instagram (8ª correção, 23/09/2026 — pedido da Raquel
+// depois da Meta funcionar pra post Estático): diferente de 1 imagem só,
+// um carrossel é montado em 3 passos -- cada imagem vira um container
+// "filho" (`is_carousel_item: true`, sem legenda -- a legenda vai só no
+// container "pai"), esses containers filhos são combinados num container
+// "pai" (`media_type: CAROUSEL`, `children` com a lista de IDs, na
+// ordem certa), e só o container pai é publicado. Cada container (filho
+// e pai) passa pelo mesmo `waitForMediaContainerReady` de cima -- o
+// Instagram exige de 2 a 10 imagens por carrossel (ver validação em
+// utils/metaPublisher.js).
+async function createInstagramCarouselChildContainer({ igUserId, pageAccessToken, imageUrl }) {
+  const qs = new URLSearchParams({ image_url: imageUrl, is_carousel_item: 'true', access_token: pageAccessToken });
+  return graphFetch(`/${igUserId}/media?${qs.toString()}`, { method: 'POST' });
+}
+
+async function createInstagramCarouselContainer({ igUserId, pageAccessToken, childrenIds, caption }) {
+  const qs = new URLSearchParams({
+    media_type: 'CAROUSEL',
+    children: childrenIds.join(','),
+    caption: caption || '',
+    access_token: pageAccessToken
+  });
+  return graphFetch(`/${igUserId}/media?${qs.toString()}`, { method: 'POST' });
+}
+
 // Publicação direta na Página do Facebook (1 passo só, mais simples que o
 // Instagram) — `imageUrl` opcional (post só de texto é permitido no
 // Facebook, diferente do Instagram).
@@ -163,6 +188,8 @@ module.exports = {
   getLongLivedUserToken,
   getManagedPages,
   createInstagramMediaContainer,
+  createInstagramCarouselChildContainer,
+  createInstagramCarouselContainer,
   getMediaContainerStatus,
   waitForMediaContainerReady,
   publishInstagramMediaContainer,

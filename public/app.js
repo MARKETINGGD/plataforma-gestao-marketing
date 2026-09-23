@@ -730,10 +730,11 @@
     $('#navUsers').hidden = !currentUser.isSuperAdmin;
     $('#navIntegracoes').hidden = !currentUser.isSuperAdmin;
     showScreen('app');
-    // Volta do fluxo de autorização da Meta (54ª/55ª rodada) -- só depois
-    // de confirmado o login, porque precisa do token da Papoi pra chamar
-    // a API (ver comentário na função).
-    checkMetaOAuthFragment();
+    // Volta do fluxo de autorização da Meta (54ª/55ª rodada) -- o próprio
+    // servidor já terminou a troca de code por token em GET
+    // /api/social-accounts/meta/callback antes de redirecionar de volta
+    // pra cá com ?integracoes=ok|erro na URL (ver comentário na função).
+    checkIntegracoesRedirectResult();
     try {
       const team = await api('/api/auth/team');
       teamMembers = team.users;
@@ -6427,34 +6428,27 @@
     });
   }
 
-  // Depois de voltar do fluxo de autorização da Meta (54ª/55ª rodada):
-  // como o diálogo da Meta pra publicar no Instagram exige
-  // response_type=token, ela devolve o token como FRAGMENTO da URL
-  // (#access_token=...&long_lived_token=...&state=...), que nunca chega
-  // no servidor (só existe no navegador) -- por isso é aqui, no front-end,
-  // que a gente lê e manda pro backend terminar a conexão (ver
-  // POST /api/social-accounts/meta/finish em routes/socialAccounts.js).
-  // Chamada só depois do login confirmado (dentro de startApp()), porque
-  // precisa do token da Papoi pra chamar a API.
-  async function checkMetaOAuthFragment() {
-    const hash = window.location.hash;
-    if (!hash || hash.indexOf('access_token=') === -1) return;
-    const params = new URLSearchParams(hash.slice(1));
-    window.history.replaceState({}, '', window.location.pathname); // limpa a URL já, token não fica exposto no endereço
-    const longLivedToken = params.get('long_lived_token') || params.get('access_token');
-    const state = params.get('state');
-    const expiresIn = params.get('expires_in');
-    if (!longLivedToken || !state) {
-      alert('Resposta inesperada da Meta ao conectar a conta -- tente conectar de novo.');
-      return;
+  // Depois de voltar do fluxo de autorização da Meta (54ª/55ª rodada,
+  // 3ª correção): o backend (GET /api/social-accounts/meta/callback em
+  // routes/socialAccounts.js) já trocou o code por token e salvou a
+  // conexão no servidor ANTES de redirecionar o navegador de volta pra
+  // cá -- chega só um resultado em query string mesmo
+  // (?integracoes=ok&brand=... ou ?integracoes=erro&motivo=...), sem
+  // token nenhum passando pelo navegador. Limpa a URL logo em seguida pra
+  // não ficar poluindo o histórico/favoritos com esses parâmetros.
+  function checkIntegracoesRedirectResult() {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('integracoes')) return;
+    const resultado = params.get('integracoes');
+    const brand = params.get('brand');
+    const motivo = params.get('motivo');
+    window.history.replaceState({}, '', window.location.pathname);
+    if (resultado === 'ok') {
+      alert(`Conta da Meta conectada com sucesso para ${BRAND_LABEL[brand] || brand || ''}!`);
+    } else {
+      alert('Não foi possível conectar com a Meta: ' + (motivo || 'erro desconhecido.'));
     }
-    try {
-      const data = await api('/api/social-accounts/meta/finish', { method: 'POST', body: JSON.stringify({ state, longLivedToken, expiresIn }) });
-      alert(`Conta da Meta conectada com sucesso para ${BRAND_LABEL[data.brand] || data.brand}!`);
-      if (activeViewName === 'integracoes') loadIntegracoes();
-    } catch (e) {
-      alert('Não foi possível conectar com a Meta: ' + (e.message || 'erro desconhecido.'));
-    }
+    if (activeViewName === 'integracoes') loadIntegracoes();
   }
 
   function labelForKey(key) {

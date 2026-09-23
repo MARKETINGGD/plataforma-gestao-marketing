@@ -682,10 +682,6 @@
   }
 
   async function boot() {
-    // Volta do fluxo de autorização da Meta (54ª rodada) — mostra o
-    // resultado (sucesso/erro) e limpa o parâmetro da URL. Independe de
-    // login (só lê a URL), por isso roda antes de qualquer outra checagem.
-    checkIntegracoesRedirectResult();
     // Link externo por influencer (14ª rodada) — não exige login, funciona
     // pra quem não está dentro da plataforma. Checa antes de qualquer coisa.
     const pubToken = new URLSearchParams(window.location.search).get('influencerPublic');
@@ -734,6 +730,10 @@
     $('#navUsers').hidden = !currentUser.isSuperAdmin;
     $('#navIntegracoes').hidden = !currentUser.isSuperAdmin;
     showScreen('app');
+    // Volta do fluxo de autorização da Meta (54ª/55ª rodada) -- só depois
+    // de confirmado o login, porque precisa do token da Papoi pra chamar
+    // a API (ver comentário na função).
+    checkMetaOAuthFragment();
     try {
       const team = await api('/api/auth/team');
       teamMembers = team.users;
@@ -6427,19 +6427,34 @@
     });
   }
 
-  // Depois de voltar do fluxo de autorização da Meta (routes/socialAccounts.js
-  // redireciona pra cá com ?integracoes=ok|erro na URL) -- mostra o
-  // resultado e limpa a URL, sem deixar o parâmetro preso no endereço.
-  function checkIntegracoesRedirectResult() {
-    const params = new URLSearchParams(window.location.search);
-    const result = params.get('integracoes');
-    if (!result) return;
-    if (result === 'ok') {
-      alert(`Conta da Meta conectada com sucesso para ${BRAND_LABEL[params.get('brand')] || params.get('brand')}!`);
-    } else if (result === 'erro') {
-      alert('Não foi possível conectar com a Meta: ' + (params.get('motivo') || 'erro desconhecido.'));
+  // Depois de voltar do fluxo de autorização da Meta (54ª/55ª rodada):
+  // como o diálogo da Meta pra publicar no Instagram exige
+  // response_type=token, ela devolve o token como FRAGMENTO da URL
+  // (#access_token=...&long_lived_token=...&state=...), que nunca chega
+  // no servidor (só existe no navegador) -- por isso é aqui, no front-end,
+  // que a gente lê e manda pro backend terminar a conexão (ver
+  // POST /api/social-accounts/meta/finish em routes/socialAccounts.js).
+  // Chamada só depois do login confirmado (dentro de startApp()), porque
+  // precisa do token da Papoi pra chamar a API.
+  async function checkMetaOAuthFragment() {
+    const hash = window.location.hash;
+    if (!hash || hash.indexOf('access_token=') === -1) return;
+    const params = new URLSearchParams(hash.slice(1));
+    window.history.replaceState({}, '', window.location.pathname); // limpa a URL já, token não fica exposto no endereço
+    const longLivedToken = params.get('long_lived_token') || params.get('access_token');
+    const state = params.get('state');
+    const expiresIn = params.get('expires_in');
+    if (!longLivedToken || !state) {
+      alert('Resposta inesperada da Meta ao conectar a conta -- tente conectar de novo.');
+      return;
     }
-    window.history.replaceState({}, '', window.location.pathname);
+    try {
+      const data = await api('/api/social-accounts/meta/finish', { method: 'POST', body: JSON.stringify({ state, longLivedToken, expiresIn }) });
+      alert(`Conta da Meta conectada com sucesso para ${BRAND_LABEL[data.brand] || data.brand}!`);
+      if (activeViewName === 'integracoes') loadIntegracoes();
+    } catch (e) {
+      alert('Não foi possível conectar com a Meta: ' + (e.message || 'erro desconhecido.'));
+    }
   }
 
   function labelForKey(key) {

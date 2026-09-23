@@ -27,21 +27,36 @@ const META_APP_SECRET = process.env.META_APP_SECRET || '';
 const APP_BASE_URL = (process.env.PAPOI_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const META_REDIRECT_URI = process.env.META_REDIRECT_URI || `${APP_BASE_URL}/api/social-accounts/meta/callback`;
 
-// Permissões pedidas no fluxo "clássico" (Facebook Login for Business +
-// Página vinculada) — ver PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md pro
-// levantamento completo de cada uma.
+// Permissões pedidas no fluxo "Business Login for Instagram" (Facebook
+// Login + Página vinculada) — ver PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md
+// pro histórico completo de tentativas.
 //
-// `instagram_business_content_publish` (o nome que a documentação da Meta
-// e o painel de "Permissões e recursos" do App mostravam) foi tentado
-// primeiro, mas o próprio diálogo de autorização do Facebook devolveu
-// "Invalid Scopes: instagram_business_content_publish" na hora H (testado
-// ao vivo com a Raquel em 23/09/2026) -- o nome que o diálogo de OAuth
-// aceita de verdade pra esse fluxo é `instagram_content_publish` (sem
-// "business" no meio), mesmo a conta sendo Business/ligada a uma Página.
+// **2ª correção, 23/09/2026**: tanto `instagram_business_content_publish`
+// quanto `instagram_content_publish` sozinhos (só trocando o nome da
+// permissão) foram rejeitados pelo diálogo de autorização com "Invalid
+// Scopes" -- o problema não era só o nome, era faltar 2 parâmetros
+// especiais que a Meta exige nesse fluxo específico (chamado "Business
+// Login for Instagram" na documentação oficial): `display=page` e
+// `extras={"setup":{"channel":"IG_API_ONBOARDING"}}`. Sem esses dois, o
+// diálogo não reconhece NENHUMA permissão de publicação do Instagram como
+// válida, não importa o nome. Além disso, esse fluxo exige
+// `response_type=token` (não `code`) -- a Meta devolve o token (inclusive
+// já de longa duração, em `long_lived_token`) direto na URL de retorno,
+// como fragmento (`#access_token=...`), não como parâmetro de busca. Como
+// fragmento nunca chega no servidor (só existe no navegador), o fluxo
+// mudou: o front-end (`public/app.js`, `checkMetaOAuthFragment`) lê o
+// fragmento e manda o token pro backend terminar a conexão (ver
+// `POST /meta/finish` abaixo) -- por isso não existe mais uma rota
+// `GET /meta/callback` aqui: a Redirect URI cadastrada na Meta continua a
+// mesma (`/api/social-accounts/meta/callback`), só que agora esse caminho
+// não tem rota própria neste arquivo, e cai automaticamente na tela normal
+// da Papoi (catch-all de `server.js`) -- é lá, já dentro da Plataforma
+// carregada, que o JavaScript lê o fragmento.
 const META_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_posts',
+  'instagram_basic',
   'instagram_content_publish',
   'business_management'
 ].join(',');
@@ -114,64 +129,56 @@ router.get('/meta/connect', requireAuth, requireSuperAdmin, (req, res) => {
     redirect_uri: META_REDIRECT_URI,
     state,
     scope: META_SCOPES,
-    response_type: 'code'
+    display: 'page',
+    extras: JSON.stringify({ setup: { channel: 'IG_API_ONBOARDING' } }),
+    response_type: 'token'
   });
   res.json({ redirectUrl: `https://www.facebook.com/v21.0/dialog/oauth?${qs.toString()}` });
 });
 
-// ---------- callback (o Facebook redireciona o NAVEGADOR pra cá) ----------
-// Sem requireAuth de propósito: quem chega aqui é o navegador da pessoa
-// voltando do facebook.com, sem o cabeçalho Authorization da Papoi — a
-// identidade de quem iniciou (e a marca) vem do `state` assinado acima.
-router.get('/meta/callback', async (req, res) => {
-  const redirectBack = (params) => res.redirect(`${APP_BASE_URL}/?${new URLSearchParams(params).toString()}`);
-
-  const { code, state, error, error_description: errorDescription } = req.query;
-  if (error) {
-    return redirectBack({ integracoes: 'erro', motivo: errorDescription || error });
+// ---------- terminar a conexão (chamado pelo FRONT-END, não pela Meta) ----------
+// Com response_type=token, a Meta devolve o token como FRAGMENTO da URL
+// (#access_token=...), que nunca chega ao servidor (só existe no
+// navegador) -- por isso não existe mais uma rota de callback aqui. O
+// front-end lê o fragmento (`checkMetaOAuthFragment` em public/app.js) e
+// chama esta rota pra terminar a conexão. Exige login (requireAuth) E o
+// `state` assinado bater (dupla checagem: a pessoa ainda está logada como
+// super admin agora, e foi ela mesma quem iniciou o fluxo antes).
+router.post('/meta/finish', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { state, longLivedToken, expiresIn } = req.body || {};
+  if (!state || !longLivedToken) {
+    return res.status(400).json({ error: 'Resposta incompleta vinda da Meta (faltou token).' });
   }
-  if (!code || !state) {
-    return redirectBack({ integracoes: 'erro', motivo: 'Resposta inesperada do Facebook (faltou code/state).' });
-  }
-
   let statePayload;
   try {
     statePayload = verifyState(state);
   } catch (e) {
-    return redirectBack({ integracoes: 'erro', motivo: 'Link de autorização expirado ou inválido — tente conectar de novo.' });
+    return res.status(400).json({ error: 'Link de autorização expirado ou inválido — tente conectar de novo.' });
   }
   const { brand, userId } = statePayload;
+  if (userId !== req.user.id) {
+    return res.status(403).json({ error: 'Essa autorização foi iniciada por outra pessoa.' });
+  }
   const requestingUser = db.get('users').find({ id: userId }).value();
   if (!requestingUser) {
-    return redirectBack({ integracoes: 'erro', motivo: 'Usuário que iniciou a conexão não existe mais.' });
+    return res.status(400).json({ error: 'Usuário que iniciou a conexão não existe mais.' });
   }
 
   try {
-    const shortLived = await metaGraph.exchangeCodeForToken({
-      appId: META_APP_ID,
-      appSecret: META_APP_SECRET,
-      redirectUri: META_REDIRECT_URI,
-      code
-    });
-    const longLived = await metaGraph.getLongLivedUserToken({
-      appId: META_APP_ID,
-      appSecret: META_APP_SECRET,
-      shortLivedToken: shortLived.access_token
-    });
-    const pages = await metaGraph.getManagedPages({ userAccessToken: longLived.access_token });
+    const pages = await metaGraph.getManagedPages({ userAccessToken: longLivedToken });
     const pageWithInstagram = pages.find((p) => p.instagram_business_account);
     if (!pageWithInstagram) {
-      return redirectBack({
-        integracoes: 'erro',
-        motivo: 'Nenhuma Página do Facebook com conta do Instagram vinculada foi encontrada nessa conta. Confirme se a Página certa foi selecionada na tela de permissão do Facebook.'
+      return res.status(400).json({
+        error: 'Nenhuma Página do Facebook com conta do Instagram vinculada foi encontrada nessa conta. Confirme se a Página certa foi selecionada na tela de permissão do Facebook.'
       });
     }
 
     const nowIso = new Date().toISOString();
-    // Token de longa duração da Meta dura ~60 dias — grava a data de
-    // expiração pra o publicador (utils/metaPublisher.js) avisar antes de
-    // vencer, em vez de só falhar silenciosamente lá na frente.
-    const expiresInSeconds = longLived.expires_in || 60 * 24 * 60 * 60;
+    // Token já vem de longa duração (~60 dias) direto da Meta nesse fluxo
+    // -- grava a data de expiração pra o publicador (utils/metaPublisher.js)
+    // avisar antes de vencer, em vez de só falhar silenciosamente lá na
+    // frente.
+    const expiresInSeconds = Number(expiresIn) || 60 * 24 * 60 * 60;
     const tokenExpiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
     const existing = db.get('socialAccounts').find({ brand, platform: 'meta' }).value();
@@ -195,10 +202,10 @@ router.get('/meta/callback', async (req, res) => {
     }
     logAudit({ user: requestingUser, entityType: 'socialAccount', entityId: brand, entityLabel: `Meta · ${BRAND_LABEL_PT[brand] || brand}`, action: existing ? 'update' : 'create', details: `Conectado como @${accountData.igUsername || accountData.pageName}` });
 
-    return redirectBack({ integracoes: 'ok', brand });
+    return res.json({ ok: true, brand });
   } catch (e) {
     const motivo = e instanceof metaGraph.MetaGraphError ? e.message : 'Erro inesperado ao conectar com a Meta.';
-    return redirectBack({ integracoes: 'erro', motivo });
+    return res.status(502).json({ error: motivo });
   }
 });
 

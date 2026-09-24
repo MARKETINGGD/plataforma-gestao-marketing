@@ -478,7 +478,15 @@ button{font-weight:700;}
 
 /* ---------- Recados (mural da tela Início) ---------- */
 #recadosWrap{margin-bottom:20px;}
-.recado-list{display:flex;flex-direction:column;gap:8px;margin:10px 0;}
+/* 13ª melhoria (24/09/2026, pedido da Raquel: "os recados, quando ficam
+   muitos na tela, devem aparecer até 3, depois disso deve ter uma barra
+   de rolagem") -- ~90px por card (com folga pra quando tem o link "Ver
+   post publicado") x 3 = por volta de 270px; a partir do 4º recado a
+   lista ganha rolagem própria em vez de esticar a tela toda. */
+.recado-list{display:flex;flex-direction:column;gap:8px;margin:10px 0;max-height:280px;overflow-y:auto;padding-right:4px;}
+.recado-list::-webkit-scrollbar{width:6px;}
+.recado-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:999px;}
+.recado-list::-webkit-scrollbar-track{background:transparent;}
 .recado-card{
   background:var(--card);border:1px solid var(--border);border-left:6px solid var(--primary);
   border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;

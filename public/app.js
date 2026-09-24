@@ -927,23 +927,39 @@
   };
 
   // ---------- navegação lateral ----------
+  // Botões-pai de submenu (Budget/Produtos/Brindes/Expositores) ficavam
+  // sem cor nenhuma só de clicar neles pra abrir o submenu -- só ganhavam
+  // a classe "active" (colorida) DEPOIS que um item do submenu era
+  // escolhido, via setActiveNav() (ver comentário lá). Bug apontado pela
+  // Raquel (13ª melhoria, 24/09/2026): "alguns botões que possuem sub
+  // menu, não ficam coloridos ao serem clicados, apenas quando
+  // selecionamos algo em sub menu... todos os botões devem ser coloridos
+  // ao serem clicados". `markNavParentActive` reaproveita o mesmo padrão
+  // de "só um .navlink fica active por vez" que setActiveNav() já usa.
+  function markNavParentActive(parentId) {
+    $all('.navlink').forEach((b) => b.classList.toggle('active', b.id === parentId));
+  }
   // "Budget" (25ª rodada): 1 botão só na barra lateral — ao clicar, só
   // abre/fecha o submenu com as marcas (não navega pra lugar nenhum sozinho).
   $('#navBudgetParent').onclick = () => {
     const sub = $('#navBudgetSubmenu');
     sub.hidden = !sub.hidden;
+    markNavParentActive('navBudgetParent');
   };
   $('#navProdutosParent').onclick = () => {
     const sub = $('#navProdutosSubmenu');
     sub.hidden = !sub.hidden;
+    markNavParentActive('navProdutosParent');
   };
   $('#navBrindesParent').onclick = () => {
     const sub = $('#navBrindesSubmenu');
     sub.hidden = !sub.hidden;
+    markNavParentActive('navBrindesParent');
   };
   $('#navExpositoresParent').onclick = () => {
     const sub = $('#navExpositoresSubmenu');
     sub.hidden = !sub.hidden;
+    markNavParentActive('navExpositoresParent');
   };
   // PONTO (47ª rodada): não é uma tela da Plataforma -- só abre o sistema
   // de ponto da TOTVS numa aba nova, sem mudar a navegação/view atual.
@@ -1158,6 +1174,23 @@
     } catch (e) { /* ignora falha pontual — a Início segue sem esse bloco */ }
   }
 
+  // Som de aviso quando muda o "rei" do REIS DO MARKETING (13ª melhoria,
+  // 24/09/2026, pedido da Raquel: "No gráfico, quando tem mudança de
+  // 'rei', deve ter um som de aviso"). `reisChampSeenKey` guarda quem tem
+  // a coroa AGORA (pode ser mais de 1 em empate, ver 33ª rodada) -- a
+  // primeira checagem da sessão só define a base (sem tocar som, senão
+  // tocaria toda vez que a tela Início é aberta pela 1ª vez); depois
+  // disso, toda vez que o conjunto de campeões muda de verdade (alguém
+  // novo assume, ou desempata sozinho), toca o aviso.
+  const reisAudio = new Audio('/sounds/reis.mp3');
+  function playReisSound() {
+    try {
+      reisAudio.currentTime = 0;
+      reisAudio.play().catch(() => { /* autoplay bloqueado até a pessoa interagir com a página */ });
+    } catch (e) { /* ignora */ }
+  }
+  let reisChampSeenKey = null;
+
   function renderReisDoMarketing(counts) {
     const wrap = $('#reisMarketingChart');
     if (!wrap) return;
@@ -1186,6 +1219,17 @@
     // na lista (o desempate por nome em .sort() acima é só pra ordem
     // visual, não decide quem é "o" campeão).
     const topCount = rows.length ? rows[0].count : 0;
+    // 13ª melhoria: detecta troca de "rei" -- compara quem tem a coroa
+    // AGORA com quem tinha da última vez que este gráfico renderizou.
+    const champKey = topCount > 0 ? rows.filter((r) => r.count === topCount).map((r) => r.id).sort().join(',') : '';
+    if (reisChampSeenKey === null) {
+      reisChampSeenKey = champKey; // 1ª checagem da sessão -- só define a base, sem som
+    } else if (champKey !== reisChampSeenKey && champKey !== '') {
+      playReisSound();
+      reisChampSeenKey = champKey;
+    } else {
+      reisChampSeenKey = champKey;
+    }
     wrap.innerHTML = rows.map((r, idx) => {
       const barH = Math.max(10, Math.round(BASE_BAR_H * (r.count / maxCount)));
       const isChamp = r.count > 0 && r.count === topCount;
@@ -1526,7 +1570,9 @@
   // Vibra a tela (quando o aparelho/navegador aceita) + toca o som de
   // "chamar atenção" + balança a mensagem na tela — pedido da Raquel:
   // "de chamar atenção (vibrar a tela no chat, com barulho de algo
-  // vibrando)". Só dispara pra quem RECEBE (nunca pra quem mandou).
+  // vibrando)". Dispara pra TODO MUNDO vendo a conversa (13ª melhoria,
+  // 24/09/2026, pedido da Raquel: "todos devem ouvir, inclusive quem
+  // chamou a atenção" -- antes só quem recebia ouvia).
   const nudgeAudio = new Audio('/sounds/nudge.mp3');
   function playNudgeSound() {
     try {
@@ -1602,7 +1648,12 @@
         wrap.appendChild(rowEl);
         // Nudge de outra pessoa, chegando pelo polling enquanto essa
         // conversa está aberta -- vibra + toca o som na hora.
-        if (m.kind === 'nudge' && m.createdBy !== currentUser.id) triggerNudgeEffect(rowEl);
+        // 13ª melhoria (24/09/2026, pedido da Raquel: "ao chamar a atenção,
+        // deve ter esse barulho... e todos devem ouvir, inclusive quem
+        // chamou a atenção") -- antes só quem RECEBIA ouvia o som; agora
+        // dispara pra todo mundo que está vendo a conversa, sem exceção
+        // pra quem enviou.
+        if (m.kind === 'nudge') triggerNudgeEffect(rowEl);
       });
       chatLastId = data.messages[data.messages.length - 1].id;
       if (wasAtBottom) wrap.scrollTop = wrap.scrollHeight;
@@ -1750,9 +1801,10 @@
     try {
       await api(`/api/chat/conversations/${encodeURIComponent(currentConversationId)}/nudge`, { method: 'POST', body: JSON.stringify({}) });
       // A própria pessoa que chamou atenção também vê a mensagem de
-      // sistema aparecer na conversa (sem vibrar/tocar pra ela mesma —
-      // isso já é garantido em pollChat, que só dispara o efeito pra
-      // mensagem de OUTRA pessoa).
+      // sistema aparecer na conversa -- e também ouve o som/sente a
+      // vibração (13ª melhoria, pedido da Raquel: "todos devem ouvir,
+      // inclusive quem chamou a atenção"), já que pollChat() dispara o
+      // efeito pra QUALQUER mensagem kind:'nudge', sem exceção mais.
       await pollChat();
     } catch (e) {
       alert(e.message || 'Não foi possível chamar atenção agora.');
@@ -2132,7 +2184,12 @@
         data.messages.forEach((m) => {
           const rowEl = renderChatMessage(m);
           msgsWrap.appendChild(rowEl);
-          if (m.kind === 'nudge' && m.createdBy !== currentUser.id) triggerNudgeEffect(rowEl);
+          // 13ª melhoria (24/09/2026, pedido da Raquel: "ao chamar a atenção,
+        // deve ter esse barulho... e todos devem ouvir, inclusive quem
+        // chamou a atenção") -- antes só quem RECEBIA ouvia o som; agora
+        // dispara pra todo mundo que está vendo a conversa, sem exceção
+        // pra quem enviou.
+        if (m.kind === 'nudge') triggerNudgeEffect(rowEl);
         });
         if (wasAtBottom) msgsWrap.scrollTop = msgsWrap.scrollHeight;
         scheduleConversationWindowIdleClose(conv.id);

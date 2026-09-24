@@ -214,6 +214,48 @@
   try { localTheme = localStorage.getItem('papoiTheme') || 'light'; } catch (e) { /* ignora */ }
   applyTheme(localTheme);
 
+  // Notificações do sistema operacional (15ª melhoria, 24/09/2026, pedido
+  // da Raquel: "Deve ter a opção de notificação na tela do PC, mesmo
+  // quando o Papoi estiver minimizado. Assim a notificação ainda aparece
+  // na tela, mesmo estando em outra tela aberta que não é o Papoi") --
+  // usa a própria API de Notificação do navegador, que já cuida de
+  // mostrar isso fora da aba/janela sozinha; só precisa da permissão
+  // explícita da pessoa (os navegadores exigem isso, não tem como pular
+  // -- daí o botão no rodapé da barra lateral pra pedir). É uma
+  // permissão do NAVEGADOR, não do perfil -- cada aparelho/navegador tem
+  // a sua, não faz sentido guardar no servidor.
+  function updateOsNotifBtn() {
+    const btn = $('#osNotifToggleBtn');
+    if (!btn) return;
+    if (!('Notification' in window)) { btn.hidden = true; return; }
+    if (Notification.permission === 'granted') btn.textContent = '🔔 Notificações do sistema ativadas';
+    else if (Notification.permission === 'denied') btn.textContent = '🔕 Notificações bloqueadas (ver config. do navegador)';
+    else btn.textContent = '🔔 Ativar notificações do sistema';
+  }
+  updateOsNotifBtn();
+
+  // Dispara uma notificação de verdade do sistema operacional -- só
+  // quando a pessoa tem certeza que quer (permissão concedida) E não
+  // está com a Papoi em foco na tela (senão duplicaria o aviso flutuante
+  // de dentro da própria tela, que já dá conta disso). Chamada de dentro
+  // de showNotifToast()/showChatToast() (ver abaixo), então cobre
+  // recado/demanda nova/post aprovado/mensagem de chat de uma vez só,
+  // sem precisar duplicar em cada lugar que hoje mostra o aviso
+  // flutuante.
+  function notifyOS(title, body, onClick) {
+    try {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+      if (document.hasFocus() && !document.hidden) return;
+      const n = new Notification(title, { body: body || '', icon: '/img/papoi-logo.png' });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+        if (onClick) onClick();
+      };
+    } catch (e) { /* navegador pode não suportar (ex.: alguns navegadores de celular) -- ignora */ }
+  }
+
   // Responsividade (20ª rodada, pedido da Raquel: "Deixe responsivo para
   // qualquer tela"). As tabelas (.data-table) têm várias colunas e não
   // cabem numa tela estreita — em vez de estourar a largura da página ou
@@ -912,6 +954,23 @@
     } catch (e) { /* falha de rede pontual -- o tema já mudou na tela, só não persistiu; tenta salvar nas próximas trocas */ }
   };
 
+  // Notificações do sistema operacional (15ª melhoria) -- pedir permissão
+  // só pode acontecer quando ainda está em 'default' (nem concedida, nem
+  // negada); depois de negada, só a própria pessoa consegue reverter nas
+  // configurações do navegador (nenhum site consegue pedir de novo
+  // sozinho, é assim que os navegadores protegem contra spam de pedido).
+  $('#osNotifToggleBtn').onclick = async () => {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission();
+      updateOsNotifBtn();
+    } else if (Notification.permission === 'denied') {
+      alert('As notificações do sistema foram bloqueadas nas configurações do navegador. Pra ativar, procure o ícone de cadeado/informações do site na barra de endereço e permita notificações pra esse site.');
+    } else {
+      alert('As notificações do sistema já estão ativadas nesse navegador.');
+    }
+  };
+
   $('#logoutBtn').onclick = () => {
     token = null; currentUser = null;
     localStorage.removeItem('token');
@@ -1493,6 +1552,7 @@
     toast.querySelector('.chat-widget-toast-close').onclick = (e) => { e.stopPropagation(); hideNotifToast(); };
     toast.onclick = () => { hideNotifToast(); if (onClick) onClick(); };
     toast.hidden = false;
+    notifyOS(title, text, onClick);
     if (notifToastTimer) clearTimeout(notifToastTimer);
     notifToastTimer = setTimeout(hideNotifToast, 8000);
   }
@@ -2008,6 +2068,7 @@
     toast.querySelector('.chat-widget-toast-close').onclick = (e) => { e.stopPropagation(); hideChatToast(); };
     toast.onclick = () => { hideChatToast(); openChatWidget(); };
     toast.hidden = false;
+    notifyOS(m.createdByName, m.text, openChatWidget);
     if (chatToastTimer) clearTimeout(chatToastTimer);
     chatToastTimer = setTimeout(hideChatToast, 7000);
   }

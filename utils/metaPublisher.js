@@ -8,13 +8,15 @@
 // Escopo (deliberadamente restrito, pra sair do zero pro ar rápido, e
 // crescido aos poucos a pedido da Raquel): publica post ESTÁTICO (1
 // imagem) no Instagram ou Facebook, CARROSSEL (2 a 10 imagens, 8ª
-// correção) e REELS (1 vídeo, 9ª melhoria) só no Instagram, pra marca com
-// conta Meta conectada (De Bacco/GhelPlus, ver routes/socialAccounts.js).
-// Vídeo do TikTok/YouTube (plataformas diferentes, nem são Meta) continua
-// 100% manual, como sempre foi. Carrossel e Reels no Facebook (mecanismos
-// diferentes do Instagram nos dois casos) ficam de fora por enquanto,
-// mesmo motivo de escopo -- ver PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md
-// pro histórico completo de cada rodada.
+// correção), REELS (1 vídeo, 9ª melhoria) e STORIE (1 foto OU vídeo, 10ª
+// melhoria) só no Instagram, pra marca com conta Meta conectada
+// (De Bacco/GhelPlus, ver routes/socialAccounts.js). Vídeo do TikTok/
+// YouTube (plataformas diferentes, nem são Meta) continua 100% manual,
+// como sempre foi. Carrossel, Reels e Storie no Facebook (mecanismos
+// diferentes do Instagram em todos os 3 casos) ficam de fora por
+// enquanto, mesmo motivo de escopo -- ver
+// PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md pro histórico completo de
+// cada rodada.
 
 const path = require('path');
 const db = require('../db');
@@ -24,20 +26,22 @@ const metaGraph = require('./metaGraphClient');
 
 const CHECK_INTERVAL_MS = 2 * 60 * 1000; // a cada 2 minutos
 const AUTO_PUBLISH_PLATFORMS = ['instagram', 'facebook'];
-const AUTO_PUBLISH_POST_TYPES = ['estatico', 'carrossel', 'reels'];
-// Carrossel e Reels só no Instagram por enquanto (ver comentário do topo
-// do arquivo).
+const AUTO_PUBLISH_POST_TYPES = ['estatico', 'carrossel', 'reels', 'storie'];
+// Carrossel, Reels e Storie só no Instagram por enquanto (ver comentário
+// do topo do arquivo).
 const CAROUSEL_PLATFORMS = ['instagram'];
 const REELS_PLATFORMS = ['instagram'];
+const STORIES_PLATFORMS = ['instagram'];
 // Limite de imagens por carrossel exigido pela própria Meta (não é uma
 // escolha nossa) -- publicar com menos de 2 ou mais de 10 é rejeitado pela
 // Graph API, então valida aqui ANTES de gastar uma chamada de verdade.
 const CAROUSEL_MIN_ITEMS = 2;
 const CAROUSEL_MAX_ITEMS = 10;
-// Extensões aceitas pro vídeo de um Reels -- MP4 e MOV são os formatos que
-// a própria Meta documenta como suportados; valida ANTES de gastar uma
-// chamada de verdade na Graph API, mesmo espírito do limite do Carrossel.
-const REELS_VIDEO_EXTENSIONS = ['.mp4', '.mov'];
+// Extensões aceitas pra um arquivo de VÍDEO (Reels sempre, Storie quando
+// não for foto) -- MP4 e MOV são os formatos que a própria Meta documenta
+// como suportados; valida ANTES de gastar uma chamada de verdade na Graph
+// API, mesmo espírito do limite do Carrossel.
+const VIDEO_FILE_EXTENSIONS = ['.mp4', '.mov'];
 const META_BRANDS = ['debacco', 'ghelplus'];
 const APP_BASE_URL = (process.env.PAPOI_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
@@ -57,14 +61,16 @@ function isDue(post) {
 // nenhuma tentativa (publishStatus null — 'failed' fica de fora até alguém
 // editar algo, ver clearFailedPublishIfContentChanged em
 // routes/socialPosts.js; 'published'/'publishing' obviamente também ficam
-// de fora); (b) é Instagram ou Facebook; (c) é post Estático, Carrossel ou
-// Reels (ver limitação de escopo no comentário do topo) — Carrossel e
-// Reels só entram se for Instagram, Facebook fica de fora nesses 2 casos;
-// (d) tem legenda e pelo menos 1 arquivo (a quantidade EXATA de imagens do
-// Carrossel — 2 a 10 — e se o arquivo do Reels realmente parece um vídeo
-// só são validados na hora de publicar, em attemptPublish, pra dar um erro
-// claro em vez de deixar o post parado pra sempre sem nenhum aviso); (e) já
-// chegou a data/hora agendada; (f) a marca do post tem conta Meta
+// de fora); (b) é Instagram ou Facebook; (c) é post Estático, Carrossel,
+// Reels ou Storie (ver limitação de escopo no comentário do topo) —
+// Carrossel, Reels e Storie só entram se for Instagram, Facebook fica de
+// fora nesses 3 casos; (d) tem legenda e pelo menos 1 arquivo (a
+// quantidade EXATA de imagens do Carrossel — 2 a 10 —, se o arquivo do
+// Reels/Storie realmente parece um vídeo quando precisa ser, e o aviso de
+// que Storie NÃO tem legenda de verdade na Meta — só são validados/
+// avisados na hora de publicar, em attemptPublish, pra dar uma mensagem
+// clara em vez de deixar o post parado pra sempre sem nenhum aviso); (e)
+// já chegou a data/hora agendada; (f) a marca do post tem conta Meta
 // conectada.
 function isEligible(post) {
   if (post.publishStatus) return false;
@@ -72,6 +78,7 @@ function isEligible(post) {
   if (!AUTO_PUBLISH_POST_TYPES.includes(post.postType)) return false;
   if (post.postType === 'carrossel' && !CAROUSEL_PLATFORMS.includes(post.platform)) return false;
   if (post.postType === 'reels' && !REELS_PLATFORMS.includes(post.platform)) return false;
+  if (post.postType === 'storie' && !STORIES_PLATFORMS.includes(post.platform)) return false;
   if (!META_BRANDS.includes(post.brand)) return false;
   if (!post.caption || !post.caption.trim()) return false;
   if (!(post.files || []).length) return false;
@@ -137,7 +144,7 @@ async function publishInstagramCarousel(post, account) {
 // utils/metaGraphClient.js.
 function isVideoFile(file) {
   const ext = path.extname((file && (file.url || file.name)) || '').toLowerCase();
-  return REELS_VIDEO_EXTENSIONS.includes(ext);
+  return VIDEO_FILE_EXTENSIONS.includes(ext);
 }
 
 async function publishInstagramReels(post, account) {
@@ -174,11 +181,53 @@ async function publishInstagramReels(post, account) {
   return published.id;
 }
 
+// Storie (10ª melhoria): a mais simples das 4 na montagem (1 chamada só,
+// igual Reels) -- mas aceita FOTO ou VÍDEO (Reels só aceita vídeo), então
+// detecta pelo arquivo qual dos dois é, e usa os tempos de espera de
+// vídeo só quando for vídeo mesmo (foto usa os padrões de imagem,
+// bem mais rápidos). A Meta NÃO aceita legenda pra Storie -- por isso
+// `createInstagramStoryContainer` nem recebe caption (ver comentário
+// completo em utils/metaGraphClient.js); a Papoi continua exigindo
+// legenda preenchida pra elegibilidade (mesma regra de todos os tipos,
+// serve pra confirmar que o post está de fato pronto), só que ela nunca
+// chega até a Meta nesse caso -- fica só de anotação interna.
+async function publishInstagramStory(post, account) {
+  const files = post.files || [];
+  if (files.length !== 1) {
+    throw new metaGraph.MetaGraphError(
+      `Storie precisa de exatamente 1 arquivo (foto OU vídeo) pra publicar -- esse post tem ${files.length}. Ajuste o criativo e edite o agendamento pra tentar de novo.`
+    );
+  }
+  const file = files[0];
+  const video = isVideoFile(file);
+  const mediaUrl = `${APP_BASE_URL}${file.url}`;
+  const container = await metaGraph.createInstagramStoryContainer({
+    igUserId: account.igUserId,
+    pageAccessToken: account.pageAccessToken,
+    mediaUrl,
+    isVideo: video
+  });
+  await metaGraph.waitForMediaContainerReady({
+    containerId: container.id,
+    pageAccessToken: account.pageAccessToken,
+    pollIntervalMs: video ? metaGraph.VIDEO_CONTAINER_POLL_INTERVAL_MS : undefined,
+    timeoutMs: video ? metaGraph.VIDEO_CONTAINER_POLL_TIMEOUT_MS : undefined
+  });
+  const published = await metaGraph.publishInstagramMediaContainer({
+    igUserId: account.igUserId,
+    pageAccessToken: account.pageAccessToken,
+    creationId: container.id
+  });
+  return published.id;
+}
+
 async function attemptPublish(post, account) {
   const imageUrl = `${APP_BASE_URL}${post.files[0].url}`;
   let externalPostId;
   if (post.platform === 'instagram' && post.postType === 'reels') {
     externalPostId = await publishInstagramReels(post, account);
+  } else if (post.platform === 'instagram' && post.postType === 'storie') {
+    externalPostId = await publishInstagramStory(post, account);
   } else if (post.platform === 'instagram' && post.postType === 'carrossel') {
     externalPostId = await publishInstagramCarousel(post, account);
   } else if (post.platform === 'instagram') {

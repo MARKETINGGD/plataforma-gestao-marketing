@@ -195,6 +195,23 @@ async function createInstagramReelsContainer({ igUserId, pageAccessToken, videoU
   return graphFetch(`/${igUserId}/media?${qs.toString()}`, { method: 'POST' });
 }
 
+// Stories do Instagram (10ª melhoria, 24/09/2026 — pedido da Raquel logo
+// depois do Reels). Aceita foto OU vídeo (nunca os dois no mesmo Story),
+// sempre com `media_type: 'STORIES'` -- por isso recebe `isVideo` pra
+// saber se manda `video_url` ou `image_url`. Diferença importante: **a
+// Meta não aceita legenda nenhuma pra Story** (a própria documentação da
+// API confirma isso -- é uma limitação da Meta, não da Papoi) -- por
+// isso essa função nem recebe `caption` como parâmetro; a legenda que a
+// pessoa digita na Papoi continua servindo só de anotação interna
+// (title/controle), nunca aparece no Story publicado de verdade. Some
+// sozinho depois de 24h -- comportamento normal do Instagram, nada a ver
+// com a Papoi.
+async function createInstagramStoryContainer({ igUserId, pageAccessToken, mediaUrl, isVideo }) {
+  const qs = new URLSearchParams({ media_type: 'STORIES', access_token: pageAccessToken });
+  qs.set(isVideo ? 'video_url' : 'image_url', mediaUrl);
+  return graphFetch(`/${igUserId}/media?${qs.toString()}`, { method: 'POST' });
+}
+
 // Publicação direta na Página do Facebook (1 passo só, mais simples que o
 // Instagram) — `imageUrl` opcional (post só de texto é permitido no
 // Facebook, diferente do Instagram).
@@ -225,6 +242,7 @@ module.exports = {
   createInstagramCarouselChildContainer,
   createInstagramCarouselContainer,
   createInstagramReelsContainer,
+  createInstagramStoryContainer,
   getMediaContainerStatus,
   waitForMediaContainerReady,
   VIDEO_CONTAINER_POLL_INTERVAL_MS,

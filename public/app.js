@@ -516,6 +516,75 @@
     return data;
   }
 
+  // Upload com barra de progresso + navegação livre (11ª melhoria, pedido
+  // da Raquel: "coloque a barra de progresso, e permita que a gente saia
+  // da tela eqto ele carrega") -- usa XMLHttpRequest em vez de fetch()
+  // (que o api() usa) só pros uploads de arquivo, porque fetch() não
+  // expõe nenhum evento de progresso de ENVIO (só de download, que não
+  // ajuda aqui). O XHR roda solto, sem depender de nenhum elemento da
+  // tela continuar existindo -- por isso funciona mesmo se a pessoa trocar
+  // de aba/tela no meio do envio (o vídeo continua subindo em segundo
+  // plano de verdade). Por isso também mostra um aviso flutuante fixo,
+  // visível em QUALQUER tela da Papoi enquanto durar o envio -- assim ela
+  // não perde o rastro de "ainda tá subindo" só porque saiu da tela de
+  // Agendamento.
+  let activeUploadCount = 0;
+  function globalUploadIndicatorEl() {
+    let el = document.getElementById('globalUploadIndicator');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'globalUploadIndicator';
+      el.className = 'global-upload-indicator';
+      el.hidden = true;
+      el.innerHTML = '<div class="global-upload-indicator-label"></div><div class="global-upload-indicator-track"><div class="global-upload-indicator-fill"></div></div>';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  function setGlobalUploadIndicator(label, pct) {
+    const el = globalUploadIndicatorEl();
+    if (activeUploadCount <= 0) { el.hidden = true; return; }
+    el.hidden = false;
+    el.querySelector('.global-upload-indicator-label').textContent = label;
+    el.querySelector('.global-upload-indicator-fill').style.width = Math.max(0, Math.min(100, pct)) + '%';
+  }
+
+  // Envia 1 arquivo com progresso real (evento xhr.upload.onprogress) pro
+  // endpoint indicado, devolvendo uma Promise (mesmo formato de retorno do
+  // api(): resolve com o JSON de resposta, rejeita com Error(mensagem) em
+  // caso de falha) -- assim os handlers que já usavam `await api(...)`
+  // seguem funcionando do mesmo jeito, só trocando a chamada.
+  function uploadFileWithProgress(url, file, { fieldName = 'file', label = 'Enviando arquivo...' } = {}) {
+    activeUploadCount++;
+    setGlobalUploadIndicator(label, 0);
+    return new Promise((resolve, reject) => {
+      const fd = new FormData();
+      fd.append(fieldName, file);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) setGlobalUploadIndicator(label, (e.loaded / e.total) * 100);
+      };
+      function finish() {
+        activeUploadCount = Math.max(0, activeUploadCount - 1);
+        if (activeUploadCount === 0) globalUploadIndicatorEl().hidden = true;
+      }
+      xhr.onload = () => {
+        let data = {};
+        try { data = JSON.parse(xhr.responseText || '{}'); } catch (e) { /* resposta vazia/erro de rede -- data fica {} */ }
+        finish();
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(data.error || 'Erro inesperado ao enviar o arquivo.'));
+      };
+      xhr.onerror = () => {
+        finish();
+        reject(new Error('Falha de conexão ao enviar o arquivo -- confira sua internet e tente de novo.'));
+      };
+      xhr.send(fd);
+    });
+  }
+
   function showScreen(name) {
     ['loading', 'setup', 'login', 'app', 'influencer-public', 'influencer-group-public'].forEach((s) => {
       $('#screen-' + s).hidden = s !== name;
@@ -4199,10 +4268,16 @@
   }
 
   // Capa/thumbnail (45ª rodada, pedido da Raquel: "you tube deve ter a
-  // thumb- que é a capinha") -- só faz sentido pra YouTube.
+  // thumb- que é a capinha" -- pra YouTube; 11ª melhoria, 24/09/2026,
+  // pedido da Raquel: "preciso que a capa do reels seja publicada tbm...
+  // Essa opção tbm deve estar 'adicionar capa' qdo for reels" -- passou a
+  // valer também pro tipo Reels, em qualquer rede). Cronograma abre esse
+  // mesmo formulário (ver openPostFromCronograma), então um ajuste aqui já
+  // cobre as duas telas.
   function updateThumbnailVisibility() {
     const platform = $('#socialPostFormPlatform').value;
-    $('#socialPostFormThumbnailWrap').hidden = platform !== 'youtube';
+    const type = $('#socialPostFormType').value;
+    $('#socialPostFormThumbnailWrap').hidden = platform !== 'youtube' && type !== 'reels';
   }
 
   // O campo "Link", genérico, ganha uma dica de uso diferente conforme a
@@ -4262,7 +4337,7 @@
     renderSocialPlatformOptions(currentPlatform);
     updateSocialTypeOptions($('#socialPostFormType').value);
   };
-  $('#socialPostFormType').onchange = () => { updateScriptVisibility(); updateCarouselVisibility(); };
+  $('#socialPostFormType').onchange = () => { updateScriptVisibility(); updateCarouselVisibility(); updateThumbnailVisibility(); };
   // Usa 'oninput' (não 'onchange') de propósito: 'onchange' só dispara no
   // blur do campo, e como o clique do usuário pra ir digitar no Card 1
   // TIRA o foco do campo de número, o blur disparava o re-render bem na
@@ -4586,18 +4661,27 @@
     }
   };
 
+  // Os 5 uploads abaixo (Criativo final, Layout, Briefing, Roteiro, Capa)
+  // agora usam uploadFileWithProgress em vez de api() (11ª melhoria) --
+  // mostra progresso de verdade e continua rodando sozinho mesmo se a
+  // pessoa sair da tela antes de terminar. `targetPostId` é guardado ANTES
+  // do await pra, quando o upload terminar, só mexer na tela se ela ainda
+  // estiver olhando o MESMO post (senão não faz nada visualmente -- o
+  // arquivo já ficou salvo no post certo do mesmo jeito, ela só vai ver
+  // ele na próxima vez que abrir aquele post).
   $('#socialPostFormFileInput').onchange = async () => {
     const file = $('#socialPostFormFileInput').files[0];
-    if (!file || !editingSocialPostId) return;
-    const fd = new FormData();
-    fd.append('file', file);
+    const targetPostId = editingSocialPostId;
+    if (!file || !targetPostId) return;
+    $('#socialPostFormFileInput').value = '';
     try {
-      await api(`/api/social-posts/${editingSocialPostId}/files`, { method: 'POST', body: fd });
-      $('#socialPostFormFileInput').value = '';
+      await uploadFileWithProgress(`/api/social-posts/${targetPostId}/files`, file, { label: `Enviando ${file.name}...` });
       const fresh = await api('/api/social-posts');
       socialPosts = fresh.posts;
-      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
-      if (updated) renderSocialPostFiles(updated);
+      if (editingSocialPostId === targetPostId) {
+        const updated = socialPosts.find((x) => x.id === targetPostId);
+        if (updated) renderSocialPostFiles(updated);
+      }
     } catch (e) {
       alert(e.message);
     }
@@ -4605,18 +4689,19 @@
 
   $('#socialPostFormLayoutFileInput').onchange = async () => {
     const files = Array.from($('#socialPostFormLayoutFileInput').files || []);
-    if (files.length === 0 || !editingSocialPostId) return;
+    const targetPostId = editingSocialPostId;
+    if (files.length === 0 || !targetPostId) return;
+    $('#socialPostFormLayoutFileInput').value = '';
     try {
       for (const file of files) {
-        const fd = new FormData();
-        fd.append('file', file);
-        await api(`/api/social-posts/${editingSocialPostId}/layout-files`, { method: 'POST', body: fd });
+        await uploadFileWithProgress(`/api/social-posts/${targetPostId}/layout-files`, file, { label: `Enviando ${file.name}...` });
       }
-      $('#socialPostFormLayoutFileInput').value = '';
       const fresh = await api('/api/social-posts');
       socialPosts = fresh.posts;
-      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
-      if (updated) renderSocialLayoutFiles(updated);
+      if (editingSocialPostId === targetPostId) {
+        const updated = socialPosts.find((x) => x.id === targetPostId);
+        if (updated) renderSocialLayoutFiles(updated);
+      }
     } catch (e) {
       alert(e.message);
     }
@@ -4624,16 +4709,17 @@
 
   $('#socialPostFormBriefingFileInput').onchange = async () => {
     const file = $('#socialPostFormBriefingFileInput').files[0];
-    if (!file || !editingSocialPostId) return;
-    const fd = new FormData();
-    fd.append('file', file);
+    const targetPostId = editingSocialPostId;
+    if (!file || !targetPostId) return;
+    $('#socialPostFormBriefingFileInput').value = '';
     try {
-      await api(`/api/social-posts/${editingSocialPostId}/briefing-file`, { method: 'POST', body: fd });
-      $('#socialPostFormBriefingFileInput').value = '';
+      await uploadFileWithProgress(`/api/social-posts/${targetPostId}/briefing-file`, file, { label: `Enviando ${file.name}...` });
       const fresh = await api('/api/social-posts');
       socialPosts = fresh.posts;
-      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
-      if (updated) renderBriefingFile(updated);
+      if (editingSocialPostId === targetPostId) {
+        const updated = socialPosts.find((x) => x.id === targetPostId);
+        if (updated) renderBriefingFile(updated);
+      }
     } catch (e) {
       alert(e.message);
     }
@@ -4641,16 +4727,17 @@
 
   $('#socialPostFormScriptFileInput').onchange = async () => {
     const file = $('#socialPostFormScriptFileInput').files[0];
-    if (!file || !editingSocialPostId) return;
-    const fd = new FormData();
-    fd.append('file', file);
+    const targetPostId = editingSocialPostId;
+    if (!file || !targetPostId) return;
+    $('#socialPostFormScriptFileInput').value = '';
     try {
-      await api(`/api/social-posts/${editingSocialPostId}/script-file`, { method: 'POST', body: fd });
-      $('#socialPostFormScriptFileInput').value = '';
+      await uploadFileWithProgress(`/api/social-posts/${targetPostId}/script-file`, file, { label: `Enviando ${file.name}...` });
       const fresh = await api('/api/social-posts');
       socialPosts = fresh.posts;
-      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
-      if (updated) renderScriptFile(updated);
+      if (editingSocialPostId === targetPostId) {
+        const updated = socialPosts.find((x) => x.id === targetPostId);
+        if (updated) renderScriptFile(updated);
+      }
     } catch (e) {
       alert(e.message);
     }
@@ -4658,16 +4745,17 @@
 
   $('#socialPostFormThumbnailFileInput').onchange = async () => {
     const file = $('#socialPostFormThumbnailFileInput').files[0];
-    if (!file || !editingSocialPostId) return;
-    const fd = new FormData();
-    fd.append('file', file);
+    const targetPostId = editingSocialPostId;
+    if (!file || !targetPostId) return;
+    $('#socialPostFormThumbnailFileInput').value = '';
     try {
-      await api(`/api/social-posts/${editingSocialPostId}/thumbnail-file`, { method: 'POST', body: fd });
-      $('#socialPostFormThumbnailFileInput').value = '';
+      await uploadFileWithProgress(`/api/social-posts/${targetPostId}/thumbnail-file`, file, { label: `Enviando ${file.name}...` });
       const fresh = await api('/api/social-posts');
       socialPosts = fresh.posts;
-      const updated = socialPosts.find((x) => x.id === editingSocialPostId);
-      if (updated) renderThumbnailFile(updated);
+      if (editingSocialPostId === targetPostId) {
+        const updated = socialPosts.find((x) => x.id === targetPostId);
+        if (updated) renderThumbnailFile(updated);
+      }
     } catch (e) {
       alert(e.message);
     }

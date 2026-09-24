@@ -72,15 +72,32 @@ function isDue(post) {
 // clara em vez de deixar o post parado pra sempre sem nenhum aviso); (e)
 // já chegou a data/hora agendada; (f) a marca do post tem conta Meta
 // conectada.
+// Combinação rede+tipo+marca que a publicação automática sabe lidar --
+// separado de isEligible() (11ª melhoria) pra dar pra reaproveitar tanto
+// no ciclo automático quanto na hora de alguém marcar "Publicado" na mão
+// (ver routes/socialPosts.js) sem duplicar essa lista em 2 lugares (o que
+// já causou 1 bug real -- ver isEligible logo abaixo).
+function isMetaAutoPublishSupported({ platform, postType, brand }) {
+  if (!AUTO_PUBLISH_PLATFORMS.includes(platform)) return false;
+  if (!AUTO_PUBLISH_POST_TYPES.includes(postType)) return false;
+  if (postType === 'carrossel' && !CAROUSEL_PLATFORMS.includes(platform)) return false;
+  if (postType === 'reels' && !REELS_PLATFORMS.includes(platform)) return false;
+  if (postType === 'storie' && !STORIES_PLATFORMS.includes(platform)) return false;
+  if (!META_BRANDS.includes(brand)) return false;
+  return true;
+}
+
 function isEligible(post) {
   if (post.publishStatus) return false;
-  if (!AUTO_PUBLISH_PLATFORMS.includes(post.platform)) return false;
-  if (!AUTO_PUBLISH_POST_TYPES.includes(post.postType)) return false;
-  if (post.postType === 'carrossel' && !CAROUSEL_PLATFORMS.includes(post.platform)) return false;
-  if (post.postType === 'reels' && !REELS_PLATFORMS.includes(post.platform)) return false;
-  if (post.postType === 'storie' && !STORIES_PLATFORMS.includes(post.platform)) return false;
-  if (!META_BRANDS.includes(post.brand)) return false;
-  if (!post.caption || !post.caption.trim()) return false;
+  if (!isMetaAutoPublishSupported(post)) return false;
+  // Legenda é exigida como confirmação de que o post está pronto -- EXCETO
+  // pra Storie, que nunca manda legenda nenhuma pra Meta (ver
+  // createInstagramStoryContainer em utils/metaGraphClient.js). Exigir
+  // aqui mesmo assim (11ª melhoria, bug achado ao vivo pela Raquel) fazia
+  // um Storie sem legenda preenchida (bem comum, já que a legenda nem
+  // aparece no Story publicado) ficar parado pra sempre, sem publicar e
+  // SEM NENHUM AVISO -- silencioso de propósito nenhum, só um bug.
+  if (post.postType !== 'storie' && (!post.caption || !post.caption.trim())) return false;
   if (!(post.files || []).length) return false;
   if (!post.scheduledDate) return false;
   if (!isDue(post)) return false;
@@ -161,11 +178,17 @@ async function publishInstagramReels(post, account) {
     );
   }
   const videoUrl = `${APP_BASE_URL}${file.url}`;
+  // Capa customizada (11ª melhoria): usa post.thumbnailFile quando a pessoa
+  // subiu uma (mesmo campo/upload já usado pelo YouTube, ver
+  // routes/socialPosts.js) -- sem ela, a Meta usa o primeiro frame do
+  // vídeo (comportamento de sempre, nada muda).
+  const coverUrl = post.thumbnailFile ? `${APP_BASE_URL}${post.thumbnailFile.url}` : undefined;
   const container = await metaGraph.createInstagramReelsContainer({
     igUserId: account.igUserId,
     pageAccessToken: account.pageAccessToken,
     videoUrl,
-    caption: post.caption
+    caption: post.caption,
+    coverUrl
   });
   await metaGraph.waitForMediaContainerReady({
     containerId: container.id,
@@ -221,8 +244,19 @@ async function publishInstagramStory(post, account) {
   return published.id;
 }
 
+// 11ª melhoria (24/09/2026): ANTES, `imageUrl` era montado logo no topo
+// desta função, direto de `post.files[0].url`, sem checar se `files`
+// estava vazio -- inofensivo enquanto só o ciclo automático chamava
+// attemptPublish (isEligible já garantia pelo menos 1 arquivo antes de
+// chegar aqui), mas virou um erro cru (TypeError: Cannot read properties
+// of undefined) sem nenhuma mensagem clara assim que o "publicar agora"
+// manual (ver PUT /:id em routes/socialPosts.js) passou a chamar
+// publishOne DIRETO, sem passar pelo isEligible -- descoberto escrevendo
+// o teste de integração dessa correção (test-manual/publicarAgora.test.js).
+// Agora cada branch valida os arquivos que realmente precisa, com
+// mensagem própria, em vez de deixar o Node estourar sozinho.
 async function attemptPublish(post, account) {
-  const imageUrl = `${APP_BASE_URL}${post.files[0].url}`;
+  const files = post.files || [];
   let externalPostId;
   if (post.platform === 'instagram' && post.postType === 'reels') {
     externalPostId = await publishInstagramReels(post, account);
@@ -231,6 +265,10 @@ async function attemptPublish(post, account) {
   } else if (post.platform === 'instagram' && post.postType === 'carrossel') {
     externalPostId = await publishInstagramCarousel(post, account);
   } else if (post.platform === 'instagram') {
+    if (!files.length) {
+      throw new metaGraph.MetaGraphError('Esse post não tem nenhum arquivo (imagem) anexado pra publicar. Anexe um criativo e edite o agendamento pra tentar de novo.');
+    }
+    const imageUrl = `${APP_BASE_URL}${files[0].url}`;
     const container = await metaGraph.createInstagramMediaContainer({
       igUserId: account.igUserId,
       pageAccessToken: account.pageAccessToken,
@@ -254,6 +292,10 @@ async function attemptPublish(post, account) {
     });
     externalPostId = published.id;
   } else {
+    // Facebook aceita post só de texto (sem imagem nenhuma) -- por isso
+    // `imageUrl` é opcional aqui (undefined quando não tem arquivo), sem
+    // erro nenhum (diferente do Instagram, onde imagem é obrigatória).
+    const imageUrl = files.length ? `${APP_BASE_URL}${files[0].url}` : undefined;
     const published = await metaGraph.publishFacebookPagePost({
       pageId: account.pageId,
       pageAccessToken: account.pageAccessToken,
@@ -360,5 +402,12 @@ module.exports = {
   // utils/pontoReminders.js).
   checkAndPublishScheduledPosts,
   isEligible,
-  isDue
+  isDue,
+  // Exportados pra routes/socialPosts.js poder publicar NA HORA quando
+  // alguém marca "Publicado" manualmente num post que a Papoi sabe
+  // publicar sozinha (11ª melhoria -- ver comentário completo no PUT /:id
+  // de routes/socialPosts.js sobre o bug que isso corrige).
+  isMetaAutoPublishSupported,
+  publishOne,
+  findConnectedAccount
 };

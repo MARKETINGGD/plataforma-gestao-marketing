@@ -9,6 +9,7 @@ const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { cascadeCompleteDemandas } = require('../utils/demandCascade');
 const { createAutoRecado } = require('./recados');
+const metaPublisher = require('../utils/metaPublisher');
 
 const router = express.Router();
 
@@ -363,7 +364,7 @@ router.post('/', requireAuth, (req, res) => {
   res.json({ post: serialize(post) });
 });
 
-router.put('/:id', requireAuth, (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
   const previousInvolvedIds = post.involvedUserIds || [];
@@ -403,7 +404,60 @@ router.put('/:id', requireAuth, (req, res) => {
   if (scriptText !== undefined) updates.scriptText = scriptText;
   if (scriptLink !== undefined) updates.scriptLink = scriptLink;
   clearFailedPublishIfContentChanged(post, updates);
-  db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
+
+  // 11ª melhoria (24/09/2026, pedido/bug achado ao vivo pela Raquel: "Testei
+  // storie e ele não foi postado. Coloquei para publicar e ele n publicou.")
+  // -- ANTES desta correção, marcar "Publicado" na mão numa rede/tipo que a
+  // Papoi já sabe publicar sozinha (Instagram/Facebook, Estático/Carrossel/
+  // Reels/Storie) só trocava o rótulo `status` pra 'publicado' e completava
+  // as demandas ligadas -- NUNCA chamava a Meta de verdade (isso só
+  // acontece em publishOne, disparado pelo ciclo automático de 2 em 2
+  // minutos em checkAndPublishScheduledPosts, que é uma coisa TOTALMENTE
+  // separada do campo `status` que a pessoa mexe na tela). Resultado: a
+  // tela confirmava "Publicado" (e fechava as demandas) sem nada ter saído
+  // no Instagram, e sem NENHUM erro aparecer -- exatamente o que ela
+  // relatou. Agora, quando alguém marca "Publicado" na mão numa combinação
+  // que a Papoi publica sozinha e que ainda não foi publicada de verdade
+  // (publishStatus não é 'published'/'publishing'), a Papoi tenta publicar
+  // DE VERDADE na hora (mesma função usada pelo ciclo automático,
+  // publishOne) -- o rótulo só vira "Publicado" se realmente publicou, e
+  // se falhar a pessoa vê o erro na hora (em vez de ficar demandas fechadas
+  // e nada no ar). Pra qualquer outra rede/tipo (TikTok, YouTube, Facebook
+  // Reels/Carrossel/Storie, etc.) nada muda -- continua sendo só uma
+  // confirmação manual, como sempre foi.
+  const effectivePostForMeta = {
+    platform: updates.platform !== undefined ? updates.platform : post.platform,
+    postType: updates.postType !== undefined ? updates.postType : post.postType,
+    brand: updates.brand !== undefined ? updates.brand : post.brand
+  };
+  const wantsMarkPublished = updates.status === 'publicado' && previousStatus !== 'publicado';
+  const alreadyHandledByMeta = post.publishStatus === 'published' || post.publishStatus === 'publishing';
+  const shouldPublishNow = wantsMarkPublished && !alreadyHandledByMeta && metaPublisher.isMetaAutoPublishSupported(effectivePostForMeta);
+
+  let publishedJustNow = false;
+  if (shouldPublishNow) {
+    const account = metaPublisher.findConnectedAccount(effectivePostForMeta.brand);
+    if (!account) {
+      const brandLabel = BRAND_LABEL_PT[effectivePostForMeta.brand] || effectivePostForMeta.brand;
+      return res.status(422).json({ error: `Não tem conta do Instagram/Facebook conectada pra ${brandLabel} -- conecte em Integrações antes de marcar como publicado.` });
+    }
+    // O status final vem do RESULTADO REAL da publicação (publishOne já
+    // decide 'publicado' ou deixa em 'failed' sozinho) -- por isso grava
+    // todo o resto do formulário, menos o `status` em si, antes de tentar.
+    const { status: _pendingStatus, ...updatesWithoutStatus } = updates;
+    db.get('socialPosts').find({ id: req.params.id }).assign(updatesWithoutStatus).write();
+    const toPublish = db.get('socialPosts').find({ id: req.params.id }).value();
+    await metaPublisher.publishOne(toPublish);
+    const afterPublish = db.get('socialPosts').find({ id: req.params.id }).value();
+    if (afterPublish.publishStatus !== 'published') {
+      return res.status(422).json({ error: afterPublish.publishError || 'Não consegui publicar agora -- confira se a conta ainda está conectada e tente de novo em instantes.' });
+    }
+    publishedJustNow = true;
+    updates.status = afterPublish.status;
+  } else {
+    db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
+  }
+
   const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
   if (updates.involvedUserIds !== undefined) {
     const newIds = updates.involvedUserIds.filter((id) => !previousInvolvedIds.includes(id));
@@ -413,8 +467,10 @@ router.put('/:id', requireAuth, (req, res) => {
   // todas as demandas que ele criou (uma por pessoa marcada como
   // envolvida) — pedido da Raquel, mesma lógica usada quando alguém
   // conclui manualmente a demanda de uma dessas pessoas (ver
-  // routes/demandas.js).
-  if (updates.status === 'publicado' && previousStatus !== 'publicado') {
+  // routes/demandas.js). Quando `publishedJustNow` é true, publishOne já
+  // fez isso sozinho (11ª melhoria) -- não repete aqui pra não rodar a
+  // cascata 2x.
+  if (!publishedJustNow && updates.status === 'publicado' && previousStatus !== 'publicado') {
     cascadeCompleteDemandas(fresh.id, null, req);
   }
   // 36ª rodada: se esse agendamento nasceu de uma ação da planilha de

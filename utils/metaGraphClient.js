@@ -184,7 +184,7 @@ async function createInstagramCarouselContainer({ igUserId, pageAccessToken, chi
 // que o próprio app do Instagram usa por padrão ao publicar um Reels
 // normal -- aparece tanto na aba Reels quanto no Feed, não só numa das
 // duas.
-async function createInstagramReelsContainer({ igUserId, pageAccessToken, videoUrl, caption }) {
+async function createInstagramReelsContainer({ igUserId, pageAccessToken, videoUrl, caption, coverUrl }) {
   const qs = new URLSearchParams({
     media_type: 'REELS',
     video_url: videoUrl,
@@ -192,6 +192,14 @@ async function createInstagramReelsContainer({ igUserId, pageAccessToken, videoU
     share_to_feed: 'true',
     access_token: pageAccessToken
   });
+  // Capa customizada (11ª melhoria, pedido da Raquel: "preciso que a capa
+  // do reels seja publicada tbm") -- `cover_url` é o parâmetro documentado
+  // pela própria Meta pra Reels (imagem que aparece na aba Reels/no Feed
+  // antes de dar play), confirmado na referência oficial da Graph API
+  // (POST /{ig-user-id}/media). Só manda quando a pessoa de fato subiu uma
+  // capa pro post -- sem isso, a Meta usa o frame 0 do vídeo por padrão
+  // (thumb_offset, que a gente não mexe).
+  if (coverUrl) qs.set('cover_url', coverUrl);
   return graphFetch(`/${igUserId}/media?${qs.toString()}`, { method: 'POST' });
 }
 

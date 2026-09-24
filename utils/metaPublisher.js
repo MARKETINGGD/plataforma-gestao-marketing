@@ -5,20 +5,18 @@
 // sozinho no servidor, já que publicar "no horário certo" não é algo que
 // reage a uma ação de alguém.
 //
-// Escopo (deliberadamente restrito, pra sair do zero pro ar rápido): publica
-// post ESTÁTICO (1 imagem) no Instagram ou Facebook, e CARROSSEL (2 a 10
-// imagens) só no Instagram (8ª correção, 23/09/2026 — depois do Estático
-// funcionar de verdade nas 2 marcas, a Raquel pediu Carrossel como próximo
-// passo), pra marca com conta Meta conectada (De Bacco/GhelPlus, ver
-// routes/socialAccounts.js). Reels e vídeo (TikTok/YouTube) NÃO são
-// publicados sozinhos ainda — continuam 100% manuais, como sempre foram --
-// a Graph API exige upload de arquivo de vídeo (não só apontar uma URL) e um
-// processamento bem mais demorado, fica registrado como próxima etapa (ver
-// PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md). Carrossel no Facebook (mecanismo
-// de "múltiplas fotos" é diferente do Instagram — publica fotos avulsas
-// primeiro, depois um post referenciando todas) também fica de fora por
-// enquanto, mesmo motivo de escopo.
+// Escopo (deliberadamente restrito, pra sair do zero pro ar rápido, e
+// crescido aos poucos a pedido da Raquel): publica post ESTÁTICO (1
+// imagem) no Instagram ou Facebook, CARROSSEL (2 a 10 imagens, 8ª
+// correção) e REELS (1 vídeo, 9ª melhoria) só no Instagram, pra marca com
+// conta Meta conectada (De Bacco/GhelPlus, ver routes/socialAccounts.js).
+// Vídeo do TikTok/YouTube (plataformas diferentes, nem são Meta) continua
+// 100% manual, como sempre foi. Carrossel e Reels no Facebook (mecanismos
+// diferentes do Instagram nos dois casos) ficam de fora por enquanto,
+// mesmo motivo de escopo -- ver PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md
+// pro histórico completo de cada rodada.
 
+const path = require('path');
 const db = require('../db');
 const { nowSaoPaulo } = require('./pontoReminders');
 const { createAutoRecado } = require('../routes/recados');
@@ -26,14 +24,20 @@ const metaGraph = require('./metaGraphClient');
 
 const CHECK_INTERVAL_MS = 2 * 60 * 1000; // a cada 2 minutos
 const AUTO_PUBLISH_PLATFORMS = ['instagram', 'facebook'];
-const AUTO_PUBLISH_POST_TYPES = ['estatico', 'carrossel'];
-// Carrossel só no Instagram por enquanto (ver comentário do topo do arquivo).
+const AUTO_PUBLISH_POST_TYPES = ['estatico', 'carrossel', 'reels'];
+// Carrossel e Reels só no Instagram por enquanto (ver comentário do topo
+// do arquivo).
 const CAROUSEL_PLATFORMS = ['instagram'];
+const REELS_PLATFORMS = ['instagram'];
 // Limite de imagens por carrossel exigido pela própria Meta (não é uma
 // escolha nossa) -- publicar com menos de 2 ou mais de 10 é rejeitado pela
 // Graph API, então valida aqui ANTES de gastar uma chamada de verdade.
 const CAROUSEL_MIN_ITEMS = 2;
 const CAROUSEL_MAX_ITEMS = 10;
+// Extensões aceitas pro vídeo de um Reels -- MP4 e MOV são os formatos que
+// a própria Meta documenta como suportados; valida ANTES de gastar uma
+// chamada de verdade na Graph API, mesmo espírito do limite do Carrossel.
+const REELS_VIDEO_EXTENSIONS = ['.mp4', '.mov'];
 const META_BRANDS = ['debacco', 'ghelplus'];
 const APP_BASE_URL = (process.env.PAPOI_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
@@ -53,12 +57,13 @@ function isDue(post) {
 // nenhuma tentativa (publishStatus null — 'failed' fica de fora até alguém
 // editar algo, ver clearFailedPublishIfContentChanged em
 // routes/socialPosts.js; 'published'/'publishing' obviamente também ficam
-// de fora); (b) é Instagram ou Facebook; (c) é post Estático ou Carrossel
-// (ver limitação de escopo no comentário do topo) — Carrossel só entra se
-// for Instagram, Facebook fica de fora; (d) tem legenda e pelo menos 1
-// arquivo (a quantidade EXATA de imagens do Carrossel — 2 a 10 — só é
-// validada na hora de publicar, em attemptPublish, pra dar um erro claro
-// em vez de deixar o post parado pra sempre sem nenhum aviso); (e) já
+// de fora); (b) é Instagram ou Facebook; (c) é post Estático, Carrossel ou
+// Reels (ver limitação de escopo no comentário do topo) — Carrossel e
+// Reels só entram se for Instagram, Facebook fica de fora nesses 2 casos;
+// (d) tem legenda e pelo menos 1 arquivo (a quantidade EXATA de imagens do
+// Carrossel — 2 a 10 — e se o arquivo do Reels realmente parece um vídeo
+// só são validados na hora de publicar, em attemptPublish, pra dar um erro
+// claro em vez de deixar o post parado pra sempre sem nenhum aviso); (e) já
 // chegou a data/hora agendada; (f) a marca do post tem conta Meta
 // conectada.
 function isEligible(post) {
@@ -66,6 +71,7 @@ function isEligible(post) {
   if (!AUTO_PUBLISH_PLATFORMS.includes(post.platform)) return false;
   if (!AUTO_PUBLISH_POST_TYPES.includes(post.postType)) return false;
   if (post.postType === 'carrossel' && !CAROUSEL_PLATFORMS.includes(post.platform)) return false;
+  if (post.postType === 'reels' && !REELS_PLATFORMS.includes(post.platform)) return false;
   if (!META_BRANDS.includes(post.brand)) return false;
   if (!post.caption || !post.caption.trim()) return false;
   if (!(post.files || []).length) return false;
@@ -123,10 +129,57 @@ async function publishInstagramCarousel(post, account) {
   return published.id;
 }
 
+// Reels (9ª melhoria): bem mais simples que Carrossel na montagem (1
+// chamada só pra criar o container, depois publica) -- a diferença de
+// verdade é o TEMPO de processamento do vídeo, bem maior que 1 imagem só,
+// por isso usa as constantes de espera de VÍDEO (bem maiores que as
+// padrão) em vez das de imagem. Ver comentário completo em
+// utils/metaGraphClient.js.
+function isVideoFile(file) {
+  const ext = path.extname((file && (file.url || file.name)) || '').toLowerCase();
+  return REELS_VIDEO_EXTENSIONS.includes(ext);
+}
+
+async function publishInstagramReels(post, account) {
+  const files = post.files || [];
+  if (files.length !== 1) {
+    throw new metaGraph.MetaGraphError(
+      `Reels precisa de exatamente 1 vídeo pra publicar -- esse post tem ${files.length} arquivo(s). Ajuste o criativo e edite o agendamento pra tentar de novo.`
+    );
+  }
+  const file = files[0];
+  if (!isVideoFile(file)) {
+    throw new metaGraph.MetaGraphError(
+      `O arquivo desse Reels não parece ser um vídeo (${file.name || file.url || 'sem nome'}) -- formatos aceitos: MP4 ou MOV. Confirme o criativo e edite o agendamento pra tentar de novo.`
+    );
+  }
+  const videoUrl = `${APP_BASE_URL}${file.url}`;
+  const container = await metaGraph.createInstagramReelsContainer({
+    igUserId: account.igUserId,
+    pageAccessToken: account.pageAccessToken,
+    videoUrl,
+    caption: post.caption
+  });
+  await metaGraph.waitForMediaContainerReady({
+    containerId: container.id,
+    pageAccessToken: account.pageAccessToken,
+    pollIntervalMs: metaGraph.VIDEO_CONTAINER_POLL_INTERVAL_MS,
+    timeoutMs: metaGraph.VIDEO_CONTAINER_POLL_TIMEOUT_MS
+  });
+  const published = await metaGraph.publishInstagramMediaContainer({
+    igUserId: account.igUserId,
+    pageAccessToken: account.pageAccessToken,
+    creationId: container.id
+  });
+  return published.id;
+}
+
 async function attemptPublish(post, account) {
   const imageUrl = `${APP_BASE_URL}${post.files[0].url}`;
   let externalPostId;
-  if (post.platform === 'instagram' && post.postType === 'carrossel') {
+  if (post.platform === 'instagram' && post.postType === 'reels') {
+    externalPostId = await publishInstagramReels(post, account);
+  } else if (post.platform === 'instagram' && post.postType === 'carrossel') {
     externalPostId = await publishInstagramCarousel(post, account);
   } else if (post.platform === 'instagram') {
     const container = await metaGraph.createInstagramMediaContainer({

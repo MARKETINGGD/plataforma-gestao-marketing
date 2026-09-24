@@ -110,29 +110,37 @@ async function publishInstagramMediaContainer({ igUserId, pageAccessToken, creat
 // genérico.
 const CONTAINER_POLL_INTERVAL_MS = 2000;
 const CONTAINER_POLL_TIMEOUT_MS = 60000; // 1 minuto (Meta recomenda checar no máximo por ~5 min, mas o publicador roda a cada 2 min -- 1 min de espera aqui é suficiente pra maioria dos casos sem travar a fila)
+// Vídeo (Reels, 9ª correção/melhoria, 23/09/2026) demora BEM mais que
+// imagem pra processar -- a própria Meta recomenda checar por até uns 5
+// minutos nesse caso (ver comentário de createInstagramReelsContainer
+// mais abaixo).
+const VIDEO_CONTAINER_POLL_INTERVAL_MS = 5000;
+const VIDEO_CONTAINER_POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos
 
 async function getMediaContainerStatus({ containerId, pageAccessToken }) {
   const qs = new URLSearchParams({ fields: 'status_code,status', access_token: pageAccessToken });
   return graphFetch(`/${containerId}?${qs.toString()}`);
 }
 
-async function waitForMediaContainerReady({ containerId, pageAccessToken }) {
-  const deadline = Date.now() + CONTAINER_POLL_TIMEOUT_MS;
+// `pollIntervalMs`/`timeoutMs` são configuráveis pra dar mais tempo a vídeo
+// (Reels) do que a uma imagem só -- ver as constantes de vídeo acima.
+async function waitForMediaContainerReady({ containerId, pageAccessToken, pollIntervalMs = CONTAINER_POLL_INTERVAL_MS, timeoutMs = CONTAINER_POLL_TIMEOUT_MS }) {
+  const deadline = Date.now() + timeoutMs;
   let lastStatus = null;
   for (;;) {
     const body = await getMediaContainerStatus({ containerId, pageAccessToken });
     lastStatus = body.status_code;
     if (lastStatus === 'FINISHED') return;
     if (lastStatus === 'ERROR') {
-      throw new MetaGraphError(`A Meta não conseguiu processar a imagem (container deu erro)${body.status ? ' -- ' + body.status : ''}. Confirme se o arquivo é uma foto JPEG/PNG válida.`, body);
+      throw new MetaGraphError(`A Meta não conseguiu processar o arquivo (container deu erro)${body.status ? ' -- ' + body.status : ''}. Confirme se é um arquivo válido (foto JPEG/PNG ou vídeo MP4/MOV).`, body);
     }
     if (lastStatus === 'EXPIRED') {
       throw new MetaGraphError('O container de mídia expirou antes de conseguir publicar -- tente de novo.', body);
     }
     if (Date.now() >= deadline) {
-      throw new MetaGraphError(`A Meta ainda estava processando a imagem depois de ${CONTAINER_POLL_TIMEOUT_MS / 1000}s (status: ${lastStatus || 'desconhecido'}) -- tente de novo em alguns minutos.`, body);
+      throw new MetaGraphError(`A Meta ainda estava processando o arquivo depois de ${Math.round(timeoutMs / 1000)}s (status: ${lastStatus || 'desconhecido'}) -- tente de novo em alguns minutos.`, body);
     }
-    await new Promise((resolve) => setTimeout(resolve, CONTAINER_POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 }
 
@@ -156,6 +164,32 @@ async function createInstagramCarouselContainer({ igUserId, pageAccessToken, chi
     media_type: 'CAROUSEL',
     children: childrenIds.join(','),
     caption: caption || '',
+    access_token: pageAccessToken
+  });
+  return graphFetch(`/${igUserId}/media?${qs.toString()}`, { method: 'POST' });
+}
+
+// Reels do Instagram (9ª correção/melhoria, 23/09/2026 — pedido da Raquel
+// logo depois do Carrossel: "agora o reels"). Bem mais simples que
+// Carrossel na montagem (1 chamada só, `media_type: 'REELS'` +
+// `video_url` apontando pro arquivo de vídeo já hospedado na própria
+// Papoi, igual o publicador já faz pra imagem) -- a diferença de verdade
+// é o TEMPO: a Meta baixa e processa (transcodifica) o vídeo em segundo
+// plano, o que demora bem mais que uma imagem (a própria documentação
+// recomenda checar por até uns 5 minutos, contra os ~1 minuto que basta
+// pra imagem) -- por isso o publicador usa
+// VIDEO_CONTAINER_POLL_INTERVAL_MS/VIDEO_CONTAINER_POLL_TIMEOUT_MS (bem
+// maiores que os de imagem) ao chamar `waitForMediaContainerReady` pra
+// um Reels, em vez dos padrões. `share_to_feed: true` é a mesma escolha
+// que o próprio app do Instagram usa por padrão ao publicar um Reels
+// normal -- aparece tanto na aba Reels quanto no Feed, não só numa das
+// duas.
+async function createInstagramReelsContainer({ igUserId, pageAccessToken, videoUrl, caption }) {
+  const qs = new URLSearchParams({
+    media_type: 'REELS',
+    video_url: videoUrl,
+    caption: caption || '',
+    share_to_feed: 'true',
     access_token: pageAccessToken
   });
   return graphFetch(`/${igUserId}/media?${qs.toString()}`, { method: 'POST' });
@@ -190,8 +224,11 @@ module.exports = {
   createInstagramMediaContainer,
   createInstagramCarouselChildContainer,
   createInstagramCarouselContainer,
+  createInstagramReelsContainer,
   getMediaContainerStatus,
   waitForMediaContainerReady,
+  VIDEO_CONTAINER_POLL_INTERVAL_MS,
+  VIDEO_CONTAINER_POLL_TIMEOUT_MS,
   publishInstagramMediaContainer,
   publishFacebookPagePost,
   getPermalink

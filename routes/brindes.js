@@ -4,6 +4,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName } = require('../utils/names');
+const shareLinks = require('../utils/shareLinks');
 
 const router = express.Router();
 
@@ -322,6 +323,36 @@ router.delete('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
   restoreCatalogStock(existing.catalogItemId, existing.estoqueDeduzido);
   db.get('brindesLog').remove({ id: req.params.id }).write();
+  res.json({ ok: true });
+});
+
+// ---------- link externo (66ª rodada, "Rodada H" da Pendência 51) ----------
+// Um link por marca, só do catálogo (não do Registro de Saídas, que tem
+// dado de retirada por representante) -- só "leitura" por enquanto (ver
+// utils/shareLinks.js).
+router.get('/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'brindes') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const items = db.get('brindesCatalog').value().filter((r) => r.brand === link.scopeKey).map(serializeCatalogItem);
+  res.json({ brand: link.scopeKey, items });
+});
+
+router.get('/public-link', requireAuth, requireBrindesEdit, (req, res) => {
+  const { brand } = req.query;
+  const link = shareLinks.getLink('brindes', brand);
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/public-link/generate', requireAuth, requireBrindesEdit, (req, res) => {
+  const { brand } = req.body || {};
+  if (!brand) return res.status(400).json({ error: 'Escolha a marca.' });
+  const token = shareLinks.generateLink('brindes', brand, req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/public-link', requireAuth, requireBrindesEdit, (req, res) => {
+  const { brand } = req.query;
+  shareLinks.revokeLink('brindes', brand);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'revoke_public_link' });
   res.json({ ok: true });
 });
 

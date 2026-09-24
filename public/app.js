@@ -650,6 +650,68 @@
     window.print();
   }
 
+  // ---------- Link externo genérico (66ª rodada, "Rodada H" da
+  // Pendência 51, pedido da Raquel: "budget, feiras, expositores,
+  // brindes, campanha cooperada, devem gerar link externo") ----------
+  // Mesmo padrão visual/de fluxo já usado no link externo de Influencers
+  // (botão → painel com campo readonly + Copiar/Gerar novo/Desativar),
+  // só que reaproveitado por vários recursos em vez de copiado 4 vezes.
+  // `getKey()` devolve o "escopo" atual (marca ativa, ou "todos" nas
+  // telas que têm essa aba) -- cada recurso decide sozinho o que isso
+  // significa (ver GET .../public-link em cada routes/<recurso>.js).
+  // Só gera link de LEITURA por enquanto (ver utils/shareLinks.js).
+  function setupPublicLinkPanel({ prefix, apiBase, getKey, keyParamName }) {
+    const ids = {
+      btn: prefix + 'PublicLinkBtn', panel: prefix + 'PublicLinkPanel', active: prefix + 'PublicLinkActive',
+      field: prefix + 'PublicLinkField', gen: prefix + 'GenLinkBtn', regen: prefix + 'RegenLinkBtn',
+      revoke: prefix + 'RevokeLinkBtn', copy: prefix + 'CopyLinkBtn'
+    };
+    function setUI(pubToken) {
+      const active = !!pubToken;
+      $('#' + ids.active).hidden = !active;
+      $('#' + ids.gen).hidden = active;
+      if (active) $('#' + ids.field).value = `${window.location.origin}/?sharePublic=${pubToken}`;
+    }
+    async function refresh() {
+      try {
+        const key = getKey();
+        const qs = key ? `?${keyParamName}=${encodeURIComponent(key)}` : '';
+        const data = await api(apiBase + '/public-link' + qs);
+        setUI(data.publicToken);
+      } catch (e) { /* ignora falha pontual */ }
+    }
+    $('#' + ids.btn).onclick = async () => {
+      const panel = $('#' + ids.panel);
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) await refresh();
+    };
+    $('#' + ids.gen).onclick = $('#' + ids.regen).onclick = async () => {
+      try {
+        const key = getKey();
+        const data = await api(apiBase + '/public-link/generate', { method: 'POST', body: JSON.stringify({ [keyParamName]: key }) });
+        setUI(data.publicToken);
+      } catch (e) { alert(e.message); }
+    };
+    $('#' + ids.revoke).onclick = async () => {
+      if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir ver os dados.')) return;
+      try {
+        const key = getKey();
+        const qs = key ? `?${keyParamName}=${encodeURIComponent(key)}` : '';
+        await api(apiBase + '/public-link' + qs, { method: 'DELETE' });
+        setUI(null);
+      } catch (e) { alert(e.message); }
+    };
+    $('#' + ids.copy).onclick = () => {
+      const field = $('#' + ids.field);
+      field.select();
+      navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+    };
+  }
+  setupPublicLinkPanel({ prefix: 'budget', apiBase: '/api/budget', getKey: () => currentBudgetBrand, keyParamName: 'brand' });
+  setupPublicLinkPanel({ prefix: 'feiras', apiBase: '/api/feiras', getKey: () => feirasBrandFilter, keyParamName: 'key' });
+  setupPublicLinkPanel({ prefix: 'brindes', apiBase: '/api/brindes', getKey: () => (brindesTab === 'log' ? 'debacco' : brindesTab), keyParamName: 'brand' });
+  setupPublicLinkPanel({ prefix: 'campanhaCooperada', apiBase: '/api/campanha-cooperada', getKey: () => campanhaCooperadaBrandFilter, keyParamName: 'key' });
+
   async function api(path, opts = {}) {
     const headers = Object.assign({}, opts.headers || {});
     let body = opts.body;
@@ -733,7 +795,7 @@
   }
 
   function showScreen(name) {
-    ['loading', 'setup', 'login', 'app', 'influencer-public', 'influencer-group-public'].forEach((s) => {
+    ['loading', 'setup', 'login', 'app', 'influencer-public', 'influencer-group-public', 'share-public'].forEach((s) => {
       $('#screen-' + s).hidden = s !== name;
     });
   }
@@ -866,6 +928,76 @@
     }
   }
 
+  // Link externo genérico (66ª rodada, "Rodada H" da Pendência 51) —
+  // mesmo espírito dos links acima, só que cobre vários recursos
+  // (Budget/Feiras/Brindes/Campanha Cooperada) numa página só. Primeiro
+  // pergunta ao resolvedor genérico (GET /api/share-links/resolve/:token)
+  // de qual recurso é esse token, depois busca os dados de verdade no
+  // endpoint público daquele recurso específico (cada um serializa do seu
+  // jeito). A tabela é montada na hora, já que cada recurso tem colunas
+  // diferentes.
+  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', campanhaCooperada: 'campanha-cooperada' };
+  function publicTableHtml(headers, rows) {
+    return `<table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
+      rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '' : c}</td>`).join('')}</tr>`).join('')
+    }</tbody></table>`;
+  }
+  function renderSharePublicContent(resource, label, data) {
+    const scopeLabel = data.brand ? (BRAND_LABEL[data.brand] || data.brand)
+      : (data.scope && data.scope !== 'todos' ? (BRAND_LABEL[data.scope] || data.scope) : (data.scope === 'todos' ? 'Todas as marcas' : ''));
+    $('#sharePublicTitle').textContent = label + (scopeLabel ? ' — ' + scopeLabel : '');
+    let html = '';
+    let empty = false;
+    if (resource === 'budget') {
+      const rows = (data.entries || []).map((e) => [
+        e.category, `${MONTHS[e.month - 1] || e.month}/${e.year}`, e.fornecedor || '', e.tituloCompra || '',
+        e.quantidade === null || e.quantidade === undefined ? '' : e.quantidade,
+        fmtMoney(e.planejado), fmtMoney(e.realizado), fmtMoney((Number(e.planejado) || 0) - (Number(e.realizado) || 0)), e.notes || ''
+      ]);
+      empty = rows.length === 0;
+      html = publicTableHtml(['Fluxo', 'Mês/Ano', 'Fornecedor', 'Título da compra', 'Qtd.', 'Planejado', 'Realizado', 'Diferença', 'Observações'], rows);
+    } else if (resource === 'feiras') {
+      const feiras = data.feiras || [];
+      empty = feiras.length === 0;
+      html = feiras.map((f) => {
+        const itemRows = (f.itens || []).map((it) => [it.nome, it.quantidade === null || it.quantidade === undefined ? '' : it.quantidade, it.fornecedor || '', fmtMoney(it.total)]);
+        return `<h3 style="margin:22px 0 8px;">${f.nome} ${f.ano} — ${BRAND_LABEL[f.brand] || f.brand} (${f.fluxo})</h3>` + publicTableHtml(['Item', 'Qtd.', 'Fornecedor', 'Total'], itemRows);
+      }).join('');
+    } else if (resource === 'brindes') {
+      const rows = (data.items || []).map((r) => [r.code || '', r.item, r.multiplo || '', fmtMoney(r.valor), r.estoquePR, r.estoqueSP, r.estoquePE, r.estoqueTotal, r.status || '']);
+      empty = rows.length === 0;
+      html = publicTableHtml(['Código', 'Item', 'Múltiplo', 'Valor', 'Estoque PR', 'Estoque SP', 'Estoque PE', 'Total', 'Status'], rows);
+    } else if (resource === 'campanhaCooperada') {
+      const rows = (data.items || []).map((it) => [
+        BRAND_LABEL[it.brand] || it.brand, it.cliente, it.representante || '', it.produto || '', it.responsavelNome || '',
+        it.quantidade === null || it.quantidade === undefined ? '' : it.quantidade,
+        it.dataPedido ? fmtDate(it.dataPedido) : '', it.dataEntrega ? fmtDate(it.dataEntrega) : '',
+        it.aprovado ? 'Sim' : 'Não', it.cobrancaEnviada ? 'Sim' : 'Não', it.finalizado ? 'Sim' : 'Não'
+      ]);
+      empty = rows.length === 0;
+      html = publicTableHtml(['Marca', 'Cliente', 'Representante', 'Produto', 'Gerente responsável', 'Qtd.', 'Data pedido', 'Data entrega', 'Aprovado', 'Cobrança', 'Finalizado'], rows);
+    }
+    $('#sharePublicContent').innerHTML = html;
+    $('#sharePublicEmpty').hidden = !empty;
+  }
+  async function loadSharePublicPage(shareToken) {
+    try {
+      const resolveRes = await fetch('/api/share-links/resolve/' + encodeURIComponent(shareToken));
+      const resolveBody = await resolveRes.json();
+      if (!resolveRes.ok) throw new Error(resolveBody.error || 'Link inválido ou desativado.');
+      const apiPath = SHARE_RESOURCE_API_PATH[resolveBody.resource];
+      const dataRes = await fetch(`/api/${apiPath}/public/${encodeURIComponent(shareToken)}`);
+      const dataBody = await dataRes.json();
+      if (!dataRes.ok) throw new Error(dataBody.error || 'Link inválido ou desativado.');
+      renderSharePublicContent(resolveBody.resource, resolveBody.resourceLabel, dataBody);
+      showScreen('share-public');
+    } catch (e) {
+      $('#sharePublicError').textContent = e.message || 'Link inválido ou desativado.';
+      $('#sharePublicError').hidden = false;
+      showScreen('share-public');
+    }
+  }
+
   // Link externo por dashboard (28ª rodada) — mesmo espírito do link do
   // influencer, mas pro hub inteiro de Mídias ou Tráfego. Resolve o token
   // (GET /api/dashboards/public/:token, sem login), reaproveita a MESMA tela
@@ -920,6 +1052,14 @@
     if (dashPubToken) {
       showScreen('loading');
       await startDashboardPublicMode(dashPubToken);
+      return;
+    }
+    // Link externo genérico (66ª rodada) — Budget/Feiras/Brindes/Campanha
+    // Cooperada, mesma ideia de novo.
+    const sharePubToken = new URLSearchParams(window.location.search).get('sharePublic');
+    if (sharePubToken) {
+      showScreen('loading');
+      await loadSharePublicPage(sharePubToken);
       return;
     }
     if (token) {

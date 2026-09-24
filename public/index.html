@@ -80,6 +80,23 @@
   <p id="pubInfGroupError" class="error" hidden>Link inválido ou desativado.</p>
 </div>
 
+<!-- Link externo genérico (66ª rodada, "Rodada H" da Pendência 51,
+     pedido da Raquel: "budget, feiras, expositores, brindes, campanha
+     cooperada, devem gerar link externo") -- página pública, somente
+     leitura, sem exigir login (acessada com ?sharePublic=TOKEN). A
+     tabela é montada dinamicamente em JS (cada recurso tem colunas
+     diferentes), por isso não tem <thead>/<tbody> fixos aqui. -->
+<div id="screen-share-public" class="screen" hidden style="padding:32px;max-width:1100px;margin:0 auto;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+    <img src="/img/papoi-logo.png" alt="Papoi" style="width:100px;height:auto;">
+  </div>
+  <h2 id="sharePublicTitle" style="margin:18px 0 2px;"></h2>
+  <p class="muted" style="margin:0 0 18px;">Link externo — somente leitura.</p>
+  <div id="sharePublicContent"></div>
+  <p id="sharePublicEmpty" class="muted" hidden>Nenhum dado nesse link ainda.</p>
+  <p id="sharePublicError" class="error" hidden>Link inválido ou desativado.</p>
+</div>
+
 <div id="screen-setup" class="screen center" hidden>
   <div class="auth-card">
     <h1>Seja bem-vindo(a) ao Papoi</h1>
@@ -977,6 +994,23 @@
           <button id="budgetNewBtn" class="btn-primary" hidden>+ Novo lançamento</button>
           <button id="budgetExportExcelBtn" class="btn-secondary no-print" type="button">⬇️ Exportar Excel</button>
           <button id="budgetExportPdfBtn" class="btn-secondary no-print" type="button">🖨️ Exportar PDF</button>
+          <button id="budgetPublicLinkBtn" class="btn-secondary no-print" type="button">🔗 Link externo</button>
+        </div>
+
+        <!-- 66ª rodada, "Rodada H" da Pendência 51: link externo (só
+             leitura por enquanto), 1 por marca -- mesmo padrão já usado
+             no link externo de Influencers. -->
+        <div id="budgetPublicLinkPanel" class="form-card no-print" hidden>
+          <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver o Budget desta marca, somente leitura, mesmo sem estar logada na plataforma.</p>
+          <div id="budgetPublicLinkActive" hidden>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" id="budgetPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+              <button class="btn-secondary" id="budgetCopyLinkBtn" type="button">Copiar link</button>
+              <button class="btn-secondary" id="budgetRegenLinkBtn" type="button">Gerar novo link</button>
+              <button class="btn-secondary danger" id="budgetRevokeLinkBtn" type="button">Desativar</button>
+            </div>
+          </div>
+          <button class="btn-primary" id="budgetGenLinkBtn" type="button">Gerar link externo</button>
         </div>
 
         <div class="summary-cards">
@@ -1096,6 +1130,22 @@
 
         <div class="toolbar">
           <button class="btn-primary" id="feiraNewBtn" hidden>+ Nova feira</button>
+          <button id="feirasPublicLinkBtn" class="btn-secondary no-print" type="button">🔗 Link externo</button>
+        </div>
+
+        <!-- 66ª rodada, "Rodada H" da Pendência 51: link externo (só
+             leitura por enquanto), 1 por marca ativa (ou "todas"). -->
+        <div id="feirasPublicLinkPanel" class="form-card no-print" hidden>
+          <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver as feiras desta marca (ou de todas, se essa for a aba ativa), somente leitura, mesmo sem estar logada na plataforma.</p>
+          <div id="feirasPublicLinkActive" hidden>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" id="feirasPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+              <button class="btn-secondary" id="feirasCopyLinkBtn" type="button">Copiar link</button>
+              <button class="btn-secondary" id="feirasRegenLinkBtn" type="button">Gerar novo link</button>
+              <button class="btn-secondary danger" id="feirasRevokeLinkBtn" type="button">Desativar</button>
+            </div>
+          </div>
+          <button class="btn-primary" id="feirasGenLinkBtn" type="button">Gerar link externo</button>
         </div>
 
         <div id="feiraFormWrap" class="form-card" hidden>
@@ -1160,6 +1210,22 @@
             <button class="btn-primary" id="brindesCatalogNewBtn">+ Novo item</button>
             <button class="btn-secondary no-print" id="brindesExportExcelBtn" type="button">⬇️ Exportar Excel</button>
             <button class="btn-secondary no-print" id="brindesExportPdfBtn" type="button">🖨️ Exportar PDF</button>
+            <button class="btn-secondary no-print" id="brindesPublicLinkBtn" type="button">🔗 Link externo</button>
+          </div>
+
+          <!-- 66ª rodada, "Rodada H" da Pendência 51: link externo (só
+               leitura por enquanto), 1 por marca. -->
+          <div id="brindesPublicLinkPanel" class="form-card no-print" hidden>
+            <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver o catálogo desta marca, somente leitura, mesmo sem estar logada na plataforma.</p>
+            <div id="brindesPublicLinkActive" hidden>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="brindesPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                <button class="btn-secondary" id="brindesCopyLinkBtn" type="button">Copiar link</button>
+                <button class="btn-secondary" id="brindesRegenLinkBtn" type="button">Gerar novo link</button>
+                <button class="btn-secondary danger" id="brindesRevokeLinkBtn" type="button">Desativar</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="brindesGenLinkBtn" type="button">Gerar link externo</button>
           </div>
 
           <!-- 35ª rodada: card inline no formato do Budget, no lugar da
@@ -1302,6 +1368,22 @@
           <button class="btn-primary" id="campanhaCooperadaNewBtn">+ Nova campanha cooperada</button>
           <button class="btn-secondary no-print" id="campanhaCooperadaExportExcelBtn" type="button">⬇️ Exportar Excel</button>
           <button class="btn-secondary no-print" id="campanhaCooperadaExportPdfBtn" type="button">🖨️ Exportar PDF</button>
+          <button class="btn-secondary no-print" id="campanhaCooperadaPublicLinkBtn" type="button">🔗 Link externo</button>
+        </div>
+
+        <!-- 66ª rodada, "Rodada H" da Pendência 51: link externo (só
+             leitura por enquanto), 1 por marca ativa (ou "todas"). -->
+        <div id="campanhaCooperadaPublicLinkPanel" class="form-card no-print" hidden>
+          <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver as campanhas cooperadas desta marca (ou de todas, se essa for a aba ativa), somente leitura, mesmo sem estar logada na plataforma.</p>
+          <div id="campanhaCooperadaPublicLinkActive" hidden>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" id="campanhaCooperadaPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+              <button class="btn-secondary" id="campanhaCooperadaCopyLinkBtn" type="button">Copiar link</button>
+              <button class="btn-secondary" id="campanhaCooperadaRegenLinkBtn" type="button">Gerar novo link</button>
+              <button class="btn-secondary danger" id="campanhaCooperadaRevokeLinkBtn" type="button">Desativar</button>
+            </div>
+          </div>
+          <button class="btn-primary" id="campanhaCooperadaGenLinkBtn" type="button">Gerar link externo</button>
         </div>
 
         <div id="campanhaCooperadaFormWrap" class="form-card" hidden>

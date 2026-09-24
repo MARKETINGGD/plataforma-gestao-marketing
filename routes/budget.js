@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName } = require('../utils/names');
 const { notifyAcoesSazonais } = require('../utils/acoesSazonaisSync');
+const shareLinks = require('../utils/shareLinks');
 
 const router = express.Router();
 
@@ -118,6 +119,43 @@ router.get('/', requireAuth, requireBudgetView, (req, res) => {
   // Nome resolvido ao vivo (20ª rodada) — ver utils/names.js.
   entries = entries.map((e) => Object.assign({}, e, { updatedBy: resolveUserName(e.updatedById, e.updatedBy) }));
   res.json({ entries });
+});
+
+// ---------- link externo (66ª rodada, "Rodada H" da Pendência 51) ----------
+// Um link por marca -- só o tipo "leitura" por enquanto (ver comentário
+// no topo de utils/shareLinks.js sobre a parte de edição). Rota pública
+// SEM requireAuth, igual ao mesmo padrão já usado em Influencers/
+// Dashboards. **Precisa ficar ANTES de "PUT/DELETE /:id" abaixo** --
+// senão "/public-link" seria capturado por "/:id" (com id="public-link")
+// primeiro, já que o Express tenta as rotas na ordem em que foram
+// registradas (bug real encontrado testando esta rodada: `DELETE
+// /public-link` batia em `DELETE /:id` e devolvia "Lançamento não
+// encontrado" em vez de revogar o link).
+router.get('/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'budget') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const entries = db.get('budgetEntries').value()
+    .filter((e) => e.brand === link.scopeKey)
+    .map((e) => Object.assign({}, e, { updatedBy: resolveUserName(e.updatedById, e.updatedBy) }));
+  res.json({ brand: link.scopeKey, entries });
+});
+router.get('/public-link', requireAuth, requireBudgetEdit, (req, res) => {
+  const { brand } = req.query;
+  const link = shareLinks.getLink('budget', brand);
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/public-link/generate', requireAuth, requireBudgetEdit, (req, res) => {
+  const { brand } = req.body || {};
+  if (!brand) return res.status(400).json({ error: 'Escolha a marca.' });
+  const token = shareLinks.generateLink('budget', brand, req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'budget:' + brand, entityLabel: 'Budget · ' + brand, action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/public-link', requireAuth, requireBudgetEdit, (req, res) => {
+  const { brand } = req.query;
+  shareLinks.revokeLink('budget', brand);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'budget:' + brand, entityLabel: 'Budget · ' + brand, action: 'revoke_public_link' });
+  res.json({ ok: true });
 });
 
 router.post('/', requireAuth, requireBudgetEdit, (req, res) => {

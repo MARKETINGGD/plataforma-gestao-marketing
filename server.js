@@ -34,6 +34,11 @@ app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/chat', require('./routes/chat'));
 // Campanha Cooperada (43ª rodada) — ver routes/campanhaCooperada.js.
 app.use('/api/campanha-cooperada', require('./routes/campanhaCooperada'));
+// Link externo genérico (66ª rodada) — só o resolvedor "de qual recurso é
+// esse token" mora aqui; cada recurso mantém seu próprio GET /public/:token
+// com os dados de verdade (ver routes/budget.js, feiras.js, brindes.js,
+// campanhaCooperada.js).
+app.use('/api/share-links', require('./routes/shareLinksPublic'));
 
 // Importação automática (só roda uma vez) do orçamento 2026 real da
 // GhelPlus e da De Bacco, vindo das planilhas oficiais — agora linha a

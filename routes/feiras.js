@@ -6,6 +6,7 @@ const { logAudit } = require('../utils/audit');
 const { resolveUserName } = require('../utils/names');
 const budgetRouter = require('./budget');
 const { notifyAcoesSazonais } = require('../utils/acoesSazonaisSync');
+const shareLinks = require('../utils/shareLinks');
 
 const router = express.Router();
 
@@ -137,6 +138,41 @@ router.get('/', requireAuth, requireFeirasView, (req, res) => {
   if (brand) list = list.filter((f) => f.brand === brand);
   if (ano) list = list.filter((f) => String(f.ano) === String(ano));
   res.json({ feiras: list.map(serializeFeira) });
+});
+
+// ---------- link externo (66ª rodada, "Rodada H" da Pendência 51) ----------
+// Um link por marca -- só "leitura" por enquanto (ver utils/shareLinks.js).
+// Mesmas 3 chaves já usadas na tela ('todos'/'debacco'/'ghelplus').
+// **Precisa ficar ANTES de "GET /:id" abaixo** -- senão "/public-link"
+// seria capturado por "/:id" (com id="public-link") primeiro, já que o
+// Express tenta as rotas na ordem em que foram registradas (mesmo bug
+// real encontrado e corrigido em routes/budget.js nesta mesma rodada).
+function validFeirasShareKey(k) {
+  return ['todos', 'debacco', 'ghelplus'].includes(k) ? k : 'todos';
+}
+router.get('/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'feiras') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  let list = db.get('feiras').value();
+  if (link.scopeKey !== 'todos') list = list.filter((f) => f.brand === link.scopeKey);
+  res.json({ scope: link.scopeKey, feiras: list.map(serializeFeira) });
+});
+router.get('/public-link', requireAuth, requireFeirasEdit, (req, res) => {
+  const key = validFeirasShareKey(req.query.key);
+  const link = shareLinks.getLink('feiras', key);
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/public-link/generate', requireAuth, requireFeirasEdit, (req, res) => {
+  const key = validFeirasShareKey((req.body || {}).key);
+  const token = shareLinks.generateLink('feiras', key, req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'feiras:' + key, entityLabel: 'Feiras · ' + key, action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/public-link', requireAuth, requireFeirasEdit, (req, res) => {
+  const key = validFeirasShareKey(req.query.key);
+  shareLinks.revokeLink('feiras', key);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'feiras:' + key, entityLabel: 'Feiras · ' + key, action: 'revoke_public_link' });
+  res.json({ ok: true });
 });
 
 router.get('/:id', requireAuth, requireFeirasView, (req, res) => {

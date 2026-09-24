@@ -88,6 +88,16 @@ db.defaults({
   // dashboardPublicLinks acima (coleção separada porque é outro recurso —
   // aqui é a tabela agregada de posts, não um dashboard SSO).
   influencerGroupLinks: [],
+  // Link externo por recurso (65ª... 66ª rodada, "Rodada H" da Pendência
+  // 51, pedido da Raquel: "budget, feiras, expositores, brindes, campanha
+  // cooperada, devem gerar link externo") -- mesmo espírito de
+  // dashboardPublicLinks/influencerGroupLinks acima, generalizado pra
+  // qualquer recurso: um registro por `resource`+`scopeKey` (upsert),
+  // `mode` guarda se é 'leitura' (implementado nesta rodada) ou 'edicao'
+  // (ver utils/shareLinks.js -- a parte de edição com sincronia de volta
+  // ainda depende de a Raquel confirmar o que cada recurso deve deixar
+  // editar de fora, por segurança).
+  shareLinks: [],
   // Contas de redes sociais conectadas de verdade (54ª rodada, pedido da
   // Raquel: "conectar o agendamento de redes sociais às apis de verdade").
   // Uma conta por marca+plataforma — hoje só 'meta' (Instagram+Facebook,

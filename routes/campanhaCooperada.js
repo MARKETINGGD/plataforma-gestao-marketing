@@ -7,6 +7,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName } = require('../utils/names');
+const shareLinks = require('../utils/shareLinks');
 
 const router = express.Router();
 
@@ -79,6 +80,40 @@ router.get('/', requireAuth, (req, res) => {
   if (brand && brand !== 'todos') rows = rows.filter((r) => r.brand === brand);
   rows = rows.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   res.json({ items: rows.map(serialize) });
+});
+
+// ---------- link externo (66ª rodada, "Rodada H" da Pendência 51) ----------
+// Mesmas 3 chaves já usadas na tela ('todos'/'debacco'/'ghelplus', igual
+// ao link agregado de Influencers da 51ª rodada) -- só "leitura" por
+// enquanto (ver utils/shareLinks.js). **Precisa ficar ANTES de
+// "PUT/DELETE /:id" abaixo** -- senão "/public-link" seria capturado por
+// "/:id" (com id="public-link") primeiro, já que o Express tenta as
+// rotas na ordem em que foram registradas (mesmo bug real encontrado e
+// corrigido em routes/budget.js nesta mesma rodada).
+router.get('/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'campanhaCooperada') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  let rows = db.get('campanhasCooperadas').value();
+  if (link.scopeKey !== 'todos') rows = rows.filter((r) => r.brand === link.scopeKey);
+  rows = rows.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  res.json({ scope: link.scopeKey, items: rows.map(serialize) });
+});
+router.get('/public-link', requireAuth, requireEdit, (req, res) => {
+  const key = ['todos', 'debacco', 'ghelplus'].includes(req.query.key) ? req.query.key : 'todos';
+  const link = shareLinks.getLink('campanhaCooperada', key);
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/public-link/generate', requireAuth, requireEdit, (req, res) => {
+  const key = ['todos', 'debacco', 'ghelplus'].includes((req.body || {}).key) ? req.body.key : 'todos';
+  const token = shareLinks.generateLink('campanhaCooperada', key, req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'campanhaCooperada:' + key, entityLabel: 'Campanha Cooperada · ' + key, action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/public-link', requireAuth, requireEdit, (req, res) => {
+  const key = ['todos', 'debacco', 'ghelplus'].includes(req.query.key) ? req.query.key : 'todos';
+  shareLinks.revokeLink('campanhaCooperada', key);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'campanhaCooperada:' + key, entityLabel: 'Campanha Cooperada · ' + key, action: 'revoke_public_link' });
+  res.json({ ok: true });
 });
 
 router.post('/', requireAuth, requireEdit, (req, res) => {

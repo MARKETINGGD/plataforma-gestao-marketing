@@ -29,6 +29,7 @@ app.use('/api/brindes', require('./routes/brindes'));
 app.use('/api/retiradas-internas', require('./routes/retiradasInternas'));
 app.use('/api/influencers', require('./routes/influencers'));
 app.use('/api/produtos', require('./routes/produtos'));
+app.use('/api/expositores', require('./routes/expositores'));
 app.use('/api/feiras', require('./routes/feiras'));
 app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/chat', require('./routes/chat'));

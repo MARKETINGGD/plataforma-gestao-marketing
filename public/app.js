@@ -709,8 +709,54 @@
   }
   setupPublicLinkPanel({ prefix: 'budget', apiBase: '/api/budget', getKey: () => currentBudgetBrand, keyParamName: 'brand' });
   setupPublicLinkPanel({ prefix: 'feiras', apiBase: '/api/feiras', getKey: () => feirasBrandFilter, keyParamName: 'key' });
-  setupPublicLinkPanel({ prefix: 'brindes', apiBase: '/api/brindes', getKey: () => (brindesTab === 'log' ? 'debacco' : brindesTab), keyParamName: 'brand' });
   setupPublicLinkPanel({ prefix: 'campanhaCooperada', apiBase: '/api/campanha-cooperada', getKey: () => campanhaCooperadaBrandFilter, keyParamName: 'key' });
+
+  // Brindes (68ª rodada): painel próprio (não o genérico acima) -- é o
+  // único recurso com o modo "edição" até agora, então a UI precisa de um
+  // seletor de modo que os outros 3 recursos não têm. Mantido separado de
+  // propósito, pra não arriscar mexer no fluxo já confirmado dos outros.
+  function setupBrindesPublicLinkPanel() {
+    function getKey() { return brindesTab === 'log' ? 'debacco' : brindesTab; }
+    function setUI(pubToken, mode) {
+      const active = !!pubToken;
+      $('#brindesPublicLinkActive').hidden = !active;
+      if (active) {
+        $('#brindesPublicLinkField').value = `${window.location.origin}/?sharePublic=${pubToken}`;
+        $('#brindesPublicLinkModeLabel').textContent = mode === 'edicao' ? '🔓 Modo: leitura e edição' : '👁️ Modo: somente leitura';
+      }
+    }
+    async function refresh() {
+      try {
+        const data = await api('/api/brindes/public-link?brand=' + encodeURIComponent(getKey()));
+        setUI(data.publicToken, data.mode);
+      } catch (e) { /* ignora falha pontual */ }
+    }
+    $('#brindesPublicLinkBtn').onclick = async () => {
+      const panel = $('#brindesPublicLinkPanel');
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) await refresh();
+    };
+    $('#brindesGenLinkBtn').onclick = async () => {
+      try {
+        const mode = (document.querySelector('input[name="brindesPublicLinkMode"]:checked') || {}).value || 'leitura';
+        const data = await api('/api/brindes/public-link/generate', { method: 'POST', body: JSON.stringify({ brand: getKey(), mode }) });
+        setUI(data.publicToken, mode);
+      } catch (e) { alert(e.message); }
+    };
+    $('#brindesRevokeLinkBtn').onclick = async () => {
+      if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir ver (ou editar) os dados.')) return;
+      try {
+        await api('/api/brindes/public-link?brand=' + encodeURIComponent(getKey()), { method: 'DELETE' });
+        setUI(null);
+      } catch (e) { alert(e.message); }
+    };
+    $('#brindesCopyLinkBtn').onclick = () => {
+      const field = $('#brindesPublicLinkField');
+      field.select();
+      navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+    };
+  }
+  setupBrindesPublicLinkPanel();
 
   async function api(path, opts = {}) {
     const headers = Object.assign({}, opts.headers || {});
@@ -809,8 +855,9 @@
       $('#navBudgetParent').classList.add('active');
       $('#navBudgetSubmenu').hidden = false;
     }
-    // Produtos (33ª rodada) -- mesmo padrão do Budget acima.
-    if (id === 'navProdutosConcorrencia' || id === 'navProdutosLancamentos') {
+    // Produtos (33ª rodada; Catálogo entrou na 68ª) -- mesmo padrão do
+    // Budget acima.
+    if (id === 'navProdutosConcorrencia' || id === 'navProdutosLancamentos' || id === 'navProdutosCatalogo') {
       $('#navProdutosParent').classList.add('active');
       $('#navProdutosSubmenu').hidden = false;
     }
@@ -821,8 +868,9 @@
       $('#navBrindesSubmenu').hidden = false;
     }
     // Expositores (46ª rodada; Expositores Especiais entrou como 3º item na
-    // 50ª) -- mesmo padrão do Budget/Produtos/Brindes acima.
-    if (id === 'navExpositoresBookTecnico' || id === 'navExpositoresOrcamentos' || id === 'navExpositoresEspeciais') {
+    // 50ª; Controle de Expositores/Catálogo entraram na 68ª) -- mesmo
+    // padrão do Budget/Produtos/Brindes acima.
+    if (id === 'navExpositoresBookTecnico' || id === 'navExpositoresOrcamentos' || id === 'navExpositoresEspeciais' || id === 'navExpositoresEstoque' || id === 'navExpositoresCatalogo') {
       $('#navExpositoresParent').classList.add('active');
       $('#navExpositoresSubmenu').hidden = false;
     }
@@ -936,13 +984,73 @@
   // endpoint público daquele recurso específico (cada um serializa do seu
   // jeito). A tabela é montada na hora, já que cada recurso tem colunas
   // diferentes.
-  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', campanhaCooperada: 'campanha-cooperada' };
+  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item' };
   function publicTableHtml(headers, rows) {
     return `<table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '' : c}</td>`).join('')}</tr>`).join('')
     }</tbody></table>`;
   }
-  function renderSharePublicContent(resource, label, data) {
+  // 68ª rodada: tabela editável do link externo de Brindes em modo
+  // "edição" -- pede o nome de quem está editando (não tem login nesse
+  // fluxo) e salva PR/SP/PE por linha, direto contra
+  // PUT /api/brindes/public/:token/catalog/:id (sem requireAuth, ver
+  // routes/brindes.js). Total (coluna calculada) atualiza sozinho depois
+  // de salvar, sem precisar recarregar a página inteira.
+  function renderBrindesShareEditableTable(items, shareToken) {
+    const rows = items.map((r) => `
+      <tr data-brinde-share-row="${r.id}">
+        <td>${r.code || ''}</td>
+        <td>${escapeHtml(r.item || '')}</td>
+        <td>${r.multiplo || ''}</td>
+        <td>${fmtMoney(r.valor)}</td>
+        <td><input type="number" min="0" step="1" data-share-field="estoquePR" value="${r.estoquePR}" style="width:70px;"></td>
+        <td><input type="number" min="0" step="1" data-share-field="estoqueSP" value="${r.estoqueSP}" style="width:70px;"></td>
+        <td><input type="number" min="0" step="1" data-share-field="estoquePE" value="${r.estoquePE}" style="width:70px;"></td>
+        <td class="share-brinde-total">${r.estoqueTotal}</td>
+        <td>${r.status || ''}</td>
+        <td><button class="btn-primary" data-save-brinde-share="${r.id}" type="button">Salvar</button><br><span class="muted share-brinde-save-msg" style="font-size:12px;"></span></td>
+      </tr>`).join('');
+    setTimeout(() => wireBrindesShareEditableTable(shareToken), 0);
+    return `
+      <div class="form-card" style="margin-bottom:16px;">
+        <label>Seu nome <span class="muted" style="font-weight:400;">(obrigatório pra salvar qualquer alteração -- fica registrado quem atualizou)</span></label>
+        <input type="text" id="sharePublicEditorName" placeholder="Como você quer aparecer no registro">
+      </div>
+      <table class="data-table"><thead><tr><th>Código</th><th>Item</th><th>Múltiplo</th><th>Valor</th><th>Estoque PR</th><th>Estoque SP</th><th>Estoque PE</th><th>Total</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    `;
+  }
+  function wireBrindesShareEditableTable(shareToken) {
+    $all('[data-save-brinde-share]').forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.dataset.saveBrindeShare;
+        const nome = ($('#sharePublicEditorName') || {}).value || '';
+        const row = document.querySelector(`tr[data-brinde-share-row="${id}"]`);
+        const msgEl = row.querySelector('.share-brinde-save-msg');
+        if (!nome.trim()) {
+          msgEl.textContent = 'Informe seu nome ali em cima antes de salvar.';
+          return;
+        }
+        const payload = { nome };
+        row.querySelectorAll('[data-share-field]').forEach((input) => { payload[input.dataset.shareField] = input.value; });
+        msgEl.textContent = 'Salvando...';
+        try {
+          const res = await fetch(`/api/brindes/public/${encodeURIComponent(shareToken)}/catalog/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const body = await res.json();
+          if (!res.ok) throw new Error(body.error || 'Não foi possível salvar.');
+          row.querySelector('.share-brinde-total').textContent = body.item.estoqueTotal;
+          msgEl.textContent = 'Salvo!';
+          setTimeout(() => { msgEl.textContent = ''; }, 4000);
+        } catch (e) {
+          msgEl.textContent = e.message;
+        }
+      };
+    });
+  }
+  function renderSharePublicContent(resource, label, data, shareToken) {
     const scopeLabel = data.brand ? (BRAND_LABEL[data.brand] || data.brand)
       : (data.scope && data.scope !== 'todos' ? (BRAND_LABEL[data.scope] || data.scope) : (data.scope === 'todos' ? 'Todas as marcas' : ''));
     $('#sharePublicTitle').textContent = label + (scopeLabel ? ' — ' + scopeLabel : '');
@@ -964,9 +1072,14 @@
         return `<h3 style="margin:22px 0 8px;">${f.nome} ${f.ano} — ${BRAND_LABEL[f.brand] || f.brand} (${f.fluxo})</h3>` + publicTableHtml(['Item', 'Qtd.', 'Fornecedor', 'Total'], itemRows);
       }).join('');
     } else if (resource === 'brindes') {
-      const rows = (data.items || []).map((r) => [r.code || '', r.item, r.multiplo || '', fmtMoney(r.valor), r.estoquePR, r.estoqueSP, r.estoquePE, r.estoqueTotal, r.status || '']);
-      empty = rows.length === 0;
-      html = publicTableHtml(['Código', 'Item', 'Múltiplo', 'Valor', 'Estoque PR', 'Estoque SP', 'Estoque PE', 'Total', 'Status'], rows);
+      const items = data.items || [];
+      empty = items.length === 0;
+      if (data.mode === 'edicao') {
+        html = renderBrindesShareEditableTable(items, shareToken);
+      } else {
+        const rows = items.map((r) => [r.code || '', r.item, r.multiplo || '', fmtMoney(r.valor), r.estoquePR, r.estoqueSP, r.estoquePE, r.estoqueTotal, r.status || '']);
+        html = publicTableHtml(['Código', 'Item', 'Múltiplo', 'Valor', 'Estoque PR', 'Estoque SP', 'Estoque PE', 'Total', 'Status'], rows);
+      }
     } else if (resource === 'campanhaCooperada') {
       const rows = (data.items || []).map((it) => [
         BRAND_LABEL[it.brand] || it.brand, it.cliente, it.representante || '', it.produto || '', it.responsavelNome || '',
@@ -976,6 +1089,23 @@
       ]);
       empty = rows.length === 0;
       html = publicTableHtml(['Marca', 'Cliente', 'Representante', 'Produto', 'Gerente responsável', 'Qtd.', 'Data pedido', 'Data entrega', 'Aprovado', 'Cobrança', 'Finalizado'], rows);
+    } else if (resource === 'expositoresEstoque') {
+      const rows = (data.items || []).map((it) => [
+        it.codigoEntrada, it.descricaoEntrada, it.codigoSaida, it.descricaoSaida, fmtMoney(it.valorUnitario),
+        it.saldoPR, it.saldoSP, it.saldoNE, it.saldoTotal, it.consumoMensal, fmtMoney(it.valorTotalMensal)
+      ]);
+      empty = rows.length === 0;
+      html = publicTableHtml(['Código entrada', 'Descrição entrada', 'Código saída', 'Descrição saída', 'R$ Unit.', 'Saldo PR', 'Saldo SP', 'Saldo NE', 'Total', 'Consumo mensal', 'R$ Total/mês'], rows);
+    } else if (resource === 'concorrencia') {
+      // 68ª rodada: link agregado (lista inteira da marca/escopo) --
+      // reaproveita o mesmo cartão comparativo usado dentro da Papoi.
+      const items = data.items || [];
+      empty = items.length === 0;
+      html = items.map((it) => concorrenciaCardHtml(it, { editable: false, actionsHtml: '' })).join('');
+    } else if (resource === 'concorrenciaItem') {
+      // 68ª rodada: link de 1 análise só.
+      empty = !data.item;
+      html = data.item ? concorrenciaCardHtml(data.item, { editable: false, actionsHtml: '' }) : '';
     }
     $('#sharePublicContent').innerHTML = html;
     $('#sharePublicEmpty').hidden = !empty;
@@ -989,7 +1119,7 @@
       const dataRes = await fetch(`/api/${apiPath}/public/${encodeURIComponent(shareToken)}`);
       const dataBody = await dataRes.json();
       if (!dataRes.ok) throw new Error(dataBody.error || 'Link inválido ou desativado.');
-      renderSharePublicContent(resolveBody.resource, resolveBody.resourceLabel, dataBody);
+      renderSharePublicContent(resolveBody.resource, resolveBody.resourceLabel, dataBody, shareToken);
       showScreen('share-public');
     } catch (e) {
       $('#sharePublicError').textContent = e.message || 'Link inválido ou desativado.';
@@ -1091,6 +1221,22 @@
     // localStorage antes do login terminar.
     applyTheme(currentUser.theme);
     showScreen('app');
+    // 68ª rodada: `showView('home')` mostrava a tela Início só depois de
+    // várias chamadas assíncronas aqui embaixo (team/labels/loadHome) --
+    // nesse meio tempo, `#screen-app` já estava visível mas NENHUMA tela
+    // de dentro (`.view`) ainda, então clicar em qualquer botão do menu
+    // durante essa janela navegava certinho, mas esse `showView('home')`
+    // tardio (que sempre rodava incondicionalmente no fim) SOBRESCREVIA
+    // a navegação da pessoa de volta pra Início um instante depois --
+    // achado investigando uma instabilidade de Playwright que piorou
+    // muito nesta rodada (mais uma seção nova na página = mais tempo de
+    // carregamento = janela de corrida maior, mas o bug já existia antes,
+    // só mais raro de notar). Mostrar a Início JÁ (antes dos awaits) e
+    // nunca mais chamar showView de novo aqui resolve os dois: a pessoa
+    // vê a Início na hora, e se clicar em outro menu enquanto os dados
+    // ainda carregam em segundo plano, a navegação dela é respeitada.
+    showView('home');
+    setActiveNav('navHome');
     // Volta do fluxo de autorização da Meta (54ª/55ª rodada) -- o próprio
     // servidor já terminou a troca de code por token em GET
     // /api/social-accounts/meta/callback antes de redirecionar de volta
@@ -1108,8 +1254,6 @@
     } catch (e) { /* ignora */ }
     applyCronogramaAccess();
     await loadHome();
-    showView('home');
-    setActiveNav('navHome');
     startNotificationSoundWatcher();
     startReisMarketingPolling();
     // Janelinha flutuante do Chat da Equipe (21ª rodada) — carrega o
@@ -1343,6 +1487,10 @@
         if (b.dataset.view === 'chat') { loadChatConversations(); loadChat(); }
         if (b.dataset.view === 'feiras') loadFeiras();
         if (b.dataset.view === 'campanha-cooperada') loadCampanhasCooperadas();
+        // 68ª rodada
+        if (b.dataset.view === 'produtos-catalogo') loadProdutosCatalogo();
+        if (b.dataset.view === 'expositores-estoque') loadExpositoresEstoque();
+        if (b.dataset.view === 'expositores-catalogo') loadExpositoresCatalogo();
       }
     };
   });
@@ -6432,60 +6580,66 @@
   // lado" -- a listagem virou uma lista de cartões (não mais uma tabela),
   // um cartão por análise, com os dois lados lado a lado dentro dele
   // (mesmo layout comparativo do formulário).
-  function renderConcorrencia() {
-    $('#concorrenciaNewBtn').hidden = !canEditProdutos();
-    const rows = concorrenciaItems.filter((it) => concorrenciaBrandFilter === 'todos' || it.brand === concorrenciaBrandFilter);
-    const list = $('#concorrenciaList');
-    $('#concorrenciaEmpty').hidden = rows.length > 0;
+  // 42ª rodada: uma análise pode ter vários concorrentes agora
+  // (`it.concorrentes[]`); registro criado antes disso só tem os campos
+  // soltos (concorrente/produto/...) -- trata como se fosse uma lista de
+  // 1 item só, pra não precisar esperar a migração rodar em produção.
+  function concorrentesDe(it) {
+    if (Array.isArray(it.concorrentes) && it.concorrentes.length) return it.concorrentes;
+    return [{ nome: it.concorrente, produto: it.produto, preco: it.preco, diferenciais: it.diferenciais, observacoes: it.observacoes, link: it.link }];
+  }
+  function concorrenciaPrecoTxt(v) { return v === null || v === undefined ? '—' : fmtMoney(v); }
+  function concorrenciaLinkTxt(v) { return v ? `<a href="${v}" target="_blank" rel="noopener">${v}</a>` : '—'; }
+  // Cartão de 1 análise -- extraído num função só (68ª rodada) pra ser
+  // reaproveitado tanto na lista de dentro da Papoi quanto no link
+  // externo por análise (public/renderSharePublicContent), sem duplicar
+  // o HTML nos 2 lugares.
+  function concorrenciaCardHtml(it, { editable, actionsHtml } = {}) {
     function campo(label, value) {
       return `<div class="compare-field"><b>${label}</b>${value}</div>`;
     }
-    function precoTxt(v) { return v === null || v === undefined ? '—' : fmtMoney(v); }
-    function linkTxt(v) { return v ? `<a href="${v}" target="_blank" rel="noopener">${v}</a>` : '—'; }
-    // 42ª rodada: uma análise pode ter vários concorrentes agora
-    // (`it.concorrentes[]`); registro criado antes disso só tem os campos
-    // soltos (concorrente/produto/...) -- trata como se fosse uma lista de
-    // 1 item só, pra não precisar esperar a migração rodar em produção.
-    function concorrentesDe(it) {
-      if (Array.isArray(it.concorrentes) && it.concorrentes.length) return it.concorrentes;
-      return [{ nome: it.concorrente, produto: it.produto, preco: it.preco, diferenciais: it.diferenciais, observacoes: it.observacoes, link: it.link }];
-    }
-    list.innerHTML = rows.map((it) => {
-      const concorrentes = concorrentesDe(it);
-      const nomesConcorrentes = concorrentes.map((c) => c.nome).filter(Boolean).join(', ');
-      return `
+    const concorrentes = concorrentesDe(it);
+    const nomesConcorrentes = concorrentes.map((c) => c.nome).filter(Boolean).join(', ');
+    return `
       <div class="compare-card">
         <div class="compare-card-head">
           <div>
             <h4>${it.titulo ? escapeHtml(it.titulo) : (BRAND_LABEL[it.brand] || it.brand) + ' · ' + nomesConcorrentes}</h4>
             <div class="compare-card-meta">${BRAND_LABEL[it.brand] || it.brand} · ${nomesConcorrentes}${it.data ? ' · ' + fmtDate(it.data) : ''}</div>
           </div>
-          ${canEditProdutos() ? `<span><button class="btn-link" data-edit-concorrencia="${it.id}">Editar</button> <button class="btn-link danger" data-del-concorrencia="${it.id}">Excluir</button></span>` : ''}
+          ${editable ? `<span><button class="btn-link" data-edit-concorrencia="${it.id}">Editar</button> <button class="btn-link danger" data-del-concorrencia="${it.id}">Excluir</button> <button class="btn-link" data-share-concorrencia="${it.id}">🔗 Compartilhar</button></span>` : (actionsHtml || '')}
         </div>
         <div class="compare-card-body-multi">
           ${concorrentes.map((c) => `
             <div class="compare-col">
               <h4>${c.nome || '—'}</h4>
               ${campo('Produto', c.produto || '—')}
-              ${campo('Preço', precoTxt(c.preco))}
+              ${campo('Preço', concorrenciaPrecoTxt(c.preco))}
               ${campo('Diferenciais', c.diferenciais || '—')}
               ${campo('Observações', c.observacoes || '—')}
-              ${campo('Link', linkTxt(c.link))}
+              ${campo('Link', concorrenciaLinkTxt(c.link))}
             </div>
           `).join('')}
           <div class="compare-vs">×</div>
           <div class="compare-col">
             <h4>Nossa marca</h4>
             ${campo('Produto', it.nossoProduto || '—')}
-            ${campo('Preço', precoTxt(it.nossoPreco))}
+            ${campo('Preço', concorrenciaPrecoTxt(it.nossoPreco))}
             ${campo('Diferenciais', it.nossoDiferenciais || '—')}
             ${campo('Observações', it.nossasObservacoes || '—')}
-            ${campo('Link', linkTxt(it.nossoLink))}
+            ${campo('Link de referência', concorrenciaLinkTxt(it.nossoLink))}
+            ${campo('Página de venda (preço atualizado)', concorrenciaLinkTxt(it.nossoLinkVenda))}
           </div>
         </div>
       </div>
     `;
-    }).join('');
+  }
+  function renderConcorrencia() {
+    $('#concorrenciaNewBtn').hidden = !canEditProdutos();
+    const rows = concorrenciaItems.filter((it) => concorrenciaBrandFilter === 'todos' || it.brand === concorrenciaBrandFilter);
+    const list = $('#concorrenciaList');
+    $('#concorrenciaEmpty').hidden = rows.length > 0;
+    list.innerHTML = rows.map((it) => concorrenciaCardHtml(it, { editable: canEditProdutos() })).join('');
     $all('[data-edit-concorrencia]').forEach((b) => {
       b.onclick = () => openConcorrenciaForm(concorrenciaItems.find((it) => it.id === b.dataset.editConcorrencia));
     });
@@ -6494,6 +6648,21 @@
         if (!confirm('Excluir esta análise de concorrência?')) return;
         await api('/api/produtos/concorrencia/' + b.dataset.delConcorrencia, { method: 'DELETE' });
         await loadConcorrencia();
+      };
+    });
+    // 68ª rodada, pedido da Raquel: "compartilhar cada análise em link
+    // externo" -- gera (ou reaproveita) o link de leitura por análise e
+    // já copia pra área de transferência, com um alert confirmando (o
+    // fluxo é rápido demais pra justificar um painel próprio, como o de
+    // Budget/Feiras/Brindes/Campanha Cooperada, só pra 1 link só).
+    $all('[data-share-concorrencia]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          const data = await api('/api/produtos/concorrencia/' + b.dataset.shareConcorrencia + '/public-link/generate', { method: 'POST' });
+          const url = `${window.location.origin}/?sharePublic=${data.publicToken}`;
+          navigator.clipboard && navigator.clipboard.writeText(url).catch(() => {});
+          prompt('Link copiado pra área de transferência (só leitura, sem precisar de conta na Papoi):', url);
+        } catch (e) { alert(e.message); }
       };
     });
   }
@@ -6572,6 +6741,7 @@
     $('#concorrenciaFormNossoPreco').value = item && item.nossoPreco !== null && item.nossoPreco !== undefined ? item.nossoPreco : '';
     $('#concorrenciaFormNossoDiferenciais').value = item ? (item.nossoDiferenciais || '') : '';
     $('#concorrenciaFormNossoLink').value = item ? (item.nossoLink || '') : '';
+    $('#concorrenciaFormNossoLinkVenda').value = item ? (item.nossoLinkVenda || '') : '';
     $('#concorrenciaFormNossasObservacoes').value = item ? (item.nossasObservacoes || '') : '';
     $('#concorrenciaFormError').hidden = true;
     $('#concorrenciaFormWrap').hidden = false;
@@ -6601,6 +6771,7 @@
       nossoPreco: $('#concorrenciaFormNossoPreco').value || null,
       nossoDiferenciais: $('#concorrenciaFormNossoDiferenciais').value.trim(),
       nossoLink: $('#concorrenciaFormNossoLink').value.trim(),
+      nossoLinkVenda: $('#concorrenciaFormNossoLinkVenda').value.trim(),
       nossasObservacoes: $('#concorrenciaFormNossasObservacoes').value.trim()
     };
     if (!payload.titulo) {
@@ -6639,6 +6810,21 @@
     };
   });
 
+  // 68ª rodada, pedido da Raquel: "gerar em PDF e excel" + link externo
+  // agregado (a lista inteira da aba de marca ativa).
+  const CONCORRENCIA_EXPORT_HEADERS = ['Marca', 'Título', 'Data', 'Concorrente(s)', 'Produto concorrente', 'Preço concorrente', 'Nosso produto', 'Nosso preço', 'Página de venda'];
+  function concorrenciaExportRows() {
+    const rows = concorrenciaItems.filter((it) => concorrenciaBrandFilter === 'todos' || it.brand === concorrenciaBrandFilter);
+    return rows.map((it) => {
+      const nomes = concorrentesDe(it).map((c) => c.nome).filter(Boolean).join(', ');
+      const precos = concorrentesDe(it).map((c) => c.preco).filter((v) => v !== null && v !== undefined).map(fmtMoney).join(', ');
+      return [BRAND_LABEL[it.brand] || it.brand, it.titulo || '', it.data ? fmtDate(it.data) : '', nomes, concorrentesDe(it)[0] && concorrentesDe(it)[0].produto || '', precos, it.nossoProduto || '', it.nossoPreco === null || it.nossoPreco === undefined ? '' : fmtMoney(it.nossoPreco), it.nossoLinkVenda || ''];
+    });
+  }
+  $('#concorrenciaExportExcelBtn').onclick = () => exportRowsToExcel(`analise-concorrencia-${concorrenciaBrandFilter}.xlsx`, 'Concorrência', CONCORRENCIA_EXPORT_HEADERS, concorrenciaExportRows());
+  $('#concorrenciaExportPdfBtn').onclick = () => exportViewToPdf();
+  setupPublicLinkPanel({ prefix: 'concorrencia', apiBase: '/api/produtos/concorrencia', getKey: () => concorrenciaBrandFilter, keyParamName: 'scope' });
+
   async function loadLancamentos() {
     try {
       const data = await api('/api/produtos/lancamentos');
@@ -6668,7 +6854,15 @@
         <td>${it.codigo || '—'}</td>
         <td>${it.dataLancamento ? fmtDate(it.dataLancamento) : '—'}</td>
         <td>${LANCAMENTO_STATUS_LABEL[it.status] || it.status}</td>
-        <td>${(it.arquivos || []).length}</td>
+        <td>${
+          // 68ª rodada, pedido da Raquel: "os arquivos anexados devem
+          // ficar disponíveis para baixar, hoje para acessar ele tem que
+          // clicar em editar e isso é péssimo" -- link direto de
+          // download aqui na lista, sem precisar abrir "Editar" mais.
+          (it.arquivos || []).length
+            ? (it.arquivos || []).map((f) => `<a href="${f.url}" target="_blank" rel="noopener" download title="${escapeHtml(f.name)}">⬇️ ${escapeHtml(f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name)}</a>`).join('<br>')
+            : '<span class="muted">—</span>'
+        }</td>
         <td>${canEditProdutos() ? `<button class="btn-link" data-edit-lancamento="${it.id}">Editar</button> <button class="btn-link danger" data-del-lancamento="${it.id}">Excluir</button>` : ''}</td>
       </tr>
     `).join('');
@@ -6707,6 +6901,173 @@
       wrap.appendChild(row);
     });
   }
+
+  // ---------- Catálogo genérico (68ª rodada) -- reaproveitado pelo
+  // Catálogo de Produtos e pelo Catálogo de Expositores (2 pedidos
+  // separados da Raquel, mesma mecânica exata: 1 arquivo atual por
+  // marca, upload substitui o anterior). ----------
+  function renderCatalogFileScreen(containerId, apiBase, items, canEditFlag, reloadFn) {
+    const el = $('#' + containerId);
+    el.innerHTML = items.map((entry) => {
+      const f = entry.file;
+      return `
+        <div class="form-card">
+          <h3>${entry.brandLabel}</h3>
+          ${f
+            ? `<p>Arquivo atual: <a href="${f.fileUrl}" target="_blank" rel="noopener" download>⬇️ ${escapeHtml(f.fileName)}</a> <span class="muted">(${fmtBytes(f.fileSize)})</span></p>
+               <p class="muted" style="font-size:12px;margin-top:-6px;">Enviado por ${f.uploadedByName || '—'} em ${fmtDate((f.uploadedAt || '').slice(0, 10))}</p>`
+            : '<p class="muted">Nenhum arquivo enviado ainda.</p>'}
+          ${canEditFlag ? `
+            <input type="file" data-catalog-file-input="${entry.brand}">
+            <div class="form-actions">
+              <button class="btn-primary" data-catalog-upload="${entry.brand}" type="button">Enviar${f ? ' novo arquivo (substitui o atual)' : ''}</button>
+              ${f ? `<button class="btn-secondary danger" data-catalog-remove="${entry.brand}" type="button">Remover</button>` : ''}
+            </div>` : ''}
+        </div>`;
+    }).join('');
+    $all(`#${containerId} [data-catalog-upload]`).forEach((btn) => {
+      btn.onclick = async () => {
+        const brand = btn.dataset.catalogUpload;
+        const input = document.querySelector(`#${containerId} [data-catalog-file-input="${brand}"]`);
+        if (!input.files[0]) { alert('Escolha um arquivo primeiro.'); return; }
+        try {
+          await uploadFileWithProgress(`${apiBase}/${brand}`, input.files[0], { label: 'Enviando catálogo...' });
+          await reloadFn();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all(`#${containerId} [data-catalog-remove]`).forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm('Remover o catálogo atual dessa marca?')) return;
+        try {
+          await api(`${apiBase}/${btn.dataset.catalogRemove}`, { method: 'DELETE' });
+          await reloadFn();
+        } catch (e) { alert(e.message); }
+      };
+    });
+  }
+  async function loadProdutosCatalogo() {
+    try {
+      const data = await api('/api/produtos/catalogo');
+      renderCatalogFileScreen('produtosCatalogoList', '/api/produtos/catalogo', data.items || [], data.canEdit, loadProdutosCatalogo);
+    } catch (e) { alert(e.message); }
+  }
+  async function loadExpositoresCatalogo() {
+    try {
+      const data = await api('/api/expositores/catalogo');
+      renderCatalogFileScreen('expositoresCatalogoList', '/api/expositores/catalogo', data.items || [], data.canEdit, loadExpositoresCatalogo);
+    } catch (e) { alert(e.message); }
+  }
+
+  // ---------- Controle de Expositores (68ª rodada, "Rodada I") ----------
+  let expositoresEstoqueItems = [];
+  let expositoresEstoqueBrand = 'ghelplus';
+  let expositoresEstoqueCanEdit = false;
+  let editingExpositorEstoqueId = null;
+
+  async function loadExpositoresEstoque() {
+    try {
+      const data = await api('/api/expositores/estoque?brand=' + encodeURIComponent(expositoresEstoqueBrand));
+      expositoresEstoqueItems = data.items || [];
+      expositoresEstoqueCanEdit = data.canEdit;
+      renderExpositoresEstoque();
+    } catch (e) { alert(e.message); }
+  }
+  function renderExpositoresEstoque() {
+    const body = $('#expositoresEstoqueBody');
+    body.innerHTML = expositoresEstoqueItems.map((it) => `
+      <tr>
+        <td>${it.codigoEntrada || '—'}</td>
+        <td>${escapeHtml(it.descricaoEntrada || '—')}</td>
+        <td>${it.codigoSaida || '—'}</td>
+        <td>${escapeHtml(it.descricaoSaida || '—')}</td>
+        <td>${fmtMoney(it.valorUnitario)}</td>
+        <td>${it.saldoPR}</td><td>${it.saldoSP}</td><td>${it.saldoNE}</td><td><b>${it.saldoTotal}</b></td>
+        <td>${it.segurancaPR}</td><td>${it.pendenciaPR}</td>
+        <td>${it.segurancaSP}</td><td>${it.pendenciaSP}</td>
+        <td>${it.segurancaNE}</td><td>${it.pendenciaNE}</td>
+        <td>${it.consumoMensal}</td><td><b>${fmtMoney(it.valorTotalMensal)}</b></td>
+        <td>${it.loteEconomico ?? '—'}</td><td>${it.loteMultiplo ?? '—'}</td>
+        <td>${it.ressuprimentoFornecedor ?? '—'}</td><td>${it.ressuprimentoCompras ?? '—'}</td>
+        <td>${it.estoqueSeguranca ?? '—'}</td><td>${it.nota ?? '—'}</td>
+        <td>${expositoresEstoqueCanEdit ? `<button class="btn-link" data-edit-expositor-estoque="${it.id}">Editar</button>` : ''}</td>
+      </tr>
+    `).join('');
+    $all('[data-edit-expositor-estoque]').forEach((b) => {
+      b.onclick = () => openExpositorEstoqueForm(expositoresEstoqueItems.find((it) => it.id === b.dataset.editExpositorEstoque));
+    });
+  }
+  function openExpositorEstoqueForm(it) {
+    if (!it) return;
+    editingExpositorEstoqueId = it.id;
+    $('#expositorEstoqueFormCodigoEntrada').value = it.codigoEntrada || '';
+    $('#expositorEstoqueFormDescricaoEntrada').value = it.descricaoEntrada || '';
+    $('#expositorEstoqueFormCodigoSaida').value = it.codigoSaida || '';
+    $('#expositorEstoqueFormDescricaoSaida').value = it.descricaoSaida || '';
+    $('#expositorEstoqueFormValorUnitario').value = it.valorUnitario ?? '';
+    $('#expositorEstoqueFormConsumoMensal').value = it.consumoMensal ?? 0;
+    $('#expositorEstoqueFormSaldoPR').value = it.saldoPR ?? 0;
+    $('#expositorEstoqueFormSaldoSP').value = it.saldoSP ?? 0;
+    $('#expositorEstoqueFormSaldoNE').value = it.saldoNE ?? 0;
+    $('#expositorEstoqueFormSegurancaPR').value = it.segurancaPR ?? 0;
+    $('#expositorEstoqueFormSegurancaSP').value = it.segurancaSP ?? 0;
+    $('#expositorEstoqueFormSegurancaNE').value = it.segurancaNE ?? 0;
+    $('#expositorEstoqueFormLoteEconomico').value = it.loteEconomico ?? '';
+    $('#expositorEstoqueFormLoteMultiplo').value = it.loteMultiplo ?? '';
+    $('#expositorEstoqueFormRessuprimentoFornecedor').value = it.ressuprimentoFornecedor ?? '';
+    $('#expositorEstoqueFormRessuprimentoCompras').value = it.ressuprimentoCompras ?? '';
+    $('#expositorEstoqueFormEstoqueSeguranca').value = it.estoqueSeguranca ?? '';
+    $('#expositorEstoqueFormNota').value = it.nota ?? '';
+    $('#expositorEstoqueFormWrap').hidden = false;
+  }
+  $('#expositorEstoqueFormCancel').onclick = () => { $('#expositorEstoqueFormWrap').hidden = true; };
+  $('#expositorEstoqueFormSave').onclick = async () => {
+    if (!editingExpositorEstoqueId) return;
+    const payload = {
+      codigoEntrada: $('#expositorEstoqueFormCodigoEntrada').value.trim(),
+      descricaoEntrada: $('#expositorEstoqueFormDescricaoEntrada').value.trim(),
+      codigoSaida: $('#expositorEstoqueFormCodigoSaida').value.trim(),
+      descricaoSaida: $('#expositorEstoqueFormDescricaoSaida').value.trim(),
+      valorUnitario: $('#expositorEstoqueFormValorUnitario').value,
+      consumoMensal: $('#expositorEstoqueFormConsumoMensal').value,
+      saldoPR: $('#expositorEstoqueFormSaldoPR').value,
+      saldoSP: $('#expositorEstoqueFormSaldoSP').value,
+      saldoNE: $('#expositorEstoqueFormSaldoNE').value,
+      segurancaPR: $('#expositorEstoqueFormSegurancaPR').value,
+      segurancaSP: $('#expositorEstoqueFormSegurancaSP').value,
+      segurancaNE: $('#expositorEstoqueFormSegurancaNE').value,
+      loteEconomico: $('#expositorEstoqueFormLoteEconomico').value,
+      loteMultiplo: $('#expositorEstoqueFormLoteMultiplo').value,
+      ressuprimentoFornecedor: $('#expositorEstoqueFormRessuprimentoFornecedor').value,
+      ressuprimentoCompras: $('#expositorEstoqueFormRessuprimentoCompras').value,
+      estoqueSeguranca: $('#expositorEstoqueFormEstoqueSeguranca').value,
+      nota: $('#expositorEstoqueFormNota').value.trim()
+    };
+    try {
+      await api('/api/expositores/estoque/' + editingExpositorEstoqueId, { method: 'PUT', body: JSON.stringify(payload) });
+      $('#expositorEstoqueFormWrap').hidden = true;
+      await loadExpositoresEstoque();
+    } catch (e) { alert(e.message); }
+  };
+  $all('.tab-btn[data-expositores-estoque-brand]').forEach((b) => {
+    b.onclick = () => {
+      expositoresEstoqueBrand = b.dataset.expositoresEstoqueBrand;
+      $all('.tab-btn[data-expositores-estoque-brand]').forEach((x) => x.classList.toggle('active', x === b));
+      loadExpositoresEstoque();
+    };
+  });
+  const EXPOSITORES_ESTOQUE_EXPORT_HEADERS = ['Código entrada', 'Descrição entrada', 'Código saída', 'Descrição saída', 'R$ Unitário', 'Saldo PR', 'Saldo SP', 'Saldo NE', 'Total', 'Segurança PR', 'Pendência PR', 'Segurança SP', 'Pendência SP', 'Segurança NE', 'Pendência NE', 'Consumo mensal', 'R$ Total/mês', 'Lote econômico', 'Lote múltiplo', 'Ressup. fornecedor', 'Ressup. compras', 'Estoque segurança', 'Nota'];
+  function expositoresEstoqueExportRows() {
+    return expositoresEstoqueItems.map((it) => [
+      it.codigoEntrada, it.descricaoEntrada, it.codigoSaida, it.descricaoSaida, it.valorUnitario,
+      it.saldoPR, it.saldoSP, it.saldoNE, it.saldoTotal, it.segurancaPR, it.pendenciaPR, it.segurancaSP, it.pendenciaSP,
+      it.segurancaNE, it.pendenciaNE, it.consumoMensal, it.valorTotalMensal, it.loteEconomico, it.loteMultiplo,
+      it.ressuprimentoFornecedor, it.ressuprimentoCompras, it.estoqueSeguranca, it.nota
+    ]);
+  }
+  $('#expositoresEstoqueExportExcelBtn').onclick = () => exportRowsToExcel(`controle-expositores-${expositoresEstoqueBrand}.xlsx`, 'Controle Expositores', EXPOSITORES_ESTOQUE_EXPORT_HEADERS, expositoresEstoqueExportRows());
+  $('#expositoresEstoqueExportPdfBtn').onclick = () => exportViewToPdf();
+  setupPublicLinkPanel({ prefix: 'expositoresEstoque', apiBase: '/api/expositores/estoque', getKey: () => expositoresEstoqueBrand, keyParamName: 'brand' });
 
   function openLancamentoForm(item) {
     editingLancamentoId = item ? item.id : null;

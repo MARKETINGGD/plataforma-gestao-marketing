@@ -6,6 +6,8 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const shareLinks = require('../utils/shareLinks');
+const { makeCatalogFileRouter } = require('../utils/catalogFileStore');
 
 const router = express.Router();
 
@@ -50,7 +52,12 @@ const router = express.Router();
 // formulário até alguém abrir e salvar de novo escolhendo um status atual.
 
 const BRANDS = ['debacco', 'ghelplus'];
+const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus' };
 const LANCAMENTO_STATUSES = ['certificacao', 'compra', 'fiscal', 'liberado'];
+// Chaves válidas do link externo AGREGADO de Concorrência (68ª rodada,
+// pedido da Raquel: "compartilhar... ou todas as análises") -- mesmo
+// padrão "todos/debacco/ghelplus" já usado em Feiras/Influencers.
+const CONCORRENCIA_SHARE_KEYS = ['todos', 'debacco', 'ghelplus'];
 
 function canEdit(req) {
   const user = db.get('users').find({ id: req.user.id }).value();
@@ -96,12 +103,78 @@ router.get('/concorrencia', requireAuth, (req, res) => {
   res.json({ items: db.get('concorrencia').value() });
 });
 
+// ---------- link externo (68ª rodada, pedido da Raquel: "deve ter a
+// opção de compartilhar cada análise em link externo, ou todas as
+// análises") -- 2 tipos de link, os dois só LEITURA:
+// (a) agregado, 1 por "escopo" (todos/debacco/ghelplus, mesmo padrão de
+//     Feiras/Influencers) -- mostra a lista inteira filtrada;
+// (b) por análise -- mostra só 1 card. Ficam ANTES de PUT/DELETE
+// /concorrencia/:id (mesmo cuidado da 66ª rodada -- rota literal
+// registrada depois de "/:id" seria capturada por ela).
+router.get('/concorrencia/public-link', requireAuth, requireProdutosEdit, (req, res) => {
+  const { scope } = req.query;
+  const link = shareLinks.getLink('concorrencia', scope);
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/concorrencia/public-link/generate', requireAuth, requireProdutosEdit, (req, res) => {
+  const { scope } = req.body || {};
+  if (!CONCORRENCIA_SHARE_KEYS.includes(scope)) return res.status(400).json({ error: 'Escolha o escopo do link (todas as marcas, De Bacco ou GhelPlus).' });
+  const token = shareLinks.generateLink('concorrencia', scope, req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'concorrencia:' + scope, entityLabel: 'Análise de Concorrência · ' + scope, action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/concorrencia/public-link', requireAuth, requireProdutosEdit, (req, res) => {
+  const { scope } = req.query;
+  shareLinks.revokeLink('concorrencia', scope);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'concorrencia:' + scope, entityLabel: 'Análise de Concorrência · ' + scope, action: 'revoke_public_link' });
+  res.json({ ok: true });
+});
+router.get('/concorrencia/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'concorrencia') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const items = db.get('concorrencia').value().filter((it) => link.scopeKey === 'todos' || it.brand === link.scopeKey);
+  res.json({ scope: link.scopeKey, items });
+});
+
+// Link por análise única -- caminho próprio ("concorrencia-item"), nunca
+// colide com "/concorrencia/:id" (tem 1 segmento a mais), então não
+// precisa se preocupar com a ordem das rotas pra este par.
+router.get('/concorrencia/:id/public-link', requireAuth, requireProdutosEdit, (req, res) => {
+  const link = shareLinks.getLink('concorrenciaItem', req.params.id);
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/concorrencia/:id/public-link/generate', requireAuth, requireProdutosEdit, (req, res) => {
+  const item = db.get('concorrencia').find({ id: req.params.id }).value();
+  if (!item) return res.status(404).json({ error: 'Análise não encontrada.' });
+  const token = shareLinks.generateLink('concorrenciaItem', req.params.id, req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'concorrenciaItem:' + req.params.id, entityLabel: 'Análise · ' + (item.titulo || item.id), action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/concorrencia/:id/public-link', requireAuth, requireProdutosEdit, (req, res) => {
+  shareLinks.revokeLink('concorrenciaItem', req.params.id);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'concorrenciaItem:' + req.params.id, entityLabel: 'Análise de concorrência', action: 'revoke_public_link' });
+  res.json({ ok: true });
+});
+router.get('/concorrencia-item/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'concorrenciaItem') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const item = db.get('concorrencia').find({ id: link.scopeKey }).value();
+  if (!item) return res.status(404).json({ error: 'Essa análise foi excluída.' });
+  res.json({ item });
+});
+
 router.post('/concorrencia', requireAuth, requireProdutosEdit, (req, res) => {
   const {
     brand, titulo, data, concorrentes,
     // campos soltos (compat com formulário antigo, de antes da 42ª rodada)
     concorrente, produto, preco, diferenciais, link, observacoes,
-    nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes
+    nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes,
+    // 68ª rodada, pedido da Raquel: "um local para colocar o link de uma
+    // página de venda do produto (assim fica fácil de acompanhar o valor
+    // atualizado do produto)" -- separado do "Link de referência"
+    // (nossoLink) já existente, que serve pra qualquer link de apoio à
+    // análise (não necessariamente uma página de venda com preço ao vivo).
+    nossoLinkVenda
   } = req.body || {};
   const tituloTrim = str(titulo);
   if (!tituloTrim) return res.status(400).json({ error: 'Informe o título da análise.' });
@@ -133,6 +206,7 @@ router.post('/concorrencia', requireAuth, requireProdutosEdit, (req, res) => {
     nossoDiferenciais: str(nossoDiferenciais),
     nossasObservacoes: str(nossasObservacoes),
     nossoLink: str(nossoLink) || null,
+    nossoLinkVenda: str(nossoLinkVenda) || null,
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
     updatedAt: new Date().toISOString()
@@ -148,7 +222,7 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
   const {
     brand, titulo, data, concorrentes,
     concorrente, produto, preco, diferenciais, link, observacoes,
-    nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes
+    nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes, nossoLinkVenda
   } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (brand !== undefined) updates.brand = validBrand(brand);
@@ -181,6 +255,7 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
   if (nossoPreco !== undefined) updates.nossoPreco = priceOrNull(nossoPreco);
   if (nossoDiferenciais !== undefined) updates.nossoDiferenciais = str(nossoDiferenciais);
   if (nossoLink !== undefined) updates.nossoLink = str(nossoLink) || null;
+  if (nossoLinkVenda !== undefined) updates.nossoLinkVenda = str(nossoLinkVenda) || null;
   if (nossasObservacoes !== undefined) updates.nossasObservacoes = str(nossasObservacoes);
   db.get('concorrencia').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'concorrencia', entityId: existing.id, entityLabel: updates.titulo || existing.titulo, action: 'update', details: 'Análise de concorrência atualizada' });
@@ -302,5 +377,20 @@ router.delete('/lancamentos/:id/files/:fileId', requireAuth, requireProdutosEdit
   }
   res.json({ item: db.get('lancamentosProdutos').find({ id: req.params.id }).value() });
 });
+
+// ---------- Catálogo (68ª rodada, pedido da Raquel: "adicione em
+// produtos um sub menu com o nome catálogo... deve ser separado por
+// marca") -- 1 arquivo atual (upload substitui o anterior) por marca,
+// mesmo módulo genérico usado pelo Catálogo de Expositores (ver
+// routes/expositores.js) -- são 2 catálogos DIFERENTES, coleções
+// separadas de propósito, só a mecânica de upload é compartilhada.
+router.use('/catalogo', makeCatalogFileRouter({
+  collectionName: 'produtosCatalogoFiles',
+  uploadsSubdir: 'produtos-catalogo',
+  brands: BRANDS,
+  brandLabelPt: BRAND_LABEL_PT,
+  permissionKey: 'produtos',
+  resourceLabel: 'Catálogo de Produtos'
+}));
 
 module.exports = router;

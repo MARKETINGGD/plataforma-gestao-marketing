@@ -15,7 +15,11 @@ const RESOURCE_LABEL_PT = {
   budget: 'Budget',
   feiras: 'Feiras',
   brindes: 'Brindes',
-  campanhaCooperada: 'Campanha Cooperada'
+  campanhaCooperada: 'Campanha Cooperada',
+  // 68ª rodada
+  expositoresEstoque: 'Controle de Expositores',
+  concorrencia: 'Análise de Concorrência',
+  concorrenciaItem: 'Análise de Concorrência'
 };
 
 router.get('/resolve/:token', (req, res) => {

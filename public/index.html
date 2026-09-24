@@ -179,6 +179,13 @@
             <button class="navlink navlink-sub" id="navExpositoresEspeciais" data-view="expositores-hub">Expositores Especiais</button>
             <button class="navlink navlink-sub" id="navExpositoresBookTecnico" data-view="expositores-book-tecnico">Book Técnico</button>
             <button class="navlink navlink-sub" id="navExpositoresOrcamentos" data-view="expositores-orcamentos">Orçamentos</button>
+            <!-- 68ª rodada, "Rodada I" da Pendência 51, pedido da Raquel:
+                 "suba exatamente a planilha que te mandei" (EXPOSITORES
+                 2026.xlsx) -- 1º submenu de Expositores com dado de
+                 verdade (os outros 2 acima continuam só navegação, ver
+                 Pendência 11). -->
+            <button class="navlink navlink-sub" id="navExpositoresEstoque" data-view="expositores-estoque">Controle de Expositores</button>
+            <button class="navlink navlink-sub" id="navExpositoresCatalogo" data-view="expositores-catalogo">Catálogo</button>
           </div>
         </div>
         <!-- 33ª rodada, pedido da Raquel: "no botão produtos deve ter um sub
@@ -189,6 +196,9 @@
           <div class="navlink-submenu" id="navProdutosSubmenu" hidden>
             <button class="navlink navlink-sub" id="navProdutosConcorrencia" data-view="produtos" data-produtos-tab="concorrencia">Análise de Concorrência</button>
             <button class="navlink navlink-sub" id="navProdutosLancamentos" data-view="produtos" data-produtos-tab="lancamentos">Lançamentos de Produtos</button>
+            <!-- 68ª rodada, pedido da Raquel: "adicione em produtos um sub
+                 menu com o nome catálogo... deve ser separado por marca". -->
+            <button class="navlink navlink-sub" id="navProdutosCatalogo" data-view="produtos-catalogo">Catálogo</button>
           </div>
         </div>
         <!-- 38ª rodada, pedido da Raquel: "em brindes, adicione um sub menu:
@@ -1213,19 +1223,29 @@
             <button class="btn-secondary no-print" id="brindesPublicLinkBtn" type="button">🔗 Link externo</button>
           </div>
 
-          <!-- 66ª rodada, "Rodada H" da Pendência 51: link externo (só
-               leitura por enquanto), 1 por marca. -->
+          <!-- 66ª rodada, "Rodada H" da Pendência 51: link externo, 1 por
+               marca. 68ª rodada, pedido da Raquel: "deve ter a opção de
+               apenas visualizar ou editar (pessoas que não acessam a
+               planilha, precisam fazer esse controle)" -- só Brindes
+               ganhou o modo "edição" até agora (ver Pendência do
+               handoff sobre os outros recursos). No modo edição, quem
+               abre o link consegue atualizar o estoque (PR/SP/PE) de
+               cada item, sem precisar de conta na Papoi. -->
           <div id="brindesPublicLinkPanel" class="form-card no-print" hidden>
-            <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver o catálogo desta marca, somente leitura, mesmo sem estar logada na plataforma.</p>
+            <p class="muted" style="margin-top:0;">Gere um link pra quem não tem conta na Papoi acompanhar o catálogo desta marca -- escolha "Somente leitura" pra só visualizar, ou "Leitura e edição" pra também deixar atualizar o estoque (PR/SP/PE) de cada item, com o nome de quem editou registrado.</p>
             <div id="brindesPublicLinkActive" hidden>
+              <p class="muted" id="brindesPublicLinkModeLabel" style="margin:0 0 6px;font-weight:600;"></p>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 <input type="text" id="brindesPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
                 <button class="btn-secondary" id="brindesCopyLinkBtn" type="button">Copiar link</button>
-                <button class="btn-secondary" id="brindesRegenLinkBtn" type="button">Gerar novo link</button>
                 <button class="btn-secondary danger" id="brindesRevokeLinkBtn" type="button">Desativar</button>
               </div>
             </div>
-            <button class="btn-primary" id="brindesGenLinkBtn" type="button">Gerar link externo</button>
+            <div id="brindesPublicLinkGenChoice">
+              <label class="checkbox-row" style="display:inline-flex;"><input type="radio" name="brindesPublicLinkMode" value="leitura" checked> Somente leitura</label>
+              <label class="checkbox-row" style="display:inline-flex;margin-left:16px;"><input type="radio" name="brindesPublicLinkMode" value="edicao"> Leitura e edição (controle de estoque externo)</label>
+              <div><button class="btn-primary" id="brindesGenLinkBtn" type="button" style="margin-top:8px;">Gerar link externo</button></div>
+            </div>
           </div>
 
           <!-- 35ª rodada: card inline no formato do Budget, no lugar da
@@ -1538,6 +1558,27 @@
           </div>
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="concorrenciaNewBtn">+ Nova análise</button>
+            <button class="btn-secondary no-print" id="concorrenciaExportExcelBtn" type="button">⬇️ Exportar Excel</button>
+            <button class="btn-secondary no-print" id="concorrenciaExportPdfBtn" type="button">🖨️ Exportar PDF</button>
+            <button class="btn-secondary no-print" id="concorrenciaPublicLinkBtn" type="button">🔗 Link externo (todas as análises)</button>
+          </div>
+
+          <!-- 68ª rodada, pedido da Raquel: "compartilhar... ou todas as
+               análises" -- este é o link AGREGADO (a lista inteira,
+               filtrada pela aba de marca ativa); o de cada análise
+               individual sai direto do botão "🔗 Compartilhar" do
+               próprio cartão (ver app.js). -->
+          <div id="concorrenciaPublicLinkPanel" class="form-card no-print" hidden>
+            <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link vê a lista de análises da aba ativa (todas as marcas/De Bacco/GhelPlus), somente leitura, mesmo sem estar logada na plataforma.</p>
+            <div id="concorrenciaPublicLinkActive" hidden>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="concorrenciaPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                <button class="btn-secondary" id="concorrenciaCopyLinkBtn" type="button">Copiar link</button>
+                <button class="btn-secondary" id="concorrenciaRegenLinkBtn" type="button">Gerar novo link</button>
+                <button class="btn-secondary danger" id="concorrenciaRevokeLinkBtn" type="button">Desativar</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="concorrenciaGenLinkBtn" type="button">Gerar link externo</button>
           </div>
 
           <!-- 39ª rodada, pedido da Raquel: concorrente x nossa marca lado a
@@ -1580,6 +1621,10 @@
                 <label>Diferenciais</label><textarea id="concorrenciaFormNossoDiferenciais" rows="2"></textarea>
                 <label>Observações</label><textarea id="concorrenciaFormNossasObservacoes" rows="2"></textarea>
                 <label>Link de referência</label><input id="concorrenciaFormNossoLink" type="text" placeholder="https://...">
+                <!-- 68ª rodada, pedido da Raquel: "um local para colocar
+                     o link de uma página de venda do produto (assim fica
+                     fácil de acompanhar o valor atualizado do produto)". -->
+                <label>Página de venda (preço atualizado)</label><input id="concorrenciaFormNossoLinkVenda" type="text" placeholder="https://...">
               </div>
             </div>
 
@@ -1655,6 +1700,15 @@
         </div>
       </section>
 
+      <!-- Catálogo de Produtos (68ª rodada, pedido da Raquel: "adicione em
+           produtos um sub menu com o nome catálogo... deve ser separado
+           por marca"). -->
+      <section id="view-produtos-catalogo" class="view" hidden>
+        <h2>Produtos — Catálogo</h2>
+        <p class="muted">Suba aqui o catálogo atualizado de cada marca -- enviar um arquivo novo substitui o anterior.</p>
+        <div id="produtosCatalogoList"></div>
+      </section>
+
       <!-- Book Técnico (46ª rodada): por enquanto só a navegação/aba por
            marca, sem conteúdo -- a Raquel pediu "deixe em branco por
            enquanto, só crie ele no sub menu". O link externo de
@@ -1676,6 +1730,106 @@
           <button class="tab-btn" data-expositores-orcamentos-brand="ghelplus">GhelPlus</button>
         </div>
         <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar orçamentos de expositores por aqui.</p>
+      </section>
+
+      <!-- Controle de Expositores (68ª rodada, "Rodada I" da Pendência 51,
+           pedido da Raquel: "suba exatamente a planilha que te mandei" --
+           EXPOSITORES 2026.xlsx). Total/Pendência (x3)/R$ Total são
+           calculados pela Papoi (a própria planilha já os calculava por
+           fórmula -- ver routes/expositores.js) e nunca aparecem no
+           formulário de edição, só na tabela. -->
+      <section id="view-expositores-estoque" class="view" hidden>
+        <h2>Expositores — Controle de Expositores</h2>
+        <p class="muted">Estoque de expositores (PCP/Comercial/Compras), importado da planilha oficial. Total, Pendência e R$ Total/mês são recalculados automaticamente pela Papoi sempre que Saldo, Segurança ou Consumo mensal mudam.</p>
+        <div class="tabs">
+          <button class="tab-btn active" data-expositores-estoque-brand="ghelplus">GhelPlus</button>
+          <button class="tab-btn" data-expositores-estoque-brand="debacco">De Bacco</button>
+        </div>
+        <div class="view-toolbar-actions" style="margin:12px 0;">
+          <button class="btn-secondary no-print" id="expositoresEstoqueExportExcelBtn" type="button">⬇️ Exportar Excel</button>
+          <button class="btn-secondary no-print" id="expositoresEstoqueExportPdfBtn" type="button">🖨️ Exportar PDF</button>
+          <button class="btn-secondary no-print" id="expositoresEstoquePublicLinkBtn" type="button">🔗 Link externo</button>
+        </div>
+        <div id="expositoresEstoquePublicLinkPanel" class="form-card no-print" hidden>
+          <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver o Controle de Expositores desta marca, somente leitura, mesmo sem estar logada na plataforma.</p>
+          <div id="expositoresEstoquePublicLinkActive" hidden>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" id="expositoresEstoquePublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+              <button class="btn-secondary" id="expositoresEstoqueCopyLinkBtn" type="button">Copiar link</button>
+              <button class="btn-secondary" id="expositoresEstoqueRegenLinkBtn" type="button">Gerar novo link</button>
+              <button class="btn-secondary danger" id="expositoresEstoqueRevokeLinkBtn" type="button">Desativar</button>
+            </div>
+          </div>
+          <button class="btn-primary" id="expositoresEstoqueGenLinkBtn" type="button">Gerar link externo</button>
+        </div>
+
+        <div id="expositorEstoqueFormWrap" class="form-card form-card-wide" hidden>
+          <h3>Editar item</h3>
+          <input type="hidden" id="expositorEstoqueFormId">
+          <div class="form-row">
+            <div><label>Código entrada</label><input id="expositorEstoqueFormCodigoEntrada" type="text"></div>
+            <div><label>Descrição entrada</label><input id="expositorEstoqueFormDescricaoEntrada" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Código saída</label><input id="expositorEstoqueFormCodigoSaida" type="text"></div>
+            <div><label>Descrição saída</label><input id="expositorEstoqueFormDescricaoSaida" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>R$ Unitário</label><input id="expositorEstoqueFormValorUnitario" type="number" step="0.01"></div>
+            <div><label>Consumo mensal</label><input id="expositorEstoqueFormConsumoMensal" type="number" step="1"></div>
+          </div>
+          <h4 style="margin-bottom:4px;">Saldo por praça</h4>
+          <div class="form-row">
+            <div><label>PR</label><input id="expositorEstoqueFormSaldoPR" type="number" step="1"></div>
+            <div><label>SP</label><input id="expositorEstoqueFormSaldoSP" type="number" step="1"></div>
+            <div><label>NE</label><input id="expositorEstoqueFormSaldoNE" type="number" step="1"></div>
+          </div>
+          <h4 style="margin-bottom:4px;">Segurança por praça <span class="muted" style="font-weight:400;">(Pendência = Saldo − Segurança, calculado sozinho)</span></h4>
+          <div class="form-row">
+            <div><label>PR</label><input id="expositorEstoqueFormSegurancaPR" type="number" step="1"></div>
+            <div><label>SP</label><input id="expositorEstoqueFormSegurancaSP" type="number" step="1"></div>
+            <div><label>NE</label><input id="expositorEstoqueFormSegurancaNE" type="number" step="1"></div>
+          </div>
+          <h4 style="margin-bottom:4px;">Compras / reposição automática</h4>
+          <div class="form-row">
+            <div><label>Lote econômico</label><input id="expositorEstoqueFormLoteEconomico" type="number" step="1"></div>
+            <div><label>Lote múltiplo</label><input id="expositorEstoqueFormLoteMultiplo" type="number" step="1"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Ressuprimento fornecedor</label><input id="expositorEstoqueFormRessuprimentoFornecedor" type="number" step="1"></div>
+            <div><label>Ressuprimento compras</label><input id="expositorEstoqueFormRessuprimentoCompras" type="number" step="1"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Estoque segurança</label><input id="expositorEstoqueFormEstoqueSeguranca" type="number" step="1"></div>
+            <div><label>Nota</label><input id="expositorEstoqueFormNota" type="text"></div>
+          </div>
+          <div class="form-actions">
+            <button id="expositorEstoqueFormSave" class="btn-primary">Salvar</button>
+            <button id="expositorEstoqueFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table class="data-table" id="expositoresEstoqueTable">
+            <thead><tr>
+              <th>Código entrada</th><th>Descrição entrada</th><th>Código saída</th><th>Descrição saída</th><th>R$ Unit.</th>
+              <th>Saldo PR</th><th>Saldo SP</th><th>Saldo NE</th><th>Total</th>
+              <th>Segur. PR</th><th>Pend. PR</th><th>Segur. SP</th><th>Pend. SP</th><th>Segur. NE</th><th>Pend. NE</th>
+              <th>Consumo mensal</th><th>R$ Total/mês</th><th>Lote econ.</th><th>Lote mult.</th>
+              <th>Ressup. fornec.</th><th>Ressup. compras</th><th>Estoq. segur.</th><th>Nota</th><th></th>
+            </tr></thead>
+            <tbody id="expositoresEstoqueBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Catálogo de Expositores (68ª rodada, pedido da Raquel: "adicione
+           no sub menu expositores- Catálogo... separe por marcas...
+           colocar o arquivo do catálogo atualizado de cada marca"). -->
+      <section id="view-expositores-catalogo" class="view" hidden>
+        <h2>Expositores — Catálogo</h2>
+        <p class="muted">Suba aqui o catálogo atualizado de cada marca -- enviar um arquivo novo substitui o anterior.</p>
+        <div id="expositoresCatalogoList"></div>
       </section>
 
       <section id="view-users" class="view" hidden>

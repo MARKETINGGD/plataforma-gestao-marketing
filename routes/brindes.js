@@ -326,27 +326,74 @@ router.delete('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- link externo (66ª rodada, "Rodada H" da Pendência 51) ----------
+// ---------- link externo (66ª rodada, "Rodada H"; edição desde a 68ª
+// rodada) ----------
 // Um link por marca, só do catálogo (não do Registro de Saídas, que tem
-// dado de retirada por representante) -- só "leitura" por enquanto (ver
-// utils/shareLinks.js).
+// dado de retirada por representante). Desde a 68ª rodada, pedido
+// explícito da Raquel ("deve ter a opção de apenas visualizar ou
+// editar... pessoas que não acessam a planilha, precisam fazer esse
+// controle"), o link pode ser gerado no modo 'edicao' -- nesse modo,
+// quem abre o link (sem login nenhum) pode atualizar o ESTOQUE (PR/SP/
+// PE) de cada item, exatamente o "controle" que a Raquel descreveu.
+// Nenhum outro campo (nome do item, código, valor, status) é editável
+// por esse link -- mesmo cuidado de escopo mínimo já documentado em
+// utils/shareLinks.js. Como não existe login nesse fluxo, quem edita
+// precisa informar o próprio nome a cada alteração -- fica gravado como
+// "(nome) via link externo" nos mesmos carimbos por praça da 62ª rodada,
+// pra sempre dar pra saber que essa mudança específica não veio de
+// dentro da Papoi.
 router.get('/public/:token', (req, res) => {
   const link = shareLinks.findByToken(req.params.token);
   if (!link || link.resource !== 'brindes') return res.status(404).json({ error: 'Link inválido ou desativado.' });
   const items = db.get('brindesCatalog').value().filter((r) => r.brand === link.scopeKey).map(serializeCatalogItem);
-  res.json({ brand: link.scopeKey, items });
+  res.json({ brand: link.scopeKey, mode: link.mode || 'leitura', items });
+});
+
+// 68ª rodada: atualizar o estoque de 1 item via link externo em modo
+// 'edicao' -- sem requireAuth (mesmo motivo de sempre: quem chega aqui é
+// um visitante sem conta na Papoi), mas com validações redobradas: o
+// token precisa ser de verdade, precisa ser 'edicao' (não só 'leitura'),
+// e o item precisa pertencer à MESMA marca do link (nunca deixa editar
+// um item de outra marca só porque a pessoa adivinhou o id).
+router.put('/public/:token/catalog/:id', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'brindes') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  if (link.mode !== 'edicao') return res.status(403).json({ error: 'Este link é só de leitura -- peça um link de edição pra quem administra o Brindes na Papoi.' });
+  const existing = db.get('brindesCatalog').find({ id: req.params.id }).value();
+  if (!existing || existing.brand !== link.scopeKey) return res.status(404).json({ error: 'Item não encontrado.' });
+  const { nome, estoquePR, estoqueSP, estoquePE } = req.body || {};
+  const nomeTrim = (nome || '').trim();
+  if (!nomeTrim) return res.status(400).json({ error: 'Informe seu nome antes de salvar -- fica registrado quem atualizou.' });
+  const updates = { updatedAt: new Date().toISOString() };
+  [['estoquePR', estoquePR], ['estoqueSP', estoqueSP], ['estoquePE', estoquePE]].forEach(([k, v]) => {
+    if (v === undefined) return;
+    const novo = Number(v) || 0;
+    updates[k] = novo;
+    if (novo !== (Number(existing[k]) || 0)) {
+      updates[k + 'UpdatedAt'] = new Date().toISOString();
+      updates[k + 'UpdatedBy'] = null;
+      updates[k + 'UpdatedByName'] = `${nomeTrim} (via link externo)`;
+    }
+  });
+  const pr = updates.estoquePR !== undefined ? updates.estoquePR : existing.estoquePR;
+  const sp = updates.estoqueSP !== undefined ? updates.estoqueSP : existing.estoqueSP;
+  const pe = updates.estoquePE !== undefined ? updates.estoquePE : existing.estoquePE;
+  updates.estoqueTotal = sumStock(pr, sp, pe);
+  db.get('brindesCatalog').find({ id: req.params.id }).assign(updates).write();
+  logAudit({ user: { id: null, name: `${nomeTrim} (via link externo)` }, entityType: 'brindeCatalogo', entityId: existing.id, entityLabel: existing.item, action: 'update', details: 'Estoque atualizado por visitante via link externo (modo edição)' });
+  res.json({ item: serializeCatalogItem(db.get('brindesCatalog').find({ id: req.params.id }).value()) });
 });
 
 router.get('/public-link', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand } = req.query;
   const link = shareLinks.getLink('brindes', brand);
-  res.json({ publicToken: link ? link.token : null });
+  res.json({ publicToken: link ? link.token : null, mode: link ? link.mode : null });
 });
 router.post('/public-link/generate', requireAuth, requireBrindesEdit, (req, res) => {
-  const { brand } = req.body || {};
+  const { brand, mode } = req.body || {};
   if (!brand) return res.status(400).json({ error: 'Escolha a marca.' });
-  const token = shareLinks.generateLink('brindes', brand, req);
-  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'generate_public_link' });
+  const token = shareLinks.generateLink('brindes', brand, req, mode);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'generate_public_link', details: `Modo: ${mode === 'edicao' ? 'edição' : 'leitura'}` });
   res.json({ publicToken: token });
 });
 router.delete('/public-link', requireAuth, requireBrindesEdit, (req, res) => {

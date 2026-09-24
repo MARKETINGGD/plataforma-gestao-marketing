@@ -7,16 +7,15 @@
 // só que generalizado, pra não duplicar essa lógica em cada arquivo de
 // rota que precisar de um link externo novo.
 //
-// **Escopo desta rodada**: só o tipo "leitura" está implementado (usado
-// por Budget/Feiras/Brindes/Campanha Cooperada). O tipo "edição" (deixar
-// alguém de fora, sem login, editar dados que sincronizam de volta pra
-// Papoi automaticamente) é uma decisão de segurança real -- expor
-// escrita sem login em dados de negócio (orçamento, campanhas) exige
-// saber exatamente QUAIS campos cada recurso deve deixar editar de fora,
-// pra não abrir mais do que deveria só porque um link vazou ou foi
-// encaminhado pra alguém errado. Por isso o campo `mode` já existe no
-// formato ('leitura'/'edicao'), pronto pra quando a Raquel confirmar o
-// escopo de edição por recurso, mas só 'leitura' é gerado por enquanto.
+// **68ª rodada**: o 1º uso de verdade do tipo "edição" chegou -- pedido
+// explícito da Raquel pro catálogo geral de Brindes: "deve ter a opção
+// de apenas visualizar ou editar (pessoas que não acessam a planilha,
+// precisam fazer esse controle)". `generateLink` agora aceita um `mode`
+// opcional ('leitura', o padrão de sempre, ou 'edicao') -- cada recurso
+// que quiser oferecer edição decide POR SI SÓ quais campos aceita
+// escrever num link sem login (ver `PUT /public/:token/...` em
+// routes/brindes.js) -- este módulo só guarda QUAL modo aquele link tem,
+// nunca decide o que pode ser editado.
 const db = require('../db');
 const crypto = require('crypto');
 
@@ -31,10 +30,10 @@ function findByToken(token) {
   return db.get('shareLinks').find({ token }).value() || null;
 }
 
-function generateLink(resource, scopeKey, req) {
+function generateLink(resource, scopeKey, req, mode) {
   const token = crypto.randomBytes(20).toString('hex');
   const existing = getLink(resource, scopeKey);
-  const patch = { token, mode: 'leitura', createdAt: new Date().toISOString(), createdBy: req.user.id, createdByName: req.user.name };
+  const patch = { token, mode: mode === 'edicao' ? 'edicao' : 'leitura', createdAt: new Date().toISOString(), createdBy: req.user.id, createdByName: req.user.name };
   if (existing) {
     db.get('shareLinks').find({ resource, scopeKey }).assign(patch).write();
   } else {

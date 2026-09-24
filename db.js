@@ -113,7 +113,31 @@ db.defaults({
   // Página pronta). O token NUNCA é devolvido pro frontend (ver
   // serialize() em routes/socialAccounts.js) — só usado no servidor, pelos
   // publicadores automáticos.
-  socialAccounts: []
+  socialAccounts: [],
+  // Controle de Expositores (68ª rodada, "Rodada I" da Pendência 51,
+  // pedido da Raquel: "suba exatamente a planilha que te mandei" --
+  // EXPOSITORES 2026.xlsx, aba "2026", 44 itens: 26 GhelPlus + 18 De
+  // Bacco). Cada registro é 1 linha da planilha (algumas linhas da
+  // planilha original descrevem o mesmo "código entrada" com um "código
+  // saída" diferente -- viraram registros separados aqui, com a mesma
+  // descrição/código de entrada repetidos, fiéis ao que a própria
+  // planilha mostrava célula por célula depois de resolvido o
+  // mesclado/merge de células). Ver routes/expositores.js pro
+  // significado de cada campo e quais são calculados (nunca aceitos do
+  // formulário: saldoTotal, pendenciaPR/SP/NE, valorTotalMensal -- a
+  // própria planilha já os calculava por fórmula, e a legenda dela
+  // ("Bloqueadas p/ edição") marcava TOTAL/R$ TOTAL como não-editáveis).
+  expositoresEstoque: [],
+  // Catálogo (arquivo) de Produtos e de Expositores (68ª rodada, pedidos
+  // separados da Raquel: "adicione em produtos um sub menu com o nome
+  // catálogo... deve ser separado por marca" e, à parte, o mesmo pra
+  // Expositores) -- 1 arquivo atual por marca (upload substitui o
+  // anterior, que é apagado do disco), nunca um histórico de versões.
+  // Coleções separadas de propósito (são 2 pedidos distintos, catálogos
+  // diferentes) -- ver utils/catalogFileStore.js (mesmo módulo genérico
+  // reaproveitado pelas 2).
+  produtosCatalogoFiles: [],
+  expositoresCatalogoFiles: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

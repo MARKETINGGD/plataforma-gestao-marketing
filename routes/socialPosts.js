@@ -10,6 +10,7 @@ const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { cascadeCompleteDemandas } = require('../utils/demandCascade');
 const { createAutoRecado, updateAutoRecadosForPost } = require('./recados');
 const metaPublisher = require('../utils/metaPublisher');
+const linkedinPublisher = require('../utils/linkedinPublisher');
 
 const router = express.Router();
 
@@ -333,6 +334,18 @@ function clearFailedPublishIfContentChanged(post, updates) {
   }
 }
 
+// Qual publicador automático (se algum) sabe lidar com essa combinação
+// rede+marca -- generalizado na 67ª rodada (LinkedIn) a partir do que era
+// só uma chamada direta a metaPublisher.isMetaAutoPublishSupported. Cada
+// publicador continua isolado no próprio arquivo (utils/metaPublisher.js,
+// utils/linkedinPublisher.js) -- este helper só decide QUAL DOS DOIS (se
+// algum) usar pro post em questão, sem duplicar a lógica de cada um.
+function resolveAutoPublisher(effectivePost) {
+  if (metaPublisher.isMetaAutoPublishSupported(effectivePost)) return metaPublisher;
+  if (linkedinPublisher.isLinkedInAutoPublishSupported(effectivePost)) return linkedinPublisher;
+  return null;
+}
+
 function findOr404(req, res) {
   const post = db.get('socialPosts').find({ id: req.params.id }).value();
   if (!post) {
@@ -487,14 +500,21 @@ router.put('/:id', requireAuth, async (req, res) => {
   };
   const wantsMarkPublished = updates.status === 'publicado' && previousStatus !== 'publicado';
   const alreadyHandledByMeta = post.publishStatus === 'published' || post.publishStatus === 'publishing';
-  const shouldPublishNow = wantsMarkPublished && !alreadyHandledByMeta && metaPublisher.isMetaAutoPublishSupported(effectivePostForMeta);
+  // 67ª rodada: generalizado pra também cobrir LinkedIn -- ver
+  // resolveAutoPublisher acima. `autoPublisher` é null pra qualquer rede/
+  // tipo que nenhum dos dois sabe publicar sozinho (TikTok, YouTube,
+  // Facebook Reels/Carrossel/Storie, LinkedIn com mais de 1 arquivo etc.),
+  // continua 100% manual como sempre foi.
+  const autoPublisher = wantsMarkPublished && !alreadyHandledByMeta ? resolveAutoPublisher(effectivePostForMeta) : null;
+  const shouldPublishNow = !!autoPublisher;
 
   let publishedJustNow = false;
   if (shouldPublishNow) {
-    const account = metaPublisher.findConnectedAccount(effectivePostForMeta.brand);
+    const account = autoPublisher.findConnectedAccount(effectivePostForMeta.brand);
     if (!account) {
       const brandLabel = BRAND_LABEL_PT[effectivePostForMeta.brand] || effectivePostForMeta.brand;
-      return res.status(422).json({ error: `Não tem conta do Instagram/Facebook conectada pra ${brandLabel} -- conecte em Integrações antes de marcar como publicado.` });
+      const contaLabel = autoPublisher === linkedinPublisher ? 'LinkedIn' : 'do Instagram/Facebook';
+      return res.status(422).json({ error: `Não tem conta ${contaLabel} conectada pra ${brandLabel} -- conecte em Integrações antes de marcar como publicado.` });
     }
     // O status final vem do RESULTADO REAL da publicação (publishOne já
     // decide 'publicado' ou deixa em 'failed' sozinho) -- por isso grava
@@ -502,7 +522,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     const { status: _pendingStatus, ...updatesWithoutStatus } = updates;
     db.get('socialPosts').find({ id: req.params.id }).assign(updatesWithoutStatus).write();
     const toPublish = db.get('socialPosts').find({ id: req.params.id }).value();
-    await metaPublisher.publishOne(toPublish);
+    await autoPublisher.publishOne(toPublish);
     const afterPublish = db.get('socialPosts').find({ id: req.params.id }).value();
     if (afterPublish.publishStatus !== 'published') {
       return res.status(422).json({ error: afterPublish.publishError || 'Não consegui publicar agora -- confira se a conta ainda está conectada e tente de novo em instantes.' });

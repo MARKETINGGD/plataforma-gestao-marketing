@@ -7118,6 +7118,54 @@
         }
       };
     });
+
+    // LinkedIn (67ª rodada) -- mesmo cartão, mesmo padrão de botões, só
+    // trocando os campos de exibição (orgName em vez de igUsername/pageName)
+    // e os endpoints chamados.
+    $('#integracoesLinkedinWarning').hidden = !!data.linkedinConfigured;
+    const liList = $('#integracoesLinkedinList');
+    liList.innerHTML = '';
+    (data.linkedinAccounts || []).forEach((entry) => {
+      const card = document.createElement('div');
+      card.className = 'form-card';
+      const statusStyle = entry.connected
+        ? 'background:#d6f5d6;color:#1c6b1c;border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;'
+        : 'background:#eee;color:#666;border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;';
+      const statusLabel = entry.connected ? 'Conectado' : 'Não conectado';
+      const details = entry.connected
+        ? `<p class="muted" style="margin:8px 0 0;">Conectado como <strong>${entry.account.orgName || '—'}</strong> por ${entry.account.connectedByName || '—'} em ${fmtDate((entry.account.connectedAt || '').slice(0, 10))}.</p>`
+        : '';
+      card.innerHTML = `
+        <h3 style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">${entry.brandLabel} <span style="${statusStyle}">${statusLabel}</span></h3>
+        ${details}
+        <div class="form-actions" style="margin-top:12px;">
+          <button class="btn-primary" data-integ-linkedin-connect="${entry.brand}" ${data.linkedinConfigured ? '' : 'disabled'}>${entry.connected ? 'Reconectar conta LinkedIn' : 'Conectar conta LinkedIn'}</button>
+          ${entry.connected ? `<button class="btn-secondary" data-integ-linkedin-disconnect="${entry.brand}">Desconectar</button>` : ''}
+        </div>
+      `;
+      liList.appendChild(card);
+    });
+    $all('#integracoesLinkedinList [data-integ-linkedin-connect]').forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          const { redirectUrl } = await api('/api/social-accounts/linkedin/connect?brand=' + encodeURIComponent(btn.dataset.integLinkedinConnect));
+          window.location.href = redirectUrl;
+        } catch (e) {
+          alert(e.message || 'Não foi possível iniciar a conexão com a LinkedIn.');
+        }
+      };
+    });
+    $all('#integracoesLinkedinList [data-integ-linkedin-disconnect]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm('Desconectar essa conta? O Agendamento para de publicar sozinho no LinkedIn dessa marca até conectar de novo.')) return;
+        try {
+          await api('/api/social-accounts/linkedin/' + encodeURIComponent(btn.dataset.integLinkedinDisconnect), { method: 'DELETE' });
+          loadIntegracoes();
+        } catch (e) {
+          alert(e.message || 'Não foi possível desconectar.');
+        }
+      };
+    });
   }
 
   // Depois de voltar do fluxo de autorização da Meta (54ª/55ª rodada,
@@ -7145,8 +7193,12 @@
       if (activeViewName === 'integracoes') loadIntegracoes();
     } else if (resultado === 'escolher' && selectionId) {
       openMetaPageChooser(selectionId, brand);
+    } else if (resultado === 'escolher-linkedin' && selectionId) {
+      // 67ª rodada -- mesmo fluxo de "para e pede confirmação" da Meta,
+      // modal separado (ver openLinkedinPageChooser).
+      openLinkedinPageChooser(selectionId, brand);
     } else {
-      alert('Não foi possível conectar com a Meta: ' + (motivo || 'erro desconhecido.'));
+      alert('Não foi possível conectar com a rede social: ' + (motivo || 'erro desconhecido.'));
       if (activeViewName === 'integracoes') loadIntegracoes();
     }
   }
@@ -7199,6 +7251,64 @@
         });
         close();
         alert(`Conta da Meta conectada com sucesso para ${BRAND_LABEL[result.brand] || result.brand}: @${result.igUsername || result.pageName}.`);
+        if (activeViewName === 'integracoes') loadIntegracoes();
+      } catch (e) {
+        errorEl.textContent = e.message || 'Não foi possível confirmar essa Página.';
+        errorEl.hidden = false;
+        confirmBtn.disabled = false;
+      }
+    };
+    modal.hidden = false;
+  }
+
+  // Mesma ideia acima, pra LinkedIn (67ª rodada) -- modal/lista separados
+  // (linkedinPageChooserModal) pra não arriscar mexer no fluxo da Meta, que
+  // já está confirmado funcionando em produção. Só troca os campos
+  // (organizationId/orgName em vez de pageId/igUsername) e os endpoints.
+  async function openLinkedinPageChooser(selectionId, brandHint) {
+    let data;
+    try {
+      data = await api('/api/social-accounts/linkedin/pending/' + encodeURIComponent(selectionId));
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar as Páginas encontradas -- tente conectar de novo.');
+      return;
+    }
+    const modal = $('#linkedinPageChooserModal');
+    const list = $('#linkedinPageChooserList');
+    const errorEl = $('#linkedinPageChooserError');
+    const confirmBtn = $('#linkedinPageChooserConfirm');
+    errorEl.hidden = true;
+    confirmBtn.disabled = true;
+    $('#linkedinPageChooserHint').textContent = `Encontramos ${data.candidates.length > 1 ? 'estas Páginas' : 'esta Página'} da LinkedIn -- qual é a certa pra ${data.brandLabel || brandHint || 'essa marca'}?`;
+    list.innerHTML = '';
+    let selectedOrgId = null;
+    data.candidates.forEach((c) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;';
+      row.innerHTML = `
+        <input type="radio" name="linkedinPageChoice" value="${c.organizationId}" ${data.candidates.length === 1 ? 'checked' : ''}>
+        <span><strong>${c.orgName || '—'}</strong></span>
+      `;
+      list.appendChild(row);
+      if (data.candidates.length === 1) selectedOrgId = c.organizationId;
+    });
+    confirmBtn.disabled = !selectedOrgId;
+    $all('#linkedinPageChooserList input[name="linkedinPageChoice"]').forEach((input) => {
+      input.onchange = () => { selectedOrgId = input.value; confirmBtn.disabled = false; };
+    });
+    const close = () => { modal.hidden = true; };
+    $('#linkedinPageChooserClose').onclick = close;
+    $('#linkedinPageChooserCancel').onclick = close;
+    confirmBtn.onclick = async () => {
+      if (!selectedOrgId) return;
+      confirmBtn.disabled = true;
+      try {
+        const result = await api('/api/social-accounts/linkedin/pending/' + encodeURIComponent(selectionId) + '/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ organizationId: selectedOrgId })
+        });
+        close();
+        alert(`Conta da LinkedIn conectada com sucesso para ${BRAND_LABEL[result.brand] || result.brand}: ${result.orgName}.`);
         if (activeViewName === 'integracoes') loadIntegracoes();
       } catch (e) {
         errorEl.textContent = e.message || 'Não foi possível confirmar essa Página.';

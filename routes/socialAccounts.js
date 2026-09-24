@@ -6,6 +6,7 @@ const { requireAuth, requireSuperAdmin, JWT_SECRET } = require('../middleware/au
 const { resolveUserName } = require('../utils/names');
 const { logAudit } = require('../utils/audit');
 const metaGraph = require('../utils/metaGraphClient');
+const linkedinClient = require('../utils/linkedinClient');
 
 const router = express.Router();
 
@@ -57,6 +58,31 @@ function metaConfigured() {
   return !!(META_APP_ID && META_APP_SECRET);
 }
 
+// ---------- LinkedIn (67ª rodada, "vamos para a proxima integração de
+// API, vamos para o linkedin") ----------
+// Mesmas 2 marcas com Página pronta pra conectar na Meta -- ajuste fácil se
+// a Raquel confirmar que Duranox/Boutique Inox também têm Página própria da
+// LinkedIn. Duplicada (não importada de utils/linkedinPublisher.js) --
+// mesmo motivo de sempre: aquele arquivo importa routes/recados.js, que não
+// tem nada a ver com este arquivo, mas mantém o mesmo padrão de duplicação
+// já usado pra META_BRANDS acima/em utils/metaPublisher.js.
+const LINKEDIN_BRANDS = ['debacco', 'ghelplus'];
+const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID || '';
+const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET || '';
+const LINKEDIN_REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI || `${APP_BASE_URL}/api/social-accounts/linkedin/callback`;
+// `w_organization_social` publica como a Página; `rw_organization_admin` é
+// só pra descobrir QUAIS Páginas a pessoa administra (organizationAcls, ver
+// utils/linkedinClient.js) -- sem ele não dá pra montar a lista de escolha,
+// a pessoa precisaria saber o ID numérico da Página de cor. Os 2 fazem
+// parte do produto "Community Management API" que a Raquel precisa
+// solicitar e ter aprovado antes de qualquer conexão funcionar de verdade
+// -- ver PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md, seção 7.
+const LINKEDIN_SCOPES = ['w_organization_social', 'rw_organization_admin'].join(' ');
+
+function linkedinConfigured() {
+  return !!(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET);
+}
+
 function serialize(account) {
   if (!account) return null;
   // O token de acesso NUNCA sai do servidor (nem pra super admin) — só o
@@ -67,6 +93,9 @@ function serialize(account) {
     platform: account.platform,
     igUsername: account.igUsername || null,
     pageName: account.pageName || null,
+    // Nome da Página da LinkedIn (organization) -- equivalente ao pageName
+    // da Meta, campo próprio pra não confundir os dois na tela.
+    orgName: account.orgName || null,
     tokenExpiresAt: account.tokenExpiresAt || null,
     connectedByName: resolveUserName(account.connectedBy, account.connectedByName),
     connectedAt: account.connectedAt
@@ -107,18 +136,48 @@ function cleanupExpiredSelections() {
   }
 }
 
+// Mesma ideia (escolha pendente em memória, nunca no banco) reaproveitada
+// pra LinkedIn -- Mapa separado do da Meta só pra nunca misturar por
+// engano um `selectionId` de uma plataforma com o fluxo da outra.
+const linkedinPendingSelections = new Map();
+function cleanupExpiredLinkedinSelections() {
+  const now = Date.now();
+  for (const [id, sel] of linkedinPendingSelections) {
+    if (sel.expiresAt < now) linkedinPendingSelections.delete(id);
+  }
+}
+
 // ---------- listar status das conexões (tela "Integrações") ----------
+// Generalizado nesta rodada (67ª) pra devolver as 2 plataformas juntas --
+// o front (public/app.js) agrupa por `platform` em vez de assumir que é
+// sempre Meta.
 router.get('/', requireAuth, requireSuperAdmin, (req, res) => {
-  const accounts = META_BRANDS.map((brand) => {
+  const metaAccounts = META_BRANDS.map((brand) => {
     const account = db.get('socialAccounts').find({ brand, platform: 'meta' }).value();
     return {
+      platform: 'meta',
       brand,
       brandLabel: BRAND_LABEL_PT[brand],
       connected: !!account,
       account: serialize(account)
     };
   });
-  res.json({ metaConfigured: metaConfigured(), accounts });
+  const linkedinAccounts = LINKEDIN_BRANDS.map((brand) => {
+    const account = db.get('socialAccounts').find({ brand, platform: 'linkedin' }).value();
+    return {
+      platform: 'linkedin',
+      brand,
+      brandLabel: BRAND_LABEL_PT[brand],
+      connected: !!account,
+      account: serialize(account)
+    };
+  });
+  res.json({
+    metaConfigured: metaConfigured(),
+    linkedinConfigured: linkedinConfigured(),
+    accounts: metaAccounts,
+    linkedinAccounts
+  });
 });
 
 // ---------- iniciar a autorização ----------
@@ -289,5 +348,154 @@ router.delete('/meta/:brand', requireAuth, requireSuperAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- LinkedIn: iniciar a autorização ----------
+router.get('/linkedin/connect', requireAuth, requireSuperAdmin, (req, res) => {
+  if (!linkedinConfigured()) {
+    return res.status(503).json({ error: 'LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET ainda não configurados no servidor -- a Raquel precisa terminar a aprovação do App na LinkedIn antes (ver PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md).' });
+  }
+  const { brand } = req.query;
+  if (!LINKEDIN_BRANDS.includes(brand)) {
+    return res.status(400).json({ error: 'Marca inválida para conexão com a LinkedIn.' });
+  }
+  const state = signState({ brand, userId: req.user.id, provider: 'linkedin' });
+  const qs = new URLSearchParams({
+    response_type: 'code',
+    client_id: LINKEDIN_CLIENT_ID,
+    redirect_uri: LINKEDIN_REDIRECT_URI,
+    state,
+    scope: LINKEDIN_SCOPES
+  });
+  res.json({ redirectUrl: `https://www.linkedin.com/oauth/v2/authorization?${qs.toString()}` });
+});
+
+// ---------- LinkedIn: callback (a LinkedIn redireciona o NAVEGADOR pra cá) ----------
+// Sem requireAuth, mesmo motivo do callback da Meta acima.
+router.get('/linkedin/callback', async (req, res) => {
+  const redirectBack = (params) => res.redirect(`${APP_BASE_URL}/?${new URLSearchParams(params).toString()}`);
+
+  const { code, state, error, error_description: errorDescription } = req.query;
+  if (error) {
+    return redirectBack({ integracoes: 'erro', motivo: errorDescription || error });
+  }
+  if (!code || !state) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Resposta inesperada da LinkedIn (faltou code/state).' });
+  }
+
+  let statePayload;
+  try {
+    statePayload = verifyState(state);
+  } catch (e) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Link de autorização expirado ou inválido — tente conectar de novo.' });
+  }
+  const { brand, userId } = statePayload;
+  const requestingUser = db.get('users').find({ id: userId }).value();
+  if (!requestingUser) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Usuário que iniciou a conexão não existe mais.' });
+  }
+
+  try {
+    const token = await linkedinClient.exchangeCodeForToken({
+      clientId: LINKEDIN_CLIENT_ID,
+      clientSecret: LINKEDIN_CLIENT_SECRET,
+      redirectUri: LINKEDIN_REDIRECT_URI,
+      code
+    });
+    const organizations = await linkedinClient.listAdminOrganizations({ accessToken: token.access_token });
+    if (organizations.length === 0) {
+      return redirectBack({
+        integracoes: 'erro',
+        motivo: 'Nenhuma Página da LinkedIn com permissão de publicar foi encontrada nessa conta. Confirme se quem autorizou é administradora da Página certa.'
+      });
+    }
+
+    // Token da LinkedIn dura ~60 dias -- grava a data de expiração pro
+    // publicador avisar antes de vencer, mesmo padrão da Meta. Diferente da
+    // Meta, aqui não existe uma 2ª troca por token de "longa duração" --
+    // este já É o token que fica guardado.
+    const expiresInSeconds = token.expires_in || 60 * 24 * 60 * 60;
+    const tokenExpiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+
+    // Mesmo espírito da 6ª correção da Meta: nunca escolhe sozinha qual
+    // Página é a certa, mesmo quando só vem 1 candidata -- sempre pede
+    // confirmação explícita.
+    cleanupExpiredLinkedinSelections();
+    const selectionId = nanoid();
+    linkedinPendingSelections.set(selectionId, {
+      brand,
+      accessToken: token.access_token,
+      tokenExpiresAt,
+      expiresAt: Date.now() + PENDING_TTL_MS,
+      candidates: organizations.map((o) => ({
+        organizationId: o.organizationId,
+        organizationUrn: o.organizationUrn,
+        orgName: o.name
+      }))
+    });
+    return redirectBack({ integracoes: 'escolher-linkedin', brand, selectionId });
+  } catch (e) {
+    const motivo = e instanceof linkedinClient.LinkedInApiError ? e.message : 'Erro inesperado ao conectar com a LinkedIn.';
+    return redirectBack({ integracoes: 'erro', motivo });
+  }
+});
+
+// ---------- LinkedIn: ver as Páginas candidatas de uma escolha pendente ----------
+router.get('/linkedin/pending/:selectionId', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredLinkedinSelections();
+  const sel = linkedinPendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta LinkedIn" de novo.' });
+  res.json({
+    brand: sel.brand,
+    brandLabel: BRAND_LABEL_PT[sel.brand] || sel.brand,
+    // Token de acesso NUNCA sai daqui -- só o suficiente pra pessoa
+    // reconhecer visualmente qual Página é qual.
+    candidates: sel.candidates.map((c) => ({ organizationId: c.organizationId, orgName: c.orgName }))
+  });
+});
+
+// ---------- LinkedIn: confirmar qual Página é a certa pra essa marca ----------
+router.post('/linkedin/pending/:selectionId/confirm', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredLinkedinSelections();
+  const sel = linkedinPendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta LinkedIn" de novo.' });
+  const { organizationId } = req.body || {};
+  const chosen = sel.candidates.find((c) => c.organizationId === organizationId);
+  if (!chosen) return res.status(400).json({ error: 'Página inválida.' });
+
+  const nowIso = new Date().toISOString();
+  const accountData = {
+    brand: sel.brand,
+    platform: 'linkedin',
+    organizationId: chosen.organizationId,
+    organizationUrn: chosen.organizationUrn,
+    orgName: chosen.orgName,
+    accessToken: sel.accessToken,
+    tokenExpiresAt: sel.tokenExpiresAt,
+    connectedBy: req.user.id,
+    connectedByName: req.user.name || req.user.username,
+    connectedAt: nowIso
+  };
+  const existing = db.get('socialAccounts').find({ brand: sel.brand, platform: 'linkedin' }).value();
+  if (existing) {
+    db.get('socialAccounts').find({ id: existing.id }).assign(accountData).write();
+  } else {
+    db.get('socialAccounts').push(Object.assign({ id: nanoid() }, accountData)).write();
+  }
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: sel.brand, entityLabel: `LinkedIn · ${BRAND_LABEL_PT[sel.brand] || sel.brand}`, action: existing ? 'update' : 'create', details: `Conectado como ${accountData.orgName}` });
+
+  linkedinPendingSelections.delete(req.params.selectionId);
+  res.json({ ok: true, brand: sel.brand, orgName: accountData.orgName });
+});
+
+// ---------- LinkedIn: desconectar ----------
+router.delete('/linkedin/:brand', requireAuth, requireSuperAdmin, (req, res) => {
+  const { brand } = req.params;
+  const existing = db.get('socialAccounts').find({ brand, platform: 'linkedin' }).value();
+  if (!existing) return res.status(404).json({ error: 'Essa marca não está conectada.' });
+  db.get('socialAccounts').remove({ id: existing.id }).write();
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: brand, entityLabel: `LinkedIn · ${BRAND_LABEL_PT[brand] || brand}`, action: 'delete' });
+  res.json({ ok: true });
+});
+
 module.exports = router;
 module.exports.META_BRANDS = META_BRANDS;
+module.exports.LINKEDIN_BRANDS = LINKEDIN_BRANDS;

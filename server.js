@@ -90,6 +90,13 @@ require('./utils/pontoReminders').startPontoReminderScheduler();
 // conectada, e publica sozinho (ver utils/metaPublisher.js).
 require('./utils/metaPublisher').startMetaPublisherScheduler();
 
+// 67ª rodada: mesma ideia, agora pra LinkedIn -- checa a cada 2 minutos se
+// tem post de LinkedIn com a data/hora batendo e conta conectada (ver
+// utils/linkedinPublisher.js). Ainda sem nenhum teste real -- depende da
+// Raquel terminar a aprovação do App na LinkedIn primeiro (ver
+// PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md, seção 7).
+require('./utils/linkedinPublisher').startLinkedInPublisherScheduler();
+
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).
 app.use((req, res, next) => {

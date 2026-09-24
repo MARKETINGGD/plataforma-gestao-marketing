@@ -1787,9 +1787,17 @@
            tela Usuários acima. -->
       <section id="view-integracoes" class="view" hidden>
         <h2>Integrações — Redes Sociais</h2>
-        <p class="muted">Conecte a conta do Instagram/Facebook de cada marca para o Agendamento publicar sozinho, no horário certo. Por enquanto só post <strong>Estático</strong> (1 imagem) é publicado automaticamente — Carrossel, Reels e vídeo continuam manuais, com a mesma tela de sempre.</p>
+        <p class="muted">Conecte a conta do Instagram/Facebook de cada marca para o Agendamento publicar sozinho, no horário certo. Estático, Carrossel, Reels e Storie já publicam sozinhos no Instagram (Estático também no Facebook) — os demais tipos continuam manuais, com a mesma tela de sempre.</p>
         <div id="integracoesMetaWarning" class="error" hidden>A Papoi ainda não tem o App da Meta configurado no servidor (META_APP_ID/META_APP_SECRET) — conecte com quem cuida do deploy antes de tentar aqui.</div>
         <div id="integracoesList"></div>
+
+        <!-- LinkedIn (67ª rodada, "vamos para a proxima integração de API,
+             vamos para o linkedin") -- mesmo padrão da Meta acima, em cartões
+             separados. Ver routes/socialAccounts.js. -->
+        <h2 style="margin-top:32px;">LinkedIn</h2>
+        <p class="muted">Publica texto puro, texto + 1 imagem ou texto + 1 vídeo como a Página (organization) de cada marca. Post com mais de 1 arquivo continua manual por enquanto. <strong>O token da LinkedIn expira a cada ~60 dias</strong> — quando isso acontecer, a Papoi avisa e a conta precisa ser reconectada aqui.</p>
+        <div id="integracoesLinkedinWarning" class="error" hidden>A Papoi ainda não tem o App da LinkedIn configurado no servidor (LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET) — a conexão só funciona depois que a Raquel terminar a aprovação do produto "Community Management API" na LinkedIn (ver documento técnico de integração).</div>
+        <div id="integracoesLinkedinList"></div>
       </section>
 
     </main>
@@ -1818,6 +1826,28 @@
     <div class="modal-footer">
       <button id="metaPageChooserConfirm" class="btn-primary" disabled>Conectar esta Página</button>
       <button id="metaPageChooserCancel" class="btn-secondary">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mesma ideia, pra LinkedIn (67ª rodada) -- modal separado (em vez de
+     reaproveitar o de cima) pra não arriscar mexer no fluxo da Meta, que já
+     está confirmado funcionando em produção. Ver GET/POST
+     /api/social-accounts/linkedin/pending/:id em routes/socialAccounts.js. -->
+<div id="linkedinPageChooserModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Qual Página é essa marca?</div>
+      <button id="linkedinPageChooserClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="linkedinPageChooserHint" class="muted"></p>
+      <div id="linkedinPageChooserList"></div>
+      <div id="linkedinPageChooserError" class="error" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button id="linkedinPageChooserConfirm" class="btn-primary" disabled>Conectar esta Página</button>
+      <button id="linkedinPageChooserCancel" class="btn-secondary">Cancelar</button>
     </div>
   </div>
 </div>

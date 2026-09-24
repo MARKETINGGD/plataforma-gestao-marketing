@@ -118,6 +118,12 @@ function publicUser(u) {
     cargo: u.cargo || '',
     columnColor: u.columnColor || null,
     homeColor: u.homeColor || null,
+    // Tema escuro (14ª melhoria, 24/09/2026, pedido da Raquel: "deixe a
+    // possibilidade de deixar o tema escuro") -- preferência pessoal,
+    // mesmo espírito do homeColor (cada um escolhe o próprio, não afeta
+    // quem mais está usando a Papoi). 'light' é o padrão pra quem nunca
+    // mexeu (inclusive contas antigas, sem esse campo salvo ainda).
+    theme: u.theme === 'dark' ? 'dark' : 'light',
     // Ordem pessoal das colunas do quadro de Demandas (17ª rodada, pedido
     // da Raquel: cada um pode arrastar as listas e deixar do jeito que
     // quiser organizar — é preferência de quem está vendo, não muda o que
@@ -226,6 +232,15 @@ router.put('/me/home-color', requireAuth, (req, res) => {
   const homeColor = validColor((req.body || {}).color);
   db.get('users').find({ id: req.user.id }).assign({ homeColor }).write();
   res.json({ ok: true, homeColor });
+});
+
+// Tema escuro (14ª melhoria) -- mesmo padrão do home-color acima, mas
+// pra tela inteira: só 'light'/'dark' são aceitos, qualquer outra coisa
+// cai em 'light' (nunca guarda lixo no banco).
+router.put('/me/theme', requireAuth, (req, res) => {
+  const theme = (req.body || {}).theme === 'dark' ? 'dark' : 'light';
+  db.get('users').find({ id: req.user.id }).assign({ theme }).write();
+  res.json({ ok: true, theme });
 });
 
 // Ordem pessoal das colunas do quadro de Demandas (17ª rodada): a Raquel

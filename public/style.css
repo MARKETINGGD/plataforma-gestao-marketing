@@ -20,6 +20,32 @@
   --muted:#6b7670;
   --danger:#c0392b;
 }
+/* Tema escuro (14ª melhoria, 24/09/2026, pedido da Raquel: "deixe a
+   possibilidade de deixar o tema escuro") -- toda a Papoi já usava essas
+   mesmas variáveis (--bg/--card/--border/--text/--muted) pra fundo/
+   texto/borda em praticamente toda tela, então trocar só esses tokens
+   aqui já escurece o app inteiro sem precisar reescrever CSS espalhado
+   por milhares de linhas. Ativado via `data-theme="dark"` no <html>
+   (ver applyTheme() em public/app.js), alternável por pessoa (preferência
+   salva no perfil, mesmo padrão do homeColor da Início) e guardado
+   também no localStorage só pra já aplicar ANTES do login terminar de
+   carregar (evita a tela de login "piscar" clara quando a pessoa prefere
+   escuro). As cores de marca (--primary/--brand-*) e os tons de status
+   (badges de aprovado/atrasado/etc, ainda com fundo clarinho de
+   propósito -- ver nota abaixo) continuam os mesmos nos 2 temas.
+   --primary/--brand-* ficam um pouco mais claros no escuro pra manter
+   contraste confortável contra um fundo escuro (a cor original foi
+   pensada pra contrastar com um fundo claro). */
+:root[data-theme="dark"]{
+  --primary:#8B82E8;
+  --primary-dark:#6D63E0;
+  --bg:#14171a;
+  --card:#1d2126;
+  --border:#33383e;
+  --text:#e7e9ea;
+  --muted:#9aa1a8;
+  --danger:#e5675c;
+}
 *{box-sizing:border-box;}
 body{
   margin:0;
@@ -32,6 +58,11 @@ body{
    controles (button/select/textarea) não herdam por padrão em todo
    navegador, então força aqui. */
 button,input,select,textarea{font-family:inherit;}
+/* Campos de formulário não herdavam cor de fundo/texto do body -- em
+   navegador nenhum tema deu problema (sempre branco/preto, igual o tema
+   claro), mas sem isso o tema escuro deixaria os campos brancos com
+   texto claro (ilegível). Define explicitamente pros 2 temas. */
+input,select,textarea{background:var(--card);color:var(--text);}
 h1,h2,h3,h4,h5,h6{font-weight:700;}
 button{font-weight:700;}
 .screen{min-height:100vh;}
@@ -54,7 +85,7 @@ button{font-weight:700;}
 }
 .btn-primary:hover{filter:brightness(0.93);}
 .btn-secondary{
-  padding:10px 16px;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-size:14px;
+  padding:10px 16px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;font-size:14px;
 }
 .btn-secondary.danger{color:var(--danger);border-color:var(--danger);}
 /* Alterna Painel/Histórico desta rede no Gerenciamento de Mídias nativo (26ª rodada). */
@@ -527,15 +558,15 @@ button{font-weight:700;}
 .color-swatches{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
 .color-swatch{width:24px;height:24px;border-radius:6px;cursor:pointer;border:2px solid transparent;}
 .color-swatch.selected{border-color:var(--text);}
-.color-swatch-none{background:#fff;border:2px solid var(--border);position:relative;}
+.color-swatch-none{background:var(--card);border:2px solid var(--border);position:relative;}
 .color-swatch-none::after{content:'';position:absolute;inset:0;border-radius:4px;background:linear-gradient(to top right,transparent 46%,var(--danger) 48%,var(--danger) 52%,transparent 54%);}
 .color-swatch-none.selected{border-color:var(--text);}
 
 /* Botão redondo de "trocar cor" (13ª rodada) — usado na lista de cada
    pessoa em Demandas e na tela Início — e o popover flutuante da paleta. */
-.color-dot-btn{width:16px;height:16px;border-radius:50%;border:2px solid var(--border);cursor:pointer;padding:0;flex:0 0 auto;background:#fff;}
+.color-dot-btn{width:16px;height:16px;border-radius:50%;border:2px solid var(--border);cursor:pointer;padding:0;flex:0 0 auto;background:var(--card);}
 .color-dot-btn.has-color{border-color:rgba(0,0,0,.18);}
-.color-popover{position:fixed;z-index:200;background:#fff;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.2);padding:10px;width:170px;}
+.color-popover{position:fixed;z-index:200;background:var(--card);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.2);padding:10px;width:170px;}
 .color-popover .color-swatches{margin-top:0;}
 .home-header-row{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
 .home-greeting{
@@ -545,7 +576,7 @@ button{font-weight:700;}
 
 /* ---------- modal (card de Demanda) ---------- */
 .modal-overlay{position:fixed;inset:0;background:rgba(20,25,22,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
-.modal{background:#fff;border-radius:14px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;}
+.modal{background:var(--card);border-radius:14px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;}
 .modal-header{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border);}
 .modal-title-input{flex:1;border:none;font-size:17px;font-weight:700;padding:6px;border-radius:6px;}
 .modal-title-input:focus{outline:1px solid var(--border);}
@@ -622,7 +653,7 @@ button{font-weight:700;}
 
 /* ---------- Cronograma de Marketing — Prévia do Feed ---------- */
 .feed-preview-list{display:flex;flex-wrap:wrap;gap:20px;margin-top:16px;}
-.feed-preview-card{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;width:340px;flex:0 0 auto;}
+.feed-preview-card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;width:340px;flex:0 0 auto;}
 .feed-preview-header{display:flex;align-items:center;gap:8px;padding:10px 12px;}
 .feed-preview-avatar{width:32px;height:32px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:0 0 auto;}
 .feed-preview-card.linkedin .feed-preview-avatar{border-radius:6px;}

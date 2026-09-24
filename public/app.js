@@ -193,6 +193,27 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
+  // Tema escuro (14ª melhoria, 24/09/2026, pedido da Raquel: "deixe a
+  // possibilidade de deixar o tema escuro") -- `data-theme` no <html> é o
+  // gatilho de verdade (ver as variáveis :root[data-theme="dark"] no
+  // style.css, que já cobrem quase toda a tela sozinhas, já que o resto
+  // do CSS já usava var(--bg)/var(--card)/etc. em vez de cor fixa).
+  // Aplica JÁ, antes até do login/boot terminarem de carregar, usando o
+  // último tema conhecido NESTE navegador (localStorage) -- só pra tela
+  // de login não "piscar" clara se a pessoa prefere escuro; o valor de
+  // verdade (salvo no perfil, sincronizado entre aparelhos) sobrescreve
+  // isso assim que o login terminar, em startApp().
+  function applyTheme(theme) {
+    const t = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('papoiTheme', t); } catch (e) { /* navegador pode bloquear (modo privado) -- só afeta a "lembrança" entre sessões, não o tema em si */ }
+    const btn = $('#themeToggleBtn');
+    if (btn) btn.textContent = t === 'dark' ? '☀️ Tema claro' : '🌙 Tema escuro';
+  }
+  let localTheme = 'light';
+  try { localTheme = localStorage.getItem('papoiTheme') || 'light'; } catch (e) { /* ignora */ }
+  applyTheme(localTheme);
+
   // Responsividade (20ª rodada, pedido da Raquel: "Deixe responsivo para
   // qualquer tela"). As tabelas (.data-table) têm várias colunas e não
   // cabem numa tela estreita — em vez de estourar a largura da página ou
@@ -798,6 +819,11 @@
     $('#topbarUserName').textContent = currentUser.name || currentUser.username;
     $('#navUsers').hidden = !currentUser.isSuperAdmin;
     $('#navIntegracoes').hidden = !currentUser.isSuperAdmin;
+    // Tema escuro (14ª melhoria) -- o valor salvo no PERFIL da pessoa é o
+    // que vale de verdade (sincroniza entre aparelhos); sobrescreve
+    // qualquer coisa que já tinha sido aplicada só a partir do
+    // localStorage antes do login terminar.
+    applyTheme(currentUser.theme);
     showScreen('app');
     // Volta do fluxo de autorização da Meta (54ª/55ª rodada) -- o próprio
     // servidor já terminou a troca de code por token em GET
@@ -873,6 +899,17 @@
   $('#loginForgotBtn').onclick = () => {
     $('#loginError').textContent = 'Peça para um administrador da plataforma redefinir sua senha em Usuários.';
     $('#loginError').hidden = false;
+  };
+
+  // Tema escuro (14ª melhoria) -- alterna e salva no perfil (persiste
+  // entre sessões/aparelhos, mesmo padrão do homeColor da Início).
+  $('#themeToggleBtn').onclick = async () => {
+    const next = (currentUser.theme === 'dark') ? 'light' : 'dark';
+    applyTheme(next); // aplica na hora, não espera o servidor confirmar
+    currentUser.theme = next;
+    try {
+      await api('/api/auth/me/theme', { method: 'PUT', body: JSON.stringify({ theme: next }) });
+    } catch (e) { /* falha de rede pontual -- o tema já mudou na tela, só não persistiu; tenta salvar nas próximas trocas */ }
   };
 
   $('#logoutBtn').onclick = () => {

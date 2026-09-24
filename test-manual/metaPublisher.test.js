@@ -152,6 +152,20 @@ async function run() {
   check('não tentou publicar de novo numa 2ª chamada (já está "published")', publishCalls.length === callsBeforeSecondRun);
   cleanupPost(post2.id);
 
+  // ---------- 2b. recado automático de SUCESSO (11ª melhoria, pedido da
+  // Raquel: "a papoi n mostrou nenhum link após a publicação, e isso
+  // seria importante ter... ao clicar no link ser levado até a rede
+  // social") -- antes só existia aviso pra FALHA. ----------
+  const anyUser2b = db.get('users').value()[0];
+  const post2b = makePost(anyUser2b ? { responsibleId: anyUser2b.id, involvedUserIds: [anyUser2b.id] } : {});
+  await metaPublisher.checkAndPublishScheduledPosts();
+  const recadoSucesso = db.get('recados').value().find((r) => r.sourceSocialPostId === post2b.id);
+  check('publicar com sucesso cria um recado automático (antes não avisava nada)', !!recadoSucesso);
+  check('recado de sucesso menciona que publicou', recadoSucesso && /publicad[oa] com sucesso/i.test(recadoSucesso.text));
+  check('recado de sucesso carrega o link de verdade da Meta (externalUrl)', recadoSucesso && recadoSucesso.externalUrl === 'https://instagram.com/p/fake/');
+  cleanupPost(post2b.id);
+  db.get('recados').remove({ id: recadoSucesso && recadoSucesso.id }).write();
+
   // ---------- 3. com conta conectada, falha simulada ----------
   publishCalls = [];
   shouldFail = true;
@@ -381,6 +395,23 @@ async function run() {
       caption: 'x', postType: 'estatico', publishStatus: null, files: [{ url: '/x.jpg' }]
     }, overrides);
   }
+
+  // ---------- 17. recado de sucesso quando getPermalink falha (raro, mas
+  // não pode quebrar a publicação nem deixar de avisar -- só sem link
+  // clicável dessa vez) ----------
+  const realGetPermalink = metaGraph.getPermalink;
+  metaGraph.getPermalink = async () => { throw new Error('falha simulada ao buscar o permalink'); };
+  const anyUser17 = db.get('users').value()[0];
+  const post17 = makePost(anyUser17 ? { responsibleId: anyUser17.id, involvedUserIds: [anyUser17.id] } : {});
+  await metaPublisher.checkAndPublishScheduledPosts();
+  const post17After = db.get('socialPosts').find({ id: post17.id }).value();
+  check('mesmo sem permalink, publicação continua um sucesso', post17After.publishStatus === 'published');
+  const recadoSemLink = db.get('recados').value().find((r) => r.sourceSocialPostId === post17.id);
+  check('recado de sucesso é criado mesmo sem permalink', !!recadoSemLink);
+  check('recado sem permalink não trava com externalUrl null (não é undefined/crash)', recadoSemLink && recadoSemLink.externalUrl === null);
+  metaGraph.getPermalink = realGetPermalink;
+  cleanupPost(post17.id);
+  db.get('recados').remove({ id: recadoSemLink && recadoSemLink.id }).write();
 
   cleanupAccount(accountId);
 

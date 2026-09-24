@@ -136,7 +136,16 @@ router.delete('/:id', requireAuth, (req, res) => {
 // endereçado só a pessoas específicas. `createdBy: null` é o que faz esse
 // recado seguir a regra "sistema/aprovação = dono" na exclusão acima —
 // nenhum destinatário consegue apagar pra todo mundo, só pra si mesmo.
-function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwork, sourceSocialPostId }) {
+// `externalUrl` (11ª melhoria, 24/09/2026, pedido da Raquel: "isso seria
+// importante ter. Um link na aba recado, avisando que o post foi
+// publicado e ao clicar no link ser levado até a rede social com o post
+// publicado") -- diferente de `sourceSocialPostId` (que leva a pessoa até
+// o post DENTRO da Papoi, no Agendamento), `externalUrl` é o link de
+// verdade da Meta (`externalPermalink`, já calculado por
+// utils/metaPublisher.js) pro post publicado no Instagram/Facebook. Só
+// vem preenchido quando a Meta conseguiu devolver um permalink (nem
+// sempre acontece -- ver comentário em metaPublisher.js).
+function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwork, sourceSocialPostId, externalUrl }) {
   const ids = validUserIds(recipientIds);
   if (ids.length === 0) return null;
   const recado = {
@@ -153,7 +162,8 @@ function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwor
     postTitle: postTitle || null,
     postBrand: postBrand || null,
     postNetwork: postNetwork || null,
-    sourceSocialPostId: sourceSocialPostId || null
+    sourceSocialPostId: sourceSocialPostId || null,
+    externalUrl: externalUrl || null
   };
   db.get('recados').push(recado).write();
   return recado;

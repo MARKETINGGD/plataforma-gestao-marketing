@@ -499,6 +499,14 @@ button{font-weight:700;}
    ícones de marca/rede acima do texto fixo do aviso. */
 .recado-card-post{margin-bottom:2px;}
 .recado-card-post-icons{display:inline-flex;align-items:center;gap:3px;margin-right:2px;}
+/* Link de verdade pro post publicado na rede social (11ª melhoria,
+   pedido da Raquel: "um link na aba recado... ao clicar no link ser
+   levado até a rede social com o post publicado") -- diferente do resto
+   do card (que leva até o post DENTRO da Papoi), este link sai da Papoi
+   de propósito, então fica destacado como link mesmo. */
+.recado-card-external-link{margin:2px 0 4px;}
+.recado-card-external-link a{color:var(--primary);font-weight:600;font-size:13px;text-decoration:none;}
+.recado-card-external-link a:hover{text-decoration:underline;}
 
 /* ---------- gerenciar etiquetas ---------- */
 .modal-small{max-width:420px;}

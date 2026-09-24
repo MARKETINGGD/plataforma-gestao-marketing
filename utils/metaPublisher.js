@@ -314,18 +314,46 @@ async function attemptPublish(post, account) {
   return { externalPostId, externalPermalink };
 }
 
-function notifyPublishFailure(post, message) {
-  const recipientIds = post.responsibleId
+// Mesma regra de "quem avisar" usada tanto pro recado de falha quanto pro
+// de sucesso (11ª melhoria) -- responsável marcado tem prioridade; sem
+// responsável, avisa quem criou + todo mundo marcado como envolvido.
+function notifyRecipientIds(post) {
+  return post.responsibleId
     ? [post.responsibleId]
     : Array.from(new Set([post.createdBy, ...(post.involvedUserIds || [])].filter(Boolean)));
+}
+
+function notifyPublishFailure(post, message) {
   const label = `${PLATFORM_LABEL_PT[post.platform] || post.platform} · ${BRAND_LABEL_PT[post.brand] || post.brand}`;
   createAutoRecado({
-    recipientIds,
+    recipientIds: notifyRecipientIds(post),
     text: `Aviso Papoi: não consegui publicar sozinho seu post de ${label} (${post.scheduledDate}). Motivo: ${message}. Corrija e edite o agendamento para tentar de novo.`,
     postTitle: post.subject || label,
     postBrand: post.brand,
     postNetwork: post.platform,
     sourceSocialPostId: post.id
+  });
+}
+
+// Recado de SUCESSO (11ª melhoria, pedido da Raquel: "a papoi n mostrou
+// nenhum link após a publicação, e isso seria importante ter. Um link na
+// aba recado, avisando que o post foi publicado e ao clicar no link ser
+// levado até a rede social") -- até aqui só existia aviso de FALHA; quem
+// publicava com sucesso não recebia nada, só via o status mudar sozinho
+// se abrisse o Agendamento de novo. `externalUrl` é o link de verdade da
+// Meta (pode vir `null` nas raras vezes que `getPermalink` falha -- nesse
+// caso ainda avisa, só sem o link clicável).
+function notifyPublishSuccess(post, externalUrl) {
+  const label = `${PLATFORM_LABEL_PT[post.platform] || post.platform} · ${BRAND_LABEL_PT[post.brand] || post.brand}`;
+  const linkPart = externalUrl ? ' Clique aqui pra ver o post no ar.' : ' (não consegui pegar o link direto dessa vez, mas publicou certinho.)';
+  createAutoRecado({
+    recipientIds: notifyRecipientIds(post),
+    text: `Papoi: seu post de ${label} (${post.scheduledDate}) foi publicado com sucesso!${linkPart}`,
+    postTitle: post.subject || label,
+    postBrand: post.brand,
+    postNetwork: post.platform,
+    sourceSocialPostId: post.id,
+    externalUrl
   });
 }
 
@@ -360,6 +388,7 @@ async function publishOne(post) {
       // pula o registro de Histórico, completa as demandas do mesmo jeito).
       cascadeCompleteDemandas(post.id, null, null);
     }
+    notifyPublishSuccess(post, externalPermalink);
   } catch (e) {
     const message = e instanceof metaGraph.MetaGraphError ? e.message : (e.message || 'Erro inesperado ao publicar.');
     db.get('socialPosts').find({ id: post.id }).assign({

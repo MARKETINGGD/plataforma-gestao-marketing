@@ -2158,7 +2158,17 @@
   function recadoPostNoticeHtml(r) {
     if (!r.postTitle) return '';
     const icons = `${networkIconHtml(r.postNetwork)}${brandIconHtml(r.postBrand)}`;
-    return `<div class="recado-card-post">${icons ? `<span class="recado-card-post-icons">${icons}</span> ` : ''}<b>${r.postTitle}</b></div>`;
+    // Link de verdade da publicação (11ª melhoria, pedido da Raquel: "um
+    // link na aba recado, avisando que o post foi publicado e ao clicar
+    // no link ser levado até a rede social com o post publicado") --
+    // `data-stop-card-click` marca o link pra não também disparar a
+    // navegação INTERNA do card inteiro (que leva até o post na Papoi,
+    // não até a rede social); a classe é lida pelo onclick do card, que
+    // ignora cliques que caíram num link marcado assim.
+    const linkHtml = r.externalUrl
+      ? `<div class="recado-card-external-link"><a href="${r.externalUrl}" target="_blank" rel="noopener" data-stop-card-click>Ver post publicado ↗</a></div>`
+      : '';
+    return `<div class="recado-card-post">${icons ? `<span class="recado-card-post-icons">${icons}</span> ` : ''}<b>${r.postTitle}</b></div>${linkHtml}`;
   }
 
   async function loadRecados() {
@@ -2230,7 +2240,13 @@
       if (r.sourceSocialPostId) {
         card.classList.add('recado-card-clickable');
         card.title = 'Clique para ir até o post';
-        card.onclick = () => { openPostFromCronograma(r.sourceSocialPostId); };
+        // Clique no link externo (ver acima) não deve também disparar essa
+        // navegação interna -- são 2 destinos diferentes (rede social de
+        // verdade × post dentro da Papoi).
+        card.onclick = (ev) => {
+          if (ev.target.closest('[data-stop-card-click]')) return;
+          openPostFromCronograma(r.sourceSocialPostId);
+        };
       }
       const btn = document.createElement('button');
       btn.className = 'btn-secondary';

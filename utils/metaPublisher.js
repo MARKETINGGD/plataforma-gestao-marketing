@@ -314,13 +314,40 @@ async function attemptPublish(post, account) {
   return { externalPostId, externalPermalink };
 }
 
-// Mesma regra de "quem avisar" usada tanto pro recado de falha quanto pro
-// de sucesso (11ª melhoria) -- responsável marcado tem prioridade; sem
-// responsável, avisa quem criou + todo mundo marcado como envolvido.
+// "Quem avisar" de FALHA (11ª melhoria) -- responsável marcado tem
+// prioridade; sem responsável, avisa quem criou + todo mundo marcado como
+// envolvido. Uma falha é acionável só por quem mexe no post, por isso
+// continua restrita (gerente/coordenador não precisam ser avisados toda
+// vez que uma tentativa automática falha).
 function notifyRecipientIds(post) {
   return post.responsibleId
     ? [post.responsibleId]
     : Array.from(new Set([post.createdBy, ...(post.involvedUserIds || [])].filter(Boolean)));
+}
+
+// "Quem avisar" de SUCESSO (63ª rodada, "Rodada E" da Pendência 51,
+// pedido da Raquel: "posts publicados devem notificar dona do post +
+// coordenadora + gerente, com o link") -- mesma base de notifyRecipientIds
+// acima, somada a todo mundo com cargo gerente/coordenador. Duplicada (não
+// importada) de routes/socialPosts.js -- aquele arquivo EXIGE este aqui
+// (`metaPublisher`), então importar de lá pra cá criaria um require
+// circular (mesmo cuidado já documentado em outros pontos do código pra
+// tripleSync.js).
+function publishSuccessRecipientIds(post) {
+  const gerenciaIds = db.get('users').value()
+    .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
+    .map((u) => u.id);
+  return Array.from(new Set([...notifyRecipientIds(post), ...gerenciaIds]));
+}
+
+// Lembrete do link de Storie (63ª rodada) -- ver comentário gêmeo
+// (storieLinkReminder) em routes/socialPosts.js: a Graph API de Content
+// Publishing não aceita nenhum parâmetro de link/sticker pra Story, então
+// só lembra de colocar à mão no Instagram, sem prometer um sticker de
+// verdade que a Papoi não consegue anexar sozinha.
+function storieLinkReminder(post) {
+  if (post.postType !== 'storie' || !post.link) return '';
+  return ` Lembrete: a Meta não deixa anexar o link pelo publicador automático da Papoi -- adicione o link "${post.link}" no sticker de link direto no app do Instagram.`;
 }
 
 function notifyPublishFailure(post, message) {
@@ -347,13 +374,14 @@ function notifyPublishSuccess(post, externalUrl) {
   const label = `${PLATFORM_LABEL_PT[post.platform] || post.platform} · ${BRAND_LABEL_PT[post.brand] || post.brand}`;
   const linkPart = externalUrl ? ' Clique aqui pra ver o post no ar.' : ' (não consegui pegar o link direto dessa vez, mas publicou certinho.)';
   createAutoRecado({
-    recipientIds: notifyRecipientIds(post),
-    text: `Papoi: seu post de ${label} (${post.scheduledDate}) foi publicado com sucesso!${linkPart}`,
+    recipientIds: publishSuccessRecipientIds(post),
+    text: `Papoi: o post de ${label} (${post.scheduledDate}) foi publicado com sucesso!${linkPart}${storieLinkReminder(post)}`,
     postTitle: post.subject || label,
     postBrand: post.brand,
     postNetwork: post.platform,
     sourceSocialPostId: post.id,
-    externalUrl
+    externalUrl,
+    kind: 'post_published'
   });
 }
 

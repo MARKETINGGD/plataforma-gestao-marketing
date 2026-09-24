@@ -8,7 +8,7 @@ const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { cascadeCompleteDemandas } = require('../utils/demandCascade');
-const { createAutoRecado } = require('./recados');
+const { createAutoRecado, updateAutoRecadosForPost } = require('./recados');
 const metaPublisher = require('../utils/metaPublisher');
 
 const router = express.Router();
@@ -58,6 +58,13 @@ const APPROVAL_STATUSES = ['pendente', 'aprovado', 'reprovado'];
 const PLATFORM_LABEL_PT = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter', influencer: 'Influencer', blog: 'Blog' };
 const POST_TYPE_LABEL_PT = { g_news: 'G-NEWS', contatto: 'Contatto', estatico: 'Estático', carrossel: 'Carrossel', reels: 'Reels', storie: 'Storie', video_tiktok: 'Vídeo TikTok', video_youtube: 'Vídeo YouTube', pin: 'Pin' };
 const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus', duranox: 'Duranox', boutiqueinox: 'Boutique Inox' };
+// Rótulo em PT do cargo de quem aprovou (63ª rodada, "Rodada E" da
+// Pendência 51, pedido da Raquel: "quando aprovado, deve atualizar o
+// recado da solicitação para 'aprovado por (cargo)'") -- mesmos valores
+// de CARGOS em routes/auth.js, só que traduzidos pra uma frase pronta
+// (mesmo texto do CARGO_LABEL do front, mas esse arquivo é backend e não
+// enxerga public/app.js).
+const CARGO_LABEL_PT = { gerente: 'Gerente', analista: 'Analista', auxiliar: 'Auxiliar', coordenador: 'Coordenador(a)', designer: 'Designer', designer3d: 'Designer 3D', videomaker: 'Videomaker' };
 
 // Migração de valores antigos de postType (taxonomia usada até a 6ª
 // rodada — feed/story/reels/carrossel/video/live/g_news/contatto,
@@ -144,6 +151,41 @@ function canApprove(req) {
   return !!user && (user.cargo === 'gerente' || user.cargo === 'coordenador');
 }
 
+// Quem avisar quando um post é PUBLICADO (63ª rodada, "Rodada E" da
+// Pendência 51, pedido da Raquel: "posts publicados devem notificar dona
+// do post + coordenadora + gerente, com o link") -- responsável marcado
+// tem prioridade (sem responsável, cai pro fallback de sempre: quem criou
+// + todo mundo envolvido), sempre somado a todo mundo com cargo gerente/
+// coordenador, sem repetir id (a mesma pessoa pode ser as duas coisas ao
+// mesmo tempo). Mesma função duplicada (não importada) em
+// utils/metaPublisher.js -- aquele arquivo é exigido por este aqui, então
+// importar deste arquivo pra lá criaria um require circular (mesmo
+// cuidado já documentado nesta rodada e em rodadas anteriores pra
+// tripleSync.js).
+function publishNotifyRecipientIds(post) {
+  const owner = post.responsibleId
+    ? [post.responsibleId]
+    : [post.createdBy, ...(post.involvedUserIds || [])];
+  const gerenciaIds = db.get('users').value()
+    .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
+    .map((u) => u.id);
+  return Array.from(new Set([...owner, ...gerenciaIds].filter(Boolean)));
+}
+
+// Lembrete do link de Storie (63ª rodada, pedido da Raquel: "Stories
+// devem suportar um link clicável"). A Graph API de Content Publishing da
+// Meta, usada pela publicação automática (utils/metaGraphClient.js), não
+// tem NENHUM parâmetro documentado pra anexar um link/sticker de link ao
+// publicar um Story -- isso só existe pela digitação manual dentro do
+// próprio app do Instagram. Por isso a Papoi não promete um sticker de
+// link de verdade no Story publicado: o campo "Link" (genérico, já
+// existia) continua guardando o link que a pessoa quer usar, e o aviso de
+// publicação lembra de colocá-lo à mão no Instagram quando for um Story.
+function storieLinkReminder(post) {
+  if (post.postType !== 'storie' || !post.link) return '';
+  return ` Lembrete: a Meta não deixa anexar o link pelo publicador automático da Papoi -- adicione o link "${post.link}" no sticker de link direto no app do Instagram.`;
+}
+
 // Aviso de "pronto pra aprovar" (45ª rodada, pedido da Raquel: "é possivel
 // que ao ter legenda e a arte do post, o sistema avise com um recado na
 // tela inicial, para a coordenadora aprovar?"). Sempre que uma edição
@@ -154,10 +196,19 @@ function canApprove(req) {
 // Raquel: dispara de novo a CADA edição feita nesse estado (não só na
 // primeira vez que fica completo) — por isso é chamado a cada PUT/upload
 // de criativo, sem guardar "já avisei antes".
-function notifyReadyForApproval(post) {
-  const hasLegenda = !!(post.caption && post.caption.trim());
+// 63ª rodada, "Rodada E" da Pendência 51, pedido da Raquel: "posts com
+// legenda+arquivo final (ou só arquivo final para Storie)" -- Storie não
+// tem legenda de verdade na Meta (nunca vai junto na publicação, ver
+// comentário na 56ª rodada), então exigir legenda preenchida pra avisar
+// só atrasava avisos de Storie sem necessidade nenhuma.
+function isReadyForApproval(post) {
   const hasArte = (post.files || []).length > 0;
-  if (!hasLegenda || !hasArte) return;
+  if (post.postType === 'storie') return hasArte;
+  const hasLegenda = !!(post.caption && post.caption.trim());
+  return hasLegenda && hasArte;
+}
+function notifyReadyForApproval(post) {
+  if (!isReadyForApproval(post)) return;
   const recipientIds = db.get('users').value()
     .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
     .map((u) => u.id);
@@ -165,13 +216,17 @@ function notifyReadyForApproval(post) {
   const postTitle = post.subject && post.subject.trim()
     ? post.subject.trim()
     : `${PLATFORM_LABEL_PT[post.platform] || post.platform} · ${post.scheduledDate || 'sem data'}`;
+  const readyText = post.postType === 'storie'
+    ? 'Aviso Papoi: Este Story está com o arquivo final pronto, aguardando aprovação.'
+    : 'Aviso Papoi: Este post está com legenda e arte prontos, aguardando aprovação.';
   createAutoRecado({
     recipientIds,
-    text: 'Aviso Papoi: Este post está com legenda e arte prontos, aguardando aprovação.',
+    text: readyText,
     postTitle,
     postBrand: post.brand,
     postNetwork: post.platform,
-    sourceSocialPostId: post.id
+    sourceSocialPostId: post.id,
+    kind: 'post_ready_for_approval'
   });
 }
 
@@ -472,6 +527,27 @@ router.put('/:id', requireAuth, async (req, res) => {
   // cascata 2x.
   if (!publishedJustNow && updates.status === 'publicado' && previousStatus !== 'publicado') {
     cascadeCompleteDemandas(fresh.id, null, req);
+    // 63ª rodada: marcar "Publicado" na mão (redes/tipos que a Papoi não
+    // publica sozinha -- TikTok, YouTube, Facebook Reels/Carrossel/Storie
+    // etc.) também avisa dona do post + coordenadora + gerente, igual à
+    // publicação automática (ver notifyPublishSuccess em
+    // utils/metaPublisher.js, chamada só quando `publishedJustNow` é
+    // true). Sem link de verdade aqui (não veio de nenhuma API), mas
+    // aproveita `fresh.link` se a pessoa tiver preenchido um à mão.
+    const postTitle = fresh.subject && fresh.subject.trim()
+      ? fresh.subject.trim()
+      : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;
+    const label = `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${BRAND_LABEL_PT[fresh.brand] || fresh.brand}`;
+    createAutoRecado({
+      recipientIds: publishNotifyRecipientIds(fresh),
+      text: `Papoi: o post de ${label} (${fresh.scheduledDate}) foi marcado como publicado.${storieLinkReminder(fresh)}`,
+      postTitle,
+      postBrand: fresh.brand,
+      postNetwork: fresh.platform,
+      sourceSocialPostId: fresh.id,
+      externalUrl: fresh.link || null,
+      kind: 'post_published'
+    });
   }
   // 36ª rodada: se esse agendamento nasceu de uma ação da planilha de
   // influencers (fresh.sourceInfluencerPostId), qualquer edição feita
@@ -511,6 +587,7 @@ router.put('/:id/approval', requireAuth, (req, res) => {
   if (!APPROVAL_STATUSES.includes(approvalStatus)) {
     return res.status(400).json({ error: 'Status de aprovação inválido.' });
   }
+  const previousStatus = post.status;
   const updates = {
     approvalStatus,
     approvalNotes: approvalStatus === 'reprovado' ? (approvalNotes || '') : '',
@@ -519,26 +596,56 @@ router.put('/:id/approval', requireAuth, (req, res) => {
     approvedAt: approvalStatus === 'pendente' ? null : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
+  // 63ª rodada, "Rodada E" da Pendência 51, pedido da Raquel: "status
+  // automático rascunho → agendado (ao aprovar) → publicado (na hora
+  // marcada)" -- só sobe de "Rascunho" pra "Agendado" (nunca RECUA um post
+  // que a pessoa já tinha avançado na mão, por exemplo se alguém já tinha
+  // marcado como Publicado direto). A ponta "agendado → publicado na hora
+  // certa" já existe desde a 55ª rodada pras combinações que a Papoi
+  // publica sozinha (ciclo de 2 em 2 min em checkAndPublishScheduledPosts)
+  // -- pra redes/tipos sem publicação automática (TikTok, YouTube, etc.),
+  // esse passo continua manual de propósito, senão reintroduziria o bug
+  // real corrigido na 56ª rodada (marcar "Publicado" sem ter publicado de
+  // verdade em lugar nenhum).
+  if (approvalStatus === 'aprovado' && previousStatus === 'rascunho') {
+    updates.status = 'agendado';
+  }
   db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
-  logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update', details: `Aprovação: ${approvalStatus}` });
+  logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update', details: `Aprovação: ${approvalStatus}${updates.status === 'agendado' ? ' (status avançado pra Agendado automaticamente)' : ''}` });
   const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
-  // Aviso direcionado em Recados (44ª rodada, pedido da Raquel): diferente
-  // do toast geral já existente desde a 42ª rodada (que qualquer pessoa
-  // logada vê na hora, via polling de checkNewPostApprovals), este é um
-  // recado automático endereçado só a quem criou o post ou está marcado
-  // como envolvido nele — reaproveita a mesma estrutura/tela de Recados já
-  // existente, sem aba nova nenhuma. Dispara em toda transição pra
-  // "aprovado" (inclusive reaprovação depois de uma reprovação), igual ao
-  // toast geral já faz.
-  // 51ª rodada, pedido da Raquel: "O recado avisando que o post foi
-  // aprovado, só deve aparecer para quem é o responsável pela demanda
-  // (aquele que tem a estrelinha marcada), e não para todos" — agora
-  // endereça só pro responsável geral marcado (fresh.responsibleId). Posts
-  // sem ninguém marcado como responsável (cadastros antigos de antes dessa
-  // rodada, ou alguém que simplesmente esqueceu de marcar a estrelinha)
-  // caem no comportamento antigo como fallback, pra ninguém deixar de ser
-  // avisado por falta de marcação.
   if (approvalStatus === 'aprovado') {
+    // "Aprovado por (cargo)" (63ª rodada, pedido da Raquel: "quando
+    // aprovado, deve atualizar o recado da solicitação para 'aprovado por
+    // (cargo)', visível só para coordenadora/gerente") -- atualiza EM CIMA
+    // do(s) próprio(s) aviso(s) de "aguardando aprovação" (kind
+    // 'post_ready_for_approval') já endereçado(s) só a gerente/coordenador,
+    // em vez de criar um recado solto novo pra esse mesmo público.
+    const approverUser = db.get('users').find({ id: req.user.id }).value();
+    const cargoLabel = req.user.role === 'super_admin'
+      ? 'Administrador(a)'
+      : (CARGO_LABEL_PT[(approverUser || {}).cargo] || 'aprovador(a)');
+    updateAutoRecadosForPost({
+      sourceSocialPostId: fresh.id,
+      kind: 'post_ready_for_approval',
+      text: `Aviso Papoi: aprovado por ${cargoLabel} (${req.user.name}).`
+    });
+    // Aviso direcionado em Recados (44ª rodada, pedido da Raquel): diferente
+    // do toast geral já existente desde a 42ª rodada (que qualquer pessoa
+    // logada vê na hora, via polling de checkNewPostApprovals), este é um
+    // recado automático endereçado só a quem criou o post ou está marcado
+    // como envolvido nele — reaproveita a mesma estrutura/tela de Recados já
+    // existente, sem aba nova nenhuma. Dispara em toda transição pra
+    // "aprovado" (inclusive reaprovação depois de uma reprovação), igual ao
+    // toast geral já fazia (esse toast geral foi restrito só ao dono do
+    // post na 63ª rodada, ver checkNewPostApprovals em public/app.js).
+    // 51ª rodada, pedido da Raquel: "O recado avisando que o post foi
+    // aprovado, só deve aparecer para quem é o responsável pela demanda
+    // (aquele que tem a estrelinha marcada), e não para todos" — agora
+    // endereça só pro responsável geral marcado (fresh.responsibleId). Posts
+    // sem ninguém marcado como responsável (cadastros antigos de antes dessa
+    // rodada, ou alguém que simplesmente esqueceu de marcar a estrelinha)
+    // caem no comportamento antigo como fallback, pra ninguém deixar de ser
+    // avisado por falta de marcação.
     const recipientIds = fresh.responsibleId
       ? [fresh.responsibleId]
       : Array.from(new Set([fresh.createdBy, ...(fresh.involvedUserIds || [])].filter(Boolean)));
@@ -547,11 +654,16 @@ router.put('/:id/approval', requireAuth, (req, res) => {
       : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;
     createAutoRecado({
       recipientIds,
-      text: 'Aviso Papoi: Seu post foi aprovado e está pronto para ser agendado.',
+      text: fresh.status === 'publicado'
+        ? 'Aviso Papoi: Seu post foi aprovado (já está publicado).'
+        : fresh.status === 'agendado'
+          ? 'Aviso Papoi: Seu post foi aprovado e está agendado.'
+          : 'Aviso Papoi: Seu post foi aprovado e está pronto para ser agendado.',
       postTitle,
       postBrand: fresh.brand,
       postNetwork: fresh.platform,
-      sourceSocialPostId: fresh.id
+      sourceSocialPostId: fresh.id,
+      kind: 'post_approved'
     });
   }
   res.json({ post: serialize(fresh) });

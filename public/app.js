@@ -1545,6 +1545,20 @@
   // post pode ser aprovado, reprovado e aprovado de novo depois — cada
   // aprovação precisa do próprio aviso. Quem CLICOU em aprovar não recebe
   // esse aviso de novo (já viu o dela na hora, via showApprovalToast).
+  //
+  // 63ª rodada, "Rodada E" da Pendência 51, pedido da Raquel: "posts
+  // agendados/aprovados devem notificar só a dona do post (estrelinha)" --
+  // isso INVERTE a decisão da 42ª rodada acima ("todos devem receber"):
+  // agora só quem é o responsável marcado (ou, sem ninguém marcado, quem
+  // criou/está envolvido -- mesmo fallback do recado endereçado que já
+  // existia desde a 51ª rodada) recebe esse toast flutuante. O recado
+  // endereçado (kind 'post_approved', ver PUT /:id/approval em
+  // routes/socialPosts.js) já seguia essa regra; esse toast era o único
+  // aviso desse evento que ainda ia pra todo mundo.
+  function isPublishNotifyRecipient(p) {
+    if (p.responsibleId) return p.responsibleId === currentUser.id;
+    return p.createdBy === currentUser.id || (p.involvedUserIds || []).includes(currentUser.id);
+  }
   async function checkNewPostApprovals() {
     try {
       const data = await api('/api/social-posts');
@@ -1555,7 +1569,7 @@
         approvalSoundSeenKeys = keys;
         return;
       }
-      const novos = approved.filter((p) => !approvalSoundSeenKeys.has(keyOf(p)) && p.approvedBy !== currentUser.id);
+      const novos = approved.filter((p) => !approvalSoundSeenKeys.has(keyOf(p)) && p.approvedBy !== currentUser.id && isPublishNotifyRecipient(p));
       approvalSoundSeenKeys = keys;
       if (novos.length > 0) {
         playRecadoSound();
@@ -4503,9 +4517,20 @@
     youtube: '(vídeo muito longo? cole aqui o link dele)',
     newsletter: '(link da news)'
   };
+  // 63ª rodada, "Rodada E" da Pendência 51, pedido da Raquel: "Stories
+  // devem suportar um link clicável" -- a Meta não deixa a Papoi anexar
+  // esse link sozinha ao publicar um Story (a Graph API de publicação não
+  // tem esse parâmetro, só o próprio app do Instagram tem essa opção na
+  // hora de postar), então o campo "Link" (já existia, genérico) ganha uma
+  // dica específica de Storie, priorizada sobre a de rede -- o aviso de
+  // publicação também lembra desse link (ver storieLinkReminder em
+  // routes/socialPosts.js/utils/metaPublisher.js).
   function updateLinkHint() {
     const platform = $('#socialPostFormPlatform').value;
-    $('#socialPostFormLinkHint').textContent = LINK_HINT_BY_PLATFORM[platform] || '';
+    const type = $('#socialPostFormType').value;
+    $('#socialPostFormLinkHint').textContent = type === 'storie'
+      ? '(link do sticker de link do Story -- precisa ser colado à mão no Instagram, a Meta não deixa fazer isso automaticamente)'
+      : (LINK_HINT_BY_PLATFORM[platform] || '');
   }
 
   // Briefing por card só faz sentido pra Carrossel — o bloco fica
@@ -4550,7 +4575,11 @@
     renderSocialPlatformOptions(currentPlatform);
     updateSocialTypeOptions($('#socialPostFormType').value);
   };
-  $('#socialPostFormType').onchange = () => { updateScriptVisibility(); updateCarouselVisibility(); updateThumbnailVisibility(); };
+  // updateLinkHint() somada aqui na 63ª rodada -- a dica de Storie depende
+  // do TIPO do post (não só da rede), então precisa reagir também a trocar
+  // o tipo sem fechar/reabrir o formulário (antes só recalculava ao abrir
+  // o formulário do zero ou trocar de rede).
+  $('#socialPostFormType').onchange = () => { updateScriptVisibility(); updateCarouselVisibility(); updateThumbnailVisibility(); updateLinkHint(); };
   // Usa 'oninput' (não 'onchange') de propósito: 'onchange' só dispara no
   // blur do campo, e como o clique do usuário pra ir digitar no Card 1
   // TIRA o foco do campo de número, o blur disparava o re-render bem na

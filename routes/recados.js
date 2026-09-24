@@ -145,7 +145,15 @@ router.delete('/:id', requireAuth, (req, res) => {
 // utils/metaPublisher.js) pro post publicado no Instagram/Facebook. Só
 // vem preenchido quando a Meta conseguiu devolver um permalink (nem
 // sempre acontece -- ver comentário em metaPublisher.js).
-function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwork, sourceSocialPostId, externalUrl }) {
+// `kind` (63ª rodada, "Rodada E" da Pendência 51) -- identifica
+// o TIPO de recado automático (`'post_ready_for_approval'`,
+// `'post_approved'`, `'post_published'`, etc.), sem mudar nada de como ele
+// aparece pra quem recebe (continua um recado normal). Serve só pra outra
+// rota conseguir achar de volta um recado automático específico já
+// existente (ver `updateAutoRecadosForPost` abaixo) -- por exemplo, achar
+// o aviso de "pronto pra aprovar" de um post pra atualizá-lo em vez de
+// criar um aviso solto novo quando o post é aprovado.
+function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwork, sourceSocialPostId, externalUrl, kind }) {
   const ids = validUserIds(recipientIds);
   if (ids.length === 0) return null;
   const recado = {
@@ -163,11 +171,33 @@ function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwor
     postBrand: postBrand || null,
     postNetwork: postNetwork || null,
     sourceSocialPostId: sourceSocialPostId || null,
-    externalUrl: externalUrl || null
+    externalUrl: externalUrl || null,
+    kind: kind || null
   };
   db.get('recados').push(recado).write();
   return recado;
 }
 
+// Atualiza EM CIMA de um recado automático já existente, em vez de criar
+// um novo (Rodada E, pedido da Raquel: "quando aprovado, o recado de
+// solicitação deve atualizar para 'aprovado por (cargo)'" -- em vez de a
+// coordenadora/gerente ficarem com 2 recados soltos do mesmo post, o aviso
+// de "aguardando aprovação" vira, no lugar, o aviso de "aprovado por...").
+// Acha todos os recados não-arquivados desse post com esse `kind` (pode
+// ter mais de um, já que o aviso de aprovação dispara de novo a cada
+// edição enquanto está pendente) e troca o texto de todos -- volta a
+// aparecer como não-lido (`readBy: []`) pra quem já tinha lido o aviso
+// antigo, já que o conteúdo mudou de verdade e vale a pena reaparecer.
+function updateAutoRecadosForPost({ sourceSocialPostId, kind, text }) {
+  const matches = db.get('recados').value().filter((r) =>
+    !r.archived && r.sourceSocialPostId === sourceSocialPostId && r.kind === kind
+  );
+  matches.forEach((r) => {
+    db.get('recados').find({ id: r.id }).assign({ text, readBy: [] }).write();
+  });
+  return matches.length;
+}
+
 module.exports = router;
 module.exports.createAutoRecado = createAutoRecado;
+module.exports.updateAutoRecadosForPost = updateAutoRecadosForPost;

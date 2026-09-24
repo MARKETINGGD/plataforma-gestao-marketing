@@ -391,14 +391,31 @@ router.get('/history', requireAuth, (req, res) => {
 
 // Contadores usados no resumo da tela Início — só conta o quadro geral
 // (demandas pessoais não entram nos números públicos da tela Início).
+//
+// 61ª rodada, pedido da Raquel: "na tela de início, onde aparece os
+// resumos, ao clicar deve mostrar os dados: Demandas atrasadas, em
+// andamento, em aprovação, concluídas (mostrar quais são as demandas)" --
+// além dos contadores de sempre (que continuam do mesmo jeito, ninguém
+// mais depende só deles), devolve também a listinha enxuta de cada
+// categoria, já pronta pra tela Início listar ao clicar e depois abrir o
+// card certo (usa o mesmo `id` que o quadro geral já usa).
 router.get('/summary', requireAuth, (req, res) => {
   const all = db.get('demandas').value().filter((d) => !d.archived && d.visibility !== 'pessoal');
   const summary = { a_fazer: 0, andamento: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
-  all.forEach((d) => {
-    if (STATUSES.includes(d.status)) summary[d.status] += 1;
-    if (isOverdue(d)) summary.atrasada += 1;
+  const lists = { a_fazer: [], andamento: [], aprovacao: [], concluida: [], atrasada: [] };
+  const toLite = (d) => ({
+    id: d.id,
+    title: d.title,
+    dueDate: d.dueDate || null,
+    brand: d.brand || null,
+    network: d.network || null,
+    assigneeNames: (d.assigneeIds || []).map((id) => resolveUserName(id, '')).filter(Boolean)
   });
-  res.json({ summary });
+  all.forEach((d) => {
+    if (STATUSES.includes(d.status)) { summary[d.status] += 1; lists[d.status].push(toLite(d)); }
+    if (isOverdue(d)) { summary.atrasada += 1; lists.atrasada.push(toLite(d)); }
+  });
+  res.json({ summary, lists });
 });
 
 // "REIS DO MARKETING" (28ª/30ª/32ª rodada, pedido da Raquel) — ranking de

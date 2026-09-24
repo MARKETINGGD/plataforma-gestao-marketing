@@ -2040,6 +2040,21 @@
   </div>
 </div>
 
+<!-- 61ª rodada, pedido da Raquel: clicar num resumo da Início (Atrasadas/Em
+     andamento/Em aprovação/Concluídas) mostra quais demandas são essas. -->
+<div id="demandaStatModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div id="demandaStatModalTitle" class="modal-title-input" style="font-weight:700;padding:6px;">Demandas</div>
+      <button id="demandaStatModalClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="demandaStatList"></div>
+      <p id="demandaStatEmpty" class="muted" hidden>Nenhuma demanda nessa categoria.</p>
+    </div>
+  </div>
+</div>
+
 <script src="/app.js"></script>
 </body>
 </html>

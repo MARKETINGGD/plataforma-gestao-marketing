@@ -384,6 +384,13 @@ button{font-weight:700;}
 .stat-bar-value{font-weight:700;color:var(--text,#222);}
 .stat-bar-track{background:var(--bg);border-radius:999px;height:7px;overflow:hidden;}
 .stat-bar-fill{height:100%;border-radius:999px;transition:width .4s ease;}
+/* 61ª rodada: linhas de resumo clicáveis (Início -> detalhe das demandas, e
+   dentro do próprio modal de detalhe -> abrir o card certo). */
+.stat-bar-row-clickable{cursor:pointer;padding:6px 8px;margin:0 -8px;border-radius:8px;}
+.stat-bar-row-clickable:hover{background:var(--bg);}
+#demandaStatList{display:flex;flex-direction:column;gap:2px;max-height:400px;overflow-y:auto;}
+/* 62ª rodada: dica de "quem/quando atualizou" por praça no catálogo de Brindes. */
+.stock-updated-hint{cursor:help;color:var(--muted);font-size:11px;}
 .budget-diff{font-size:12.5px;font-weight:700;margin:2px 0 0;}
 .budget-diff-over{color:var(--danger);}
 .budget-diff-under{color:#2ea043;}

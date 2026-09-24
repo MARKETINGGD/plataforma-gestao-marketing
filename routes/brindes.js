@@ -31,6 +31,24 @@ function sumStock(pr, sp, pe) {
   return (Number(pr) || 0) + (Number(sp) || 0) + (Number(pe) || 0);
 }
 
+// 62ª rodada, pedido da Raquel: "no controle geral dos brindes, em
+// catálogo, são várias pessoas que fazem a atualização, por isso precisa
+// ter como colocar a data da última atualização do estoque e quem
+// atualizou, isso para cada região (PR, PE, SP)" -- cada item guarda,
+// pra cada uma das 3 praças, quando e quem foi a última pessoa a mudar
+// aquele número (ver PUT /catalog/:id abaixo). Resolve o nome ao vivo
+// (mesmo padrão de resolveUserName usado em createdByName de Demandas),
+// caindo pro nome gravado na hora se a pessoa não existir mais.
+function serializeCatalogItem(it) {
+  const out = Object.assign({}, it);
+  ['PR', 'SP', 'PE'].forEach((region) => {
+    const byKey = 'estoque' + region + 'UpdatedBy';
+    const nameKey = 'estoque' + region + 'UpdatedByName';
+    if (it[byKey]) out[nameKey] = resolveUserName(it[byKey], it[nameKey] || '');
+  });
+  return out;
+}
+
 // Desconto automático de estoque no Registro de Saídas de Controle Geral
 // (44ª rodada, pedido da Raquel: "ao registrar uma retirada/saída no
 // Controle Geral, o item retirado deve descontar do estoque
@@ -159,7 +177,7 @@ router.get('/catalog', requireAuth, (req, res) => {
   const { brand } = req.query;
   let rows = db.get('brindesCatalog').value();
   if (brand) rows = rows.filter((r) => r.brand === brand);
-  res.json({ items: rows });
+  res.json({ items: rows.map(serializeCatalogItem) });
 });
 
 // "Brindes com estoque baixo" (20ª rodada, pedido da Raquel pra tela
@@ -196,8 +214,18 @@ router.put('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {
     if (b[k] !== undefined) updates[k] = b[k];
   });
   if (b.valor !== undefined) updates.valor = b.valor === '' ? null : Number(b.valor);
+  // 62ª rodada: carimba data/quem só na(s) praça(s) que realmente mudou de
+  // número -- editar outro campo do card (ex.: "obs") não deve sujar o
+  // carimbo de uma praça que nem foi tocada nessa edição.
   ['estoquePR', 'estoqueSP', 'estoquePE'].forEach((k) => {
-    if (b[k] !== undefined) updates[k] = Number(b[k]) || 0;
+    if (b[k] === undefined) return;
+    const novo = Number(b[k]) || 0;
+    updates[k] = novo;
+    if (novo !== (Number(existing[k]) || 0)) {
+      updates[k + 'UpdatedAt'] = new Date().toISOString();
+      updates[k + 'UpdatedBy'] = req.user.id;
+      updates[k + 'UpdatedByName'] = req.user.name;
+    }
   });
   const pr = updates.estoquePR !== undefined ? updates.estoquePR : existing.estoquePR;
   const sp = updates.estoqueSP !== undefined ? updates.estoqueSP : existing.estoqueSP;
@@ -205,7 +233,7 @@ router.put('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {
   updates.estoqueTotal = sumStock(pr, sp, pe);
   db.get('brindesCatalog').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'brindeCatalogo', entityId: existing.id, entityLabel: existing.item, action: 'update' });
-  res.json({ item: db.get('brindesCatalog').find({ id: req.params.id }).value() });
+  res.json({ item: serializeCatalogItem(db.get('brindesCatalog').find({ id: req.params.id }).value()) });
 });
 
 router.delete('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {

@@ -1152,11 +1152,17 @@
   // cada linha é proporcional ao maior valor do grupo (não é um total de
   // 100%, já que "Atrasadas" é um recorte que pode se sobrepor às outras
   // — então uma barra de comparação simples é mais honesta que um donut).
-  function renderStatBars(containerId, rows) {
+  // `onRowClick(row)` opcional (61ª rodada, pedido da Raquel: "ao clicar
+  // deve mostrar os dados... mostrar quais são as demandas") -- quando
+  // passado, cada linha vira clicável (cursor/hover) e chama de volta com
+  // o `row` original (que pode carregar um `key` pra achar a lista certa).
+  // Os outros usos de renderStatBars (Orçamento na Início) não passam esse
+  // parâmetro, então continuam exatamente como antes.
+  function renderStatBars(containerId, rows, onRowClick) {
     const wrap = $('#' + containerId);
     const max = Math.max(1, ...rows.map((r) => r.value));
-    wrap.innerHTML = rows.map((r) => `
-      <div class="stat-bar-row">
+    wrap.innerHTML = rows.map((r, i) => `
+      <div class="stat-bar-row${onRowClick ? ' stat-bar-row-clickable' : ''}" data-stat-index="${i}">
         <div class="stat-bar-row-top">
           <span class="stat-bar-label"><span class="stat-bar-dot" style="background:${r.color}"></span>${r.label}</span>
           <span class="stat-bar-value">${r.display !== undefined ? r.display : r.value}</span>
@@ -1164,7 +1170,42 @@
         <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${Math.round((r.value / max) * 100)}%;background:${r.color}"></div></div>
       </div>
     `).join('');
+    if (onRowClick) {
+      $all('#' + containerId + ' .stat-bar-row').forEach((el, i) => {
+        el.onclick = () => onRowClick(rows[i]);
+      });
+    }
   }
+
+  // ---------- Detalhe dos resumos da Início (61ª rodada) ----------
+  // Clicar em "Atrasadas"/"Em andamento"/"Em aprovação"/"Concluídas" abre
+  // essa listinha com quais demandas são essas (a Raquel só via o número
+  // antes). Clicar num item vai direto pro card, reaproveitando o mesmo
+  // caminho já usado pelos avisos de Recados (goToDemandaFromNotif).
+  let homeDemandaLists = {};
+  function openDemandaStatModal(title, items) {
+    $('#demandaStatModalTitle').textContent = title;
+    const wrap = $('#demandaStatList');
+    $('#demandaStatEmpty').hidden = items.length > 0;
+    wrap.innerHTML = items.map((d) => `
+      <div class="stat-bar-row stat-bar-row-clickable" data-id="${d.id}">
+        <div class="stat-bar-row-top">
+          <span class="stat-bar-label">${brandIconHtml(d.brand)}${escapeHtml(d.title)}</span>
+        </div>
+        <div class="muted" style="font-size:12px;">
+          ${d.dueDate ? fmtDate(d.dueDate) : 'sem data'}${d.assigneeNames.length ? ' · ' + escapeHtml(d.assigneeNames.join(', ')) : ''}
+        </div>
+      </div>
+    `).join('');
+    $all('#demandaStatList .stat-bar-row').forEach((el) => {
+      el.onclick = () => {
+        $('#demandaStatModal').hidden = true;
+        goToDemandaFromNotif({ id: el.dataset.id }, 'geral');
+      };
+    });
+    $('#demandaStatModal').hidden = false;
+  }
+  $('#demandaStatModalClose').onclick = () => { $('#demandaStatModal').hidden = true; };
 
   async function loadHome() {
     const data = await api('/api/dashboards');
@@ -1179,12 +1220,13 @@
 
     try {
       const sum = await api('/api/demandas/summary');
+      homeDemandaLists = sum.lists || {};
       renderStatBars('demandasStatList', [
-        { label: 'Atrasadas', value: sum.summary.atrasada, color: 'var(--danger)' },
-        { label: 'Em andamento', value: sum.summary.andamento, color: 'var(--primary)' },
-        { label: 'Em aprovação', value: sum.summary.aprovacao, color: '#f2a900' },
-        { label: 'Concluídas', value: sum.summary.concluida, color: '#2ea043' }
-      ]);
+        { label: 'Atrasadas', value: sum.summary.atrasada, color: 'var(--danger)', key: 'atrasada' },
+        { label: 'Em andamento', value: sum.summary.andamento, color: 'var(--primary)', key: 'andamento' },
+        { label: 'Em aprovação', value: sum.summary.aprovacao, color: '#f2a900', key: 'aprovacao' },
+        { label: 'Concluídas', value: sum.summary.concluida, color: '#2ea043', key: 'concluida' }
+      ], (row) => openDemandaStatModal(row.label, homeDemandaLists[row.key] || []));
     } catch (e) { /* usuário pode não ter permissão futura — hoje é liberado a todos */ }
 
     await loadReisDoMarketing();
@@ -5446,6 +5488,19 @@
     }
   }
 
+  // 62ª rodada, pedido da Raquel: "são várias pessoas que fazem a
+  // atualização... precisa ter como colocar a data da última atualização
+  // do estoque e quem atualizou, isso para cada região (PR, PE, SP)" --
+  // cada número de praça ganha um "ⓘ" com essa informação ao passar o
+  // mouse, sem precisar abrir o formulário de edição pra descobrir quem
+  // mexeu por último (e sem precisar de coluna nova, que apertaria uma
+  // tabela que já tem 10 colunas).
+  function stockCellHtml(value, updatedAt, updatedByName) {
+    if (!updatedAt) return String(value);
+    const tip = `Atualizado por ${escapeHtml(updatedByName || '—')} em ${fmtDateTime(updatedAt)}`;
+    return `${value} <span class="stock-updated-hint" title="${tip}">ⓘ</span>`;
+  }
+
   function renderBrindesCatalog(brand) {
     const body = $('#brindesCatalogBody');
     body.innerHTML = '';
@@ -5458,9 +5513,9 @@
         <td>${r.item}</td>
         <td class="num">${r.multiplo || ''}</td>
         <td class="num">${fmtMoney(r.valor)}</td>
-        <td class="num">${r.estoquePR}</td>
-        <td class="num">${r.estoqueSP}</td>
-        <td class="num">${r.estoquePE}</td>
+        <td class="num">${stockCellHtml(r.estoquePR, r.estoquePRUpdatedAt, r.estoquePRUpdatedByName)}</td>
+        <td class="num">${stockCellHtml(r.estoqueSP, r.estoqueSPUpdatedAt, r.estoqueSPUpdatedByName)}</td>
+        <td class="num">${stockCellHtml(r.estoquePE, r.estoquePEUpdatedAt, r.estoquePEUpdatedByName)}</td>
         <td class="num">${r.estoqueTotal}</td>
         <td>${r.status || ''}</td>
         <td></td>

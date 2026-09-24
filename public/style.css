@@ -1035,3 +1035,18 @@ button{font-weight:700;}
   height:100%;border-radius:4px;background:var(--brand-gradient);width:0%;
   transition:width .15s ease;
 }
+
+/* 65ª rodada, "Rodada G" da Pendência 51, pedido da Raquel: "todos os
+   relatorios de dash, do papoi... devem ter a opção de baixar em PDF o
+   relatório". "Exportar PDF" usa a própria função de imprimir do
+   navegador (window.print()) -- a pessoa escolhe "Salvar como PDF" no
+   destino da impressão, que já existe em qualquer computador/celular,
+   sem precisar de nenhuma biblioteca nova nem servidor gerando PDF.
+   Essas regras escondem o menu lateral e qualquer botão marcado
+   ".no-print" na hora de imprimir/exportar, deixando só o conteúdo da
+   tela atual -- funciona pra QUALQUER tela da Papoi, não só uma. */
+@media print{
+  .sidebar,.no-print,#notifToast,#chatWidget,.global-upload-indicator{display:none!important;}
+  main.content{margin:0!important;padding:12px!important;background:#fff!important;}
+  body{background:#fff!important;}
+}

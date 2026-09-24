@@ -29,6 +29,10 @@
   let dashboardPublicKey = null; // 'redesSociais' | 'trafegoPago'
   let budgetAccess = 'none';
   let budgetEntries = [];
+  // Guarda as linhas exatamente como aparecem na tela (já filtradas por
+  // aba/busca) -- usado pelo botão "Exportar Excel" (65ª rodada), pra
+  // exportar o que a pessoa está vendo, não a tabela inteira sem filtro.
+  let budgetVisibleRows = [];
   let budgetFluxosByBrand = {};
   let currentBudgetBrand = 'debacco';
   let budgetTab = 'geral';
@@ -123,9 +127,13 @@
   let influencerResponsibleId = null;
   let socialCarouselBriefings = []; // array de textos, um por card do carrossel
 
-  let cronogramaTab = 'calendario'; // 'calendario' | 'feed'
+  let cronogramaTab = 'calendario'; // 'calendario' | 'feed' | 'relatorio'
   let cronogramaFeedNetwork = 'ig_fb'; // uma chave de FEED_NETWORKS abaixo
   let cronogramaBrand = 'debacco'; // 'debacco' | 'ghelplus'
+  // Relatório mensal (65ª rodada) -- ano inteiro, mês a mês, por isso tem
+  // seu próprio estado de navegação (não reaproveita cronogramaCalMonth,
+  // que é só mês/ano de um mês só).
+  let cronogramaRelatorioYear = new Date().getFullYear();
   let cronogramaCalMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
   // Prévia do Feed: uma aba por rede, cada uma com seu próprio formato de
@@ -584,6 +592,63 @@
     if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
     return (n / (1024 * 1024)).toFixed(1) + ' MB';
   };
+
+  // ---------- Exportar relatórios (65ª rodada, "Rodada G" da Pendência
+  // 51) ----------
+  // Pedido da Raquel: "todos os relatorios de dash, do papoi... devem
+  // ter a opção de baixar em PDF o relatório ou em excel". Duas funções
+  // genéricas, reaproveitadas por qualquer tela (Budget, Brindes,
+  // Campanha Cooperada, relatório mensal do Cronograma, e o que mais
+  // precisar depois):
+  //
+  // `exportRowsToExcel`: gera um .xlsx de verdade no navegador (via
+  // SheetJS, carregado em public/vendor/xlsx.full.min.js -- guardado
+  // localmente, não vem de CDN nenhum, pra funcionar mesmo se a rede da
+  // Raquel bloquear domínio externo). `headers` é um array de textos das
+  // colunas; `rows` é um array de arrays, na mesma ordem dos headers.
+  //
+  // `exportViewToPdf`: não existe biblioteca nenhuma de PDF aqui de
+  // propósito -- usa a própria função de imprimir do navegador
+  // (`window.print()"), que em QUALQUER computador/celular já oferece
+  // "Salvar como PDF" como destino de impressão. `@media print` (ver
+  // style.css) esconde o menu lateral e qualquer botão marcado
+  // ".no-print", deixando só o conteúdo da tela atual -- funciona pra
+  // qualquer tela sem precisar de nenhum código específico por tela.
+  // SheetJS (public/vendor/xlsx.full.min.js, guardado localmente, não
+  // vem de CDN nenhum -- ver public/vendor/README.txt) só é carregada na
+  // hora que alguém clica em "Exportar Excel" pela 1ª vez na sessão, não
+  // no carregamento normal da Papoi -- são quase 900KB que a imensa
+  // maioria das visitas nunca usaria, então carregar isso sempre só
+  // deixaria a Papoi mais lenta pra abrir à toa.
+  let xlsxLoadPromise = null;
+  function ensureXlsxLoaded() {
+    if (typeof XLSX !== 'undefined') return Promise.resolve();
+    if (xlsxLoadPromise) return xlsxLoadPromise;
+    xlsxLoadPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/vendor/xlsx.full.min.js';
+      script.onload = () => resolve();
+      script.onerror = () => { xlsxLoadPromise = null; reject(new Error('load-failed')); };
+      document.head.appendChild(script);
+    });
+    return xlsxLoadPromise;
+  }
+  async function exportRowsToExcel(filename, sheetName, headers, rows) {
+    try {
+      await ensureXlsxLoaded();
+    } catch (e) {
+      alert('Não consegui carregar a biblioteca de Excel. Confira sua internet e tente de novo.');
+      return;
+    }
+    const sheetData = [headers, ...rows];
+    const sheet = XLSX.utils.aoa_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, (sheetName || 'Relatório').slice(0, 31));
+    XLSX.writeFile(wb, filename);
+  }
+  function exportViewToPdf() {
+    window.print();
+  }
 
   async function api(path, opts = {}) {
     const headers = Object.assign({}, opts.headers || {});
@@ -3201,6 +3266,7 @@
     if (budgetTab === 'planejado') rows = rows.filter((e) => e.planejado !== null && e.planejado !== undefined);
     if (budgetTab === 'realizado') rows = rows.filter((e) => e.realizado !== null && e.realizado !== undefined);
     rows = rows.filter(passesBudgetSearch);
+    budgetVisibleRows = rows;
 
     const totalPlan = rows.reduce((s, e) => s + (Number(e.planejado) || 0), 0);
     const totalReal = rows.reduce((s, e) => s + (Number(e.realizado) || 0), 0);
@@ -3382,6 +3448,29 @@
     $('#budgetFormWrap').hidden = false;
   }
   $('#budgetNewBtn').onclick = () => openBudgetForm(null);
+  // Exportar (65ª rodada) -- exporta exatamente as linhas visíveis na
+  // tela (já filtradas pela aba/busca ativa), não o Budget inteiro.
+  $('#budgetExportExcelBtn').onclick = () => {
+    const headers = ['Fluxo', 'Mês/Ano', 'Fornecedor', 'Título da compra', 'Qtd.', 'Planejado', 'Realizado', 'Diferença', 'Observações'];
+    const rows = budgetVisibleRows.map((e) => {
+      const st = budgetEntryStatus(e);
+      const diff = (st.planVal || 0) - (st.realVal || 0);
+      return [
+        e.category,
+        `${MONTHS[e.month - 1] || e.month}/${e.year}`,
+        e.fornecedor || '',
+        e.tituloCompra || '',
+        e.quantidade === null || e.quantidade === undefined ? '' : e.quantidade,
+        Number(e.planejado) || 0,
+        Number(e.realizado) || 0,
+        diff,
+        e.notes || ''
+      ];
+    });
+    const brandLabel = BRAND_LABEL[currentBudgetBrand] || currentBudgetBrand;
+    exportRowsToExcel(`Papoi - Budget ${brandLabel}.xlsx`, 'Budget', headers, rows);
+  };
+  $('#budgetExportPdfBtn').onclick = exportViewToPdf;
   $('#budgetFormCancel').onclick = () => { $('#budgetFormWrap').hidden = true; };
 
   $('#budgetFormSave').onclick = async () => {
@@ -5054,6 +5143,11 @@
       $all('.tab-btn[data-cronograma-tab]').forEach((x) => x.classList.toggle('active', x === b));
       $('#cronogramaCalendarioWrap').hidden = cronogramaTab !== 'calendario';
       $('#cronogramaFeedWrap').hidden = cronogramaTab !== 'feed';
+      // 65ª rodada: relatório mensal é do ANO inteiro -- some com a barra
+      // de mês (compartilhada por Calendário/Prévia do Feed) e mostra a
+      // própria barra de ANO aqui dentro.
+      $('#cronogramaRelatorioWrap').hidden = cronogramaTab !== 'relatorio';
+      $('#cronogramaCalToolbar').hidden = cronogramaTab === 'relatorio';
       renderCronograma();
     };
   });
@@ -5091,10 +5185,79 @@
     $('#cronogramaMonthLabel').textContent = `${MONTHS_FULL[cronogramaCalMonth.getMonth()]} ${cronogramaCalMonth.getFullYear()}`;
     if (cronogramaTab === 'feed') {
       renderCronogramaFeed();
+    } else if (cronogramaTab === 'relatorio') {
+      renderCronogramaRelatorio();
     } else {
       renderCronogramaCalendar();
     }
   }
+
+  // Relatório mensal (65ª rodada, "Rodada G" da Pendência 51, pedido da
+  // Raquel: "na aba cronograma, ao lado de previa do feed, deve ter um
+  // relatorio mensal do cronograma mes a mes") -- uma seção por mês do
+  // ano selecionado (só os meses que têm pelo menos 1 post, "não deve
+  // misturar os meses" -- mesmo espírito já pedido pra Prévia do Feed na
+  // 40ª rodada), com os posts de verdade daquele mês (não só uma
+  // contagem), na marca ativa (mesma aba de marca do resto do
+  // Cronograma). `socialPosts` já está inteiro na memória (loadCronograma
+  // busca todos, sem paginação), então não precisa de nenhuma chamada
+  // nova à API.
+  function renderCronogramaRelatorio() {
+    $('#cronogramaRelatorioYearLabel').textContent = String(cronogramaRelatorioYear);
+    const posts = socialPosts
+      .filter((p) => (p.brand || 'debacco') === cronogramaBrand && (p.scheduledDate || '').startsWith(String(cronogramaRelatorioYear)))
+      .sort((a, b) => (a.scheduledDate + (a.scheduledTime || '')).localeCompare(b.scheduledDate + (b.scheduledTime || '')));
+
+    $('#cronogramaRelatorioEmpty').hidden = posts.length > 0;
+    const content = $('#cronogramaRelatorioContent');
+    if (posts.length === 0) { content.innerHTML = ''; return; }
+
+    const byMonth = {}; // 0-11 -> posts[]
+    posts.forEach((p) => {
+      const m = Number(p.scheduledDate.slice(5, 7)) - 1;
+      (byMonth[m] = byMonth[m] || []).push(p);
+    });
+
+    content.innerHTML = Object.keys(byMonth).sort((a, b) => a - b).map((m) => {
+      const monthPosts = byMonth[m];
+      const rowsHtml = monthPosts.map((p) => `
+        <tr>
+          <td>${fmtDate(p.scheduledDate)}</td>
+          <td>${p.scheduledTime || '—'}</td>
+          <td>${networkIconHtml(p.platform)} ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
+          <td>${SOCIAL_POST_TYPE_LABEL[p.postType] || p.postType}</td>
+          <td>${(p.subject && p.subject.trim()) || (p.caption || '').slice(0, 60) || '—'}</td>
+          <td>${SOCIAL_STATUS_LABEL[p.status] || p.status}</td>
+        </tr>
+      `).join('');
+      return `
+        <h4 style="margin:18px 0 8px;">${MONTHS_FULL[m]} de ${cronogramaRelatorioYear} <span class="muted" style="font-weight:400;font-size:13px;">(${monthPosts.length} post${monthPosts.length === 1 ? '' : 's'})</span></h4>
+        <table class="data-table">
+          <thead><tr><th>Data</th><th>Hora</th><th>Rede</th><th>Tipo</th><th>Assunto</th><th>Status</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      `;
+    }).join('');
+  }
+  $('#cronogramaRelatorioPrevYear').onclick = () => { cronogramaRelatorioYear -= 1; renderCronogramaRelatorio(); };
+  $('#cronogramaRelatorioNextYear').onclick = () => { cronogramaRelatorioYear += 1; renderCronogramaRelatorio(); };
+  $('#cronogramaRelatorioExportPdfBtn').onclick = exportViewToPdf;
+  $('#cronogramaRelatorioExportExcelBtn').onclick = () => {
+    const posts = socialPosts
+      .filter((p) => (p.brand || 'debacco') === cronogramaBrand && (p.scheduledDate || '').startsWith(String(cronogramaRelatorioYear)))
+      .sort((a, b) => (a.scheduledDate + (a.scheduledTime || '')).localeCompare(b.scheduledDate + (b.scheduledTime || '')));
+    const headers = ['Mês', 'Data', 'Hora', 'Rede', 'Tipo', 'Assunto', 'Status'];
+    const rows = posts.map((p) => [
+      MONTHS_FULL[Number(p.scheduledDate.slice(5, 7)) - 1],
+      fmtDate(p.scheduledDate),
+      p.scheduledTime || '',
+      SOCIAL_PLATFORM_LABEL[p.platform] || p.platform,
+      SOCIAL_POST_TYPE_LABEL[p.postType] || p.postType,
+      (p.subject && p.subject.trim()) || p.caption || '',
+      SOCIAL_STATUS_LABEL[p.status] || p.status
+    ]);
+    exportRowsToExcel(`Papoi - Relatorio Cronograma ${BRAND_LABEL[cronogramaBrand] || cronogramaBrand} ${cronogramaRelatorioYear}.xlsx`, 'Relatório mensal', headers, rows);
+  };
 
   // Abre o post direto no Agendamento — clicar num card do calendário ou
   // da prévia do feed leva pra edição sem precisar procurar na tabela.
@@ -5641,6 +5804,18 @@
     $('#brindeFormWrap').hidden = false;
   }
   $('#brindesCatalogNewBtn').onclick = () => openBrindeForm(null, brindesTab === 'log' ? 'debacco' : brindesTab);
+  // Exportar (65ª rodada) -- mesmo filtro por marca que a tabela já usa
+  // (brindesTab), pra exportar exatamente o catálogo que está na tela.
+  $('#brindesExportExcelBtn').onclick = () => {
+    const brand = brindesTab === 'log' ? 'debacco' : brindesTab;
+    const headers = ['Código', 'Item', 'Múltiplo', 'Valor', 'Estoque PR', 'Estoque SP', 'Estoque PE', 'Total', 'Status'];
+    const rows = brindesCatalog.filter((r) => r.brand === brand).map((r) => [
+      r.code || '', r.item, r.multiplo || '', Number(r.valor) || 0,
+      r.estoquePR, r.estoqueSP, r.estoquePE, r.estoqueTotal, r.status || ''
+    ]);
+    exportRowsToExcel(`Papoi - Brindes ${BRAND_LABEL[brand] || brand}.xlsx`, 'Brindes', headers, rows);
+  };
+  $('#brindesExportPdfBtn').onclick = exportViewToPdf;
   $('#brindeFormCancel').onclick = () => { $('#brindeFormWrap').hidden = true; };
   $('#brindeFormSave').onclick = async () => {
     const payload = {
@@ -5980,6 +6155,21 @@
     $('#campanhaCooperadaFormWrap').hidden = false;
   }
   $('#campanhaCooperadaNewBtn').onclick = () => openCampanhaCooperadaForm(null);
+  // Exportar (65ª rodada) -- mesmo filtro de marca da tela
+  // (campanhaCooperadaBrandFilter, pode ser "todos").
+  $('#campanhaCooperadaExportExcelBtn').onclick = () => {
+    const headers = ['Marca', 'Cliente', 'Representante', 'Produto', 'Gerente responsável', 'Qtd.', 'Data pedido', 'Data entrega', 'Aprovado', 'Cobrança enviada', 'Finalizado'];
+    const rows = campanhaCooperadaItems
+      .filter((it) => campanhaCooperadaBrandFilter === 'todos' || it.brand === campanhaCooperadaBrandFilter)
+      .map((it) => [
+        BRAND_LABEL[it.brand] || it.brand, it.cliente, it.representante || '', it.produto || '',
+        it.responsavelNome || '', it.quantidade != null ? it.quantidade : '',
+        it.dataPedido ? fmtDate(it.dataPedido) : '', it.dataEntrega ? fmtDate(it.dataEntrega) : '',
+        it.aprovado ? 'Sim' : 'Não', it.cobrancaEnviada ? 'Sim' : 'Não', it.finalizado ? 'Sim' : 'Não'
+      ]);
+    exportRowsToExcel('Papoi - Campanha Cooperada.xlsx', 'Campanha Cooperada', headers, rows);
+  };
+  $('#campanhaCooperadaExportPdfBtn').onclick = exportViewToPdf;
   $('#campanhaCooperadaFormCancel').onclick = () => { $('#campanhaCooperadaFormWrap').hidden = true; };
   $('#campanhaCooperadaFileInput').onchange = async () => {
     const file = $('#campanhaCooperadaFileInput').files[0];

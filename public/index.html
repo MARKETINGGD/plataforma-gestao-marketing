@@ -975,6 +975,8 @@
 
         <div class="toolbar">
           <button id="budgetNewBtn" class="btn-primary" hidden>+ Novo lançamento</button>
+          <button id="budgetExportExcelBtn" class="btn-secondary no-print" type="button">⬇️ Exportar Excel</button>
+          <button id="budgetExportPdfBtn" class="btn-secondary no-print" type="button">🖨️ Exportar PDF</button>
         </div>
 
         <div class="summary-cards">
@@ -1156,6 +1158,8 @@
         <div id="brindesCatalogWrap">
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="brindesCatalogNewBtn">+ Novo item</button>
+            <button class="btn-secondary no-print" id="brindesExportExcelBtn" type="button">⬇️ Exportar Excel</button>
+            <button class="btn-secondary no-print" id="brindesExportPdfBtn" type="button">🖨️ Exportar PDF</button>
           </div>
 
           <!-- 35ª rodada: card inline no formato do Budget, no lugar da
@@ -1296,6 +1300,8 @@
         </div>
         <div class="view-toolbar-actions" style="margin:12px 0;">
           <button class="btn-primary" id="campanhaCooperadaNewBtn">+ Nova campanha cooperada</button>
+          <button class="btn-secondary no-print" id="campanhaCooperadaExportExcelBtn" type="button">⬇️ Exportar Excel</button>
+          <button class="btn-secondary no-print" id="campanhaCooperadaExportPdfBtn" type="button">🖨️ Exportar PDF</button>
         </div>
 
         <div id="campanhaCooperadaFormWrap" class="form-card" hidden>
@@ -1381,6 +1387,10 @@
         <div class="tabs" id="cronogramaViewTabs">
           <button class="tab-btn active" data-cronograma-tab="calendario" id="cronogramaTabCalendario">Calendário</button>
           <button class="tab-btn" data-cronograma-tab="feed">Prévia do Feed</button>
+          <!-- 65ª rodada, "Rodada G" da Pendência 51, pedido da Raquel:
+               "na aba cronograma, ao lado de previa do feed, deve ter um
+               relatorio mensal do cronograma mes a mes". -->
+          <button class="tab-btn" data-cronograma-tab="relatorio">Relatório mensal</button>
         </div>
 
         <!-- 40ª rodada, pedido da Raquel: "em cronograma, previa do feed,
@@ -1389,8 +1399,9 @@
              abas (Calendário e Prévia do Feed), reaproveitando o mesmo
              estado de mês (`cronogramaCalMonth`) que o calendário já
              usava, então a Prévia do Feed passa a filtrar por mês também,
-             sem misturar. -->
-        <div class="cal-toolbar">
+             sem misturar. Escondida na aba Relatório mensal (65ª rodada) --
+             esse relatório é do ANO inteiro, mês a mês, não de 1 mês só. -->
+        <div class="cal-toolbar" id="cronogramaCalToolbar">
           <button class="btn-secondary" id="cronogramaPrevMonth">← Mês anterior</button>
           <h3 id="cronogramaMonthLabel"></h3>
           <button class="btn-secondary" id="cronogramaNextMonth">Próximo mês →</button>
@@ -1412,6 +1423,22 @@
           </div>
           <div id="cronogramaFeedList" class="feed-preview-list"></div>
           <p id="cronogramaFeedEmpty" class="muted" hidden>Nenhum agendamento pra essa rede nesse mês.</p>
+        </div>
+
+        <!-- 65ª rodada: relatório mensal (ano inteiro, uma seção por mês
+             com posts de verdade -- não só contagem), com exportação. -->
+        <div id="cronogramaRelatorioWrap" hidden>
+          <div class="cal-toolbar">
+            <button class="btn-secondary" id="cronogramaRelatorioPrevYear">← Ano anterior</button>
+            <h3 id="cronogramaRelatorioYearLabel"></h3>
+            <button class="btn-secondary" id="cronogramaRelatorioNextYear">Próximo ano →</button>
+          </div>
+          <div class="view-toolbar-actions no-print" style="margin:0 0 12px;">
+            <button class="btn-secondary" id="cronogramaRelatorioExportExcelBtn" type="button">⬇️ Exportar Excel</button>
+            <button class="btn-secondary" id="cronogramaRelatorioExportPdfBtn" type="button">🖨️ Exportar PDF</button>
+          </div>
+          <div id="cronogramaRelatorioContent"></div>
+          <p id="cronogramaRelatorioEmpty" class="muted" hidden>Nenhum agendamento nesse ano.</p>
         </div>
       </section>
 

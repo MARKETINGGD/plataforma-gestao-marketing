@@ -19,7 +19,14 @@ function check(label, cond) {
 
 async function main() {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-  const page = await browser.newPage();
+  // 64ª rodada: 'serviceWorkers: block' evita que o service worker novo
+  // (public/service-worker.js, Rodada F da Pendência 51) atrapalhe o
+  // page.route()/tempos deste teste -- achado por acaso ao rodar a suíte
+  // inteira depois de registrar o service worker: vários testes, que
+  // não têm nada a ver com PWA, começaram a falhar/travar junto (ver
+  // test-manual/pwaInstalavel.playwright.js, o Único que PRECISA do
+  // service worker ativo de verdade e por isso não bloqueia).
+  const page = await browser.newPage({ serviceWorkers: 'block' });
   const consoleErrors = [];
   page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
   page.on('pageerror', (err) => consoleErrors.push(String(err)));

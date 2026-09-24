@@ -1,4 +1,23 @@
 (function () {
+  // 64ª rodada, "Rodada F" da Pendência 51, pedido da Raquel: "preciso
+  // que o Papoi tbm seja um app e possa ser instalado no cel" -- registra
+  // o service worker (public/service-worker.js) assim que a página
+  // carrega, condição pro Chrome/Android oferecer "Instalar app" (o
+  // Safari do iPhone não precisa disso pra "Adicionar à Tela de Início",
+  // só das meta tags em index.html). `navigator.serviceWorker` pode não
+  // existir (navegador antigo, ou a página aberta por http:// simples em
+  // vez de https:// -- service worker exige uma origem seguro) -- nesses
+  // casos a Papoi continua funcionando normalmente, só sem a opção de
+  // instalar.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js').catch(() => {
+        // Falha aqui nunca deve travar a Papoi -- só significa que a
+        // pessoa não vai ver a opção de instalar o app dessa vez.
+      });
+    });
+  }
+
   let token = localStorage.getItem('token') || null;
   let currentUser = null;
   let dashboardsByKey = {};

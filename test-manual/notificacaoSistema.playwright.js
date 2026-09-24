@@ -58,7 +58,14 @@ async function main() {
   const consoleErrors = [];
 
   // ---------- Cenário 1: permissão ainda não pedida ('default') ----------
-  const page1 = await browser.newPage();
+  // 64ª rodada: 'serviceWorkers: block' evita que o service worker novo
+  // (public/service-worker.js, Rodada F da Pendência 51) atrapalhe o
+  // page.route()/tempos deste teste -- achado por acaso ao rodar a suíte
+  // inteira depois de registrar o service worker: vários testes, que
+  // não têm nada a ver com PWA, começaram a falhar/travar junto (ver
+  // test-manual/pwaInstalavel.playwright.js, o Único que PRECISA do
+  // service worker ativo de verdade e por isso não bloqueia).
+  const page1 = await browser.newPage({ serviceWorkers: 'block' });
   page1.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push('[p1] ' + msg.text()); });
   page1.on('pageerror', (err) => consoleErrors.push('[p1] ' + String(err)));
   await page1.addInitScript(fakeNotificationInitScript(), 'default');
@@ -73,7 +80,7 @@ async function main() {
   await page1.close();
 
   // ---------- Cenário 2: permissão já concedida ----------
-  const page2 = await browser.newPage();
+  const page2 = await browser.newPage({ serviceWorkers: 'block' });
   page2.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push('[p2] ' + msg.text()); });
   page2.on('pageerror', (err) => consoleErrors.push('[p2] ' + String(err)));
   await page2.addInitScript(fakeNotificationInitScript(), 'granted');
@@ -115,7 +122,7 @@ async function main() {
   await page2.close();
 
   // ---------- Cenário 3: permissão concedida, mas a Papoi está "minimizada" ----------
-  const page3 = await browser.newPage();
+  const page3 = await browser.newPage({ serviceWorkers: 'block' });
   page3.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push('[p3] ' + msg.text()); });
   page3.on('pageerror', (err) => consoleErrors.push('[p3] ' + String(err)));
   await page3.addInitScript(fakeNotificationInitScript(), 'granted');

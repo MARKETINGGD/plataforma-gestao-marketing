@@ -93,9 +93,15 @@ const YOUTUBE_BRANDS = ['debacco', 'ghelplus'];
 const YOUTUBE_CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || '';
 const YOUTUBE_CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || '';
 const YOUTUBE_REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || `${APP_BASE_URL}/api/social-accounts/youtube/callback`;
-// Só o escopo de upload -- o suficiente pra publicar vídeo/capa e consultar
-// qual é o canal conectado (channels.list aceita esse mesmo escopo).
-const YOUTUBE_SCOPES = ['https://www.googleapis.com/auth/youtube.upload'].join(' ');
+// 72ª rodada, bug real reportado pela Raquel ao testar a conexão de
+// verdade ("Request had insufficient authentication scopes"): só o
+// escopo de upload NÃO é suficiente -- ele cobre `videos.insert`
+// (publicar) e `thumbnails.set` (capa), mas `channels.list` (usado por
+// getMyChannel() em utils/youtubeClient.js pra descobrir qual canal foi
+// conectado) exige um escopo de LEITURA, que o upload sozinho não dá.
+// `youtube.readonly` cobre exatamente essa consulta, sem dar nenhuma
+// permissão de escrita a mais que o upload já não desse.
+const YOUTUBE_SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly'].join(' ');
 
 function youtubeConfigured() {
   return !!(YOUTUBE_CLIENT_ID && YOUTUBE_CLIENT_SECRET);

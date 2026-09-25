@@ -79,13 +79,27 @@ async function refreshAccessToken({ clientId, clientSecret, refreshToken }) {
 
 // Descobre qual canal está associado à autorização que acabou de acontecer
 // -- diferente da Meta/LinkedIn (que listam VÁRIAS Páginas/organizations
-// pra pessoa escolher depois), o Google só devolve o canal que estava ativo
-// no navegador NA HORA da autorização (ver seção 7.1.1... 8.1 do plano) --
-// não existe uma chamada que liste "todos os canais que essa conta Google
-// administra". Por isso, pra conectar GhelPlus e depois De Bacco (mesma
-// conta Google, canais/marcas diferentes), é preciso trocar o canal ativo
-// no seletor de contas do próprio YouTube ANTES de clicar em "Conectar"
-// pela 2ª vez -- avisado na tela de Integrações.
+// pra pessoa escolher depois), não existe uma chamada que liste "todos os
+// canais que essa conta Google administra" -- só dá pra perguntar "qual é
+// O canal desta conta" (`mine=true`).
+//
+// **Correção de um achado errado da 69ª rodada** (documentação original
+// dizia que o Google devolvia "o canal que estava ativo no navegador NA
+// HORA da autorização", e que por isso bastava trocar o canal ativo no
+// seletor de contas do youtube.com antes de reconectar). Testado ao vivo
+// na 73ª rodada tentando conectar a De Bacco depois da GhelPlus (mesma
+// conta Google `marketingghelplus@gmail.com`): trocar o canal ativo no
+// site NÃO mudou o que essa chamada devolve -- continuou vindo GhelPlus,
+// mesmo numa janela anônima nova com o acesso da Papoi revogado antes e o
+// canal De Bacco conferido como ativo. Ou seja, pelo menos pra essa conta,
+// `channels.list?mine=true` resolve sempre pro canal "dono"/padrão da
+// CONTA Google, não pro canal selecionado no site -- é a identidade da
+// autorização OAuth, não uma preferência de navegação. Mitigação aplicada
+// em `routes/socialAccounts.js` (`prompt: 'consent select_account'`): só
+// ajuda se a 2ª marca tiver uma conta Google DIFERENTE como gerente dela;
+// se não tiver, é um limite real da própria API do YouTube sem solução
+// via código.
+async function getMyChannel({ accessToken }) {
 async function getMyChannel({ accessToken }) {
   const qs = new URLSearchParams({ part: 'snippet', mine: 'true' });
   const res = await fetch(`${API_BASE}/channels?${qs.toString()}`, {

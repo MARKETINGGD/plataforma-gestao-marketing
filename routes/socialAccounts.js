@@ -8,6 +8,7 @@ const { logAudit } = require('../utils/audit');
 const metaGraph = require('../utils/metaGraphClient');
 const linkedinClient = require('../utils/linkedinClient');
 const youtubeClient = require('../utils/youtubeClient');
+const pinterestClient = require('../utils/pinterestClient');
 
 const router = express.Router();
 
@@ -107,6 +108,24 @@ function youtubeConfigured() {
   return !!(YOUTUBE_CLIENT_ID && YOUTUBE_CLIENT_SECRET);
 }
 
+// ---------- Pinterest (75ª rodada, "vamos começar com pinterest, é apenas
+// de bacco") ----------
+// Diferente da Meta/LinkedIn/YouTube (2 marcas), só a De Bacco usa
+// Pinterest -- pedido explícito da Raquel, não uma limitação técnica. Isso
+// evita de vez a novela de contas compartilhadas que aconteceu no YouTube
+// (rodadas 69ª a 75ª) -- não existe 2ª marca pra confundir aqui.
+const PINTEREST_BRANDS = ['debacco'];
+const PINTEREST_CLIENT_ID = process.env.PINTEREST_CLIENT_ID || '';
+const PINTEREST_CLIENT_SECRET = process.env.PINTEREST_CLIENT_SECRET || '';
+const PINTEREST_REDIRECT_URI = process.env.PINTEREST_REDIRECT_URI || `${APP_BASE_URL}/api/social-accounts/pinterest/callback`;
+// `boards:read` pra listar os quadros e a pessoa escolher qual é o certo
+// (mesmo espírito da lista de Páginas da Meta); `pins:write` pra publicar.
+const PINTEREST_SCOPES = ['boards:read', 'pins:write'].join(',');
+
+function pinterestConfigured() {
+  return !!(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET);
+}
+
 function serialize(account) {
   if (!account) return null;
   // O token de acesso NUNCA sai do servidor (nem pra super admin) — só o
@@ -122,6 +141,9 @@ function serialize(account) {
     orgName: account.orgName || null,
     // Nome do canal do YouTube -- mesmo espírito de pageName/orgName acima.
     channelTitle: account.channelTitle || null,
+    // Nome do quadro (board) do Pinterest -- mesmo espírito de pageName/
+    // orgName/channelTitle acima.
+    boardName: account.boardName || null,
     tokenExpiresAt: account.tokenExpiresAt || null,
     connectedByName: resolveUserName(account.connectedBy, account.connectedByName),
     connectedAt: account.connectedAt
@@ -187,6 +209,18 @@ function cleanupExpiredYoutubeSelections() {
   }
 }
 
+// Mesma ideia, pro Pinterest -- Mapa separado de novo, mesmo motivo de
+// sempre. Diferente do YouTube (que só devolve 1 canal), o Pinterest lista
+// vários quadros (boards) por conta, igual a Meta/LinkedIn -- a pessoa
+// escolhe qual é o certo antes da Papoi gravar a conexão de verdade.
+const pinterestPendingSelections = new Map();
+function cleanupExpiredPinterestSelections() {
+  const now = Date.now();
+  for (const [id, sel] of pinterestPendingSelections) {
+    if (sel.expiresAt < now) pinterestPendingSelections.delete(id);
+  }
+}
+
 // ---------- listar status das conexões (tela "Integrações") ----------
 // Generalizado nesta rodada (67ª) pra devolver as 2 plataformas juntas --
 // o front (public/app.js) agrupa por `platform` em vez de assumir que é
@@ -222,13 +256,25 @@ router.get('/', requireAuth, requireSuperAdmin, (req, res) => {
       account: serialize(account)
     };
   });
+  const pinterestAccounts = PINTEREST_BRANDS.map((brand) => {
+    const account = db.get('socialAccounts').find({ brand, platform: 'pinterest' }).value();
+    return {
+      platform: 'pinterest',
+      brand,
+      brandLabel: BRAND_LABEL_PT[brand],
+      connected: !!account,
+      account: serialize(account)
+    };
+  });
   res.json({
     metaConfigured: metaConfigured(),
     linkedinConfigured: linkedinConfigured(),
     youtubeConfigured: youtubeConfigured(),
+    pinterestConfigured: pinterestConfigured(),
     accounts: metaAccounts,
     linkedinAccounts,
-    youtubeAccounts
+    youtubeAccounts,
+    pinterestAccounts
   });
 });
 
@@ -733,7 +779,154 @@ router.delete('/youtube/:brand', requireAuth, requireSuperAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Pinterest: iniciar a autorização ----------
+// `refreshable=true` pede um refresh_token de verdade (~1 ano) -- sem ele, o
+// Pinterest só devolve o access token de curta duração (~30 dias), sem
+// jeito nenhum de renovar sozinho depois (mesmo motivo do
+// `access_type=offline` do YouTube). A URL usa `consumer_id`, não
+// `client_id` -- confirmado contra o repositório oficial de exemplos da
+// própria Pinterest (ver utils/pinterestClient.js).
+router.get('/pinterest/connect', requireAuth, requireSuperAdmin, (req, res) => {
+  if (!pinterestConfigured()) {
+    return res.status(503).json({ error: 'PINTEREST_CLIENT_ID/PINTEREST_CLIENT_SECRET ainda não configurados no servidor.' });
+  }
+  const { brand } = req.query;
+  if (!PINTEREST_BRANDS.includes(brand)) {
+    return res.status(400).json({ error: 'Marca inválida para conexão com o Pinterest.' });
+  }
+  const state = signState({ brand, userId: req.user.id, provider: 'pinterest' });
+  const qs = new URLSearchParams({
+    consumer_id: PINTEREST_CLIENT_ID,
+    redirect_uri: PINTEREST_REDIRECT_URI,
+    response_type: 'code',
+    scope: PINTEREST_SCOPES,
+    refreshable: 'true',
+    state
+  });
+  res.json({ redirectUrl: `${pinterestClient.OAUTH_BASE}/oauth/?${qs.toString()}` });
+});
+
+// ---------- Pinterest: callback (o Pinterest redireciona o NAVEGADOR pra cá) ----------
+// Sem requireAuth, mesmo motivo do callback da Meta/LinkedIn/YouTube acima.
+router.get('/pinterest/callback', async (req, res) => {
+  const redirectBack = (params) => res.redirect(`${APP_BASE_URL}/?${new URLSearchParams(params).toString()}`);
+
+  const { code, state, error, error_description: errorDescription } = req.query;
+  if (error) {
+    return redirectBack({ integracoes: 'erro', motivo: errorDescription || error });
+  }
+  if (!code || !state) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Resposta inesperada do Pinterest (faltou code/state).' });
+  }
+
+  let statePayload;
+  try {
+    statePayload = verifyState(state);
+  } catch (e) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Link de autorização expirado ou inválido — tente conectar de novo.' });
+  }
+  const { brand, userId } = statePayload;
+  const requestingUser = db.get('users').find({ id: userId }).value();
+  if (!requestingUser) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Usuário que iniciou a conexão não existe mais.' });
+  }
+
+  try {
+    const token = await pinterestClient.exchangeCodeForToken({
+      clientId: PINTEREST_CLIENT_ID,
+      clientSecret: PINTEREST_CLIENT_SECRET,
+      redirectUri: PINTEREST_REDIRECT_URI,
+      code
+    });
+    if (!token.refresh_token) {
+      return redirectBack({
+        integracoes: 'erro',
+        motivo: 'O Pinterest não devolveu uma autorização de longa duração dessa vez -- tente conectar de novo.'
+      });
+    }
+    const boards = await pinterestClient.listBoards({ accessToken: token.access_token });
+    if (boards.length === 0) {
+      return redirectBack({
+        integracoes: 'erro',
+        motivo: 'Nenhum quadro (board) foi encontrado nessa conta do Pinterest. Crie pelo menos 1 quadro na conta comercial da De Bacco antes de conectar.'
+      });
+    }
+
+    // Mesmo espírito da 6ª correção da Meta: nunca escolhe sozinha, mesmo
+    // vindo só 1 quadro -- sempre para e pede confirmação explícita.
+    cleanupExpiredPinterestSelections();
+    const selectionId = nanoid();
+    pinterestPendingSelections.set(selectionId, {
+      brand,
+      refreshToken: token.refresh_token,
+      expiresAt: Date.now() + PENDING_TTL_MS,
+      candidates: boards
+    });
+    return redirectBack({ integracoes: 'escolher-pinterest', brand, selectionId });
+  } catch (e) {
+    const motivo = e instanceof pinterestClient.PinterestApiError ? e.message : 'Erro inesperado ao conectar com o Pinterest.';
+    return redirectBack({ integracoes: 'erro', motivo });
+  }
+});
+
+// ---------- Pinterest: ver os quadros candidatos de uma escolha pendente ----------
+router.get('/pinterest/pending/:selectionId', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredPinterestSelections();
+  const sel = pinterestPendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta Pinterest" de novo.' });
+  res.json({
+    brand: sel.brand,
+    brandLabel: BRAND_LABEL_PT[sel.brand] || sel.brand,
+    // Refresh token NUNCA sai daqui -- só o suficiente pra pessoa reconhecer
+    // visualmente qual quadro é qual.
+    candidates: sel.candidates.map((c) => ({ boardId: c.boardId, boardName: c.boardName }))
+  });
+});
+
+// ---------- Pinterest: confirmar qual quadro é o certo pra essa marca ----------
+router.post('/pinterest/pending/:selectionId/confirm', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredPinterestSelections();
+  const sel = pinterestPendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta Pinterest" de novo.' });
+  const { boardId } = req.body || {};
+  const chosen = sel.candidates.find((c) => c.boardId === boardId);
+  if (!chosen) return res.status(400).json({ error: 'Quadro inválido.' });
+
+  const nowIso = new Date().toISOString();
+  const accountData = {
+    brand: sel.brand,
+    platform: 'pinterest',
+    boardId: chosen.boardId,
+    boardName: chosen.boardName,
+    refreshToken: sel.refreshToken,
+    connectedBy: req.user.id,
+    connectedByName: req.user.name || req.user.username,
+    connectedAt: nowIso
+  };
+  const existing = db.get('socialAccounts').find({ brand: sel.brand, platform: 'pinterest' }).value();
+  if (existing) {
+    db.get('socialAccounts').find({ id: existing.id }).assign(accountData).write();
+  } else {
+    db.get('socialAccounts').push(Object.assign({ id: nanoid() }, accountData)).write();
+  }
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: sel.brand, entityLabel: `Pinterest · ${BRAND_LABEL_PT[sel.brand] || sel.brand}`, action: existing ? 'update' : 'create', details: `Conectado como ${accountData.boardName}` });
+
+  pinterestPendingSelections.delete(req.params.selectionId);
+  res.json({ ok: true, brand: sel.brand, boardName: accountData.boardName });
+});
+
+// ---------- Pinterest: desconectar ----------
+router.delete('/pinterest/:brand', requireAuth, requireSuperAdmin, (req, res) => {
+  const { brand } = req.params;
+  const existing = db.get('socialAccounts').find({ brand, platform: 'pinterest' }).value();
+  if (!existing) return res.status(404).json({ error: 'Essa marca não está conectada.' });
+  db.get('socialAccounts').remove({ id: existing.id }).write();
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: brand, entityLabel: `Pinterest · ${BRAND_LABEL_PT[brand] || brand}`, action: 'delete' });
+  res.json({ ok: true });
+});
+
 module.exports = router;
 module.exports.META_BRANDS = META_BRANDS;
 module.exports.LINKEDIN_BRANDS = LINKEDIN_BRANDS;
 module.exports.YOUTUBE_BRANDS = YOUTUBE_BRANDS;
+module.exports.PINTEREST_BRANDS = PINTEREST_BRANDS;

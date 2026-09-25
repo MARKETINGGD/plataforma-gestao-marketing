@@ -12,6 +12,7 @@ const { createAutoRecado, updateAutoRecadosForPost } = require('./recados');
 const metaPublisher = require('../utils/metaPublisher');
 const linkedinPublisher = require('../utils/linkedinPublisher');
 const youtubePublisher = require('../utils/youtubePublisher');
+const pinterestPublisher = require('../utils/pinterestPublisher');
 
 const router = express.Router();
 
@@ -337,15 +338,17 @@ function clearFailedPublishIfContentChanged(post, updates) {
 
 // Qual publicador automático (se algum) sabe lidar com essa combinação
 // rede+marca -- generalizado na 67ª rodada (LinkedIn) a partir do que era
-// só uma chamada direta a metaPublisher.isMetaAutoPublishSupported, e de
-// novo na 69ª rodada (YouTube). Cada publicador continua isolado no próprio
-// arquivo (utils/metaPublisher.js, utils/linkedinPublisher.js,
-// utils/youtubePublisher.js) -- este helper só decide QUAL DOS TRÊS (se
+// só uma chamada direta a metaPublisher.isMetaAutoPublishSupported, de novo
+// na 69ª rodada (YouTube), e de novo na 75ª (Pinterest). Cada publicador
+// continua isolado no próprio arquivo (utils/metaPublisher.js,
+// utils/linkedinPublisher.js, utils/youtubePublisher.js,
+// utils/pinterestPublisher.js) -- este helper só decide QUAL DOS QUATRO (se
 // algum) usar pro post em questão, sem duplicar a lógica de cada um.
 function resolveAutoPublisher(effectivePost) {
   if (metaPublisher.isMetaAutoPublishSupported(effectivePost)) return metaPublisher;
   if (linkedinPublisher.isLinkedInAutoPublishSupported(effectivePost)) return linkedinPublisher;
   if (youtubePublisher.isYouTubeAutoPublishSupported(effectivePost)) return youtubePublisher;
+  if (pinterestPublisher.isPinterestAutoPublishSupported(effectivePost)) return pinterestPublisher;
   return null;
 }
 

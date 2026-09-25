@@ -7678,6 +7678,55 @@
         }
       };
     });
+
+    // Pinterest (75ª rodada, "vamos começar com pinterest, é apenas de
+    // bacco") -- mesmo cartão de sempre, trocando boardName no lugar de
+    // channelTitle/igUsername/pageName/orgName. Só a De Bacco aparece aqui
+    // (pinterestAccounts só tem 1 item).
+    $('#integracoesPinterestWarning').hidden = !!data.pinterestConfigured;
+    const pinList = $('#integracoesPinterestList');
+    pinList.innerHTML = '';
+    (data.pinterestAccounts || []).forEach((entry) => {
+      const card = document.createElement('div');
+      card.className = 'form-card';
+      const statusStyle = entry.connected
+        ? 'background:#d6f5d6;color:#1c6b1c;border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;'
+        : 'background:#eee;color:#666;border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;';
+      const statusLabel = entry.connected ? 'Conectado' : 'Não conectado';
+      const details = entry.connected
+        ? `<p class="muted" style="margin:8px 0 0;">Conectado como <strong>${entry.account.boardName || '—'}</strong> por ${entry.account.connectedByName || '—'} em ${fmtDate((entry.account.connectedAt || '').slice(0, 10))}.</p>`
+        : '';
+      card.innerHTML = `
+        <h3 style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">${entry.brandLabel} <span style="${statusStyle}">${statusLabel}</span></h3>
+        ${details}
+        <div class="form-actions" style="margin-top:12px;">
+          <button class="btn-primary" data-integ-pinterest-connect="${entry.brand}" ${data.pinterestConfigured ? '' : 'disabled'}>${entry.connected ? 'Reconectar conta Pinterest' : 'Conectar conta Pinterest'}</button>
+          ${entry.connected ? `<button class="btn-secondary" data-integ-pinterest-disconnect="${entry.brand}">Desconectar</button>` : ''}
+        </div>
+      `;
+      pinList.appendChild(card);
+    });
+    $all('#integracoesPinterestList [data-integ-pinterest-connect]').forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          const { redirectUrl } = await api('/api/social-accounts/pinterest/connect?brand=' + encodeURIComponent(btn.dataset.integPinterestConnect));
+          window.location.href = redirectUrl;
+        } catch (e) {
+          alert(e.message || 'Não foi possível iniciar a conexão com o Pinterest.');
+        }
+      };
+    });
+    $all('#integracoesPinterestList [data-integ-pinterest-disconnect]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm('Desconectar essa conta? O Agendamento para de publicar sozinho no Pinterest dessa marca até conectar de novo.')) return;
+        try {
+          await api('/api/social-accounts/pinterest/' + encodeURIComponent(btn.dataset.integPinterestDisconnect), { method: 'DELETE' });
+          loadIntegracoes();
+        } catch (e) {
+          alert(e.message || 'Não foi possível desconectar.');
+        }
+      };
+    });
   }
 
   // Depois de voltar do fluxo de autorização da Meta (54ª/55ª rodada,
@@ -7712,6 +7761,9 @@
     } else if (resultado === 'escolher-youtube' && selectionId) {
       // 69ª rodada -- mesma ideia, modal separado (ver openYoutubePageChooser).
       openYoutubePageChooser(selectionId, brand);
+    } else if (resultado === 'escolher-pinterest' && selectionId) {
+      // 75ª rodada -- mesma ideia, modal separado (ver openPinterestPageChooser).
+      openPinterestPageChooser(selectionId, brand);
     } else {
       alert('Não foi possível conectar com a rede social: ' + (motivo || 'erro desconhecido.'));
       if (activeViewName === 'integracoes') loadIntegracoes();
@@ -7886,6 +7938,62 @@
         if (activeViewName === 'integracoes') loadIntegracoes();
       } catch (e) {
         errorEl.textContent = e.message || 'Não foi possível confirmar esse canal.';
+        errorEl.hidden = false;
+        confirmBtn.disabled = false;
+      }
+    };
+    modal.hidden = false;
+  }
+
+  // Mesma ideia, pro Pinterest (75ª rodada) -- a pessoa escolhe qual QUADRO
+  // (board) é o certo, não uma Página/canal.
+  async function openPinterestPageChooser(selectionId, brandHint) {
+    let data;
+    try {
+      data = await api('/api/social-accounts/pinterest/pending/' + encodeURIComponent(selectionId));
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar os quadros encontrados -- tente conectar de novo.');
+      return;
+    }
+    const modal = $('#pinterestPageChooserModal');
+    const list = $('#pinterestPageChooserList');
+    const errorEl = $('#pinterestPageChooserError');
+    const confirmBtn = $('#pinterestPageChooserConfirm');
+    errorEl.hidden = true;
+    confirmBtn.disabled = true;
+    $('#pinterestPageChooserHint').textContent = `Escolha qual quadro (board) do Pinterest é o certo pra ${data.brandLabel || brandHint || 'essa marca'}:`;
+    list.innerHTML = '';
+    let selectedBoardId = null;
+    data.candidates.forEach((c, idx) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;';
+      row.innerHTML = `
+        <input type="radio" name="pinterestPageChoice" value="${c.boardId}" ${idx === 0 ? 'checked' : ''}>
+        <span><strong>${c.boardName || '—'}</strong></span>
+      `;
+      list.appendChild(row);
+      if (idx === 0) selectedBoardId = c.boardId;
+    });
+    confirmBtn.disabled = !selectedBoardId;
+    $all('#pinterestPageChooserList input[name="pinterestPageChoice"]').forEach((input) => {
+      input.onchange = () => { selectedBoardId = input.value; confirmBtn.disabled = false; };
+    });
+    const close = () => { modal.hidden = true; };
+    $('#pinterestPageChooserClose').onclick = close;
+    $('#pinterestPageChooserCancel').onclick = close;
+    confirmBtn.onclick = async () => {
+      if (!selectedBoardId) return;
+      confirmBtn.disabled = true;
+      try {
+        const result = await api('/api/social-accounts/pinterest/pending/' + encodeURIComponent(selectionId) + '/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ boardId: selectedBoardId })
+        });
+        close();
+        alert(`Conta do Pinterest conectada com sucesso para ${BRAND_LABEL[result.brand] || result.brand}: ${result.boardName}.`);
+        if (activeViewName === 'integracoes') loadIntegracoes();
+      } catch (e) {
+        errorEl.textContent = e.message || 'Não foi possível confirmar esse quadro.';
         errorEl.hidden = false;
         confirmBtn.disabled = false;
       }

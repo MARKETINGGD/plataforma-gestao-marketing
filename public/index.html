@@ -2013,6 +2013,15 @@
         <p class="muted">Publica o vídeo (tipo "Vídeo YouTube", 1 arquivo) direto como público, com a capa/thumbnail se tiver uma anexada. O assunto do post vira o título do vídeo, e a legenda vira a descrição. <strong>Importante:</strong> como GhelPlus e De Bacco usam a MESMA conta do Google, pra conectar a 2ª marca troque o canal ativo no seletor de contas do YouTube (ícone da sua foto, no canto superior direito do youtube.com) ANTES de clicar em "Conectar conta YouTube" de novo — senão a Papoi conecta o mesmo canal duas vezes.</p>
         <div id="integracoesYoutubeWarning" class="error" hidden>A Papoi ainda não tem o App do YouTube/Google configurado no servidor (YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET).</div>
         <div id="integracoesYoutubeList"></div>
+
+        <!-- Pinterest (75ª rodada, "vamos começar com pinterest, é apenas de
+             bacco") -- mesmo padrão da Meta/LinkedIn/YouTube acima, só que só
+             a De Bacco aparece aqui (pedido explícito da Raquel). Ver
+             routes/socialAccounts.js. -->
+        <h2 style="margin-top:32px;">Pinterest</h2>
+        <p class="muted">Publica o tipo "Pin" (1 imagem) direto no quadro (board) escolhido na hora de conectar. O assunto do post vira o título do Pin, a legenda vira a descrição, e o link (se preenchido) vira o link de destino do Pin. <strong>Só a De Bacco usa Pinterest por enquanto.</strong></p>
+        <div id="integracoesPinterestWarning" class="error" hidden>A Papoi ainda não tem o App do Pinterest configurado no servidor (PINTEREST_CLIENT_ID/PINTEREST_CLIENT_SECRET).</div>
+        <div id="integracoesPinterestList"></div>
       </section>
 
     </main>
@@ -2086,6 +2095,28 @@
     <div class="modal-footer">
       <button id="youtubePageChooserConfirm" class="btn-primary" disabled>Conectar este canal</button>
       <button id="youtubePageChooserCancel" class="btn-secondary">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mesma ideia, pro Pinterest (75ª rodada) -- modal separado de novo. Aqui
+     a pessoa escolhe qual QUADRO (board) é o certo, não uma Página/canal.
+     Ver GET/POST /api/social-accounts/pinterest/pending/:id em
+     routes/socialAccounts.js. -->
+<div id="pinterestPageChooserModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Qual quadro (board) é esse?</div>
+      <button id="pinterestPageChooserClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="pinterestPageChooserHint" class="muted"></p>
+      <div id="pinterestPageChooserList"></div>
+      <div id="pinterestPageChooserError" class="error" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button id="pinterestPageChooserConfirm" class="btn-primary" disabled>Conectar este quadro</button>
+      <button id="pinterestPageChooserCancel" class="btn-secondary">Cancelar</button>
     </div>
   </div>
 </div>

@@ -108,11 +108,18 @@ db.defaults({
   // integração de API, vamos para o linkedin"): {id, brand,
   // platform: 'linkedin', organizationId, organizationUrn, orgName,
   // accessToken, tokenExpiresAt, connectedBy, connectedByName,
-  // connectedAt} — ver utils/linkedinClient.js/linkedinPublisher.js. Hoje
-  // só 'ghelplus'/'debacco' entram nas 2 plataformas (únicas marcas com
-  // Página pronta). O token NUNCA é devolvido pro frontend (ver
-  // serialize() em routes/socialAccounts.js) — só usado no servidor, pelos
-  // publicadores automáticos.
+  // connectedAt} — ver utils/linkedinClient.js/linkedinPublisher.js. 'youtube'
+  // desde a 69ª rodada: {id, brand, platform: 'youtube', channelId,
+  // channelTitle, refreshToken, connectedBy, connectedByName, connectedAt}.
+  // 'pinterest' desde a 75ª rodada ("vamos começar com pinterest, é apenas
+  // de bacco"): {id, brand, platform: 'pinterest', boardId, boardName,
+  // refreshToken, connectedBy, connectedByName, connectedAt} — ver
+  // utils/pinterestClient.js/pinterestPublisher.js. Meta/LinkedIn/YouTube
+  // valem só pra 'ghelplus'/'debacco' (únicas marcas com Página/canal
+  // pronto); Pinterest vale só pra 'debacco' (pedido explícito da Raquel,
+  // a GhelPlus não usa Pinterest). O token NUNCA é devolvido pro frontend
+  // (ver serialize() em routes/socialAccounts.js) — só usado no servidor,
+  // pelos publicadores automáticos.
   socialAccounts: [],
   // Controle de Expositores (68ª rodada, "Rodada I" da Pendência 51,
   // pedido da Raquel: "suba exatamente a planilha que te mandei" --

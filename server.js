@@ -105,6 +105,12 @@ require('./utils/linkedinPublisher').startLinkedInPublisherScheduler();
 // PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md, seção 8.2).
 require('./utils/youtubePublisher').startYouTubePublisherScheduler();
 
+// 75ª rodada: mesma ideia, agora pro Pinterest ("vamos começar com
+// pinterest, é apenas de bacco") -- checa a cada 2 minutos se tem "Pin" com
+// a data/hora batendo e conta conectada (ver utils/pinterestPublisher.js).
+// Só a De Bacco usa Pinterest por enquanto.
+require('./utils/pinterestPublisher').startPinterestPublisherScheduler();
+
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).
 app.use((req, res, next) => {

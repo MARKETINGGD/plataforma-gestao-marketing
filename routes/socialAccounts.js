@@ -574,6 +574,24 @@ router.delete('/linkedin/:brand', requireAuth, requireSuperAdmin, (req, res) => 
 // existir uma conta separada pra De Bacco, esse é um limite real da
 // própria API do YouTube pra contas com mais de 1 canal de marca sob o
 // mesmo login -- não tem nenhum parâmetro de OAuth que resolva isso.
+//
+// **74ª rodada, confirmado ao vivo**: a Raquel testou depois do deploy --
+// a tela de escolha de CONTA apareceu de verdade (o `select_account`
+// funcionou), mas GhelPlus e De Bacco são administradas pelo MESMO login
+// Google (`marketingghelplus@gmail.com`), então só existe 1 conta pra
+// escolher -- escolhendo ela, a tela seguinte mostrou só a "página"
+// (canal) GhelPlus de novo, sem listar De Bacco como opção nenhuma. Ou
+// seja: **é o cenário sem saída por código, confirmado de vez** -- não
+// existe nenhum parâmetro de OAuth (nem `select_account`, nem nenhum
+// outro documentado) que deixe escolher ENTRE canais/marcas de uma MESMA
+// conta Google na hora de autorizar; só entre CONTAS diferentes. A saída
+// de verdade exige uma ação da Raquel no lado do Google, não mais código
+// daqui: dar a algum login Google diferente (pode ser um novo, criado só
+// pra isso) permissão de "Proprietário" ou "Gerente" no canal De Bacco
+// (YouTube Studio → De Bacco → Configurações → Permissões → Convidar) e
+// depois conectar a De Bacco na Papoi logando com ESSE login novo, não o
+// `marketingghelplus@gmail.com` -- aí sim o `select_account` já
+// implementado vai ter uma 2ª conta de verdade pra oferecer.
 router.get('/youtube/connect', requireAuth, requireSuperAdmin, (req, res) => {
   if (!youtubeConfigured()) {
     return res.status(503).json({ error: 'YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET ainda não configurados no servidor.' });

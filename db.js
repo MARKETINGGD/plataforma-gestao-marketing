@@ -183,4 +183,37 @@ if (socialPostsSemMarca.length > 0) {
   });
 }
 
+// Migração (70ª rodada, bug real reportado pela Raquel: "a planilha do
+// papoi deve ser exatamente igual a essa que te enviei... o valor não
+// deve ser somado a mais, deve ser considerado uma única vez, exatamente
+// como na planilha"). Célula mesclada na planilha original
+// (`EXPOSITORES 2026.xlsx`) fez o seed de `expositoresEstoque` (68ª
+// rodada, ver routes/expositores.js) importar a MESMA combinação
+// brand+código de entrada+código de saída DUPLICADA (2x ou 3x, com os
+// mesmos valores) em vez de 1 vez só -- inflava a soma de Consumo
+// mensal/R$ Total mês por marca, e o lançamento automático no Budget
+// (70ª rodada) herdava esse valor errado. `seedIfEmpty()` já foi
+// corrigido pra nunca duplicar de novo numa instalação nova (só roda 1x,
+// na coleção vazia) -- esta migração corrige um banco que já rodou o
+// seed ANTIGO (com a duplicata), removendo as cópias extras de cada
+// grupo. Nunca agrupa só por código de entrada (um mesmo componente pode
+// alimentar mais de um código de saída de verdade, ex.: 30.04.00569 ->
+// 03464 e 03465 -- isso continua 2 linhas) -- só remove quando
+// brand+entrada+saída são TODOS iguais. Mantém, de cada grupo
+// duplicado, a versão mais RECENTEMENTE atualizada (`updatedAt`) -- se
+// alguém já tiver editado uma das cópias antes desta correção rodar,
+// essa edição sobrevive; em empate, mantém a 1ª encontrada.
+const expositoresPorChave = {};
+db.get('expositoresEstoque').value().forEach((it) => {
+  const chave = [it.brand, it.codigoEntrada, it.codigoSaida].join('|');
+  (expositoresPorChave[chave] = expositoresPorChave[chave] || []).push(it);
+});
+Object.values(expositoresPorChave).forEach((grupo) => {
+  if (grupo.length <= 1) return;
+  const manter = grupo.reduce((a, b) => (new Date(b.updatedAt) > new Date(a.updatedAt) ? b : a));
+  grupo.forEach((it) => {
+    if (it.id !== manter.id) db.get('expositoresEstoque').remove({ id: it.id }).write();
+  });
+});
+
 module.exports = db;

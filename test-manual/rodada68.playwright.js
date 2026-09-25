@@ -38,7 +38,10 @@ async function main() {
   await page.waitForSelector('#view-expositores-estoque:not([hidden])', { timeout: 10000 });
   await page.waitForTimeout(500);
   const rowCountGhelplus = await page.locator('#expositoresEstoqueBody tr').count();
-  check('Controle de Expositores (GhelPlus) mostra 26 itens da planilha', rowCountGhelplus === 26);
+  // 70ª rodada: era 26 (bug de células mescladas duplicando 3 linhas de
+  // verdade) -- corrigido pra 23, batendo exatamente com a planilha
+  // original (ver Pendência 56 / comentário em routes/expositores.js).
+  check('Controle de Expositores (GhelPlus) mostra 23 itens da planilha (sem duplicata de célula mesclada)', rowCountGhelplus === 23);
   const firstRowText = await page.textContent('#expositoresEstoqueBody tr:first-child');
   check('1º item bate com a planilha (30.04.00598)', firstRowText.includes('30.04.00598'));
   // 70ª rodada: as abas de marca ganharam uma 3ª vizinha ("Total Mensal")
@@ -48,7 +51,8 @@ async function main() {
   await page.click('.tab-btn[data-expositores-estoque-view="debacco"]');
   await page.waitForTimeout(500);
   const rowCountDebacco = await page.locator('#expositoresEstoqueBody tr').count();
-  check('Controle de Expositores (De Bacco) mostra 18 itens da planilha', rowCountDebacco === 18);
+  // 70ª rodada: era 18 (1 duplicata de célula mesclada) -- corrigido pra 17.
+  check('Controle de Expositores (De Bacco) mostra 17 itens da planilha (sem duplicata de célula mesclada)', rowCountDebacco === 17);
   await page.click('.tab-btn[data-expositores-estoque-view="ghelplus"]');
   await page.waitForTimeout(500);
 

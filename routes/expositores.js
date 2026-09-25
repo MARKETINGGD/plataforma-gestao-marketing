@@ -112,13 +112,26 @@ function item(brand, codigoEntrada, descricaoEntrada, codigoSaida, descricaoSaid
 }
 
 // Semeado 1x a partir de "EXPOSITORES 2026.xlsx" (aba "2026"), célula a
-// célula, resolvendo o mesclado de células da planilha original — 26
-// itens de GhelPlus (linhas 4-29) + 18 de De Bacco (linhas 31-48).
+// célula, resolvendo o mesclado de células da planilha original — 23
+// itens de GhelPlus + 17 de De Bacco (40 no total).
 // Algumas linhas da planilha original repetem o mesmo "código entrada"/
 // "descrição entrada" com um "código saída" diferente (um mesmo
-// componente vira mais de um produto final) — viraram registros
-// separados aqui, fiéis a cada linha da planilha (não foram agrupados/
-// deduplicados).
+// componente vira mais de um produto final, ex.: 30.04.00569 alimenta
+// tanto 10.08.03464 quanto 10.08.03465) — viraram registros separados
+// aqui, 1 por combinação (entrada, saída) única.
+//
+// 70ª rodada, bug real reportado pela Raquel ("a planilha do papoi deve
+// ser exatamente igual a essa que te enviei... o valor não deve ser
+// somado a mais, deve ser considerado uma única vez"): células mescladas
+// da planilha original fizeram uma mesma combinação (entrada, saída)
+// entrar aqui DUPLICADA (2x ou 3x, com os mesmos valores), inflando a
+// soma de Consumo mensal/R$ Total mês por marca — e, na 70ª rodada, o
+// próprio lançamento automático no Budget. Corrigido removendo as cópias
+// extras (nunca deduplicar por só "código entrada" — 30.04.00569 continua
+// com 2 linhas de verdade, uma por código de saída; só as cópias 100%
+// idênticas, mesmo código de entrada E de saída, eram bug). Bancos que já
+// tinham rodado o seed antigo (com a duplicata) são corrigidos por uma
+// migração em db.js, não só aqui (o seed só roda 1x, na coleção vazia).
 function seedIfEmpty() {
   if (db.get('expositoresEstoque').size().value() > 0) return;
   const rows = [
@@ -136,9 +149,6 @@ function seedIfEmpty() {
     item('ghelplus', '30.04.00616', 'Exp. GP Gav. Cubas/Válvulas/Pias 1305x800x1140-Preto', '10.08.03464', 'Expositor GP Gav. Cubas/Válvulas/Pias 1305x800x1140-Preto', 1010, 20, 0, 0, 5, 15, 0, 0, 5, -5, 0, 10, 1, 20, 1, 10, 10),
     item('ghelplus', '30.04.00617', 'Tampo Exp. GP Gav. Superior 03464 - 1195x755x15-Preto', '10.08.03464', 'Expositor GP Gav. Cubas/Válvulas/Pias 1305x800x1140-Preto', 118, 18, 0, 0, 5, 13, 0, 0, 5, -5, 0, 10, 1, 20, 1, 10, 10),
     item('ghelplus', '30.04.00569', 'Tampo Exp. GP 03464/03465 Sem Furo - 1195x535mm-Preto', '10.08.03464', 'Expositor GP Gav. Cubas/Válvulas/Pias 1305x800x1140-Preto', 71, 98, 0, 31, 40, 58, 0, 0, 40, -9, 21, 40, 1, 20, 1, 80, 80),
-    item('ghelplus', '30.04.00569', 'Tampo Exp. GP 03464/03465 Sem Furo - 1195x535mm-Preto', '10.08.03464', 'Expositor GP Gav. Cubas/Válvulas/Pias 1305x800x1140-Preto', 71, 98, 0, 31, 40, 58, 0, 0, 40, -9, 21, 40, 1, 20, 1, 80, 80),
-    item('ghelplus', '30.04.00569', 'Tampo Exp. GP 03464/03465 Sem Furo - 1195x535mm-Preto', '10.08.03465', 'Expositor GP Gav. Cubas/Pias-Preto', 71, 98, 0, 31, 40, 58, 0, 0, 40, -9, 21, 40, 1, 20, 1, 80, 80),
-    item('ghelplus', '30.04.00569', 'Tampo Exp. GP 03464/03465 Sem Furo - 1195x535mm-Preto', '10.08.03465', 'Expositor GP Gav. Cubas/Pias-Preto', 71, 98, 0, 31, 40, 58, 0, 0, 40, -9, 21, 40, 1, 20, 1, 80, 80),
     item('ghelplus', '30.04.00569', 'Tampo Exp. GP 03464/03465 Sem Furo - 1195x535mm-Preto', '10.08.03465', 'Expositor GP Gav. Cubas/Pias-Preto', 71, 98, 0, 31, 40, 58, 0, 0, 40, -9, 21, 40, 1, 20, 1, 80, 80),
     item('ghelplus', '30.04.00618', 'Exp. GP Gav. Cubas/Pias-Preto', '10.08.03465', 'Expositor GP Gav. Cubas/Pias-Preto', 1095, 32, 0, 0, 10, 0, 0, 0, 10, -10, 7, 15, 1, 20, 1, 20, 20),
     item('ghelplus', '30.04.00590', 'Exp. GP TQ Monobloco-Preto', '10.08.03453', 'Expositor GP TQ Monobloco-Preto', 625, 30, 0, 0, 10, 20, 0, 0, 5, -5, 1, 10, 1, 20, 1, 15, 15),
@@ -152,7 +162,6 @@ function seedIfEmpty() {
     // ---------- De Bacco ----------
     item('debacco', '30.04.00515', 'Exp. DB Grafito - Tampo Superior s/ Furo', '10.08.00224', 'Expositor DB Grafito Volume 01 - Corpo', 342, 12, 0, 0, 3, 9, 0, 0, 2, -2, 2, 12, 1, 20, 1, 5, 5),
     item('debacco', '30.04.00520', 'Exp. DB Grafito - Corpo', '10.08.00224', 'Expositor DB Grafito Volume 01 - Corpo', 987, 14, 0, 2, 3, 11, 0, 0, 2, 0, 2, 12, 1, 20, 1, 5, 5),
-    item('debacco', '30.04.00518', 'Exp. DB Grafito - Tampo Gavetas', '10.08.00225', 'Expositor DB Grafito Volume 02 - Kit Gavetas', 125, 23, 0, 4, 6, 17, 0, 0, 4, 0, 4, 24, 1, 20, 1, 10, 10),
     item('debacco', '30.04.00518', 'Exp. DB Grafito - Tampo Gavetas', '10.08.00225', 'Expositor DB Grafito Volume 02 - Kit Gavetas', 125, 23, 0, 4, 6, 17, 0, 0, 4, 0, 4, 24, 1, 20, 1, 10, 10),
     item('debacco', '30.04.00519', 'Exp. DB Grafito - Kit 2 Gavetas', '10.08.00225', 'Expositor DB Grafito Volume 02 - Kit Gavetas', 435, 14, 0, 2, 3, 11, 0, 0, 2, 0, 2, 12, 1, 20, 1, 5, 5),
     item('debacco', '30.04.00606', 'Exp. DB Eletros - Base Inferior - V3', '10.08.00226', 'Expositor DB Eletros - Base Inferior - V3', 1445, 10, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 1, 20, 1, 0, 0),

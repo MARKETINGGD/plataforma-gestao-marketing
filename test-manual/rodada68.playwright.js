@@ -41,11 +41,15 @@ async function main() {
   check('Controle de Expositores (GhelPlus) mostra 26 itens da planilha', rowCountGhelplus === 26);
   const firstRowText = await page.textContent('#expositoresEstoqueBody tr:first-child');
   check('1º item bate com a planilha (30.04.00598)', firstRowText.includes('30.04.00598'));
-  await page.click('.tab-btn[data-expositores-estoque-brand="debacco"]');
+  // 70ª rodada: as abas de marca ganharam uma 3ª vizinha ("Total Mensal")
+  // e passaram a compartilhar 1 atributo só (`data-expositores-estoque-view`)
+  // em vez de `data-expositores-estoque-brand` -- ver comentário em
+  // public/app.js, seção "Controle de Expositores".
+  await page.click('.tab-btn[data-expositores-estoque-view="debacco"]');
   await page.waitForTimeout(500);
   const rowCountDebacco = await page.locator('#expositoresEstoqueBody tr').count();
   check('Controle de Expositores (De Bacco) mostra 18 itens da planilha', rowCountDebacco === 18);
-  await page.click('.tab-btn[data-expositores-estoque-brand="ghelplus"]');
+  await page.click('.tab-btn[data-expositores-estoque-view="ghelplus"]');
   await page.waitForTimeout(500);
 
   // Edita o 1º item -- confirma que Total/Pendência recalculam sozinhos.

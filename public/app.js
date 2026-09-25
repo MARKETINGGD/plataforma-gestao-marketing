@@ -6964,6 +6964,9 @@
   let expositoresEstoqueBrand = 'ghelplus';
   let expositoresEstoqueCanEdit = false;
   let editingExpositorEstoqueId = null;
+  // 70ª rodada -- lançamento mensal no Budget (ver #expositoresEstoqueLancamentoCard)
+  let expositoresLancamentosCache = [];
+  let expositoresMensalAllLaunches = [];
 
   async function loadExpositoresEstoque() {
     try {
@@ -6971,6 +6974,7 @@
       expositoresEstoqueItems = data.items || [];
       expositoresEstoqueCanEdit = data.canEdit;
       renderExpositoresEstoque();
+      loadExpositoresLancamentosHistorico();
     } catch (e) { alert(e.message); }
   }
   function renderExpositoresEstoque() {
@@ -6982,11 +6986,11 @@
         <td>${it.codigoSaida || '—'}</td>
         <td>${escapeHtml(it.descricaoSaida || '—')}</td>
         <td>${fmtMoney(it.valorUnitario)}</td>
-        <td>${it.saldoPR}</td><td>${it.saldoSP}</td><td>${it.saldoNE}</td><td><b>${it.saldoTotal}</b></td>
+        <td class="col-saldo-pr">${it.saldoPR}</td><td class="col-saldo-sp">${it.saldoSP}</td><td class="col-saldo-ne">${it.saldoNE}</td><td><b>${it.saldoTotal}</b></td>
         <td>${it.segurancaPR}</td><td>${it.pendenciaPR}</td>
         <td>${it.segurancaSP}</td><td>${it.pendenciaSP}</td>
         <td>${it.segurancaNE}</td><td>${it.pendenciaNE}</td>
-        <td>${it.consumoMensal}</td><td><b>${fmtMoney(it.valorTotalMensal)}</b></td>
+        <td class="col-consumo-mensal">${it.consumoMensal}</td><td class="col-total-mes"><b>${fmtMoney(it.valorTotalMensal)}</b></td>
         <td>${it.loteEconomico ?? '—'}</td><td>${it.loteMultiplo ?? '—'}</td>
         <td>${it.ressuprimentoFornecedor ?? '—'}</td><td>${it.ressuprimentoCompras ?? '—'}</td>
         <td>${it.estoqueSeguranca ?? '—'}</td><td>${it.nota ?? '—'}</td>
@@ -6996,6 +7000,22 @@
     $all('[data-edit-expositor-estoque]').forEach((b) => {
       b.onclick = () => openExpositorEstoqueForm(expositoresEstoqueItems.find((it) => it.id === b.dataset.editExpositorEstoque));
     });
+    // 70ª rodada, pedido da Raquel: "coloque o total de unidades/mês e o
+    // total em R$/mês" -- linha de total no fim da tabela, soma de
+    // Consumo mensal/R$ Total mês de todos os itens desta marca (mesmos
+    // números usados no preview de "Lançamento mensal no Budget" abaixo).
+    const totalUnidadesMes = expositoresEstoqueItems.reduce((s, it) => s + (Number(it.consumoMensal) || 0), 0);
+    const totalValorMes = expositoresEstoqueItems.reduce((s, it) => s + (Number(it.valorTotalMensal) || 0), 0);
+    const totalRow = $('#expositoresEstoqueTotalRow');
+    if (totalRow) {
+      totalRow.innerHTML = `
+        <td colspan="15" style="text-align:right;font-weight:600;">Total do mês (marca)</td>
+        <td class="col-consumo-mensal"><b>${totalUnidadesMes}</b></td>
+        <td class="col-total-mes"><b>${fmtMoney(totalValorMes)}</b></td>
+        <td colspan="7"></td>
+      `;
+    }
+    updateExpositoresLancamentoPreview(totalUnidadesMes, totalValorMes);
   }
   function openExpositorEstoqueForm(it) {
     if (!it) return;
@@ -7049,11 +7069,26 @@
       await loadExpositoresEstoque();
     } catch (e) { alert(e.message); }
   };
-  $all('.tab-btn[data-expositores-estoque-brand]').forEach((b) => {
+  // 70ª rodada -- 3 "abas" agora (GhelPlus/De Bacco/Total Mensal), num
+  // atributo só (`data-expositores-estoque-view`) em vez de 1 por marca:
+  // as 2 primeiras continuam trocando a marca da tabela de sempre, a 3ª
+  // esconde a tabela/formulário/lançamento (tudo dentro de
+  // #expositoresEstoqueBrandView) e mostra o relatório agregado
+  // (#expositoresEstoqueMensalView).
+  $all('.tab-btn[data-expositores-estoque-view]').forEach((b) => {
     b.onclick = () => {
-      expositoresEstoqueBrand = b.dataset.expositoresEstoqueBrand;
-      $all('.tab-btn[data-expositores-estoque-brand]').forEach((x) => x.classList.toggle('active', x === b));
-      loadExpositoresEstoque();
+      const view = b.dataset.expositoresEstoqueView;
+      $all('.tab-btn[data-expositores-estoque-view]').forEach((x) => x.classList.toggle('active', x === b));
+      if (view === 'mensal') {
+        $('#expositoresEstoqueBrandView').hidden = true;
+        $('#expositoresEstoqueMensalView').hidden = false;
+        loadExpositoresMensal();
+      } else {
+        expositoresEstoqueBrand = view;
+        $('#expositoresEstoqueMensalView').hidden = true;
+        $('#expositoresEstoqueBrandView').hidden = false;
+        loadExpositoresEstoque();
+      }
     };
   });
   const EXPOSITORES_ESTOQUE_EXPORT_HEADERS = ['Código entrada', 'Descrição entrada', 'Código saída', 'Descrição saída', 'R$ Unitário', 'Saldo PR', 'Saldo SP', 'Saldo NE', 'Total', 'Segurança PR', 'Pendência PR', 'Segurança SP', 'Pendência SP', 'Segurança NE', 'Pendência NE', 'Consumo mensal', 'R$ Total/mês', 'Lote econômico', 'Lote múltiplo', 'Ressup. fornecedor', 'Ressup. compras', 'Estoque segurança', 'Nota'];
@@ -7067,6 +7102,75 @@
   }
   $('#expositoresEstoqueExportExcelBtn').onclick = () => exportRowsToExcel(`controle-expositores-${expositoresEstoqueBrand}.xlsx`, 'Controle Expositores', EXPOSITORES_ESTOQUE_EXPORT_HEADERS, expositoresEstoqueExportRows());
   $('#expositoresEstoqueExportPdfBtn').onclick = () => exportViewToPdf();
+
+  // ---------- Lançamento mensal de Expositores no Budget (70ª rodada,
+  // pedido da Raquel: "Os lançamentos mensais, o total de cada marca no
+  // mês, deve ser automaticamente adicionado ao budget... Sempre no mês
+  // em que foi gasto e na marca em que foi gasto") ----------
+  fillMonthSelect($('#expositoresLancamentoMes'));
+  $('#expositoresLancamentoAno').value = new Date().getFullYear();
+  $('#expositoresLancamentoMes').value = new Date().getMonth() + 1;
+
+  function updateExpositoresLancamentoPreview(totalUnidades, totalValor) {
+    const el = $('#expositoresLancamentoPreview');
+    if (el) el.textContent = `Total atual: ${totalUnidades} unid./mês · ${fmtMoney(totalValor)}/mês`;
+  }
+
+  async function loadExpositoresLancamentosHistorico() {
+    try {
+      const data = await api('/api/expositores/lancamentos-mensais?brand=' + encodeURIComponent(expositoresEstoqueBrand));
+      expositoresLancamentosCache = data.items || [];
+      renderExpositoresLancamentosHistorico();
+    } catch (e) { /* histórico é só informativo -- não trava a tela principal */ }
+  }
+  function renderExpositoresLancamentosHistorico() {
+    const wrap = $('#expositoresLancamentoHistorico');
+    if (!wrap) return;
+    if (!expositoresLancamentosCache.length) {
+      wrap.innerHTML = '<p class="muted">Nenhum mês lançado ainda pra essa marca.</p>';
+      return;
+    }
+    const sorted = [...expositoresLancamentosCache].sort((a, b) => (b.year - a.year) || (b.month - a.month));
+    wrap.innerHTML = '<table class="data-table"><thead><tr><th>Mês</th><th>Unidades</th><th>Valor (R$)</th><th>Lançado por</th></tr></thead><tbody>' +
+      sorted.map((l) => `<tr><td>${MONTHS_FULL[l.month - 1]}/${l.year}</td><td>${l.totalUnidades}</td><td>${fmtMoney(l.totalValor)}</td><td>${escapeHtml(l.updatedBy || '—')}</td></tr>`).join('') +
+      '</tbody></table>';
+  }
+  $('#expositoresLancamentoBtn').onclick = async () => {
+    const mes = Number($('#expositoresLancamentoMes').value);
+    const ano = Number($('#expositoresLancamentoAno').value);
+    $('#expositoresLancamentoMsg').hidden = true;
+    try {
+      const data = await api('/api/expositores/lancamentos-mensais/lancar', { method: 'POST', body: JSON.stringify({ brand: expositoresEstoqueBrand, year: ano, month: mes }) });
+      $('#expositoresLancamentoMsg').textContent = `Lançado: ${MONTHS_FULL[mes - 1]}/${ano} — ${data.launch.totalUnidades} unidades, ${fmtMoney(data.launch.totalValor)} — sincronizado com o Budget (${data.fluxo}).`;
+      $('#expositoresLancamentoMsg').hidden = false;
+      await loadExpositoresLancamentosHistorico();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ---------- Aba "Total Mensal" (70ª rodada, pedido da Raquel: "Crie
+  // outra aba... deve ter o mês, o valor total (das duas marcas juntas) e
+  // o total de expositores (duas marcas juntas)") -- soma os lançamentos
+  // das 2 marcas por mês/ano. ----------
+  async function loadExpositoresMensal() {
+    try {
+      const data = await api('/api/expositores/lancamentos-mensais');
+      expositoresMensalAllLaunches = data.items || [];
+      renderExpositoresMensal();
+    } catch (e) { alert(e.message); }
+  }
+  function renderExpositoresMensal() {
+    const groups = {};
+    expositoresMensalAllLaunches.forEach((l) => {
+      const key = l.year + '-' + l.month;
+      if (!groups[key]) groups[key] = { year: l.year, month: l.month, totalUnidades: 0, totalValor: 0 };
+      groups[key].totalUnidades += Number(l.totalUnidades) || 0;
+      groups[key].totalValor += Number(l.totalValor) || 0;
+    });
+    const rows = Object.values(groups).sort((a, b) => (b.year - a.year) || (b.month - a.month));
+    $('#expositoresMensalBody').innerHTML = rows.length ? rows.map((r) => `
+      <tr><td>${MONTHS_FULL[r.month - 1]}/${r.year}</td><td>${r.totalUnidades}</td><td>${fmtMoney(r.totalValor)}</td></tr>
+    `).join('') : '<tr><td colspan="3" class="muted">Nenhum mês lançado ainda (use "Lançar no Budget" na aba de cada marca).</td></tr>';
+  }
   setupPublicLinkPanel({ prefix: 'expositoresEstoque', apiBase: '/api/expositores/estoque', getKey: () => expositoresEstoqueBrand, keyParamName: 'brand' });
 
   function openLancamentoForm(item) {

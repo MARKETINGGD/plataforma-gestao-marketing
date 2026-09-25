@@ -128,6 +128,16 @@ db.defaults({
   // própria planilha já os calculava por fórmula, e a legenda dela
   // ("Bloqueadas p/ edição") marcava TOTAL/R$ TOTAL como não-editáveis).
   expositoresEstoque: [],
+  // Lançamento mensal de Expositores no Budget (70ª rodada, pedido da
+  // Raquel: "os lançamentos mensais, o total de cada marca no mês, deve
+  // ser automaticamente adicionado ao budget"). Cada registro é 1
+  // mês/ano/marca "lançado" a partir do Controle de Expositores acima —
+  // upsert por brand+year+month (relançar o mesmo mês substitui, nunca
+  // duplica), com o id do lançamento gerado em `budgetEntries`
+  // (`budgetEntryId`) pra conseguir substituir/remover se relançado. A
+  // aba "Total Mensal" da tela soma os registros das 2 marcas por
+  // mês/ano. Ver routes/expositores.js.
+  expositoresLancamentosMensais: [],
   // Catálogo (arquivo) de Produtos e de Expositores (68ª rodada, pedidos
   // separados da Raquel: "adicione em produtos um sub menu com o nome
   // catálogo... deve ser separado por marca" e, à parte, o mesmo pra

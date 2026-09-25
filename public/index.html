@@ -1742,9 +1742,16 @@
         <h2>Expositores — Controle de Expositores</h2>
         <p class="muted">Estoque de expositores (PCP/Comercial/Compras), importado da planilha oficial. Total, Pendência e R$ Total/mês são recalculados automaticamente pela Papoi sempre que Saldo, Segurança ou Consumo mensal mudam.</p>
         <div class="tabs">
-          <button class="tab-btn active" data-expositores-estoque-brand="ghelplus">GhelPlus</button>
-          <button class="tab-btn" data-expositores-estoque-brand="debacco">De Bacco</button>
+          <button class="tab-btn active" data-expositores-estoque-view="ghelplus">GhelPlus</button>
+          <button class="tab-btn" data-expositores-estoque-view="debacco">De Bacco</button>
+          <!-- 70ª rodada, pedido da Raquel: "Crie outra aba dentro desse
+               controle, ao lado das marcas, ela deve se chamar Total
+               Mensal" -- soma os lançamentos das 2 marcas por mês, ver
+               #expositoresEstoqueMensalView abaixo. -->
+          <button class="tab-btn" data-expositores-estoque-view="mensal">Total Mensal</button>
         </div>
+
+      <div id="expositoresEstoqueBrandView">
         <div class="view-toolbar-actions" style="margin:12px 0;">
           <button class="btn-secondary no-print" id="expositoresEstoqueExportExcelBtn" type="button">⬇️ Exportar Excel</button>
           <button class="btn-secondary no-print" id="expositoresEstoqueExportPdfBtn" type="button">🖨️ Exportar PDF</button>
@@ -1761,6 +1768,37 @@
             </div>
           </div>
           <button class="btn-primary" id="expositoresEstoqueGenLinkBtn" type="button">Gerar link externo</button>
+        </div>
+
+        <!-- 70ª rodada, pedido da Raquel: "Os lançamentos mensais, o total
+             de cada marca no mês, deve ser automaticamente adicionado ao
+             budget. Se for De Bacco no fluxo: 2.5.3.14. Se for GhelPlus,
+             no fluxo: 2.5.2.14" -- pega o total ATUAL da tabela (linha de
+             total no fim dela) e lança automaticamente no Budget, sem
+             precisar digitar de novo lá. -->
+        <div class="form-card no-print" id="expositoresEstoqueLancamentoCard">
+          <h3 style="margin-top:0;">Lançamento mensal no Budget</h3>
+          <p class="muted" style="margin-top:0;">
+            "Lançar" um mês pega o total ATUAL de Consumo mensal e R$ Total/mês
+            desta marca (mesmos números da linha "Total do mês" da tabela
+            abaixo) e lança automaticamente no Budget, no fluxo "Expositores
+            Padrão" desta marca. Relançar o mesmo mês/ano substitui o
+            lançamento anterior — nunca duplica.
+          </p>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+            <div>
+              <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:4px;">Mês</label>
+              <select id="expositoresLancamentoMes"></select>
+            </div>
+            <div>
+              <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:4px;">Ano</label>
+              <input type="number" id="expositoresLancamentoAno" style="width:100px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+            </div>
+            <div id="expositoresLancamentoPreview" class="muted"></div>
+            <button class="btn-primary no-print" id="expositoresLancamentoBtn" type="button">Lançar no Budget</button>
+          </div>
+          <p id="expositoresLancamentoMsg" class="muted" hidden></p>
+          <div id="expositoresLancamentoHistorico" style="margin-top:12px;"></div>
         </div>
 
         <div id="expositorEstoqueFormWrap" class="form-card form-card-wide" hidden>
@@ -1813,13 +1851,28 @@
           <table class="data-table" id="expositoresEstoqueTable">
             <thead><tr>
               <th>Código entrada</th><th>Descrição entrada</th><th>Código saída</th><th>Descrição saída</th><th>R$ Unit.</th>
-              <th>Saldo PR</th><th>Saldo SP</th><th>Saldo NE</th><th>Total</th>
+              <th class="col-saldo-pr">Saldo PR</th><th class="col-saldo-sp">Saldo SP</th><th class="col-saldo-ne">Saldo NE</th><th>Total</th>
               <th>Segur. PR</th><th>Pend. PR</th><th>Segur. SP</th><th>Pend. SP</th><th>Segur. NE</th><th>Pend. NE</th>
-              <th>Consumo mensal</th><th>R$ Total/mês</th><th>Lote econ.</th><th>Lote mult.</th>
+              <th class="col-consumo-mensal">Consumo mensal</th><th class="col-total-mes">R$ Total/mês</th><th>Lote econ.</th><th>Lote mult.</th>
               <th>Ressup. fornec.</th><th>Ressup. compras</th><th>Estoq. segur.</th><th>Nota</th><th></th>
             </tr></thead>
             <tbody id="expositoresEstoqueBody"></tbody>
+            <tfoot><tr id="expositoresEstoqueTotalRow"></tr></tfoot>
           </table>
+        </div>
+      </div>
+
+        <!-- 70ª rodada -- aba "Total Mensal": soma os lançamentos das 2
+             marcas (feitos ao lado, em cada aba) por mês/ano. Não tem
+             tabela de itens nem formulário de edição, só o relatório. -->
+        <div id="expositoresEstoqueMensalView" hidden>
+          <p class="muted">Total mensal das duas marcas juntas (GhelPlus + De Bacco) — cada linha vem do lançamento feito em "Lançamento mensal no Budget", na aba de cada marca acima.</p>
+          <div style="overflow-x:auto;">
+            <table class="data-table" id="expositoresMensalTable">
+              <thead><tr><th>Mês</th><th>Total de expositores (unid./mês)</th><th>Valor total (R$/mês)</th></tr></thead>
+              <tbody id="expositoresMensalBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 

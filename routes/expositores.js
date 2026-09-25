@@ -3,8 +3,13 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { resolveUserName } = require('../utils/names');
 const shareLinks = require('../utils/shareLinks');
 const { makeCatalogFileRouter } = require('../utils/catalogFileStore');
+// 70ª rodada -- reaproveita os mesmos fluxos (nome + número) já usados no
+// Budget, mesmo padrão de routes/feiras.js (`const { FLUXOS_BY_BRAND } =
+// require('./budget')`), pra nunca duplicar/desalinhar a lista de fluxos.
+const budgetRouter = require('./budget');
 
 const router = express.Router();
 
@@ -221,6 +226,111 @@ router.put('/estoque/:id', requireAuth, requireExpositoresEdit, (req, res) => {
   db.get('expositoresEstoque').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'expositorEstoque', entityId: existing.id, entityLabel: existing.descricaoEntrada || existing.codigoEntrada, action: 'update' });
   res.json({ item: db.get('expositoresEstoque').find({ id: req.params.id }).value() });
+});
+
+// ---------- Lançamento mensal no Budget (70ª rodada, pedido da Raquel:
+// "os lançamentos mensais, o total de cada marca no mês, deve ser
+// automaticamente adicionado ao budget. Se for De Bacco no fluxo:
+// 2.5.3.14. Se for GhelPlus, no fluxo: 2.5.2.14. Sempre no mês em que foi
+// gasto e na marca em que foi gasto") -- "lançar" um mês pega o total
+// ATUAL de Consumo mensal/R$ Total mês da marca (soma de `consumoMensal`/
+// `valorTotalMensal` de todos os itens dela -- os mesmos números da linha
+// de total da tabela) e grava em 2 lugares: um registro de histórico
+// aqui (`expositoresLancamentosMensais`, usado pela aba "Total Mensal",
+// que soma as 2 marcas por mês) e um lançamento automático em
+// `budgetEntries`, sempre no fluxo "Expositores Padrão" da marca certa
+// (2.5.2.14 GhelPlus / 2.5.3.14 De Bacco, buscados na própria lista do
+// Budget pelo número do fluxo, nunca copiados soltos, pra nunca
+// desalinhar se a lista mudar). Relançar o MESMO mês/ano/marca sempre
+// SUBSTITUI o lançamento anterior no Budget (nunca duplica) -- mesmo
+// espírito de createBudgetEntriesForItem/syncItemToBudget em
+// routes/feiras.js.
+const { FLUXOS_BY_BRAND } = budgetRouter;
+const EXPOSITORES_FLUXO_CODE_BY_BRAND = { ghelplus: '2.5.2.14', debacco: '2.5.3.14' };
+function fluxoExpositoresPadraoFor(brand) {
+  const lista = FLUXOS_BY_BRAND[brand] || [];
+  const code = EXPOSITORES_FLUXO_CODE_BY_BRAND[brand];
+  return lista.find((f) => f.endsWith(' - ' + code)) || null;
+}
+function computeBrandMonthlyTotals(brand) {
+  const rows = db.get('expositoresEstoque').value().filter((r) => r.brand === brand);
+  const totalUnidades = rows.reduce((s, r) => s + num(r.consumoMensal), 0);
+  const totalValor = rows.reduce((s, r) => s + num(r.valorTotalMensal), 0);
+  return { totalUnidades, totalValor };
+}
+
+router.get('/lancamentos-mensais', requireAuth, (req, res) => {
+  // Sem checagem de permissão de edição (só requireAuth) -- mesmo espírito
+  // do GET /estoque acima: "Brindes, Produtos e Expositores: todo mundo
+  // pode ver". Sem `brand`, devolve as 2 marcas juntas (usado pela aba
+  // "Total Mensal", que soma os lançamentos das 2).
+  const { brand } = req.query;
+  let items = db.get('expositoresLancamentosMensais').value();
+  if (brand) items = items.filter((l) => l.brand === brand);
+  items = items.map((l) => Object.assign({}, l, { updatedBy: resolveUserName(l.updatedById, l.updatedBy) }));
+  res.json({ items });
+});
+
+router.post('/lancamentos-mensais/lancar', requireAuth, requireExpositoresEdit, (req, res) => {
+  const { brand, year, month } = req.body || {};
+  if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca.' });
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || !m || m < 1 || m > 12) return res.status(400).json({ error: 'Escolha o mês e o ano.' });
+  const fluxo = fluxoExpositoresPadraoFor(brand);
+  if (!fluxo) return res.status(500).json({ error: 'Não encontrei o fluxo "Expositores Padrão" do Budget dessa marca.' });
+  const { totalUnidades, totalValor } = computeBrandMonthlyTotals(brand);
+  const now = new Date().toISOString();
+  const existing = db.get('expositoresLancamentosMensais').find({ brand, year: y, month: m }).value();
+  // Relançar sempre substitui o lançamento anterior no Budget (nunca
+  // duplica, mesma lógica de removeBudgetEntriesForItem em feiras.js).
+  if (existing && existing.budgetEntryId) {
+    db.get('budgetEntries').remove({ id: existing.budgetEntryId }).write();
+  }
+  const launchId = existing ? existing.id : nanoid();
+  const budgetEntry = {
+    id: nanoid(),
+    brand,
+    category: fluxo,
+    year: y,
+    month: m,
+    planejado: null,
+    realizado: totalValor,
+    notes: 'Lançado automaticamente pelo Controle de Expositores (total mensal de consumo).',
+    fornecedor: '',
+    tituloCompra: 'Total mensal de Expositores',
+    quantidade: totalUnidades,
+    sourceExpositoresLancamentoId: launchId,
+    createdAt: now,
+    updatedAt: now,
+    updatedBy: req.user.name,
+    updatedById: req.user.id
+  };
+  db.get('budgetEntries').push(budgetEntry).write();
+  const launchData = {
+    id: launchId,
+    brand,
+    year: y,
+    month: m,
+    totalUnidades,
+    totalValor,
+    budgetEntryId: budgetEntry.id,
+    updatedAt: now,
+    updatedBy: req.user.name,
+    updatedById: req.user.id
+  };
+  if (existing) {
+    db.get('expositoresLancamentosMensais').find({ id: launchId }).assign(launchData).write();
+  } else {
+    launchData.createdAt = now;
+    db.get('expositoresLancamentosMensais').push(launchData).write();
+  }
+  logAudit({ user: req.user, entityType: 'expositoresLancamentoMensal', entityId: launchId, entityLabel: `${BRAND_LABEL_PT[brand]} · ${m}/${y}`, action: existing ? 'update' : 'create' });
+  res.json({
+    launch: Object.assign({}, db.get('expositoresLancamentosMensais').find({ id: launchId }).value(), { updatedBy: req.user.name }),
+    budgetEntry,
+    fluxo
+  });
 });
 
 // ---------- Catálogo (68ª rodada, pedido da Raquel: "adicione no sub

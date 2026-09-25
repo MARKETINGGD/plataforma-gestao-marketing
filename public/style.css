@@ -299,6 +299,18 @@ button{font-weight:700;}
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;}
 .table-scroll .data-table{border-radius:12px;}
 
+/* Controle de Expositores (70ª rodada, pedido da Raquel: "Deixe as
+   colunas saldo PR, SP e NE de cores diferentes, para dar destaque, faça
+   o mesmo com consumo mensal, total/mês") -- 1 cor própria por coluna,
+   aplicada no cabeçalho (th) e nas células (td) inteiras, pra destacar a
+   coluna de ponta a ponta. Cores em rgba (funcionam iguais no tema claro
+   e escuro, sem precisar de uma variável própria por tema). */
+.data-table .col-saldo-pr{background:rgba(108,126,242,.16);}
+.data-table .col-saldo-sp{background:rgba(46,204,113,.16);}
+.data-table .col-saldo-ne{background:rgba(251,155,24,.18);}
+.data-table .col-consumo-mensal{background:rgba(140,111,224,.18);}
+.data-table .col-total-mes{background:rgba(233,30,140,.14);}
+
 /* ---------- Início ---------- */
 /* 33ª/34ª rodada, pedido da Raquel: "a página inicial está muito
    amontoada, deixe os resumos um pouco mais separado do gráfico e

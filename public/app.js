@@ -220,6 +220,122 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
+  // ---------- Editor de texto rico (76ª rodada, pedido literal da Raquel:
+  // "em agendamento, no brienfing deve ter a opção de colocar a fonte em
+  // itálico, negrito e colorido (em algumas partes do texto, sempre onde
+  // estiver selecionado)... em demandas, dentro dos cards, deve ter a
+  // opção de tbm colocar") ----------
+  // Nenhuma biblioteca nova (a Papoi nunca usa nenhuma além do SheetJS já
+  // vendorizado pro Excel, ver 65ª rodada) -- um `<div contenteditable>` +
+  // uma barrinha de 3 botões (Negrito/Itálico/Cor), usando
+  // `document.execCommand` (ainda suportado de verdade em todo navegador
+  // moderno pra essas 3 formatações simples, mesmo "descontinuado" na
+  // especificação -- de longe o menor código possível pro pedido exato da
+  // Raquel: aplicar formatação só NA SELEÇÃO atual). Os campos que usam
+  // isso (Briefing do Agendamento, Descrição das Demandas) passam a
+  // guardar HTML (só `<b>`/`<i>`/`<span style="color:...">`/`<br>`/`<div>`,
+  // nunca nada além disso -- ver `sanitizeRichHtml` abaixo) em vez de texto
+  // puro -- por isso todo texto (novo ou já salvo antes desta rodada, que
+  // era sempre puro) passa por `setRichTextValue`/`getRichTextValue` nos 2
+  // lugares que usam isso, nunca `.value` direto.
+  const RICHTEXT_ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'SPAN', 'BR', 'DIV']);
+  // Acha se um texto salvo ANTES desta rodada (sempre puro, digitado numa
+  // <textarea> comum) por acaso contém os caracteres `<`/`>`/`&` -- sem
+  // essa checagem, um texto antigo com algo como "Preço < R$100" quebraria
+  // ao ser interpretado como HTML na primeira vez que o editor novo abrir.
+  // Só texto que já tem uma das tags que o PRÓPRIO editor usa (ou seja, já
+  // foi salvo por ele antes) é tratado como HTML de verdade.
+  function looksLikeRichHtml(raw) {
+    return /<\/?(b|strong|i|em|span|br|div)[\s>]/i.test(raw || '');
+  }
+  function escapeHtmlText(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+  // Sanitiza HTML vindo do editor (ou de um valor já salvo) antes de
+  // colocar na tela ou mandar pro servidor -- percorre a árvore de verdade
+  // (não regex em string) removendo qualquer tag/atributo fora da lista
+  // permitida. Elemento não permitido é "desembrulhado" (o texto/filhos de
+  // dentro dele sobrevivem, só a tag em si some) em vez de apagado, pra
+  // nunca comer pedaço de texto sem querer numa sanitização.
+  function sanitizeRichHtml(html) {
+    const container = document.createElement('div');
+    container.innerHTML = html || '';
+    function clean(node) {
+      Array.from(node.childNodes).forEach((child) => {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          clean(child);
+          if (!RICHTEXT_ALLOWED_TAGS.has(child.tagName)) {
+            while (child.firstChild) node.insertBefore(child.firstChild, child);
+            node.removeChild(child);
+            return;
+          }
+          Array.from(child.attributes).forEach((attr) => {
+            // Só sobrevive `style` no <span>, e só a propriedade `color`
+            // dentro dele (é o único jeito de aplicar cor com execCommand
+            // `foreColor`) -- nenhum outro atributo (class, onclick, id
+            // etc.) passa disso.
+            if (child.tagName === 'SPAN' && attr.name === 'style') {
+              const colorMatch = /color:\s*[^;]+/i.exec(attr.value);
+              if (colorMatch) { child.setAttribute('style', colorMatch[0]); return; }
+            }
+            child.removeAttribute(attr.name);
+          });
+        } else if (child.nodeType !== Node.TEXT_NODE) {
+          node.removeChild(child); // comentários etc.
+        }
+      });
+    }
+    clean(container);
+    return container.innerHTML;
+  }
+  // Popula o editor com um valor salvo -- funciona tanto pra texto ANTIGO
+  // (puro, de antes desta rodada) quanto NOVO (HTML de verdade, já
+  // formatado). Ver looksLikeRichHtml acima.
+  function setRichTextValue(el, raw) {
+    el.innerHTML = looksLikeRichHtml(raw) ? sanitizeRichHtml(raw) : escapeHtmlText(raw);
+  }
+  function getRichTextValue(el) {
+    return sanitizeRichHtml(el.innerHTML);
+  }
+  // Liga os 3 botões da barrinha (Negrito/Itálico/Cor) a um editor -- 1
+  // chamada por campo (Briefing, Descrição de Demandas), sem duplicar essa
+  // lógica. `onmousedown preventDefault` nos botões de Negrito/Itálico é o
+  // truque de sempre pra esse tipo de barra: sem isso, clicar no botão tira
+  // o foco/a seleção de texto do editor ANTES do clique disparar, e a
+  // formatação nunca saberia em cima de qual trecho aplicar.
+  function initRichTextEditor(editorId) {
+    const editor = $('#' + editorId);
+    const toolbar = $(`[data-richtext-toolbar-for="${editorId}"]`);
+    if (!editor || !toolbar) return;
+    const boldBtn = $('[data-richtext-bold]', toolbar);
+    const italicBtn = $('[data-richtext-italic]', toolbar);
+    const colorInput = $('[data-richtext-color]', toolbar);
+    [boldBtn, italicBtn].forEach((btn) => {
+      btn.onmousedown = (e) => e.preventDefault();
+    });
+    boldBtn.onclick = () => { editor.focus(); document.execCommand('bold'); };
+    italicBtn.onclick = () => { editor.focus(); document.execCommand('italic'); };
+    // O seletor de cor NATIVO (`<input type="color">`) rouba o foco assim
+    // que abre -- salva a seleção de texto ANTES dele abrir (mousedown) e
+    // restaura na hora de aplicar a cor (input, disparado a cada escolha).
+    let savedRange = null;
+    colorInput.onmousedown = () => {
+      const sel = window.getSelection();
+      savedRange = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+    };
+    colorInput.oninput = () => {
+      editor.focus();
+      if (savedRange) {
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(savedRange);
+      }
+      document.execCommand('foreColor', false, colorInput.value);
+    };
+  }
+
   // Tema escuro (14ª melhoria, 24/09/2026, pedido da Raquel: "deixe a
   // possibilidade de deixar o tema escuro") -- `data-theme` no <html> é o
   // gatilho de verdade (ver as variáveis :root[data-theme="dark"] no
@@ -4495,7 +4611,7 @@
     // aqui com `demanda.recurrence` resolvido certo (ver serialize()).
     $('#demCardRecurrence').value = demanda ? (demanda.recurrence || 'none') : 'none';
     $('#demCardRecurringHint').hidden = $('#demCardRecurrence').value === 'none';
-    $('#demCardDescription').value = demanda ? (demanda.description || '') : '';
+    setRichTextValue($('#demCardDescription'), demanda ? (demanda.description || '') : '');
     $('#demCardLink').value = demanda ? (demanda.link || '') : '';
     $('#demChecklistTitle').value = demanda ? (demanda.checklistTitle || 'Checklist') : 'Checklist';
     $('#demCardError').hidden = true;
@@ -4542,7 +4658,7 @@
   $('#demCardSave').onclick = async () => {
     const payload = {
       title: $('#demCardTitle').value.trim(),
-      description: $('#demCardDescription').value,
+      description: getRichTextValue($('#demCardDescription')),
       status: $('#demCardStatus').value,
       dueDate: $('#demCardDueDate').value || null,
       recurrence: $('#demCardRecurrence').value,
@@ -5252,7 +5368,7 @@
       $('#socialPostFormSuggestionsMeta').hidden = true;
     }
     $('#socialPostFormLink').value = post ? (post.link || '') : '';
-    $('#socialPostFormBriefingText').value = post ? (post.briefingText || '') : '';
+    setRichTextValue($('#socialPostFormBriefingText'), post ? (post.briefingText || '') : '');
     $('#socialPostFormScriptText').value = post ? (post.scriptText || '') : '';
     $('#socialPostFormScriptLink').value = post ? (post.scriptLink || '') : '';
 
@@ -5305,7 +5421,7 @@
       responsibleId: socialResponsibleId,
       changeSuggestions: $('#socialPostFormSuggestions').value,
       link: $('#socialPostFormLink').value,
-      briefingText: $('#socialPostFormBriefingText').value,
+      briefingText: getRichTextValue($('#socialPostFormBriefingText')),
       scriptText: $('#socialPostFormScriptText').value,
       scriptLink: $('#socialPostFormScriptLink').value,
       carouselBriefings: $('#socialPostFormType').value === 'carrossel' ? socialCarouselBriefings : []
@@ -8667,6 +8783,12 @@
   setupDashboardPublicLink('redesSociais', 'midias');
   setupDashboardPublicLink('trafegoPago', 'trafego');
   setupDashboardPublicLink('acoesSazonais', 'acoes');
+
+  // 76ª rodada: liga a barrinha de negrito/itálico/cor aos 2 campos que
+  // viraram editor de texto rico (Briefing do Agendamento, Descrição das
+  // Demandas) -- ver initRichTextEditor() perto do topo do arquivo.
+  initRichTextEditor('socialPostFormBriefingText');
+  initRichTextEditor('demCardDescription');
 
   boot();
 })();

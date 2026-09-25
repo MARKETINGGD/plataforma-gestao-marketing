@@ -543,7 +543,18 @@
           </div>
 
           <label>Briefing</label>
-          <textarea id="socialPostFormBriefingText" rows="7" placeholder="Escreva o briefing aqui..."></textarea>
+          <!-- 76ª rodada, pedido literal da Raquel: "no brienfing deve ter a
+               opção de colocar a fonte em itálico, negrito e colorido (em
+               algumas partes do texto, sempre onde estiver selecionado)" --
+               virou um editor de texto rico (contenteditable + barrinha de
+               formatação), ver initRichTextEditor()/sanitizeRichHtml() em
+               app.js. -->
+          <div class="richtext-toolbar" data-richtext-toolbar-for="socialPostFormBriefingText">
+            <button type="button" class="richtext-btn" data-richtext-bold title="Negrito"><b>N</b></button>
+            <button type="button" class="richtext-btn" data-richtext-italic title="Itálico"><i>I</i></button>
+            <input type="color" class="richtext-color" data-richtext-color title="Cor do texto selecionado" value="#1a1a1a">
+          </div>
+          <div id="socialPostFormBriefingText" class="richtext-editor" contenteditable="true" data-placeholder="Escreva o briefing aqui..." role="textbox" aria-multiline="true"></div>
           <div id="socialPostFormBriefingFile" class="file-list"></div>
           <input id="socialPostFormBriefingFileInput" type="file">
 
@@ -2229,7 +2240,16 @@
       <div id="demColorSwatches" class="color-swatches"></div>
 
       <label>Descrição / observações</label>
-      <textarea id="demCardDescription" rows="3"></textarea>
+      <!-- 76ª rodada, pedido literal da Raquel: "em demandas, dentro dos
+           cards, deve ter a opção de tbm colocar a fonte em itálico,
+           negrito e colorido" -- mesmo editor de texto rico do Briefing do
+           Agendamento (ver comentário lá e initRichTextEditor() em app.js). -->
+      <div class="richtext-toolbar" data-richtext-toolbar-for="demCardDescription">
+        <button type="button" class="richtext-btn" data-richtext-bold title="Negrito"><b>N</b></button>
+        <button type="button" class="richtext-btn" data-richtext-italic title="Itálico"><i>I</i></button>
+        <input type="color" class="richtext-color" data-richtext-color title="Cor do texto selecionado" value="#1a1a1a">
+      </div>
+      <div id="demCardDescription" class="richtext-editor richtext-editor-small" contenteditable="true" data-placeholder="" role="textbox" aria-multiline="true"></div>
 
       <label for="demCardLink">Link <span class="muted" style="font-weight:400;">(opcional)</span></label>
       <input id="demCardLink" type="text" placeholder="https://...">

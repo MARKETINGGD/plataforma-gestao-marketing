@@ -240,6 +240,19 @@ button{font-weight:700;}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .form-actions{display:flex;gap:8px;margin-top:16px;}
 
+/* Editor de texto rico (76ª rodada, Briefing do Agendamento e Descrição das
+   Demandas) -- mesmo visual de uma <textarea> normal (borda/padding/fonte
+   iguais às regras acima), só que é um <div contenteditable>, então tem sua
+   própria regra em vez de aproveitar ".form-card textarea" acima. */
+.richtext-toolbar{display:flex;align-items:center;gap:4px;margin-bottom:4px;}
+.richtext-btn{width:28px;height:28px;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:13px;cursor:pointer;line-height:1;}
+.richtext-btn:hover{background:var(--bg);}
+.richtext-color{width:28px;height:28px;padding:0;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:var(--card);}
+.richtext-editor{width:100%;min-height:120px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;overflow-y:auto;background:var(--card);color:var(--text);}
+.richtext-editor-small{min-height:56px;}
+.richtext-editor:empty:before{content:attr(data-placeholder);color:var(--muted);}
+.richtext-editor:focus{outline:2px solid var(--primary);outline-offset:-1px;}
+
 /* Comparação lado a lado -- Análise de Concorrência (39ª rodada), pedido
    da Raquel: produto do concorrente x nosso produto equivalente, um do
    lado do outro, tanto no formulário quanto na listagem. */

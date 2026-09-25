@@ -62,13 +62,15 @@ function metaConfigured() {
 
 // ---------- LinkedIn (67ª rodada, "vamos para a proxima integração de
 // API, vamos para o linkedin") ----------
-// Mesmas 2 marcas com Página pronta pra conectar na Meta -- ajuste fácil se
-// a Raquel confirmar que Duranox/Boutique Inox também têm Página própria da
-// LinkedIn. Duplicada (não importada de utils/linkedinPublisher.js) --
+// 76ª rodada, pedido explícito da Raquel: "Só a GhelPlus usa linkedin" --
+// diferente do que a documentação original desta rodada supunha (mesmas 2
+// marcas da Meta). Mesmo espírito do Pinterest (75ª rodada, só De Bacco):
+// não é uma limitação técnica, é só que a De Bacco não tem Página própria
+// da LinkedIn. Duplicada (não importada de utils/linkedinPublisher.js) --
 // mesmo motivo de sempre: aquele arquivo importa routes/recados.js, que não
 // tem nada a ver com este arquivo, mas mantém o mesmo padrão de duplicação
 // já usado pra META_BRANDS acima/em utils/metaPublisher.js.
-const LINKEDIN_BRANDS = ['debacco', 'ghelplus'];
+const LINKEDIN_BRANDS = ['ghelplus'];
 const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID || '';
 const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET || '';
 const LINKEDIN_REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI || `${APP_BASE_URL}/api/social-accounts/linkedin/callback`;

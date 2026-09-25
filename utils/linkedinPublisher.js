@@ -27,10 +27,11 @@ const { createAutoRecado } = require('../routes/recados');
 const linkedinClient = require('./linkedinClient');
 
 const CHECK_INTERVAL_MS = 2 * 60 * 1000; // a cada 2 minutos, mesmo ritmo da Meta
-// Só De Bacco e GhelPlus por enquanto — mesmas 2 marcas com Página
-// pronta pra conectar na Meta (ver routes/socialAccounts.js). Duranox e
-// Boutique Inox entram quando tiverem Página própria da LinkedIn.
-const LINKEDIN_BRANDS = ['debacco', 'ghelplus'];
+// 76ª rodada, pedido explícito da Raquel: "Só a GhelPlus usa linkedin" --
+// a De Bacco não tem Página própria da LinkedIn (mesmo espírito do
+// Pinterest, só De Bacco -- não é limitação técnica, é só o que a Raquel
+// pediu). Duranox e Boutique Inox entram quando tiverem Página própria.
+const LINKEDIN_BRANDS = ['ghelplus'];
 // Formato de vídeo aceito documentado pela própria LinkedIn (Videos API) —
 // diferente da Meta, que aceita MP4 e MOV, a LinkedIn só documenta MP4.
 const VIDEO_FILE_EXTENSIONS = ['.mp4'];

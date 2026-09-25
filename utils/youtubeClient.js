@@ -100,7 +100,6 @@ async function refreshAccessToken({ clientId, clientSecret, refreshToken }) {
 // se não tiver, é um limite real da própria API do YouTube sem solução
 // via código.
 async function getMyChannel({ accessToken }) {
-async function getMyChannel({ accessToken }) {
   const qs = new URLSearchParams({ part: 'snippet', mine: 'true' });
   const res = await fetch(`${API_BASE}/channels?${qs.toString()}`, {
     headers: { Authorization: `Bearer ${accessToken}` }

@@ -147,17 +147,23 @@
              agrupamento do menu -- "Início, Chat, Demandas, Agendamento,
              Cronograma, Influencers, Produtos, Expositores, Brindes, Budget
              (GhelPlus/De Bacco/Feiras), APP Externos (Ponto/Gestor/Power
-             BI), Configurações (Usuários/Integrações, visível pra todos,
-             só o admin edita), Relatórios (Tráfego Pago/Mídias/Ações
-             Sazonais)". Nenhuma tela/rota mudou de lugar ou de
-             comportamento -- só a ORDEM e o AGRUPAMENTO na barra lateral
-             (Ponto/Gestor/Power BI e Tráfego Pago/Mídias/Ações Sazonais
-             eram botões soltos antes; Feiras era um botão solto que virou
-             o 3º item do Budget). Ver Pendência 58 pro histórico completo. -->
+             BI), Relatórios (Tráfego Pago/Mídias/Ações Sazonais),
+             Configurações (Usuários/Integrações/Ativar notificações/Tema
+             escuro, visível pra todos, só o admin edita as 2 primeiras)".
+             Nenhuma tela/rota mudou de lugar ou de comportamento -- só a
+             ORDEM e o AGRUPAMENTO na barra lateral (Ponto/Gestor/Power BI e
+             Tráfego Pago/Mídias/Ações Sazonais eram botões soltos antes;
+             Feiras era um botão solto que virou o 3º item do Budget).
+             2ª correção da 76ª rodada, pedido da Raquel: "Relatórios antes
+             de Configurações (que fica por último)", "agendamento (apenas
+             a palavra agendamento, tire redes sociais)", e Tema
+             escuro/Ativar notificações (antes soltos no rodapé da barra
+             lateral) viraram mais 2 itens do submenu Configurações. Ver
+             Pendência 58 pro histórico completo. -->
         <button class="navlink" id="navHome" data-view="home">Início</button>
         <button class="navlink" id="navChat" data-view="chat">Chat</button>
         <button class="navlink" id="navDemandas" data-view="demandas">Demandas</button>
-        <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamentos de Redes Sociais</button>
+        <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamento</button>
         <button class="navlink" id="navCronograma" data-view="cronograma">Cronograma</button>
         <button class="navlink" id="navInfluencers" data-view="influencers">Influencers</button>
         <!-- 33ª rodada, pedido da Raquel: "no botão produtos deve ter um sub
@@ -239,26 +245,11 @@
             <button class="navlink navlink-sub" id="navPowerBI" type="button" data-external="https://app.powerbi.com/groups/me/reports/655e1033-270d-4456-87de-9852b9d2ec6b/a53f8b5f6c7d23eb05cb?experience=power-bi">Power BI</button>
           </div>
         </div>
-        <!-- Configurações -- 76ª rodada, pedido explícito da Raquel: "esse
-             botão e sub menu é visivel para todos, mas somente o admin pode
-             editar" -- diferente de Budget/Produtos/Expositores/Brindes/APP
-             Externos acima, este grupo NUNCA fica `hidden` (nem o grupo nem
-             os 2 botões de dentro) -- Usuários e Integrações continuam
-             restritos a super admin só pra CRIAR/EDITAR/EXCLUIR (ver
-             routes/auth.js e routes/socialAccounts.js); ver quem já está
-             cadastrado/conectado agora é permitido pra qualquer pessoa
-             logada (ver loadUsers()/loadIntegracoes() em app.js, que escondem
-             só os botões de ação pra quem não é super admin). -->
-        <div class="navlink-group" id="navConfiguracoesGroup">
-          <button class="navlink navlink-parent" id="navConfiguracoesParent" type="button">Configurações</button>
-          <div class="navlink-submenu" id="navConfiguracoesSubmenu" hidden>
-            <button class="navlink navlink-sub" id="navUsers" data-view="users">Usuários</button>
-            <button class="navlink navlink-sub" id="navIntegracoes" data-view="integracoes">Integrações</button>
-          </div>
-        </div>
         <!-- Relatórios -- 76ª rodada: agrupa os 3 painéis externos que já
              existiam soltos (Tráfego Pago, Mídias/Redes Sociais, Ações
-             Sazonais) num submenu só, a pedido da Raquel. -->
+             Sazonais) num submenu só, a pedido da Raquel. 2ª correção da
+             76ª rodada: vem ANTES de Configurações agora (que passou a ser
+             o último item do menu). -->
         <div class="navlink-group" id="navRelatoriosGroup">
           <button class="navlink navlink-parent" id="navRelatoriosParent" type="button">Relatórios</button>
           <div class="navlink-submenu" id="navRelatoriosSubmenu" hidden>
@@ -267,20 +258,36 @@
             <button class="navlink navlink-sub" id="navDashAcoes" data-view="acoes-hub">Ações Sazonais</button>
           </div>
         </div>
+        <!-- Configurações -- 76ª rodada, pedido explícito da Raquel: "esse
+             botão e sub menu é visivel para todos, mas somente o admin pode
+             editar" -- diferente de Budget/Produtos/Expositores/Brindes/APP
+             Externos acima, este grupo NUNCA fica `hidden` (nem o grupo nem
+             os botões de dentro) -- Usuários e Integrações continuam
+             restritos a super admin só pra CRIAR/EDITAR/EXCLUIR (ver
+             routes/auth.js e routes/socialAccounts.js); ver quem já está
+             cadastrado/conectado agora é permitido pra qualquer pessoa
+             logada (ver loadUsers()/loadIntegracoes() em app.js, que escondem
+             só os botões de ação pra quem não é super admin).
+             2ª correção da 76ª rodada, pedido da Raquel: virou o ÚLTIMO
+             item do menu (era o penúltimo, antes de Relatórios), e Tema
+             escuro/Ativar notificações (antes soltos no rodapé da barra
+             lateral) viraram mais 2 itens deste submenu -- mesmos botões de
+             sempre (mesmo id, mesma lógica em applyTheme()/
+             updateOsNotifBtn() em app.js), só mudou onde moram no HTML. -->
+        <div class="navlink-group" id="navConfiguracoesGroup">
+          <button class="navlink navlink-parent" id="navConfiguracoesParent" type="button">Configurações</button>
+          <div class="navlink-submenu" id="navConfiguracoesSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navUsers" data-view="users">Usuários</button>
+            <button class="navlink navlink-sub" id="navIntegracoes" data-view="integracoes">Integrações</button>
+            <button class="navlink navlink-sub" id="osNotifToggleBtn" type="button">🔔 Ativar notificações do sistema</button>
+            <button class="navlink navlink-sub" id="themeToggleBtn" type="button">🌙 Tema escuro</button>
+          </div>
+        </div>
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-user">
           <div class="sidebar-user-name" id="topbarUserName"></div>
           <div class="sidebar-user-actions">
-            <!-- Tema escuro (14ª melhoria, pedido da Raquel) -- o texto/
-                 ícone trocam sozinhos conforme o tema atual, ver
-                 applyTheme() em app.js. -->
-            <button id="themeToggleBtn" class="btn-link">🌙 Tema escuro</button>
-            <!-- Notificações do sistema operacional (15ª melhoria, pedido
-                 da Raquel) -- texto muda sozinho conforme a permissão do
-                 navegador (default/granted/denied), ver updateOsNotifBtn()
-                 em app.js. -->
-            <button id="osNotifToggleBtn" class="btn-link">🔔 Ativar notificações do sistema</button>
             <button id="changePasswordBtn" class="btn-link">Alterar senha</button>
             <button id="logoutBtn" class="btn-link">Sair</button>
           </div>

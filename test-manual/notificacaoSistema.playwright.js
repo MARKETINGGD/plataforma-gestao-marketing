@@ -53,6 +53,17 @@ async function login(page) {
   await page.waitForSelector('#screen-app:not([hidden])', { timeout: 10000 });
 }
 
+// 76ª rodada, 2ª correção: #osNotifToggleBtn (mesmo id, mesma lógica de
+// sempre) saiu do rodapé solto da barra lateral e virou item do submenu
+// Configurações -- por isso precisa abrir esse submenu antes de conseguir
+// CLICAR nele (ler o texto com textContent() não exige visibilidade,
+// então não afeta as outras verificações deste arquivo).
+async function ensureConfiguracoesSubmenuOpen(page) {
+  const isHidden = await page.$eval('#navConfiguracoesSubmenu', (el) => el.hidden);
+  if (isHidden) await page.click('#navConfiguracoesParent');
+  await page.waitForSelector('#navConfiguracoesSubmenu:not([hidden])');
+}
+
 async function main() {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
   const consoleErrors = [];
@@ -72,6 +83,7 @@ async function main() {
   await login(page1);
 
   check('botão oferece "Ativar" quando a permissão ainda não foi pedida', /Ativar notifica/i.test(await page1.textContent('#osNotifToggleBtn')));
+  await ensureConfiguracoesSubmenuOpen(page1);
   await page1.click('#osNotifToggleBtn');
   await page1.waitForFunction(() => window.__requestPermissionCalled === true, { timeout: 5000 });
   check('clicar chama Notification.requestPermission() de verdade', true);

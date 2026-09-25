@@ -1604,7 +1604,13 @@
     };
   });
   $all('.navlink').forEach((b) => {
-    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI' || b.id === 'navAppExternosParent' || b.id === 'navConfiguracoesParent' || b.id === 'navRelatoriosParent') return;
+    // themeToggleBtn/osNotifToggleBtn (76ª rodada, 2ª correção): viraram
+    // itens do submenu Configurações (visual .navlink-sub), mas continuam
+    // sendo AÇÕES (trocar tema / pedir permissão de notificação), não
+    // views -- o onclick de verdade deles já foi montado antes (ver
+    // applyTheme()/updateOsNotifBtn() acima), não pode ser sobrescrito
+    // aqui com setActiveNav(), mesmo motivo do navPonto/navGestor/navPowerBI.
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI' || b.id === 'navAppExternosParent' || b.id === 'navConfiguracoesParent' || b.id === 'navRelatoriosParent' || b.id === 'themeToggleBtn' || b.id === 'osNotifToggleBtn') return;
     b.onclick = () => {
       setActiveNav(b.id);
       // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio

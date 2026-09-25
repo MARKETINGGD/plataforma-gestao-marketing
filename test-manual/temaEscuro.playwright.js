@@ -7,6 +7,12 @@
 // clara) quando o navegador já tem uma preferência salva. Servidor de
 // teste isolado precisa estar rodando em http://localhost:4123 (mesmo
 // padrão dos outros testes Playwright desta cópia).
+//
+// 76ª rodada, 2ª correção: o botão #themeToggleBtn (mesmo id, mesma lógica
+// de sempre) saiu do rodapé solto da barra lateral e virou item do submenu
+// Configurações (pedido da Raquel) -- por isso agora precisa abrir esse
+// submenu antes de conseguir clicar nele, mesmo padrão de
+// menuReorganizacao.playwright.js.
 const { chromium } = require('playwright');
 
 const BASE = 'http://localhost:4123';
@@ -21,6 +27,15 @@ function parseRgb(s) {
   return m ? [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)] : null;
 }
 function luminance([r, g, b]) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
+
+// Mesmo helper de menuReorganizacao.playwright.js -- #themeToggleBtn mora
+// dentro de um submenu que começa fechado (`hidden`), então precisa abrir
+// o pai (Configurações) antes de conseguir clicar nele.
+async function ensureConfiguracoesSubmenuOpen(page) {
+  const isHidden = await page.$eval('#navConfiguracoesSubmenu', (el) => el.hidden);
+  if (isHidden) await page.click('#navConfiguracoesParent');
+  await page.waitForSelector('#navConfiguracoesSubmenu:not([hidden])');
+}
 
 async function main() {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
@@ -49,6 +64,7 @@ async function main() {
   check('cor de fundo de verdade é clara antes de trocar o tema', bodyBgLight && luminance(bodyBgLight) > 180);
 
   // ---------- Alterna pra escuro ----------
+  await ensureConfiguracoesSubmenuOpen(page);
   await page.click('#themeToggleBtn');
   await page.waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'dark', { timeout: 5000 });
   check('atributo data-theme muda pra "dark" na hora', true);
@@ -85,6 +101,7 @@ async function main() {
   check('depois de recarregar a página, continua no tema escuro (não volta pro claro)', await page.evaluate(() => document.documentElement.getAttribute('data-theme') === 'dark'));
 
   // ---------- Volta pro claro, pra deixar o ambiente limpo pros outros testes ----------
+  await ensureConfiguracoesSubmenuOpen(page);
   await page.click('#themeToggleBtn');
   await page.waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'light', { timeout: 5000 });
   const savedBackToLight = await page.evaluate(async () => {

@@ -3,9 +3,14 @@
 // Chat, Demandas, Agendamento, Cronograma, Influencers, Produtos (com os
 // sub menus que já existem), Expositores (idem), Brindes (idem), Budget
 // (GhelPlus/De Bacco/Feiras), APP Externos (Ponto/Gestor/Power BI),
-// Configurações (Usuários/Integrações -- visível pra todos, só o admin
-// edita), Relatórios (Tráfego Pago/Mídias/Ações Sazonais)"). Servidor de
-// teste isolado precisa estar rodando em http://localhost:4123, já com um
+// Relatórios (Tráfego Pago/Mídias/Ações Sazonais), Configurações
+// (Usuários/Integrações -- visível pra todos, só o admin edita --, Ativar
+// notificações, Tema escuro)". A 2ª correção da mesma rodada trocou a
+// posição de Relatórios/Configurações (Configurações virou o ÚLTIMO item),
+// encurtou o rótulo "Agendamentos de Redes Sociais" pra só "Agendamento", e
+// moveu Tema escuro/Ativar notificações (antes soltos no rodapé da barra
+// lateral) pra dentro do submenu de Configurações. Servidor de teste
+// isolado precisa estar rodando em http://localhost:4123, já com um
 // usuário "admin"/"123456" e um usuário comum "testenaoadmin"/"123456"
 // (sem isSuperAdmin) -- ver comando usado pra criar esse 2º usuário no
 // histórico desta rodada.
@@ -51,9 +56,12 @@ async function main() {
   const expectedTopLevelOrder = [
     'navHome', 'navChat', 'navDemandas', 'navAgendamento', 'navCronograma', 'navInfluencers',
     'navProdutosGroup', 'navExpositoresGroup', 'navBrindesGroup', 'navBudgetGroup',
-    'navAppExternosGroup', 'navConfiguracoesGroup', 'navRelatoriosGroup'
+    'navAppExternosGroup', 'navRelatoriosGroup', 'navConfiguracoesGroup'
   ];
-  check('ordem/agrupamento do menu bate exatamente com o pedido da Raquel', JSON.stringify(navIds) === JSON.stringify(expectedTopLevelOrder));
+  check('ordem/agrupamento do menu bate exatamente com o pedido da Raquel (Configurações agora é o ÚLTIMO item)', JSON.stringify(navIds) === JSON.stringify(expectedTopLevelOrder));
+
+  const agendamentoLabel = await page.textContent('#navAgendamento');
+  check('rótulo do menu é só "Agendamento" (sem "de Redes Sociais")', agendamentoLabel.trim() === 'Agendamento');
 
   const budgetSubOrder = await page.$$eval('#navBudgetSubmenu .navlink-sub', (els) => els.map((el) => el.id));
   check('Budget: submenu na ordem GhelPlus, De Bacco, Feiras', JSON.stringify(budgetSubOrder) === JSON.stringify(['navBudgetGhelplus', 'navBudgetDebacco', 'navFeiras']));
@@ -62,10 +70,25 @@ async function main() {
   check('APP Externos: submenu com Ponto, Gestor, Power BI', JSON.stringify(appExternosSubOrder) === JSON.stringify(['navPonto', 'navGestor', 'navPowerBI']));
 
   const configuracoesSubOrder = await page.$$eval('#navConfiguracoesSubmenu .navlink-sub', (els) => els.map((el) => el.id));
-  check('Configurações: submenu com Usuários, Integrações', JSON.stringify(configuracoesSubOrder) === JSON.stringify(['navUsers', 'navIntegracoes']));
+  check('Configurações: submenu com Usuários, Integrações, Ativar notificações, Tema escuro (nessa ordem)', JSON.stringify(configuracoesSubOrder) === JSON.stringify(['navUsers', 'navIntegracoes', 'osNotifToggleBtn', 'themeToggleBtn']));
 
   const relatoriosSubOrder = await page.$$eval('#navRelatoriosSubmenu .navlink-sub', (els) => els.map((el) => el.id));
   check('Relatórios: submenu com Tráfego Pago, Mídias, Ações Sazonais', JSON.stringify(relatoriosSubOrder) === JSON.stringify(['navDashTrafego', 'navDashMidias', 'navDashAcoes']));
+
+  // ---------- Tema escuro / Ativar notificações continuam funcionando
+  // depois de mudar de lugar (agora dentro do submenu Configurações) ----------
+  await ensureConfiguracoesSubmenuOpen(page);
+  const themeBtnTextBefore = await page.textContent('#themeToggleBtn');
+  check('Tema escuro: botão está dentro do submenu Configurações, texto inicial "🌙 Tema escuro"', themeBtnTextBefore.includes('Tema escuro'));
+  await page.click('#themeToggleBtn');
+  await page.waitForTimeout(200);
+  const htmlTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+  check('Tema escuro: clicar no botão (já no novo lugar) troca data-theme pra "dark"', htmlTheme === 'dark');
+  const themeBtnTextAfter = await page.textContent('#themeToggleBtn');
+  check('Tema escuro: texto do botão troca sozinho pra "Tema claro"', themeBtnTextAfter.includes('Tema claro'));
+  // devolve pro claro, pra não vazar estado pro resto da suíte de testes
+  await page.click('#themeToggleBtn');
+  await page.waitForTimeout(200);
 
   // ---------- Configurações visível/editável só pro admin ----------
   await ensureConfiguracoesSubmenuOpen(page);
@@ -97,6 +120,8 @@ async function main() {
   await ensureConfiguracoesSubmenuOpen(page);
   check('não-admin: botão "Usuários" também aparece no menu (pedido explícito: visível pra todos)', await page.isVisible('#navUsers'));
   check('não-admin: botão "Integrações" também aparece no menu', await page.isVisible('#navIntegracoes'));
+  check('não-admin: "Ativar notificações" também aparece no submenu (não é uma tela admin, é só um botão que mudou de lugar)', await page.isVisible('#osNotifToggleBtn'));
+  check('não-admin: "Tema escuro" também aparece no submenu', await page.isVisible('#themeToggleBtn'));
 
   await page.click('#navUsers');
   await page.waitForSelector('#view-users:not([hidden])');

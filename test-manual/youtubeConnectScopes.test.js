@@ -75,6 +75,15 @@ async function run() {
   check('pede o escopo de leitura (channels.list, pra descobrir o canal conectado -- era o que faltava)', scopes.includes('https://www.googleapis.com/auth/youtube.readonly'));
   check('URL de autorização aponta pro Google de verdade', url.hostname === 'accounts.google.com');
 
+  // 72ª rodada: `select_account` no prompt, além de `consent` -- deixa
+  // escolher outra CONTA Google na hora de conectar a 2ª marca, caso a
+  // De Bacco tenha um gerente diferente da conta usada na GhelPlus
+  // (achado real: trocar só o canal ativo no site do YouTube não muda
+  // qual canal o Google devolve pra API).
+  const promptValues = (url.searchParams.get('prompt') || '').split(' ').filter(Boolean);
+  check('prompt pede consentimento (refresh_token novo sempre)', promptValues.includes('consent'));
+  check('prompt também pede escolha de conta (select_account) -- pra poder trocar de login na 2ª marca', promptValues.includes('select_account'));
+
   console.log(failures === 0 ? '\nTODOS OS CHECKS PASSARAM' : `\n${failures} CHECK(S) FALHARAM`);
   process.exitCode = failures === 0 ? 0 : 1;
 

@@ -554,6 +554,26 @@ router.delete('/linkedin/:brand', requireAuth, requireSuperAdmin, (req, res) => 
 // toda vez (sem isso, numa 2ª autorização ele pode reaproveitar a anterior
 // e não mandar refresh_token nenhum de volta -- inútil pra publicar sozinho
 // depois). Ver utils/youtubeClient.js.
+//
+// 72ª rodada, achado real testando ao vivo: trocar o "canal ativo" no
+// seletor de contas do próprio youtube.com (como avisado na tela de
+// Integrações, e como a documentação da 69ª rodada registrava) NÃO
+// mudou qual canal o Google devolveu pra De Bacco -- continuou vindo o
+// GhelPlus, mesmo numa janela anônima nova, com o acesso da Papoi
+// revogado antes e o canal De Bacco conferido como ativo. Ou seja: pelo
+// menos nesta conta, `channels.list?mine=true` sempre resolve pro canal
+// "dono" de verdade da conta Google (GhelPlus), não pro canal
+// selecionado na hora no site -- a troca de canal no site é só uma
+// preferência de navegação do youtube.com, não muda a identidade que a
+// API de autorização usa. Adicionado `select_account` ao `prompt` (além
+// do `consent` que já existia) pra o Google sempre mostrar a tela de
+// escolha de CONTA (não canal) antes de autorizar -- se a De Bacco tiver
+// uma conta Google DIFERENTE como gerente dela (não a
+// marketingghelplus@gmail.com), essa tela deixa escolher essa outra
+// conta na hora de conectar a 2ª marca, contornando o problema. Se não
+// existir uma conta separada pra De Bacco, esse é um limite real da
+// própria API do YouTube pra contas com mais de 1 canal de marca sob o
+// mesmo login -- não tem nenhum parâmetro de OAuth que resolva isso.
 router.get('/youtube/connect', requireAuth, requireSuperAdmin, (req, res) => {
   if (!youtubeConfigured()) {
     return res.status(503).json({ error: 'YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET ainda não configurados no servidor.' });
@@ -569,7 +589,7 @@ router.get('/youtube/connect', requireAuth, requireSuperAdmin, (req, res) => {
     response_type: 'code',
     scope: YOUTUBE_SCOPES,
     access_type: 'offline',
-    prompt: 'consent',
+    prompt: 'consent select_account',
     state
   });
   res.json({ redirectUrl: `https://accounts.google.com/o/oauth2/v2/auth?${qs.toString()}` });

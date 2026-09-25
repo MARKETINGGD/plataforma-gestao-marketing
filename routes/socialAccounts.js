@@ -7,6 +7,7 @@ const { resolveUserName } = require('../utils/names');
 const { logAudit } = require('../utils/audit');
 const metaGraph = require('../utils/metaGraphClient');
 const linkedinClient = require('../utils/linkedinClient');
+const youtubeClient = require('../utils/youtubeClient');
 
 const router = express.Router();
 
@@ -83,6 +84,23 @@ function linkedinConfigured() {
   return !!(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET);
 }
 
+// ---------- YouTube (69ª rodada, "amanhã ás 8 horas vamos começar a fazer
+// a integração com o you tube") ----------
+// Mesmas 2 marcas com canal pronto pra conectar na Meta/LinkedIn -- ver
+// PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md, seção 8, pro checklist
+// completo (App no Google Cloud, Tela de consentimento OAuth, etc.).
+const YOUTUBE_BRANDS = ['debacco', 'ghelplus'];
+const YOUTUBE_CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || '';
+const YOUTUBE_CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || '';
+const YOUTUBE_REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || `${APP_BASE_URL}/api/social-accounts/youtube/callback`;
+// Só o escopo de upload -- o suficiente pra publicar vídeo/capa e consultar
+// qual é o canal conectado (channels.list aceita esse mesmo escopo).
+const YOUTUBE_SCOPES = ['https://www.googleapis.com/auth/youtube.upload'].join(' ');
+
+function youtubeConfigured() {
+  return !!(YOUTUBE_CLIENT_ID && YOUTUBE_CLIENT_SECRET);
+}
+
 function serialize(account) {
   if (!account) return null;
   // O token de acesso NUNCA sai do servidor (nem pra super admin) — só o
@@ -96,6 +114,8 @@ function serialize(account) {
     // Nome da Página da LinkedIn (organization) -- equivalente ao pageName
     // da Meta, campo próprio pra não confundir os dois na tela.
     orgName: account.orgName || null,
+    // Nome do canal do YouTube -- mesmo espírito de pageName/orgName acima.
+    channelTitle: account.channelTitle || null,
     tokenExpiresAt: account.tokenExpiresAt || null,
     connectedByName: resolveUserName(account.connectedBy, account.connectedByName),
     connectedAt: account.connectedAt
@@ -147,6 +167,20 @@ function cleanupExpiredLinkedinSelections() {
   }
 }
 
+// Mesma ideia, pro YouTube -- Mapa separado de novo, mesmo motivo de
+// sempre. Diferente da Meta/LinkedIn, o Google só devolve UM canal por
+// autorização (não uma lista pra escolher, ver utils/youtubeClient.js) --
+// mesmo assim, a Papoi sempre para e pede confirmação explícita antes de
+// gravar a conexão de verdade, pelo mesmo motivo de segurança da 6ª
+// correção da Meta (nunca decidir sozinha, mesmo com 1 candidato só).
+const youtubePendingSelections = new Map();
+function cleanupExpiredYoutubeSelections() {
+  const now = Date.now();
+  for (const [id, sel] of youtubePendingSelections) {
+    if (sel.expiresAt < now) youtubePendingSelections.delete(id);
+  }
+}
+
 // ---------- listar status das conexões (tela "Integrações") ----------
 // Generalizado nesta rodada (67ª) pra devolver as 2 plataformas juntas --
 // o front (public/app.js) agrupa por `platform` em vez de assumir que é
@@ -172,11 +206,23 @@ router.get('/', requireAuth, requireSuperAdmin, (req, res) => {
       account: serialize(account)
     };
   });
+  const youtubeAccounts = YOUTUBE_BRANDS.map((brand) => {
+    const account = db.get('socialAccounts').find({ brand, platform: 'youtube' }).value();
+    return {
+      platform: 'youtube',
+      brand,
+      brandLabel: BRAND_LABEL_PT[brand],
+      connected: !!account,
+      account: serialize(account)
+    };
+  });
   res.json({
     metaConfigured: metaConfigured(),
     linkedinConfigured: linkedinConfigured(),
+    youtubeConfigured: youtubeConfigured(),
     accounts: metaAccounts,
-    linkedinAccounts
+    linkedinAccounts,
+    youtubeAccounts
   });
 });
 
@@ -496,6 +542,154 @@ router.delete('/linkedin/:brand', requireAuth, requireSuperAdmin, (req, res) => 
   res.json({ ok: true });
 });
 
+// ---------- YouTube: iniciar a autorização ----------
+// `access_type=offline` pede um refresh_token (não só o access token de ~1
+// hora); `prompt=consent` FORÇA o Google a devolver um refresh_token novo
+// toda vez (sem isso, numa 2ª autorização ele pode reaproveitar a anterior
+// e não mandar refresh_token nenhum de volta -- inútil pra publicar sozinho
+// depois). Ver utils/youtubeClient.js.
+router.get('/youtube/connect', requireAuth, requireSuperAdmin, (req, res) => {
+  if (!youtubeConfigured()) {
+    return res.status(503).json({ error: 'YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET ainda não configurados no servidor.' });
+  }
+  const { brand } = req.query;
+  if (!YOUTUBE_BRANDS.includes(brand)) {
+    return res.status(400).json({ error: 'Marca inválida para conexão com o YouTube.' });
+  }
+  const state = signState({ brand, userId: req.user.id, provider: 'youtube' });
+  const qs = new URLSearchParams({
+    client_id: YOUTUBE_CLIENT_ID,
+    redirect_uri: YOUTUBE_REDIRECT_URI,
+    response_type: 'code',
+    scope: YOUTUBE_SCOPES,
+    access_type: 'offline',
+    prompt: 'consent',
+    state
+  });
+  res.json({ redirectUrl: `https://accounts.google.com/o/oauth2/v2/auth?${qs.toString()}` });
+});
+
+// ---------- YouTube: callback (o Google redireciona o NAVEGADOR pra cá) ----------
+// Sem requireAuth, mesmo motivo do callback da Meta/LinkedIn acima.
+router.get('/youtube/callback', async (req, res) => {
+  const redirectBack = (params) => res.redirect(`${APP_BASE_URL}/?${new URLSearchParams(params).toString()}`);
+
+  const { code, state, error, error_description: errorDescription } = req.query;
+  if (error) {
+    return redirectBack({ integracoes: 'erro', motivo: errorDescription || error });
+  }
+  if (!code || !state) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Resposta inesperada do Google (faltou code/state).' });
+  }
+
+  let statePayload;
+  try {
+    statePayload = verifyState(state);
+  } catch (e) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Link de autorização expirado ou inválido — tente conectar de novo.' });
+  }
+  const { brand, userId } = statePayload;
+  const requestingUser = db.get('users').find({ id: userId }).value();
+  if (!requestingUser) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Usuário que iniciou a conexão não existe mais.' });
+  }
+
+  try {
+    const token = await youtubeClient.exchangeCodeForToken({
+      clientId: YOUTUBE_CLIENT_ID,
+      clientSecret: YOUTUBE_CLIENT_SECRET,
+      redirectUri: YOUTUBE_REDIRECT_URI,
+      code
+    });
+    if (!token.refresh_token) {
+      return redirectBack({
+        integracoes: 'erro',
+        motivo: 'O Google não devolveu uma autorização de longa duração dessa vez — normalmente acontece quando essa conta já autorizou a Papoi antes. Revogue o acesso da Papoi em myaccount.google.com/permissions e tente conectar de novo.'
+      });
+    }
+    const channel = await youtubeClient.getMyChannel({ accessToken: token.access_token });
+    if (!channel) {
+      return redirectBack({
+        integracoes: 'erro',
+        motivo: 'Nenhum canal do YouTube foi encontrado nessa conta. Confirme se o canal certo estava ativo (ver seletor de contas do YouTube) antes de conectar.'
+      });
+    }
+
+    // Mesmo espírito da 6ª correção da Meta: nunca escolhe sozinha, mesmo
+    // vindo só 1 canal (aqui é sempre só 1, ver utils/youtubeClient.js) --
+    // sempre para e pede confirmação explícita de qual marca é essa.
+    cleanupExpiredYoutubeSelections();
+    const selectionId = nanoid();
+    youtubePendingSelections.set(selectionId, {
+      brand,
+      refreshToken: token.refresh_token,
+      expiresAt: Date.now() + PENDING_TTL_MS,
+      candidates: [{ channelId: channel.channelId, channelTitle: channel.channelTitle }]
+    });
+    return redirectBack({ integracoes: 'escolher-youtube', brand, selectionId });
+  } catch (e) {
+    const motivo = e instanceof youtubeClient.YouTubeApiError ? e.message : 'Erro inesperado ao conectar com o YouTube.';
+    return redirectBack({ integracoes: 'erro', motivo });
+  }
+});
+
+// ---------- YouTube: ver o canal candidato de uma escolha pendente ----------
+router.get('/youtube/pending/:selectionId', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredYoutubeSelections();
+  const sel = youtubePendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta YouTube" de novo.' });
+  res.json({
+    brand: sel.brand,
+    brandLabel: BRAND_LABEL_PT[sel.brand] || sel.brand,
+    // Refresh token NUNCA sai daqui -- só o suficiente pra pessoa reconhecer
+    // visualmente qual canal é qual.
+    candidates: sel.candidates.map((c) => ({ channelId: c.channelId, channelTitle: c.channelTitle }))
+  });
+});
+
+// ---------- YouTube: confirmar que o canal encontrado é o certo pra essa marca ----------
+router.post('/youtube/pending/:selectionId/confirm', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredYoutubeSelections();
+  const sel = youtubePendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta YouTube" de novo.' });
+  const { channelId } = req.body || {};
+  const chosen = sel.candidates.find((c) => c.channelId === channelId);
+  if (!chosen) return res.status(400).json({ error: 'Canal inválido.' });
+
+  const nowIso = new Date().toISOString();
+  const accountData = {
+    brand: sel.brand,
+    platform: 'youtube',
+    channelId: chosen.channelId,
+    channelTitle: chosen.channelTitle,
+    refreshToken: sel.refreshToken,
+    connectedBy: req.user.id,
+    connectedByName: req.user.name || req.user.username,
+    connectedAt: nowIso
+  };
+  const existing = db.get('socialAccounts').find({ brand: sel.brand, platform: 'youtube' }).value();
+  if (existing) {
+    db.get('socialAccounts').find({ id: existing.id }).assign(accountData).write();
+  } else {
+    db.get('socialAccounts').push(Object.assign({ id: nanoid() }, accountData)).write();
+  }
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: sel.brand, entityLabel: `YouTube · ${BRAND_LABEL_PT[sel.brand] || sel.brand}`, action: existing ? 'update' : 'create', details: `Conectado como ${accountData.channelTitle}` });
+
+  youtubePendingSelections.delete(req.params.selectionId);
+  res.json({ ok: true, brand: sel.brand, channelTitle: accountData.channelTitle });
+});
+
+// ---------- YouTube: desconectar ----------
+router.delete('/youtube/:brand', requireAuth, requireSuperAdmin, (req, res) => {
+  const { brand } = req.params;
+  const existing = db.get('socialAccounts').find({ brand, platform: 'youtube' }).value();
+  if (!existing) return res.status(404).json({ error: 'Essa marca não está conectada.' });
+  db.get('socialAccounts').remove({ id: existing.id }).write();
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: brand, entityLabel: `YouTube · ${BRAND_LABEL_PT[brand] || brand}`, action: 'delete' });
+  res.json({ ok: true });
+});
+
 module.exports = router;
 module.exports.META_BRANDS = META_BRANDS;
 module.exports.LINKEDIN_BRANDS = LINKEDIN_BRANDS;
+module.exports.YOUTUBE_BRANDS = YOUTUBE_BRANDS;

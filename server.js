@@ -98,6 +98,13 @@ require('./utils/metaPublisher').startMetaPublisherScheduler();
 // PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md, seção 7).
 require('./utils/linkedinPublisher').startLinkedInPublisherScheduler();
 
+// 69ª rodada: mesma ideia, agora pro YouTube -- checa a cada 2 minutos se
+// tem "Vídeo YouTube" com a data/hora batendo e conta conectada (ver
+// utils/youtubePublisher.js). Publica direto como público (Opção A,
+// decidida com a Raquel em 25/09/2026 -- ver
+// PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md, seção 8.2).
+require('./utils/youtubePublisher').startYouTubePublisherScheduler();
+
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).
 app.use((req, res, next) => {

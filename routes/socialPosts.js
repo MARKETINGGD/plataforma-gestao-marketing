@@ -11,6 +11,7 @@ const { cascadeCompleteDemandas } = require('../utils/demandCascade');
 const { createAutoRecado, updateAutoRecadosForPost } = require('./recados');
 const metaPublisher = require('../utils/metaPublisher');
 const linkedinPublisher = require('../utils/linkedinPublisher');
+const youtubePublisher = require('../utils/youtubePublisher');
 
 const router = express.Router();
 
@@ -336,13 +337,15 @@ function clearFailedPublishIfContentChanged(post, updates) {
 
 // Qual publicador automático (se algum) sabe lidar com essa combinação
 // rede+marca -- generalizado na 67ª rodada (LinkedIn) a partir do que era
-// só uma chamada direta a metaPublisher.isMetaAutoPublishSupported. Cada
-// publicador continua isolado no próprio arquivo (utils/metaPublisher.js,
-// utils/linkedinPublisher.js) -- este helper só decide QUAL DOS DOIS (se
+// só uma chamada direta a metaPublisher.isMetaAutoPublishSupported, e de
+// novo na 69ª rodada (YouTube). Cada publicador continua isolado no próprio
+// arquivo (utils/metaPublisher.js, utils/linkedinPublisher.js,
+// utils/youtubePublisher.js) -- este helper só decide QUAL DOS TRÊS (se
 // algum) usar pro post em questão, sem duplicar a lógica de cada um.
 function resolveAutoPublisher(effectivePost) {
   if (metaPublisher.isMetaAutoPublishSupported(effectivePost)) return metaPublisher;
   if (linkedinPublisher.isLinkedInAutoPublishSupported(effectivePost)) return linkedinPublisher;
+  if (youtubePublisher.isYouTubeAutoPublishSupported(effectivePost)) return youtubePublisher;
   return null;
 }
 
@@ -490,7 +493,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   // DE VERDADE na hora (mesma função usada pelo ciclo automático,
   // publishOne) -- o rótulo só vira "Publicado" se realmente publicou, e
   // se falhar a pessoa vê o erro na hora (em vez de ficar demandas fechadas
-  // e nada no ar). Pra qualquer outra rede/tipo (TikTok, YouTube, Facebook
+  // e nada no ar). Pra qualquer outra rede/tipo (TikTok, Facebook
   // Reels/Carrossel/Storie, etc.) nada muda -- continua sendo só uma
   // confirmação manual, como sempre foi.
   const effectivePostForMeta = {
@@ -500,10 +503,10 @@ router.put('/:id', requireAuth, async (req, res) => {
   };
   const wantsMarkPublished = updates.status === 'publicado' && previousStatus !== 'publicado';
   const alreadyHandledByMeta = post.publishStatus === 'published' || post.publishStatus === 'publishing';
-  // 67ª rodada: generalizado pra também cobrir LinkedIn -- ver
+  // 67ª/69ª rodada: generalizado pra também cobrir LinkedIn e YouTube -- ver
   // resolveAutoPublisher acima. `autoPublisher` é null pra qualquer rede/
-  // tipo que nenhum dos dois sabe publicar sozinho (TikTok, YouTube,
-  // Facebook Reels/Carrossel/Storie, LinkedIn com mais de 1 arquivo etc.),
+  // tipo que nenhum dos três sabe publicar sozinho (TikTok, Facebook
+  // Reels/Carrossel/Storie, LinkedIn com mais de 1 arquivo etc.),
   // continua 100% manual como sempre foi.
   const autoPublisher = wantsMarkPublished && !alreadyHandledByMeta ? resolveAutoPublisher(effectivePostForMeta) : null;
   const shouldPublishNow = !!autoPublisher;
@@ -513,7 +516,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     const account = autoPublisher.findConnectedAccount(effectivePostForMeta.brand);
     if (!account) {
       const brandLabel = BRAND_LABEL_PT[effectivePostForMeta.brand] || effectivePostForMeta.brand;
-      const contaLabel = autoPublisher === linkedinPublisher ? 'LinkedIn' : 'do Instagram/Facebook';
+      const contaLabel = autoPublisher === linkedinPublisher ? 'LinkedIn' : (autoPublisher === youtubePublisher ? 'do YouTube' : 'do Instagram/Facebook');
       return res.status(422).json({ error: `Não tem conta ${contaLabel} conectada pra ${brandLabel} -- conecte em Integrações antes de marcar como publicado.` });
     }
     // O status final vem do RESULTADO REAL da publicação (publishOne já

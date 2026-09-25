@@ -851,7 +851,9 @@
     // O "Budget" da barra lateral virou 1 botão só com submenu por marca
     // (25ª rodada) — ao ativar um item do submenu, o botão-pai também fica
     // marcado como ativo (senão pareceria que nada da barra está selecionado).
-    if (id === 'navBudgetDebacco' || id === 'navBudgetGhelplus') {
+    // 76ª rodada: Feiras entrou como 3º item deste submenu (antes era um
+    // botão solto) -- mesmo padrão de ativar o pai + reabrir o submenu.
+    if (id === 'navBudgetDebacco' || id === 'navBudgetGhelplus' || id === 'navFeiras') {
       $('#navBudgetParent').classList.add('active');
       $('#navBudgetSubmenu').hidden = false;
     }
@@ -873,6 +875,18 @@
     if (id === 'navExpositoresBookTecnico' || id === 'navExpositoresOrcamentos' || id === 'navExpositoresEspeciais' || id === 'navExpositoresEstoque' || id === 'navExpositoresCatalogo') {
       $('#navExpositoresParent').classList.add('active');
       $('#navExpositoresSubmenu').hidden = false;
+    }
+    // Configurações (76ª rodada) -- Usuários e Integrações viraram itens de
+    // submenu, mesmo padrão do Budget/Produtos/Brindes/Expositores acima.
+    if (id === 'navUsers' || id === 'navIntegracoes') {
+      $('#navConfiguracoesParent').classList.add('active');
+      $('#navConfiguracoesSubmenu').hidden = false;
+    }
+    // Relatórios (76ª rodada) -- Tráfego Pago/Mídias/Ações Sazonais eram
+    // botões soltos, viraram um submenu só, mesmo padrão de sempre.
+    if (id === 'navDashTrafego' || id === 'navDashMidias' || id === 'navDashAcoes') {
+      $('#navRelatoriosParent').classList.add('active');
+      $('#navRelatoriosSubmenu').hidden = false;
     }
   }
 
@@ -1213,8 +1227,11 @@
 
   async function startApp() {
     $('#topbarUserName').textContent = currentUser.name || currentUser.username;
-    $('#navUsers').hidden = !currentUser.isSuperAdmin;
-    $('#navIntegracoes').hidden = !currentUser.isSuperAdmin;
+    // 76ª rodada, pedido explícito da Raquel: "Configurações... visivel
+    // para todos, mas somente o admin pode editar" -- Usuários e
+    // Integrações NUNCA mais ficam `hidden` por cargo aqui; loadUsers()/
+    // loadIntegracoes() é que escondem só os botões de ação (criar/editar/
+    // excluir/conectar/desconectar) pra quem não é super admin.
     // Tema escuro (14ª melhoria) -- o valor salvo no PERFIL da pessoa é o
     // que vale de verdade (sincroniza entre aparelhos); sobrescreve
     // qualquer coisa que já tinha sido aplicada só a partir do
@@ -1425,6 +1442,23 @@
     sub.hidden = !sub.hidden;
     markNavParentActive('navExpositoresParent');
   };
+  // APP Externos/Configurações/Relatórios (76ª rodada) -- mesmo padrão de
+  // abrir/fechar submenu + ficar colorido ao clicar, sem navegar sozinho.
+  $('#navAppExternosParent').onclick = () => {
+    const sub = $('#navAppExternosSubmenu');
+    sub.hidden = !sub.hidden;
+    markNavParentActive('navAppExternosParent');
+  };
+  $('#navConfiguracoesParent').onclick = () => {
+    const sub = $('#navConfiguracoesSubmenu');
+    sub.hidden = !sub.hidden;
+    markNavParentActive('navConfiguracoesParent');
+  };
+  $('#navRelatoriosParent').onclick = () => {
+    const sub = $('#navRelatoriosSubmenu');
+    sub.hidden = !sub.hidden;
+    markNavParentActive('navRelatoriosParent');
+  };
   // PONTO (47ª rodada): não é uma tela da Plataforma -- só abre o sistema
   // de ponto da TOTVS numa aba nova, sem mudar a navegação/view atual.
   $('#navPonto').onclick = () => {
@@ -1454,7 +1488,7 @@
     };
   });
   $all('.navlink').forEach((b) => {
-    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI') return;
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI' || b.id === 'navAppExternosParent' || b.id === 'navConfiguracoesParent' || b.id === 'navRelatoriosParent') return;
     b.onclick = () => {
       setActiveNav(b.id);
       // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio
@@ -7496,9 +7530,17 @@
     };
   });
 
-  // ---------- usuários (super admin) ----------
+  // ---------- usuários -- 76ª rodada, pedido explícito da Raquel: "esse
+  // botão e sub menu é visivel para todos, mas somente o admin pode
+  // editar". Antes, quem não fosse super admin nem chegava a ver a lista
+  // (`if (!currentUser.isSuperAdmin) return;` saía sem buscar nada) -- agora
+  // QUALQUER pessoa logada vê a tabela (o backend também mudou, ver GET
+  // /api/auth/users em routes/auth.js: continua devolvendo `pontoSchedule`
+  // só pro super admin, nunca pra quem só está visualizando). O botão
+  // "+ Novo usuário" e as ações "Editar"/"Excluir" de cada linha continuam
+  // só pro super admin -- é aí que a edição de verdade fica restrita. ----------
   async function loadUsers() {
-    if (!currentUser.isSuperAdmin) return;
+    $('#userNewBtn').hidden = !currentUser.isSuperAdmin;
     const data = await api('/api/auth/users');
     const body = $('#usersTableBody');
     body.innerHTML = '';
@@ -7516,17 +7558,21 @@
         <td>${accessList}</td>
         <td></td>
       `;
-      const actionsTd = tr.querySelector('td:last-child');
-      const editBtn = document.createElement('button');
-      editBtn.textContent = 'Editar';
-      editBtn.onclick = () => openUserForm(u);
-      actionsTd.appendChild(editBtn);
-      if (u.id !== currentUser.id) {
-        const delBtn = document.createElement('button');
-        delBtn.textContent = 'Excluir';
-        delBtn.className = 'danger';
-        delBtn.onclick = () => deleteUser(u.id);
-        actionsTd.appendChild(delBtn);
+      // Editar/Excluir só aparecem pro super admin -- quem só está
+      // visualizando (pedido desta rodada) vê a linha, sem ação nenhuma.
+      if (currentUser.isSuperAdmin) {
+        const actionsTd = tr.querySelector('td:last-child');
+        const editBtn = document.createElement('button');
+        editBtn.textContent = 'Editar';
+        editBtn.onclick = () => openUserForm(u);
+        actionsTd.appendChild(editBtn);
+        if (u.id !== currentUser.id) {
+          const delBtn = document.createElement('button');
+          delBtn.textContent = 'Excluir';
+          delBtn.className = 'danger';
+          delBtn.onclick = () => deleteUser(u.id);
+          actionsTd.appendChild(delBtn);
+        }
       }
       body.appendChild(tr);
     });
@@ -7536,8 +7582,17 @@
   // Um cartão por marca com conta Meta prevista (De Bacco/GhelPlus) --
   // mostra se está conectada, com quê, e o botão de conectar/desconectar.
   // Ver routes/socialAccounts.js.
+  //
+  // 76ª rodada, pedido explícito da Raquel: "esse botão e sub menu é
+  // visivel para todos, mas somente o admin pode editar" -- antes, quem não
+  // fosse super admin nem chegava a ver nada aqui (early return). Agora
+  // QUALQUER pessoa logada vê os cartões de status (GET /api/social-accounts
+  // também mudou no backend pra aceitar isso -- nunca devolveu token nenhum,
+  // então não tinha nada de sensível pra esconder). Os botões de ação
+  // (Conectar/Reconectar/Desconectar, nas 4 redes) continuam só pro super
+  // admin -- escondidos no fim da função, sem duplicar a lógica de cada
+  // cartão.
   async function loadIntegracoes() {
-    if (!currentUser.isSuperAdmin) return;
     const data = await api('/api/social-accounts');
     $('#integracoesMetaWarning').hidden = !!data.metaConfigured;
     const list = $('#integracoesList');
@@ -7727,6 +7782,15 @@
         }
       };
     });
+
+    // 76ª rodada: esconde os botões de ação das 4 redes (Conectar/
+    // Reconectar/Desconectar) pra quem não é super admin -- só visualizar
+    // o status continua liberado pra todo mundo (ver comentário no topo da
+    // função). Um `hidden` só na div `.form-actions` de cada cartão, sem
+    // precisar duplicar essa checagem nos 4 blocos acima.
+    if (!currentUser.isSuperAdmin) {
+      $all('#view-integracoes .form-actions').forEach((el) => { el.hidden = true; });
+    }
   }
 
   // Depois de voltar do fluxo de autorização da Meta (54ª/55ª rodada,

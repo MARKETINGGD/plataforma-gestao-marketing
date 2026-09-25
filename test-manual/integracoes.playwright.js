@@ -32,6 +32,12 @@ async function main() {
   await page.click('#loginSubmit');
   await page.waitForSelector('#screen-app:not([hidden])', { timeout: 10000 });
 
+  // 76ª rodada: Integrações virou item do submenu "Configurações" -- precisa
+  // abrir o pai primeiro pra aparecer (mesmo padrão de Budget/Produtos/etc.),
+  // continua visível pra super admin (e, desde a 76ª, pra qualquer pessoa
+  // logada -- só os botões de ação continuam restritos, ver
+  // test-manual/menuReorganizacao.playwright.js).
+  await page.click('#navConfiguracoesParent');
   check('botão "Integrações" aparece no menu (super admin)', await page.isVisible('#navIntegracoes'));
 
   await page.click('#navIntegracoes');

@@ -101,7 +101,10 @@ async function main() {
 
   // Confere a tela de Integrações mostrando as 2 seções (Meta e LinkedIn)
   // separadas -- navega pra lá de novo depois de fechar o modal.
-  await page.click('button[data-view="integracoes"]').catch(() => {});
+  // 76ª rodada: Integrações virou item do submenu "Configurações" -- precisa
+  // abrir o pai primeiro (mesmo padrão de Budget/Produtos/etc.).
+  await page.click('#navConfiguracoesParent').catch(() => {});
+  await page.click('#navIntegracoes').catch(() => {});
   await page.waitForSelector('#integracoesLinkedinList', { state: 'attached', timeout: 5000 });
   const linkedinListText = await page.textContent('#integracoesLinkedinList');
   check('tela Integrações mostra a seção da LinkedIn com a marca conectada', linkedinListText.includes('GhelPlus Distribuidora'));

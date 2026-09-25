@@ -298,14 +298,25 @@ router.delete('/team/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Gestão de usuários da plataforma — só super admin. `pontoSchedule` (47ª
-// rodada) só é devolvido/aceito por essas rotas (admin) — nunca por /me
-// ou /team, que qualquer pessoa logada pode chamar.
+// Gestão de usuários da plataforma. `pontoSchedule` (47ª rodada) só é
+// devolvido/aceito pra quem é super admin -- nunca por /me ou /team, que
+// qualquer pessoa logada pode chamar, e (76ª rodada) nunca pra quem só está
+// VISUALIZANDO esta lista também.
 function adminUserView(u) {
   return { ...publicUser(u), pontoSchedule: u.pontoSchedule || null };
 }
-router.get('/users', requireAuth, requireSuperAdmin, (req, res) => {
-  res.json({ users: db.get('users').value().map(adminUserView) });
+// 76ª rodada, pedido explícito da Raquel: "Configurações... visivel para
+// todos, mas somente o admin pode editar" -- listar (GET) os usuários
+// cadastrados passou a ser permitido pra QUALQUER pessoa logada, não só
+// super admin (criar/editar/excluir continuam abaixo, com
+// `requireSuperAdmin`, essa sim é a edição de verdade que a Raquel pediu
+// pra manter restrita). Quem não é super admin recebe a versão pública
+// (`publicUser`, sem `pontoSchedule`) de cada usuário -- o horário de ponto
+// de cada pessoa continua um dado só do admin ver, mesmo agora que a lista
+// em si é visível pra todos.
+router.get('/users', requireAuth, (req, res) => {
+  const view = req.user.isSuperAdmin ? adminUserView : publicUser;
+  res.json({ users: db.get('users').value().map(view) });
 });
 
 router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {

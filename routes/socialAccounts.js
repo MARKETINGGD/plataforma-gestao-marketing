@@ -225,7 +225,16 @@ function cleanupExpiredPinterestSelections() {
 // Generalizado nesta rodada (67ª) pra devolver as 2 plataformas juntas --
 // o front (public/app.js) agrupa por `platform` em vez de assumir que é
 // sempre Meta.
-router.get('/', requireAuth, requireSuperAdmin, (req, res) => {
+//
+// 76ª rodada, pedido explícito da Raquel: "Configurações... visivel para
+// todos, mas somente o admin pode editar" -- ver o STATUS de cada conexão
+// passou a ser permitido pra QUALQUER pessoa logada (tirado o
+// `requireSuperAdmin` daqui) -- nunca teve nada sensível pra esconder
+// mesmo (serialize() já nunca devolve token nenhum). Todas as rotas
+// abaixo que de fato CRIAM/MUDAM uma conexão (connect/pending/confirm/
+// disconnect, nas 4 redes) continuam com `requireSuperAdmin` -- essa sim é
+// a edição de verdade que a Raquel pediu pra manter restrita.
+router.get('/', requireAuth, (req, res) => {
   const metaAccounts = META_BRANDS.map((brand) => {
     const account = db.get('socialAccounts').find({ brand, platform: 'meta' }).value();
     return {

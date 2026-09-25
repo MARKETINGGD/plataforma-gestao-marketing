@@ -100,7 +100,10 @@ async function main() {
 
   // Confere a tela de Integrações mostrando a seção do YouTube com a marca
   // conectada -- navega pra lá de novo depois de fechar o modal.
-  await page.click('button[data-view="integracoes"]').catch(() => {});
+  // 76ª rodada: Integrações virou item do submenu "Configurações" -- precisa
+  // abrir o pai primeiro (mesmo padrão de Budget/Produtos/etc.).
+  await page.click('#navConfiguracoesParent').catch(() => {});
+  await page.click('#navIntegracoes').catch(() => {});
   await page.waitForSelector('#integracoesYoutubeList', { state: 'attached', timeout: 5000 });
   const youtubeListText = await page.textContent('#integracoesYoutubeList');
   check('tela Integrações mostra a seção do YouTube com a marca conectada', youtubeListText.includes('GhelPlus') && youtubeListText.includes('Conectado'));

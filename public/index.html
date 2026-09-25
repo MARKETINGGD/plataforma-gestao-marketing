@@ -143,27 +143,36 @@
         <span class="sidebar-brand-sub">Plataforma de Gestão de Marketing</span>
       </div>
       <nav class="sidebar-nav">
+        <!-- 76ª rodada, pedido da Raquel: reorganização completa da ordem/
+             agrupamento do menu -- "Início, Chat, Demandas, Agendamento,
+             Cronograma, Influencers, Produtos, Expositores, Brindes, Budget
+             (GhelPlus/De Bacco/Feiras), APP Externos (Ponto/Gestor/Power
+             BI), Configurações (Usuários/Integrações, visível pra todos,
+             só o admin edita), Relatórios (Tráfego Pago/Mídias/Ações
+             Sazonais)". Nenhuma tela/rota mudou de lugar ou de
+             comportamento -- só a ORDEM e o AGRUPAMENTO na barra lateral
+             (Ponto/Gestor/Power BI e Tráfego Pago/Mídias/Ações Sazonais
+             eram botões soltos antes; Feiras era um botão solto que virou
+             o 3º item do Budget). Ver Pendência 58 pro histórico completo. -->
         <button class="navlink" id="navHome" data-view="home">Início</button>
-        <!-- 47ª rodada, pedido da Raquel: botão "PONTO" no menu, que só abre
-             o sistema de ponto da TOTVS numa aba nova (não é uma tela da
-             Plataforma, não tem view própria). -->
-        <button class="navlink" id="navPonto" type="button" data-external="https://totvs.ghelplus.com.br/totvs-login/loginForm">Ponto</button>
-        <!-- 49ª rodada, pedido da Raquel: botão "Gestor" no menu, logo
-             abaixo de Ponto -- mesmo padrão (só abre um sistema externo
-             numa aba nova, não é uma tela da Plataforma). -->
-        <button class="navlink" id="navGestor" type="button" data-external="https://gestor.ghelplus.com.br:8026/gestor/">Gestor</button>
-        <!-- 52ª rodada, pedido da Raquel: botão "Power BI" no menu, logo
-             abaixo de Gestor -- mesmo padrão (só abre um sistema externo
-             numa aba nova, não é uma tela da Plataforma). -->
-        <button class="navlink" id="navPowerBI" type="button" data-external="https://app.powerbi.com/groups/me/reports/655e1033-270d-4456-87de-9852b9d2ec6b/a53f8b5f6c7d23eb05cb?experience=power-bi">Power BI</button>
         <button class="navlink" id="navChat" data-view="chat">Chat</button>
         <button class="navlink" id="navDemandas" data-view="demandas">Demandas</button>
         <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamentos de Redes Sociais</button>
         <button class="navlink" id="navCronograma" data-view="cronograma">Cronograma</button>
-        <button class="navlink" id="navDashTrafego" data-view="trafego-hub" data-dash="trafegoPago">Tráfego Pago</button>
-        <button class="navlink" id="navDashMidias" data-view="midias-hub" data-dash="redesSociais">Mídias</button>
-        <button class="navlink" id="navDashAcoes" data-view="acoes-hub">Ações Sazonais</button>
         <button class="navlink" id="navInfluencers" data-view="influencers">Influencers</button>
+        <!-- 33ª rodada, pedido da Raquel: "no botão produtos deve ter um sub
+             menu com: análise de concorrência, lançamentos de produtos" --
+             mesmo padrão de submenu já usado no Budget (25ª rodada). -->
+        <div class="navlink-group" id="navProdutosGroup">
+          <button class="navlink navlink-parent" id="navProdutosParent" type="button">Produtos</button>
+          <div class="navlink-submenu" id="navProdutosSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navProdutosConcorrencia" data-view="produtos" data-produtos-tab="concorrencia">Análise de Concorrência</button>
+            <button class="navlink navlink-sub" id="navProdutosLancamentos" data-view="produtos" data-produtos-tab="lancamentos">Lançamentos de Produtos</button>
+            <!-- 68ª rodada, pedido da Raquel: "adicione em produtos um sub
+                 menu com o nome catálogo... deve ser separado por marca". -->
+            <button class="navlink navlink-sub" id="navProdutosCatalogo" data-view="produtos-catalogo">Catálogo</button>
+          </div>
+        </div>
         <!-- 46ª rodada, pedido da Raquel: "em expositores coloque: sub menu-
              book técnico (com link externo de compartilhamento) / orçamentos" --
              mesmo padrão de submenu já usado em Budget/Produtos/Brindes. Por
@@ -188,19 +197,6 @@
             <button class="navlink navlink-sub" id="navExpositoresCatalogo" data-view="expositores-catalogo">Catálogo</button>
           </div>
         </div>
-        <!-- 33ª rodada, pedido da Raquel: "no botão produtos deve ter um sub
-             menu com: análise de concorrência, lançamentos de produtos" --
-             mesmo padrão de submenu já usado no Budget (25ª rodada). -->
-        <div class="navlink-group" id="navProdutosGroup">
-          <button class="navlink navlink-parent" id="navProdutosParent" type="button">Produtos</button>
-          <div class="navlink-submenu" id="navProdutosSubmenu" hidden>
-            <button class="navlink navlink-sub" id="navProdutosConcorrencia" data-view="produtos" data-produtos-tab="concorrencia">Análise de Concorrência</button>
-            <button class="navlink navlink-sub" id="navProdutosLancamentos" data-view="produtos" data-produtos-tab="lancamentos">Lançamentos de Produtos</button>
-            <!-- 68ª rodada, pedido da Raquel: "adicione em produtos um sub
-                 menu com o nome catálogo... deve ser separado por marca". -->
-            <button class="navlink navlink-sub" id="navProdutosCatalogo" data-view="produtos-catalogo">Catálogo</button>
-          </div>
-        </div>
         <!-- 38ª rodada, pedido da Raquel: "em brindes, adicione um sub menu:
              Controle Geral / Retiradas Internas" -- mesmo padrão de submenu
              já usado em Budget/Produtos. -->
@@ -218,22 +214,59 @@
             <button class="navlink navlink-sub" id="navCampanhaCooperada" data-view="campanha-cooperada">Campanha Cooperada</button>
           </div>
         </div>
+        <!-- Budget -- 76ª rodada: reordenado pra GhelPlus vir antes de De
+             Bacco, e Feiras (41ª rodada, antes um botão solto) virou o 3º
+             item deste submenu, a pedido da Raquel. -->
         <div class="navlink-group" id="navBudgetGroup">
           <button class="navlink navlink-parent" id="navBudgetParent" type="button">Budget</button>
           <div class="navlink-submenu" id="navBudgetSubmenu" hidden>
-            <button class="navlink navlink-sub" id="navBudgetDebacco" data-view="budget" data-brand="debacco">De Bacco</button>
             <button class="navlink navlink-sub" id="navBudgetGhelplus" data-view="budget" data-brand="ghelplus">GhelPlus</button>
+            <button class="navlink navlink-sub" id="navBudgetDebacco" data-view="budget" data-brand="debacco">De Bacco</button>
+            <button class="navlink navlink-sub" id="navFeiras" data-view="feiras">Feiras</button>
           </div>
         </div>
-        <!-- 41ª rodada, pedido da Raquel: botão de menu novo pras duas
-             marcas, com o filtro de marca dentro da própria tela (mesmo
-             padrão já usado em Análise de Concorrência). -->
-        <button class="navlink" id="navFeiras" data-view="feiras">Feiras</button>
-        <button class="navlink" id="navUsers" data-view="users" hidden>Usuários</button>
-        <!-- 54ª rodada, pedido da Raquel: conectar o Agendamento de Redes
-             Sociais às APIs de verdade (começando pela Meta) -- tela nova,
-             restrita a super admin, mesmo padrão do botão Usuários acima. -->
-        <button class="navlink" id="navIntegracoes" data-view="integracoes" hidden>Integrações</button>
+        <!-- APP Externos -- 76ª rodada: agrupa os 3 sistemas externos que já
+             existiam soltos (Ponto desde a 47ª, Gestor desde a 49ª, Power BI
+             desde a 52ª) num submenu só, a pedido da Raquel. Continuam só
+             abrindo o sistema numa aba nova (não são telas da Plataforma) --
+             por isso ficam de fora de setActiveNav()/showView(), mesmo
+             comportamento de sempre. -->
+        <div class="navlink-group" id="navAppExternosGroup">
+          <button class="navlink navlink-parent" id="navAppExternosParent" type="button">APP Externos</button>
+          <div class="navlink-submenu" id="navAppExternosSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navPonto" type="button" data-external="https://totvs.ghelplus.com.br/totvs-login/loginForm">Ponto</button>
+            <button class="navlink navlink-sub" id="navGestor" type="button" data-external="https://gestor.ghelplus.com.br:8026/gestor/">Gestor</button>
+            <button class="navlink navlink-sub" id="navPowerBI" type="button" data-external="https://app.powerbi.com/groups/me/reports/655e1033-270d-4456-87de-9852b9d2ec6b/a53f8b5f6c7d23eb05cb?experience=power-bi">Power BI</button>
+          </div>
+        </div>
+        <!-- Configurações -- 76ª rodada, pedido explícito da Raquel: "esse
+             botão e sub menu é visivel para todos, mas somente o admin pode
+             editar" -- diferente de Budget/Produtos/Expositores/Brindes/APP
+             Externos acima, este grupo NUNCA fica `hidden` (nem o grupo nem
+             os 2 botões de dentro) -- Usuários e Integrações continuam
+             restritos a super admin só pra CRIAR/EDITAR/EXCLUIR (ver
+             routes/auth.js e routes/socialAccounts.js); ver quem já está
+             cadastrado/conectado agora é permitido pra qualquer pessoa
+             logada (ver loadUsers()/loadIntegracoes() em app.js, que escondem
+             só os botões de ação pra quem não é super admin). -->
+        <div class="navlink-group" id="navConfiguracoesGroup">
+          <button class="navlink navlink-parent" id="navConfiguracoesParent" type="button">Configurações</button>
+          <div class="navlink-submenu" id="navConfiguracoesSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navUsers" data-view="users">Usuários</button>
+            <button class="navlink navlink-sub" id="navIntegracoes" data-view="integracoes">Integrações</button>
+          </div>
+        </div>
+        <!-- Relatórios -- 76ª rodada: agrupa os 3 painéis externos que já
+             existiam soltos (Tráfego Pago, Mídias/Redes Sociais, Ações
+             Sazonais) num submenu só, a pedido da Raquel. -->
+        <div class="navlink-group" id="navRelatoriosGroup">
+          <button class="navlink navlink-parent" id="navRelatoriosParent" type="button">Relatórios</button>
+          <div class="navlink-submenu" id="navRelatoriosSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navDashTrafego" data-view="trafego-hub" data-dash="trafegoPago">Tráfego Pago</button>
+            <button class="navlink navlink-sub" id="navDashMidias" data-view="midias-hub" data-dash="redesSociais">Mídias</button>
+            <button class="navlink navlink-sub" id="navDashAcoes" data-view="acoes-hub">Ações Sazonais</button>
+          </div>
+        </div>
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-user">

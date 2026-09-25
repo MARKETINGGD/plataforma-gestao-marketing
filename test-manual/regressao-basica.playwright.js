@@ -31,6 +31,9 @@ async function main() {
   await page.waitForSelector('#screen-app:not([hidden])', { timeout: 10000 });
 
   // Usuários -- ainda funciona normalmente do lado do botão vizinho novo?
+  // 76ª rodada: Usuários virou item do submenu "Configurações" -- precisa
+  // abrir o pai primeiro (mesmo padrão de Budget/Produtos/etc.).
+  await page.click('#navConfiguracoesParent');
   await page.click('#navUsers');
   await page.waitForSelector('#view-users:not([hidden])');
   await page.waitForFunction(() => {

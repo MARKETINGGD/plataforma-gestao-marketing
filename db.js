@@ -114,11 +114,18 @@ db.defaults({
   // 'pinterest' desde a 75ª rodada ("vamos começar com pinterest, é apenas
   // de bacco"): {id, brand, platform: 'pinterest', boardId, boardName,
   // refreshToken, connectedBy, connectedByName, connectedAt} — ver
-  // utils/pinterestClient.js/pinterestPublisher.js. Meta/LinkedIn/YouTube
-  // valem só pra 'ghelplus'/'debacco' (únicas marcas com Página/canal
-  // pronto); Pinterest vale só pra 'debacco' (pedido explícito da Raquel,
-  // a GhelPlus não usa Pinterest). O token NUNCA é devolvido pro frontend
-  // (ver serialize() em routes/socialAccounts.js) — só usado no servidor,
+  // utils/pinterestClient.js/pinterestPublisher.js. 'tiktok' desde a 76ª
+  // rodada ("Vamos para o tik tok, usamos ele na Ghel e na De Bacco"):
+  // {id, brand, platform: 'tiktok', creatorUsername, creatorNickname,
+  // creatorAvatarUrl, refreshToken, connectedBy, connectedByName,
+  // connectedAt} — ver utils/tiktokClient.js/tiktokPublisher.js. Meta/
+  // YouTube/TikTok valem pra 'ghelplus'/'debacco' (Meta/YouTube: únicas
+  // marcas com Página/canal pronto; TikTok: contas separadas confirmadas
+  // pra cada marca); LinkedIn vale só pra 'ghelplus' (76ª rodada, pedido
+  // explícito da Raquel, a De Bacco não tem Página própria); Pinterest
+  // vale só pra 'debacco' (75ª rodada, pedido explícito, a GhelPlus não
+  // usa Pinterest). O token NUNCA é devolvido pro frontend (ver
+  // serialize() em routes/socialAccounts.js) — só usado no servidor,
   // pelos publicadores automáticos.
   socialAccounts: [],
   // Controle de Expositores (68ª rodada, "Rodada I" da Pendência 51,

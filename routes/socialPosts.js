@@ -13,6 +13,7 @@ const metaPublisher = require('../utils/metaPublisher');
 const linkedinPublisher = require('../utils/linkedinPublisher');
 const youtubePublisher = require('../utils/youtubePublisher');
 const pinterestPublisher = require('../utils/pinterestPublisher');
+const tiktokPublisher = require('../utils/tiktokPublisher');
 
 const router = express.Router();
 
@@ -339,16 +340,18 @@ function clearFailedPublishIfContentChanged(post, updates) {
 // Qual publicador automático (se algum) sabe lidar com essa combinação
 // rede+marca -- generalizado na 67ª rodada (LinkedIn) a partir do que era
 // só uma chamada direta a metaPublisher.isMetaAutoPublishSupported, de novo
-// na 69ª rodada (YouTube), e de novo na 75ª (Pinterest). Cada publicador
-// continua isolado no próprio arquivo (utils/metaPublisher.js,
-// utils/linkedinPublisher.js, utils/youtubePublisher.js,
-// utils/pinterestPublisher.js) -- este helper só decide QUAL DOS QUATRO (se
+// na 69ª rodada (YouTube), de novo na 75ª (Pinterest), e de novo na 76ª
+// (TikTok). Cada publicador continua isolado no próprio arquivo
+// (utils/metaPublisher.js, utils/linkedinPublisher.js,
+// utils/youtubePublisher.js, utils/pinterestPublisher.js,
+// utils/tiktokPublisher.js) -- este helper só decide QUAL DOS CINCO (se
 // algum) usar pro post em questão, sem duplicar a lógica de cada um.
 function resolveAutoPublisher(effectivePost) {
   if (metaPublisher.isMetaAutoPublishSupported(effectivePost)) return metaPublisher;
   if (linkedinPublisher.isLinkedInAutoPublishSupported(effectivePost)) return linkedinPublisher;
   if (youtubePublisher.isYouTubeAutoPublishSupported(effectivePost)) return youtubePublisher;
   if (pinterestPublisher.isPinterestAutoPublishSupported(effectivePost)) return pinterestPublisher;
+  if (tiktokPublisher.isTikTokAutoPublishSupported(effectivePost)) return tiktokPublisher;
   return null;
 }
 
@@ -519,7 +522,17 @@ router.put('/:id', requireAuth, async (req, res) => {
     const account = autoPublisher.findConnectedAccount(effectivePostForMeta.brand);
     if (!account) {
       const brandLabel = BRAND_LABEL_PT[effectivePostForMeta.brand] || effectivePostForMeta.brand;
-      const contaLabel = autoPublisher === linkedinPublisher ? 'LinkedIn' : (autoPublisher === youtubePublisher ? 'do YouTube' : 'do Instagram/Facebook');
+      // 76ª rodada: corrigido pra cobrir também Pinterest/TikTok -- antes
+      // caíam sem querer no rótulo "do Instagram/Facebook" (só sobrava
+      // esse fallback genérico pras redes mais novas que a LinkedIn/
+      // YouTube, um esquecimento da 75ª rodada quando o Pinterest entrou).
+      const contaLabel = autoPublisher === linkedinPublisher
+        ? 'LinkedIn'
+        : (autoPublisher === youtubePublisher
+          ? 'do YouTube'
+          : (autoPublisher === pinterestPublisher
+            ? 'do Pinterest'
+            : (autoPublisher === tiktokPublisher ? 'da TikTok' : 'do Instagram/Facebook')));
       return res.status(422).json({ error: `Não tem conta ${contaLabel} conectada pra ${brandLabel} -- conecte em Integrações antes de marcar como publicado.` });
     }
     // O status final vem do RESULTADO REAL da publicação (publishOne já

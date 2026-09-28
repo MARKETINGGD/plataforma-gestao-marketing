@@ -108,8 +108,8 @@ async function main() {
   await page.click('#navIntegracoes');
   await page.waitForSelector('#view-integracoes:not([hidden])');
   await page.waitForTimeout(400);
-  const adminConnectBtnVisible = await page.locator('[data-integ-connect], [data-integ-linkedin-connect], [data-integ-youtube-connect], [data-integ-pinterest-connect]').evaluateAll((els) => els.filter((el) => el.offsetParent !== null).length);
-  check('admin: vê botões de conectar VISÍVEIS nas 4 redes', adminConnectBtnVisible > 0);
+  const adminConnectBtnVisible = await page.locator('[data-integ-connect], [data-integ-linkedin-connect], [data-integ-youtube-connect], [data-integ-pinterest-connect], [data-integ-tiktok-connect]').evaluateAll((els) => els.filter((el) => el.offsetParent !== null).length);
+  check('admin: vê botões de conectar VISÍVEIS nas 5 redes', adminConnectBtnVisible > 0);
 
   await page.click('#logoutBtn');
   await page.waitForSelector('#screen-login:not([hidden])', { timeout: 10000 });
@@ -140,8 +140,8 @@ async function main() {
   await page.waitForTimeout(400);
   const integracoesCardsText = await page.textContent('#view-integracoes');
   check('não-admin: MESMO ASSIM vê o status das 4 redes (GhelPlus/De Bacco aparecem no texto)', integracoesCardsText.includes('GhelPlus') && integracoesCardsText.includes('De Bacco'));
-  const naoAdminConnectBtnVisible = await page.locator('[data-integ-connect], [data-integ-linkedin-connect], [data-integ-youtube-connect], [data-integ-pinterest-connect]').evaluateAll((els) => els.filter((el) => el.offsetParent !== null).length);
-  check('não-admin: NENHUM botão de conectar/desconectar VISÍVEL nas 4 redes', naoAdminConnectBtnVisible === 0);
+  const naoAdminConnectBtnVisible = await page.locator('[data-integ-connect], [data-integ-linkedin-connect], [data-integ-youtube-connect], [data-integ-pinterest-connect], [data-integ-tiktok-connect]').evaluateAll((els) => els.filter((el) => el.offsetParent !== null).length);
+  check('não-admin: NENHUM botão de conectar/desconectar VISÍVEL nas 5 redes', naoAdminConnectBtnVisible === 0);
 
   check('nenhum erro de console/página em toda a navegação', consoleErrors.length === 0);
   if (consoleErrors.length) console.log('Erros de console:', consoleErrors);

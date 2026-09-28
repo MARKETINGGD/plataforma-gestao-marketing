@@ -142,25 +142,28 @@ async function run() {
   const gerenteRecadosCheck = gerenteRecados2.filter((r) => r.sourceSocialPostId === post1.id && r.kind === 'post_approved');
   check('gerente (não é a dona do post) NÃO recebe o aviso de "seu post foi aprovado"', gerenteRecadosCheck.length === 0);
 
-  // ---------- 2, 6: publicação manual (TikTok, fora do escopo da Meta)
+  // ---------- 2, 6: publicação manual (Blog, fora do escopo de TODOS os
+  // publicadores automáticos -- Meta/LinkedIn/YouTube/Pinterest/TikTok)
   // notifica dona do post + coordenadora + gerente, e ainda arquiva a
-  // Demanda ligada pra todo mundo envolvido. ----------
+  // Demanda ligada pra todo mundo envolvido. 76ª rodada: esse cenário usava
+  // "TikTok" como exemplo antes da TikTok ser implementada -- trocado pra
+  // "Blog" (que segue 100% manual) agora que TikTok também publica sozinha. ----------
   const post2 = await fetch(`${BASE}/api/social-posts`, {
     method: 'POST', headers: hj(analistaToken),
     body: JSON.stringify({
-      platform: 'tiktok', brand: 'debacco', scheduledDate: '2026-12-31',
-      postType: 'video_tiktok', status: 'agendado',
+      platform: 'blog', brand: 'debacco', scheduledDate: '2026-12-31',
+      postType: 'estatico', status: 'agendado',
       involvedUserIds: [analista.id], responsibleId: analista.id,
-      subject: 'Teste TikTok Rodada E'
+      subject: 'Teste Blog Rodada E'
     })
   }).then((r) => r.json()).then((d) => d.post);
   db.get('socialPosts').find({ id: post2.id }).assign({
-    files: [{ id: 'f1', url: '/uploads/social/x/creative/video.mp4', name: 'video.mp4', uploadedBy: analista.id }]
+    files: [{ id: 'f1', url: '/uploads/social/x/creative/foto.jpg', name: 'foto.jpg', uploadedBy: analista.id }]
   }).write();
   const publishRes = await fetch(`${BASE}/api/social-posts/${post2.id}`, {
     method: 'PUT', headers: hj(analistaToken), body: JSON.stringify({ status: 'publicado' })
   }).then((r) => r.json());
-  check('TikTok marcado como publicado manualmente (fora do escopo da Meta, continua manual)', publishRes.post.status === 'publicado');
+  check('Blog marcado como publicado manualmente (fora do escopo de todos os publicadores, continua manual)', publishRes.post.status === 'publicado');
 
   const gerentePub = (await recadosFor(gerenteToken)).filter((r) => r.sourceSocialPostId === post2.id && r.kind === 'post_published');
   const coordPub = (await recadosFor(coordToken)).filter((r) => r.sourceSocialPostId === post2.id && r.kind === 'post_published');
@@ -170,7 +173,7 @@ async function run() {
   check('dona do post notificada na publicação', analistaPub.length === 1);
 
   const demandas = await fetch(`${BASE}/api/demandas?archived=true`, { headers: h(adminToken) }).then((r) => r.json()).then((d) => d.demandas);
-  const linkedDemanda = demandas.find((d) => d.title && d.title.includes('Teste TikTok Rodada E'));
+  const linkedDemanda = demandas.find((d) => d.title && d.title.includes('Teste Blog Rodada E'));
   check('Demanda ligada ao post publicado foi concluída/arquivada automaticamente', !!linkedDemanda && linkedDemanda.status === 'concluida' && linkedDemanda.archived === true);
 
   console.log(failures === 0 ? '\nTODOS OS CHECKS PASSARAM' : `\n${failures} CHECK(S) FALHARAM`);

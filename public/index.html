@@ -2088,6 +2088,17 @@
         <p class="muted">Publica o tipo "Pin" (1 imagem) direto no quadro (board) escolhido na hora de conectar. O assunto do post vira o título do Pin, a legenda vira a descrição, e o link (se preenchido) vira o link de destino do Pin. <strong>Só a De Bacco usa Pinterest por enquanto.</strong></p>
         <div id="integracoesPinterestWarning" class="error" hidden>A Papoi ainda não tem o App do Pinterest configurado no servidor (PINTEREST_CLIENT_ID/PINTEREST_CLIENT_SECRET).</div>
         <div id="integracoesPinterestList"></div>
+
+        <!-- TikTok (76ª rodada, "Vamos para o tik tok, usamos ele na Ghel e
+             na De Bacco, então precisaremos de 2 acessos") -- mesmo padrão
+             da Meta/LinkedIn/YouTube/Pinterest acima, pras 2 marcas (contas
+             SEPARADAS, login diferente cada uma, confirmado com a Raquel
+             antes de implementar -- evita a novela do YouTube). Ver
+             routes/socialAccounts.js. -->
+        <h2 style="margin-top:32px;">TikTok</h2>
+        <p class="muted">Publica o tipo "Vídeo TikTok" (1 arquivo) direto como a criadora conectada. A legenda vira o texto do post (com hashtags/@menções, se tiver). <strong>Importante:</strong> a TikTok só libera publicação PÚBLICA depois de auditar o App da Papoi -- até lá, todo post sai em modo privado (só a própria criadora vê), o recado de sucesso avisa isso.</p>
+        <div id="integracoesTiktokWarning" class="error" hidden>A Papoi ainda não tem o App do TikTok configurado no servidor (TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET).</div>
+        <div id="integracoesTiktokList"></div>
       </section>
 
     </main>
@@ -2183,6 +2194,29 @@
     <div class="modal-footer">
       <button id="pinterestPageChooserConfirm" class="btn-primary" disabled>Conectar este quadro</button>
       <button id="pinterestPageChooserCancel" class="btn-secondary">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mesma ideia, pra TikTok (76ª rodada) -- modal separado de novo. Aqui só
+     vem 1 criadora candidata (a autorização já é 1 login = 1 criadora, ver
+     utils/tiktokClient.js), mas o passo de confirmação explícita continua
+     existindo, mesmo motivo de segurança de sempre. Ver GET/POST
+     /api/social-accounts/tiktok/pending/:id em routes/socialAccounts.js. -->
+<div id="tiktokPageChooserModal" class="modal-overlay" hidden>
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <div class="modal-title-input" style="font-weight:700;padding:6px;">Essa é a conta certa?</div>
+      <button id="tiktokPageChooserClose" class="btn-link">Fechar ✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="tiktokPageChooserHint" class="muted"></p>
+      <div id="tiktokPageChooserList"></div>
+      <div id="tiktokPageChooserError" class="error" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button id="tiktokPageChooserConfirm" class="btn-primary" disabled>Conectar esta conta</button>
+      <button id="tiktokPageChooserCancel" class="btn-secondary">Cancelar</button>
     </div>
   </div>
 </div>

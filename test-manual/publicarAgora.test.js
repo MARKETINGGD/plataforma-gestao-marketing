@@ -172,18 +172,22 @@ async function run() {
   check('mensagem explica que falta conectar em Integrações', /Integraç/i.test(put4Body.error || ''));
   check('nenhuma chamada de verdade à Graph API foi feita (falhou antes, na checagem da conta)', calls.length === 0);
 
-  // ---------- 5. Rede/tipo fora do escopo da Meta (TikTok) continua com o
-  // comportamento de SEMPRE: marcar "Publicado" é só uma confirmação
-  // manual, sem chamar API nenhuma -- não pode quebrar esse fluxo, que
-  // nunca teve nada de automático. ----------
+  // ---------- 5. Rede fora do escopo de TODOS os publicadores automáticos
+  // (Blog -- nenhuma das 5 redes com auto-publish hoje: Meta, LinkedIn,
+  // YouTube, Pinterest, TikTok) continua com o comportamento de SEMPRE:
+  // marcar "Publicado" é só uma confirmação manual, sem chamar API
+  // nenhuma -- não pode quebrar esse fluxo, que nunca teve nada de
+  // automático. 76ª rodada: esse mesmo cenário usava "TikTok" como
+  // exemplo antes da TikTok ser implementada -- trocado pra "Blog" (que
+  // segue 100% manual) agora que TikTok também publica sozinha.
   calls = [];
-  const post5 = await createPost({ postType: 'video_tiktok', platform: 'tiktok', status: 'agendado' });
-  setFiles(post5.id, [{ id: 'f1', url: '/uploads/social/x/creative/video.mp4', name: 'video.mp4' }]);
+  const post5 = await createPost({ postType: 'estatico', platform: 'blog', status: 'agendado' });
+  setFiles(post5.id, [{ id: 'f1', url: '/uploads/social/x/creative/foto.jpg', name: 'foto.jpg' }]);
   const put5 = await putPost(post5.id, { status: 'publicado' });
   const put5Body = await put5.json();
-  check('TikTok marcado como Publicado: continua funcionando (200)', put5.status === 200);
-  check('TikTok: status realmente vira "publicado" (comportamento manual de sempre)', put5Body.post && put5Body.post.status === 'publicado');
-  check('TikTok: NENHUMA chamada à Graph API da Meta (não é publicação automática, nunca foi)', calls.length === 0);
+  check('Blog marcado como Publicado: continua funcionando (200)', put5.status === 200);
+  check('Blog: status realmente vira "publicado" (comportamento manual de sempre)', put5Body.post && put5Body.post.status === 'publicado');
+  check('Blog: NENHUMA chamada à Graph API da Meta (não é publicação automática, nunca foi)', calls.length === 0);
 
   console.log(failures === 0 ? '\nTODOS OS CHECKS PASSARAM' : `\n${failures} CHECK(S) FALHARAM`);
   process.exitCode = failures === 0 ? 0 : 1;

@@ -9,6 +9,7 @@ const metaGraph = require('../utils/metaGraphClient');
 const linkedinClient = require('../utils/linkedinClient');
 const youtubeClient = require('../utils/youtubeClient');
 const pinterestClient = require('../utils/pinterestClient');
+const tiktokClient = require('../utils/tiktokClient');
 
 const router = express.Router();
 
@@ -128,6 +129,26 @@ function pinterestConfigured() {
   return !!(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET);
 }
 
+// ---------- TikTok (76ª rodada, "Vamos para o tik tok, usamos ele na
+// Ghel e na De Bacco, então precisaremos de 2 acessos") ----------
+// Confirmado com a Raquel antes de implementar: GhelPlus e De Bacco usam
+// contas SEPARADAS na TikTok (login diferente cada uma) -- evita de vez
+// a novela de 6 rodadas do YouTube (conta compartilhada entre marcas).
+const TIKTOK_BRANDS = ['debacco', 'ghelplus'];
+const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY || '';
+const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET || '';
+const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI || `${APP_BASE_URL}/api/social-accounts/tiktok/callback`;
+// `video.publish` é o único escopo documentado como exigido pelo endpoint
+// de publicação direta (`/v2/post/publish/video/init/`) -- a consulta de
+// quem é a criadora (`creator_info/query`) não exige nenhum escopo extra
+// além desse, confirmado contra a documentação oficial da TikTok for
+// Developers (Content Posting API) pesquisada nesta rodada.
+const TIKTOK_SCOPES = ['video.publish'].join(',');
+
+function tiktokConfigured() {
+  return !!(TIKTOK_CLIENT_KEY && TIKTOK_CLIENT_SECRET);
+}
+
 function serialize(account) {
   if (!account) return null;
   // O token de acesso NUNCA sai do servidor (nem pra super admin) — só o
@@ -146,6 +167,9 @@ function serialize(account) {
     // Nome do quadro (board) do Pinterest -- mesmo espírito de pageName/
     // orgName/channelTitle acima.
     boardName: account.boardName || null,
+    // Usuária/criadora conectada na TikTok -- mesmo espírito de
+    // pageName/orgName/channelTitle/boardName acima.
+    creatorUsername: account.creatorUsername || null,
     tokenExpiresAt: account.tokenExpiresAt || null,
     connectedByName: resolveUserName(account.connectedBy, account.connectedByName),
     connectedAt: account.connectedAt
@@ -223,6 +247,21 @@ function cleanupExpiredPinterestSelections() {
   }
 }
 
+// Mesma ideia, pra TikTok -- Mapa separado de novo, mesmo motivo de
+// sempre. Igual ao YouTube, a autorização só devolve 1 criadora por vez
+// (o login já é o da conta certa, ver comentário na declaração de
+// TIKTOK_BRANDS acima) -- mesmo assim, a Papoi sempre para e pede
+// confirmação explícita antes de gravar a conexão de verdade, mesmo
+// motivo de segurança da 6ª correção da Meta (nunca decidir sozinha,
+// mesmo com 1 candidata só).
+const tiktokPendingSelections = new Map();
+function cleanupExpiredTiktokSelections() {
+  const now = Date.now();
+  for (const [id, sel] of tiktokPendingSelections) {
+    if (sel.expiresAt < now) tiktokPendingSelections.delete(id);
+  }
+}
+
 // ---------- listar status das conexões (tela "Integrações") ----------
 // Generalizado nesta rodada (67ª) pra devolver as 2 plataformas juntas --
 // o front (public/app.js) agrupa por `platform` em vez de assumir que é
@@ -277,15 +316,27 @@ router.get('/', requireAuth, (req, res) => {
       account: serialize(account)
     };
   });
+  const tiktokAccounts = TIKTOK_BRANDS.map((brand) => {
+    const account = db.get('socialAccounts').find({ brand, platform: 'tiktok' }).value();
+    return {
+      platform: 'tiktok',
+      brand,
+      brandLabel: BRAND_LABEL_PT[brand],
+      connected: !!account,
+      account: serialize(account)
+    };
+  });
   res.json({
     metaConfigured: metaConfigured(),
     linkedinConfigured: linkedinConfigured(),
     youtubeConfigured: youtubeConfigured(),
     pinterestConfigured: pinterestConfigured(),
+    tiktokConfigured: tiktokConfigured(),
     accounts: metaAccounts,
     linkedinAccounts,
     youtubeAccounts,
-    pinterestAccounts
+    pinterestAccounts,
+    tiktokAccounts
   });
 });
 
@@ -936,8 +987,155 @@ router.delete('/pinterest/:brand', requireAuth, requireSuperAdmin, (req, res) =>
   res.json({ ok: true });
 });
 
+// ---------- TikTok: iniciar a autorização ----------
+// URL/parâmetros confirmados contra a documentação oficial "Login Kit for
+// Web" da TikTok for Developers: `client_key` (não `client_id`, diferença
+// real da API da TikTok, mesmo cuidado já tomado com o `consumer_id` do
+// Pinterest), `response_type=code`, `scope`, `redirect_uri`, `state`.
+router.get('/tiktok/connect', requireAuth, requireSuperAdmin, (req, res) => {
+  if (!tiktokConfigured()) {
+    return res.status(503).json({ error: 'TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET ainda não configurados no servidor.' });
+  }
+  const { brand } = req.query;
+  if (!TIKTOK_BRANDS.includes(brand)) {
+    return res.status(400).json({ error: 'Marca inválida para conexão com a TikTok.' });
+  }
+  const state = signState({ brand, userId: req.user.id, provider: 'tiktok' });
+  const qs = new URLSearchParams({
+    client_key: TIKTOK_CLIENT_KEY,
+    response_type: 'code',
+    scope: TIKTOK_SCOPES,
+    redirect_uri: TIKTOK_REDIRECT_URI,
+    state
+  });
+  res.json({ redirectUrl: `https://www.tiktok.com/v2/auth/authorize/?${qs.toString()}` });
+});
+
+// ---------- TikTok: callback (a TikTok redireciona o NAVEGADOR pra cá) ----------
+// Sem requireAuth, mesmo motivo do callback da Meta/LinkedIn/YouTube/
+// Pinterest acima.
+router.get('/tiktok/callback', async (req, res) => {
+  const redirectBack = (params) => res.redirect(`${APP_BASE_URL}/?${new URLSearchParams(params).toString()}`);
+
+  const { code, state, error, error_description: errorDescription } = req.query;
+  if (error) {
+    return redirectBack({ integracoes: 'erro', motivo: errorDescription || error });
+  }
+  if (!code || !state) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Resposta inesperada da TikTok (faltou code/state).' });
+  }
+
+  let statePayload;
+  try {
+    statePayload = verifyState(state);
+  } catch (e) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Link de autorização expirado ou inválido — tente conectar de novo.' });
+  }
+  const { brand, userId } = statePayload;
+  const requestingUser = db.get('users').find({ id: userId }).value();
+  if (!requestingUser) {
+    return redirectBack({ integracoes: 'erro', motivo: 'Usuário que iniciou a conexão não existe mais.' });
+  }
+
+  try {
+    const token = await tiktokClient.exchangeCodeForToken({
+      clientKey: TIKTOK_CLIENT_KEY,
+      clientSecret: TIKTOK_CLIENT_SECRET,
+      redirectUri: TIKTOK_REDIRECT_URI,
+      code
+    });
+    if (!token.refresh_token) {
+      return redirectBack({
+        integracoes: 'erro',
+        motivo: 'A TikTok não devolveu uma autorização de longa duração dessa vez -- tente conectar de novo.'
+      });
+    }
+    const creatorInfo = await tiktokClient.queryCreatorInfo({ accessToken: token.access_token });
+
+    // Mesmo espírito da 6ª correção da Meta: nunca escolhe sozinha, mesmo
+    // vindo só 1 criadora candidata (a autorização da TikTok já é 1 login
+    // = 1 criadora, sem lista pra escolher, ver comentário na declaração
+    // de TIKTOK_BRANDS acima) -- sempre para e pede confirmação explícita
+    // de qual marca é essa.
+    cleanupExpiredTiktokSelections();
+    const selectionId = nanoid();
+    tiktokPendingSelections.set(selectionId, {
+      brand,
+      refreshToken: token.refresh_token,
+      expiresAt: Date.now() + PENDING_TTL_MS,
+      candidates: [{
+        creatorUsername: creatorInfo.creatorUsername,
+        creatorNickname: creatorInfo.creatorNickname,
+        creatorAvatarUrl: creatorInfo.creatorAvatarUrl
+      }]
+    });
+    return redirectBack({ integracoes: 'escolher-tiktok', brand, selectionId });
+  } catch (e) {
+    const motivo = e instanceof tiktokClient.TikTokApiError ? e.message : 'Erro inesperado ao conectar com a TikTok.';
+    return redirectBack({ integracoes: 'erro', motivo });
+  }
+});
+
+// ---------- TikTok: ver a criadora candidata de uma escolha pendente ----------
+router.get('/tiktok/pending/:selectionId', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredTiktokSelections();
+  const sel = tiktokPendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta TikTok" de novo.' });
+  res.json({
+    brand: sel.brand,
+    brandLabel: BRAND_LABEL_PT[sel.brand] || sel.brand,
+    // Refresh token NUNCA sai daqui -- só o suficiente pra pessoa
+    // reconhecer visualmente qual criadora é essa.
+    candidates: sel.candidates.map((c) => ({ creatorUsername: c.creatorUsername, creatorNickname: c.creatorNickname, creatorAvatarUrl: c.creatorAvatarUrl }))
+  });
+});
+
+// ---------- TikTok: confirmar que a criadora encontrada é a certa pra essa marca ----------
+router.post('/tiktok/pending/:selectionId/confirm', requireAuth, requireSuperAdmin, (req, res) => {
+  cleanupExpiredTiktokSelections();
+  const sel = tiktokPendingSelections.get(req.params.selectionId);
+  if (!sel) return res.status(404).json({ error: 'Essa conexão expirou ou já foi concluída — clique em "Conectar conta TikTok" de novo.' });
+  const { creatorUsername } = req.body || {};
+  const chosen = sel.candidates.find((c) => c.creatorUsername === creatorUsername);
+  if (!chosen) return res.status(400).json({ error: 'Criadora inválida.' });
+
+  const nowIso = new Date().toISOString();
+  const accountData = {
+    brand: sel.brand,
+    platform: 'tiktok',
+    creatorUsername: chosen.creatorUsername,
+    creatorNickname: chosen.creatorNickname,
+    creatorAvatarUrl: chosen.creatorAvatarUrl,
+    refreshToken: sel.refreshToken,
+    connectedBy: req.user.id,
+    connectedByName: req.user.name || req.user.username,
+    connectedAt: nowIso
+  };
+  const existing = db.get('socialAccounts').find({ brand: sel.brand, platform: 'tiktok' }).value();
+  if (existing) {
+    db.get('socialAccounts').find({ id: existing.id }).assign(accountData).write();
+  } else {
+    db.get('socialAccounts').push(Object.assign({ id: nanoid() }, accountData)).write();
+  }
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: sel.brand, entityLabel: `TikTok · ${BRAND_LABEL_PT[sel.brand] || sel.brand}`, action: existing ? 'update' : 'create', details: `Conectado como @${accountData.creatorUsername}` });
+
+  tiktokPendingSelections.delete(req.params.selectionId);
+  res.json({ ok: true, brand: sel.brand, creatorUsername: accountData.creatorUsername });
+});
+
+// ---------- TikTok: desconectar ----------
+router.delete('/tiktok/:brand', requireAuth, requireSuperAdmin, (req, res) => {
+  const { brand } = req.params;
+  const existing = db.get('socialAccounts').find({ brand, platform: 'tiktok' }).value();
+  if (!existing) return res.status(404).json({ error: 'Essa marca não está conectada.' });
+  db.get('socialAccounts').remove({ id: existing.id }).write();
+  logAudit({ user: req.user, entityType: 'socialAccount', entityId: brand, entityLabel: `TikTok · ${BRAND_LABEL_PT[brand] || brand}`, action: 'delete' });
+  res.json({ ok: true });
+});
+
 module.exports = router;
 module.exports.META_BRANDS = META_BRANDS;
 module.exports.LINKEDIN_BRANDS = LINKEDIN_BRANDS;
 module.exports.YOUTUBE_BRANDS = YOUTUBE_BRANDS;
 module.exports.PINTEREST_BRANDS = PINTEREST_BRANDS;
+module.exports.TIKTOK_BRANDS = TIKTOK_BRANDS;

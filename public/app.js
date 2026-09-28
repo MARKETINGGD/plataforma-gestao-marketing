@@ -7952,11 +7952,61 @@
       };
     });
 
-    // 76ª rodada: esconde os botões de ação das 4 redes (Conectar/
+    // TikTok (76ª rodada, "Vamos para o tik tok, usamos ele na Ghel e na De
+    // Bacco") -- mesmo cartão de sempre, trocando creatorUsername no lugar
+    // de boardName/channelTitle/igUsername/pageName/orgName. Diferente do
+    // Pinterest/LinkedIn (só 1 marca cada), tiktokAccounts tem as 2 marcas,
+    // mesmo padrão da Meta/YouTube.
+    $('#integracoesTiktokWarning').hidden = !!data.tiktokConfigured;
+    const ttList = $('#integracoesTiktokList');
+    ttList.innerHTML = '';
+    (data.tiktokAccounts || []).forEach((entry) => {
+      const card = document.createElement('div');
+      card.className = 'form-card';
+      const statusStyle = entry.connected
+        ? 'background:#d6f5d6;color:#1c6b1c;border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;'
+        : 'background:#eee;color:#666;border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;';
+      const statusLabel = entry.connected ? 'Conectado' : 'Não conectado';
+      const details = entry.connected
+        ? `<p class="muted" style="margin:8px 0 0;">Conectado como <strong>@${entry.account.creatorUsername || '—'}</strong> por ${entry.account.connectedByName || '—'} em ${fmtDate((entry.account.connectedAt || '').slice(0, 10))}.</p>`
+        : '';
+      card.innerHTML = `
+        <h3 style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">${entry.brandLabel} <span style="${statusStyle}">${statusLabel}</span></h3>
+        ${details}
+        <div class="form-actions" style="margin-top:12px;">
+          <button class="btn-primary" data-integ-tiktok-connect="${entry.brand}" ${data.tiktokConfigured ? '' : 'disabled'}>${entry.connected ? 'Reconectar conta TikTok' : 'Conectar conta TikTok'}</button>
+          ${entry.connected ? `<button class="btn-secondary" data-integ-tiktok-disconnect="${entry.brand}">Desconectar</button>` : ''}
+        </div>
+      `;
+      ttList.appendChild(card);
+    });
+    $all('#integracoesTiktokList [data-integ-tiktok-connect]').forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          const { redirectUrl } = await api('/api/social-accounts/tiktok/connect?brand=' + encodeURIComponent(btn.dataset.integTiktokConnect));
+          window.location.href = redirectUrl;
+        } catch (e) {
+          alert(e.message || 'Não foi possível iniciar a conexão com a TikTok.');
+        }
+      };
+    });
+    $all('#integracoesTiktokList [data-integ-tiktok-disconnect]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm('Desconectar essa conta? O Agendamento para de publicar sozinho na TikTok dessa marca até conectar de novo.')) return;
+        try {
+          await api('/api/social-accounts/tiktok/' + encodeURIComponent(btn.dataset.integTiktokDisconnect), { method: 'DELETE' });
+          loadIntegracoes();
+        } catch (e) {
+          alert(e.message || 'Não foi possível desconectar.');
+        }
+      };
+    });
+
+    // 76ª rodada: esconde os botões de ação das 5 redes (Conectar/
     // Reconectar/Desconectar) pra quem não é super admin -- só visualizar
     // o status continua liberado pra todo mundo (ver comentário no topo da
     // função). Um `hidden` só na div `.form-actions` de cada cartão, sem
-    // precisar duplicar essa checagem nos 4 blocos acima.
+    // precisar duplicar essa checagem nos 5 blocos acima.
     if (!currentUser.isSuperAdmin) {
       $all('#view-integracoes .form-actions').forEach((el) => { el.hidden = true; });
     }
@@ -7997,6 +8047,9 @@
     } else if (resultado === 'escolher-pinterest' && selectionId) {
       // 75ª rodada -- mesma ideia, modal separado (ver openPinterestPageChooser).
       openPinterestPageChooser(selectionId, brand);
+    } else if (resultado === 'escolher-tiktok' && selectionId) {
+      // 76ª rodada -- mesma ideia, modal separado (ver openTiktokPageChooser).
+      openTiktokPageChooser(selectionId, brand);
     } else {
       alert('Não foi possível conectar com a rede social: ' + (motivo || 'erro desconhecido.'));
       if (activeViewName === 'integracoes') loadIntegracoes();
@@ -8227,6 +8280,65 @@
         if (activeViewName === 'integracoes') loadIntegracoes();
       } catch (e) {
         errorEl.textContent = e.message || 'Não foi possível confirmar esse quadro.';
+        errorEl.hidden = false;
+        confirmBtn.disabled = false;
+      }
+    };
+    modal.hidden = false;
+  }
+
+  // Mesma ideia, pra TikTok (76ª rodada) -- a autorização já é 1 login = 1
+  // criadora (contas SEPARADAS entre GhelPlus e De Bacco, confirmado com a
+  // Raquel antes de implementar), então só vem 1 candidata sempre, mesmo
+  // padrão do YouTube (o passo de confirmação explícita continua existindo
+  // do mesmo jeito, mesmo motivo de segurança de sempre).
+  async function openTiktokPageChooser(selectionId, brandHint) {
+    let data;
+    try {
+      data = await api('/api/social-accounts/tiktok/pending/' + encodeURIComponent(selectionId));
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar a conta encontrada -- tente conectar de novo.');
+      return;
+    }
+    const modal = $('#tiktokPageChooserModal');
+    const list = $('#tiktokPageChooserList');
+    const errorEl = $('#tiktokPageChooserError');
+    const confirmBtn = $('#tiktokPageChooserConfirm');
+    errorEl.hidden = true;
+    confirmBtn.disabled = true;
+    $('#tiktokPageChooserHint').textContent = `Encontramos esta conta da TikTok -- é a certa pra ${data.brandLabel || brandHint || 'essa marca'}?`;
+    list.innerHTML = '';
+    let selectedUsername = null;
+    data.candidates.forEach((c) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;';
+      row.innerHTML = `
+        <input type="radio" name="tiktokPageChoice" value="${c.creatorUsername}" checked>
+        <span><strong>${c.creatorNickname || '—'}</strong><br><span class="muted" style="font-size:12px;">@${c.creatorUsername || '—'}</span></span>
+      `;
+      list.appendChild(row);
+      selectedUsername = c.creatorUsername;
+    });
+    confirmBtn.disabled = !selectedUsername;
+    $all('#tiktokPageChooserList input[name="tiktokPageChoice"]').forEach((input) => {
+      input.onchange = () => { selectedUsername = input.value; confirmBtn.disabled = false; };
+    });
+    const close = () => { modal.hidden = true; };
+    $('#tiktokPageChooserClose').onclick = close;
+    $('#tiktokPageChooserCancel').onclick = close;
+    confirmBtn.onclick = async () => {
+      if (!selectedUsername) return;
+      confirmBtn.disabled = true;
+      try {
+        const result = await api('/api/social-accounts/tiktok/pending/' + encodeURIComponent(selectionId) + '/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ creatorUsername: selectedUsername })
+        });
+        close();
+        alert(`Conta da TikTok conectada com sucesso para ${BRAND_LABEL[result.brand] || result.brand}: @${result.creatorUsername}.`);
+        if (activeViewName === 'integracoes') loadIntegracoes();
+      } catch (e) {
+        errorEl.textContent = e.message || 'Não foi possível confirmar essa conta.';
         errorEl.hidden = false;
         confirmBtn.disabled = false;
       }

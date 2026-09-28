@@ -111,6 +111,14 @@ require('./utils/youtubePublisher').startYouTubePublisherScheduler();
 // Só a De Bacco usa Pinterest por enquanto.
 require('./utils/pinterestPublisher').startPinterestPublisherScheduler();
 
+// 76ª rodada: mesma ideia, agora pra TikTok ("Vamos para o tik tok, usamos
+// ele na Ghel e na De Bacco") -- checa a cada 2 minutos se tem "Vídeo
+// TikTok" com a data/hora batendo e conta conectada (ver
+// utils/tiktokPublisher.js). Ainda sem nenhum teste real -- a TikTok exige
+// uma auditoria própria antes de publicar conteúdo público (até lá, tudo
+// sai em modo privado).
+require('./utils/tiktokPublisher').startTikTokPublisherScheduler();
+
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).
 app.use((req, res, next) => {

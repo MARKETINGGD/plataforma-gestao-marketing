@@ -256,6 +256,17 @@
             <button class="navlink navlink-sub" id="navDashTrafego" data-view="trafego-hub" data-dash="trafegoPago">Tráfego Pago</button>
             <button class="navlink navlink-sub" id="navDashMidias" data-view="midias-hub" data-dash="redesSociais">Mídias</button>
             <button class="navlink navlink-sub" id="navDashAcoes" data-view="acoes-hub">Ações Sazonais</button>
+            <!-- Acompanhamento Equipe (77ª rodada), pedido explícito da
+                 Raquel: "todo mundo pode ver o botão, mas é clicavel apenas
+                 para mim e a gerente" -- diferente dos 3 itens acima (que
+                 abrem um painel externo pra qualquer pessoa logada), este
+                 NUNCA fica escondido, mas o clique é bloqueado no próprio
+                 front (ver canViewTeamReport()/navDashAcompanhamento em
+                 app.js) pra quem não é super admin nem tem cargo gerente/
+                 coordenador -- a API (GET /api/demandas/team-report) recusa
+                 com 403 do mesmo jeito, então bloquear só na tela é uma
+                 conveniência, nunca a única trava de verdade. -->
+            <button class="navlink navlink-sub" id="navDashAcompanhamento" data-view="acompanhamento-equipe">Acompanhamento Equipe</button>
           </div>
         </div>
         <!-- Configurações -- 76ª rodada, pedido explícito da Raquel: "esse
@@ -757,6 +768,58 @@
         </div>
 
         <div id="acoesHubGroups"></div>
+      </section>
+
+      <!-- Acompanhamento Equipe (77ª rodada), pedido literal da Raquel:
+           "quero poder pegar relatórios de cada pessoa da equipe...
+           queremos saber o que foi feito, a data de inicio, data de
+           entrega e quantas pessoas estavam envolvidas. Se teve link ou
+           doc, quero ter acesso tbm". Restrito a admin/gerente/coordenador
+           (ver canViewTeamReport() em app.js e GET /api/demandas/
+           team-report em routes/demandas.js) -- quem não tem permissão
+           nem chega a abrir esta tela (o clique no menu já é bloqueado
+           antes), mas a checagem de verdade é sempre a da API. -->
+      <section id="view-acompanhamento-equipe" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Acompanhamento Equipe</h2>
+        </div>
+        <p class="muted">O que cada pessoa da equipe já fez, está fazendo ou está atrasado — com data de início (criação da demanda), data de entrega, quantas pessoas estavam envolvidas, e acesso a link/arquivos anexados.</p>
+
+        <div class="toolbar budget-filter-bar" id="acompanhamentoFilterBar">
+          <select id="acompanhamentoFilterPessoa"><option value="">Todas as pessoas</option></select>
+          <select id="acompanhamentoFilterStatus">
+            <option value="">Todos os status</option>
+            <option value="a_fazer">A Fazer</option>
+            <option value="andamento">Em Andamento</option>
+            <option value="aprovacao">Em Aprovação</option>
+            <option value="concluida">Concluída</option>
+            <option value="atrasada">Atrasada</option>
+          </select>
+          <select id="acompanhamentoFilterBrand">
+            <option value="">Todas as marcas</option>
+            <option value="debacco">De Bacco</option>
+            <option value="ghelplus">GhelPlus</option>
+            <option value="duranox">Duranox</option>
+            <option value="boutiqueinox">Boutique Inox</option>
+          </select>
+          <input id="acompanhamentoFilterFrom" type="date" title="Demandas criadas a partir de">
+          <input id="acompanhamentoFilterTo" type="date" title="Demandas criadas até">
+          <button id="acompanhamentoFilterClear" class="btn-secondary" type="button">Limpar filtros</button>
+        </div>
+
+        <h3 style="margin-top:18px;">Resumo por pessoa</h3>
+        <p class="muted" style="margin-top:0;font-size:12px;">O período/marca acima filtram este resumo; clique numa pessoa pra ver só as demandas dela na lista abaixo.</p>
+        <table class="data-table">
+          <thead><tr><th>Pessoa</th><th>Total</th><th>A Fazer</th><th>Em Andamento</th><th>Em Aprovação</th><th>Concluída</th><th>Atrasada</th></tr></thead>
+          <tbody id="acompanhamentoResumoBody"></tbody>
+        </table>
+
+        <h3 style="margin-top:24px;">Demandas</h3>
+        <table class="data-table">
+          <thead><tr><th>Pessoa(s)</th><th>Título</th><th>Marca</th><th>Status</th><th>Criada em</th><th>Entrega</th><th>Envolvidos</th><th>Link</th><th>Arquivos</th></tr></thead>
+          <tbody id="acompanhamentoDetalheBody"></tbody>
+        </table>
+        <p id="acompanhamentoEmpty" class="muted" hidden>Nenhuma demanda encontrada com esses filtros.</p>
       </section>
 
       <section id="view-acoes-tela" class="view" hidden>

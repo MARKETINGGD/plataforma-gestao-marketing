@@ -556,6 +556,99 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
   res.json({ month: ym, counts, excludedIds: Array.from(excludedIds) });
 });
 
+// ---------- Acompanhamento da Equipe (77ª rodada) ----------
+// Pedido literal da Raquel: "quero poder pegar relatórios de cada pessoa
+// da equipe, somente eu (coordenadora) e a gerente teremos acesso, queremos
+// saber o que foi feito, a data de inicio, data de entrega e quantas
+// pessoas estavam envolvidas. Se teve link ou doc, quero ter acesso tbm."
+// Depois confirmado: quer ver TODO status (já feito, em andamento, em
+// atraso), "data de início" = data de criação da demanda, e ela mesma
+// acumula os dois papéis (coordenadora E admin da Plataforma).
+//
+// Mesma regra de acesso já usada pra aprovar/reprovar na Prévia do Feed
+// (`canApprove` em routes/socialPosts.js) -- admin da Plataforma OU cargo
+// gerente/coordenador. Duplicada aqui (não importada) pelo mesmo motivo de
+// sempre nesta base: evitar um require cruzado entre rotas que não têm
+// mais nada a ver uma com a outra.
+function canViewTeamReport(req) {
+  if (req.user.role === 'super_admin') return true;
+  const user = db.get('users').find({ id: req.user.id }).value();
+  return !!user && (user.cargo === 'gerente' || user.cargo === 'coordenador');
+}
+
+const TEAM_REPORT_STATUS_VALUES = STATUSES.concat(['atrasada']);
+
+// "Atrasada" tem prioridade sobre o status de verdade do card pra fins
+// deste relatório -- mesmo espírito do badge vermelho já usado no quadro
+// geral (ver isOverdue acima): um card "Em Andamento" que já passou da
+// data de entrega conta como atrasado aqui, não como "em andamento".
+function teamReportStatusKey(d) {
+  return isOverdue(d) ? 'atrasada' : d.status;
+}
+
+router.get('/team-report', requireAuth, (req, res) => {
+  if (!canViewTeamReport(req)) {
+    return res.status(403).json({ error: 'Essa área é restrita à coordenação/gerência.' });
+  }
+  const { userId, status, from, to, brand } = req.query;
+  const statusFilter = TEAM_REPORT_STATUS_VALUES.includes(status) ? status : null;
+  const brandFilter = BRANDS.includes(brand) ? brand : null;
+
+  // Mesma exclusão do REIS DO MARKETING (ver GET /reis-do-marketing acima):
+  // gerente/coordenador são quem ACOMPANHA este relatório, não quem está
+  // sendo acompanhado -- ficam de fora da lista de "pessoas da equipe".
+  const managementIds = new Set(
+    db.get('users').value()
+      .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
+      .map((u) => u.id)
+  );
+  const teamUsers = db.get('users').value().filter((u) => !managementIds.has(u.id));
+
+  const allDemandas = db.get('demandas').value();
+
+  // Período (`from`/`to`) e marca filtram tanto o resumo por pessoa quanto
+  // a lista detalhada -- são "qual fatia de tempo/marca estamos olhando".
+  // Pessoa e status filtram só a lista detalhada -- o resumo por pessoa já
+  // mostra a composição por status de cada uma, então escolher 1 status ali
+  // esconderia justamente a comparação que o resumo serve pra mostrar.
+  function matchesPeriodAndBrand(d) {
+    if (from && (!d.createdAt || d.createdAt.slice(0, 10) < from)) return false;
+    if (to && (!d.createdAt || d.createdAt.slice(0, 10) > to)) return false;
+    if (brandFilter && d.brand !== brandFilter) return false;
+    return true;
+  }
+
+  const team = teamUsers.map((u) => {
+    const mine = allDemandas.filter((d) => (d.assigneeIds || []).includes(u.id) && matchesPeriodAndBrand(d));
+    const totals = { total: mine.length, a_fazer: 0, andamento: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
+    mine.forEach((d) => { const k = teamReportStatusKey(d); totals[k] = (totals[k] || 0) + 1; });
+    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals };
+  });
+
+  let detail = allDemandas.filter(matchesPeriodAndBrand);
+  if (userId) {
+    detail = detail.filter((d) => (d.assigneeIds || []).includes(userId));
+  } else {
+    // Sem pessoa escolhida: mostra só demandas que envolvem pelo menos 1
+    // pessoa DA EQUIPE (não as demandas pessoais só da própria coordenadora/
+    // gerente, que não é o que este relatório se propõe a acompanhar).
+    detail = detail.filter((d) => (d.assigneeIds || []).some((id) => !managementIds.has(id)));
+  }
+  if (statusFilter) {
+    detail = detail.filter((d) => teamReportStatusKey(d) === statusFilter);
+  }
+
+  const demandas = detail
+    .slice()
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+    .map((d) => Object.assign({}, serialize(d), {
+      statusKey: teamReportStatusKey(d),
+      assigneeCount: (d.assigneeIds || []).length
+    }));
+
+  res.json({ team, demandas });
+});
+
 router.post('/', requireAuth, (req, res) => {
   const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, recurrence, link, checklistTitle, checklist, responsibleId, brand, network } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });

@@ -72,8 +72,11 @@ async function main() {
   const configuracoesSubOrder = await page.$$eval('#navConfiguracoesSubmenu .navlink-sub', (els) => els.map((el) => el.id));
   check('Configurações: submenu com Usuários, Integrações, Ativar notificações, Tema escuro (nessa ordem)', JSON.stringify(configuracoesSubOrder) === JSON.stringify(['navUsers', 'navIntegracoes', 'osNotifToggleBtn', 'themeToggleBtn']));
 
+  // 77ª rodada: "Acompanhamento Equipe" entrou como 4º item deste submenu,
+  // depois de "Ações Sazonais" (ver test-manual/acompanhamentoEquipe.playwright.js
+  // pro comportamento de permissão desse item específico).
   const relatoriosSubOrder = await page.$$eval('#navRelatoriosSubmenu .navlink-sub', (els) => els.map((el) => el.id));
-  check('Relatórios: submenu com Tráfego Pago, Mídias, Ações Sazonais', JSON.stringify(relatoriosSubOrder) === JSON.stringify(['navDashTrafego', 'navDashMidias', 'navDashAcoes']));
+  check('Relatórios: submenu com Tráfego Pago, Mídias, Ações Sazonais, Acompanhamento Equipe', JSON.stringify(relatoriosSubOrder) === JSON.stringify(['navDashTrafego', 'navDashMidias', 'navDashAcoes', 'navDashAcompanhamento']));
 
   // ---------- Tema escuro / Ativar notificações continuam funcionando
   // depois de mudar de lugar (agora dentro do submenu Configurações) ----------

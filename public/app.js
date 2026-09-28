@@ -1000,7 +1000,8 @@
     }
     // Relatórios (76ª rodada) -- Tráfego Pago/Mídias/Ações Sazonais eram
     // botões soltos, viraram um submenu só, mesmo padrão de sempre.
-    if (id === 'navDashTrafego' || id === 'navDashMidias' || id === 'navDashAcoes') {
+    // Acompanhamento Equipe (77ª rodada) entrou nesse mesmo submenu.
+    if (id === 'navDashTrafego' || id === 'navDashMidias' || id === 'navDashAcoes' || id === 'navDashAcompanhamento') {
       $('#navRelatoriosParent').classList.add('active');
       $('#navRelatoriosSubmenu').hidden = false;
     }
@@ -1612,6 +1613,15 @@
     // aqui com setActiveNav(), mesmo motivo do navPonto/navGestor/navPowerBI.
     if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI' || b.id === 'navAppExternosParent' || b.id === 'navConfiguracoesParent' || b.id === 'navRelatoriosParent' || b.id === 'themeToggleBtn' || b.id === 'osNotifToggleBtn') return;
     b.onclick = () => {
+      // Acompanhamento Equipe (77ª rodada): botão sempre visível, mas o
+      // clique só funciona pra quem pode ver esse relatório -- ver
+      // canViewTeamReport() acima. Sai ANTES de setActiveNav() de propósito,
+      // pra não marcar esse item como "ativo" numa navegação que não
+      // aconteceu.
+      if (b.dataset.view === 'acompanhamento-equipe' && !canViewTeamReport()) {
+        alert('Essa área é restrita à coordenação/gerência.');
+        return;
+      }
       setActiveNav(b.id);
       // Gerenciamento de Mídias (26ª rodada): não abre mais o iframe cheio
       // do painel de Redes Sociais — abre a central nativa da Papoi
@@ -1647,6 +1657,8 @@
         if (b.dataset.view === 'produtos-catalogo') loadProdutosCatalogo();
         if (b.dataset.view === 'expositores-estoque') loadExpositoresEstoque();
         if (b.dataset.view === 'expositores-catalogo') loadExpositoresCatalogo();
+        // 77ª rodada
+        if (b.dataset.view === 'acompanhamento-equipe') loadAcompanhamentoEquipe();
       }
     };
   });
@@ -5869,6 +5881,107 @@
   function canApprovePost() {
     return !!currentUser && (currentUser.isSuperAdmin || currentUser.cargo === 'gerente' || currentUser.cargo === 'coordenador');
   }
+
+  // Mesma regra de acesso, reaproveitada pro Acompanhamento Equipe (77ª
+  // rodada, pedido explícito da Raquel: "todo mundo pode ver o botão, mas é
+  // clicavel apenas para mim e a gerente" -- ela mesma acumula os dois
+  // papéis, coordenadora E admin). Só bloqueia o CLIQUE aqui, como
+  // conveniência -- a API (GET /api/demandas/team-report) já recusa com
+  // 403 pra quem não tem essa permissão, então nunca é a única trava.
+  function canViewTeamReport() {
+    return !!currentUser && (currentUser.isSuperAdmin || currentUser.cargo === 'gerente' || currentUser.cargo === 'coordenador');
+  }
+
+  // ---------- Acompanhamento Equipe (77ª rodada) ----------
+  // Carrega e desenha os dois quadros (resumo por pessoa + lista detalhada)
+  // a partir de GET /api/demandas/team-report, já filtrado no servidor
+  // (pessoa/status/marca/período — ver rota em routes/demandas.js). Cada
+  // troca de filtro dispara uma nova chamada (dataset pequeno, sem
+  // paginação por enquanto, mesmo espírito do loadBudget acima).
+  const ACOMPANHAMENTO_STATUS_LABEL = { a_fazer: 'A Fazer', andamento: 'Em Andamento', aprovacao: 'Em Aprovação', concluida: 'Concluída', atrasada: 'Atrasada' };
+  async function loadAcompanhamentoEquipe() {
+    const pessoaSel = $('#acompanhamentoFilterPessoa');
+    const resumoBody = $('#acompanhamentoResumoBody');
+    const detalheBody = $('#acompanhamentoDetalheBody');
+    const params = new URLSearchParams();
+    if (pessoaSel.value) params.set('userId', pessoaSel.value);
+    if ($('#acompanhamentoFilterStatus').value) params.set('status', $('#acompanhamentoFilterStatus').value);
+    if ($('#acompanhamentoFilterBrand').value) params.set('brand', $('#acompanhamentoFilterBrand').value);
+    if ($('#acompanhamentoFilterFrom').value) params.set('from', $('#acompanhamentoFilterFrom').value);
+    if ($('#acompanhamentoFilterTo').value) params.set('to', $('#acompanhamentoFilterTo').value);
+
+    let data;
+    try {
+      data = await api('/api/demandas/team-report' + (params.toString() ? '?' + params.toString() : ''));
+    } catch (e) {
+      resumoBody.innerHTML = '';
+      detalheBody.innerHTML = '';
+      $('#acompanhamentoEmpty').hidden = false;
+      $('#acompanhamentoEmpty').textContent = 'Você não tem acesso a este relatório.';
+      return;
+    }
+
+    // Preenche o dropdown de pessoa preservando a seleção atual — trocar um
+    // filtro de período/marca/status não pode "esquecer" a pessoa escolhida.
+    const currentPessoaValue = pessoaSel.value;
+    pessoaSel.innerHTML = '<option value="">Todas as pessoas</option>'
+      + data.team.map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('');
+    pessoaSel.value = currentPessoaValue;
+
+    resumoBody.innerHTML = '';
+    data.team.forEach((u) => {
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.title = 'Ver só as demandas de ' + u.name;
+      tr.innerHTML = `
+        <td>${avatarHtml(u, 20)} ${escapeHtml(u.name)}</td>
+        <td>${u.totals.total}</td>
+        <td>${u.totals.a_fazer}</td>
+        <td>${u.totals.andamento}</td>
+        <td>${u.totals.aprovacao}</td>
+        <td>${u.totals.concluida}</td>
+        <td>${u.totals.atrasada}</td>
+      `;
+      tr.onclick = () => { pessoaSel.value = u.id; loadAcompanhamentoEquipe(); };
+      resumoBody.appendChild(tr);
+    });
+
+    detalheBody.innerHTML = '';
+    data.demandas.forEach((d) => {
+      const pessoas = (d.assigneeIds || [])
+        .map((id) => { const u = teamMembers.find((m) => m.id === id); return u ? u.name : null; })
+        .filter(Boolean).join(', ') || '—';
+      const arquivos = (d.files || []).length > 0
+        ? d.files.map((f) => `<a href="${f.url}" target="_blank" rel="noopener" title="${escapeHtml(f.name || '')}">${escapeHtml((f.name || 'arquivo').length > 22 ? f.name.slice(0, 20) + '…' : (f.name || 'arquivo'))}</a>`).join('<br>')
+        : '—';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(pessoas)}</td>
+        <td>${brandIconHtml(d.brand)}${escapeHtml(d.title || '')}</td>
+        <td>${d.brand ? (BRAND_LABEL[d.brand] || d.brand) : '—'}</td>
+        <td><span class="badge">${ACOMPANHAMENTO_STATUS_LABEL[d.statusKey] || d.statusKey}</span></td>
+        <td>${d.createdAt ? fmtDate(d.createdAt.slice(0, 10)) : '—'}</td>
+        <td>${d.dueDate ? fmtDate(d.dueDate) : '—'}</td>
+        <td>${d.assigneeCount}</td>
+        <td>${d.link ? `<a href="${escapeHtml(d.link)}" target="_blank" rel="noopener">Abrir</a>` : '—'}</td>
+        <td>${arquivos}</td>
+      `;
+      detalheBody.appendChild(tr);
+    });
+    $('#acompanhamentoEmpty').hidden = data.demandas.length > 0;
+  }
+
+  ['#acompanhamentoFilterPessoa', '#acompanhamentoFilterStatus', '#acompanhamentoFilterBrand', '#acompanhamentoFilterFrom', '#acompanhamentoFilterTo'].forEach((sel) => {
+    $(sel).addEventListener('change', loadAcompanhamentoEquipe);
+  });
+  $('#acompanhamentoFilterClear').onclick = () => {
+    $('#acompanhamentoFilterPessoa').value = '';
+    $('#acompanhamentoFilterStatus').value = '';
+    $('#acompanhamentoFilterBrand').value = '';
+    $('#acompanhamentoFilterFrom').value = '';
+    $('#acompanhamentoFilterTo').value = '';
+    loadAcompanhamentoEquipe();
+  };
 
   let approvalToastTimer = null;
   // 40ª rodada, pedido da Raquel: "ao ser aprovado um post, deve ter uma

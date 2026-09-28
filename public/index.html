@@ -481,6 +481,20 @@
           <button class="tab-btn" data-social-tab="boutiqueinox">Boutique Inox</button>
         </div>
 
+        <!-- 76ª rodada, pedido literal da Raquel: "e agendamento, adicione a
+             opção de filtro por: rede, tipo, assunto, data" -- mesmo padrão
+             visual/funcional do filtro do Budget (.budget-filter-bar,
+             25ª rodada): filtra em cima da lista já carregada, sem chamada
+             nova ao servidor, ver passesSocialFilter()/renderSocialPosts()
+             em app.js. -->
+        <div class="toolbar budget-filter-bar" id="socialFilterBar">
+          <select id="socialFilterPlatform"><option value="">Todas as redes</option></select>
+          <select id="socialFilterType"><option value="">Todos os tipos</option></select>
+          <input id="socialFilterSubject" type="text" placeholder="Buscar por assunto">
+          <input id="socialFilterDate" type="date">
+          <button id="socialFilterClear" class="btn-secondary" type="button">Limpar filtros</button>
+        </div>
+
         <div id="socialPostFormWrap" class="form-card" hidden>
           <h3 id="socialPostFormTitle">Novo agendamento</h3>
           <input type="hidden" id="socialPostFormId">

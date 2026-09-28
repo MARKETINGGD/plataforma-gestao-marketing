@@ -5148,6 +5148,45 @@
     };
   });
 
+  // Filtro do Agendamento (76ª rodada, pedido literal da Raquel: "e
+  // agendamento, adicione a opção de filtro por: rede, tipo, assunto,
+  // data") -- mesmo padrão do filtro do Budget (passesBudgetSearch acima):
+  // filtra em cima da lista já carregada em `socialPosts`, sem chamada nova
+  // ao servidor. "Rede" e "Tipo" listam TODAS as opções conhecidas (não só
+  // as da marca da aba atual), porque é um filtro sobre o que já existe na
+  // lista, não um campo de cadastro novo.
+  function fillSocialFilterOptions() {
+    const platformSel = $('#socialFilterPlatform');
+    const typeSel = $('#socialFilterType');
+    platformSel.innerHTML = '<option value="">Todas as redes</option>'
+      + Object.keys(SOCIAL_PLATFORM_LABEL).map((k) => `<option value="${k}">${SOCIAL_PLATFORM_LABEL[k]}</option>`).join('');
+    typeSel.innerHTML = '<option value="">Todos os tipos</option>'
+      + Object.keys(SOCIAL_POST_TYPE_LABEL).map((k) => `<option value="${k}">${SOCIAL_POST_TYPE_LABEL[k]}</option>`).join('');
+  }
+  fillSocialFilterOptions();
+  function clearSocialFilters() {
+    $('#socialFilterPlatform').value = '';
+    $('#socialFilterType').value = '';
+    $('#socialFilterSubject').value = '';
+    $('#socialFilterDate').value = '';
+  }
+  ['#socialFilterPlatform', '#socialFilterType', '#socialFilterSubject', '#socialFilterDate'].forEach((sel) => {
+    $(sel).addEventListener('input', renderSocialPosts);
+  });
+  $('#socialFilterClear').onclick = () => { clearSocialFilters(); renderSocialPosts(); };
+
+  function passesSocialFilter(p) {
+    const platform = $('#socialFilterPlatform').value;
+    const type = $('#socialFilterType').value;
+    const subject = $('#socialFilterSubject').value.trim().toLowerCase();
+    const date = $('#socialFilterDate').value;
+    if (platform && p.platform !== platform) return false;
+    if (type && p.postType !== type) return false;
+    if (subject && !(p.subject || '').toLowerCase().includes(subject)) return false;
+    if (date && p.scheduledDate !== date) return false;
+    return true;
+  }
+
   async function loadSocialPosts() {
     await ensureSocialMeta();
     const data = await api('/api/social-posts');
@@ -5158,8 +5197,16 @@
   function renderSocialPosts() {
     const body = $('#socialPostsBody');
     body.innerHTML = '';
-    const rows = socialPosts.filter((p) => (p.brand || 'debacco') === socialTab);
+    const brandRows = socialPosts.filter((p) => (p.brand || 'debacco') === socialTab);
+    const rows = brandRows.filter(passesSocialFilter);
     $('#socialPostsEmpty').hidden = rows.length > 0;
+    // Mensagem diferente quando o filtro é quem zerou a lista (existem
+    // agendamentos pra essa marca, só não bateram com o filtro) -- evita
+    // a pessoa achar que não tem NADA cadastrado quando na verdade é só o
+    // filtro que está escondendo.
+    $('#socialPostsEmpty').textContent = (rows.length === 0 && brandRows.length > 0)
+      ? 'Nenhum agendamento encontrado com esses filtros.'
+      : 'Nenhum agendamento ainda.';
     rows.forEach((p) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `

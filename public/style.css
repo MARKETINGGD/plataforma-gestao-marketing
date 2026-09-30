@@ -534,6 +534,11 @@ button{font-weight:700;}
 .row-unplanned{background:#fff8e1;}
 .text-danger{color:var(--danger);font-weight:700;}
 
+/* ---------- lista de itens de uma Retirada Interna (79ª rodada) ---------- */
+.retirada-items-list{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;}
+.retirada-item-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--bg);border-radius:8px;padding:8px 10px;font-size:13.5px;}
+.retirada-item-row-remove{background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;padding:0;flex:0 0 auto;}
+
 /* ---------- filtro de busca das Demandas (78ª rodada) ---------- */
 .demandas-filter-bar{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px;}
 .demandas-filter-bar select,.demandas-filter-bar input{padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--card);color:var(--text);}

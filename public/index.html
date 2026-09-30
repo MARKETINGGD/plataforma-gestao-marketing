@@ -1527,6 +1527,20 @@
         </div>
         <div class="view-toolbar-actions" style="margin:12px 0;">
           <button class="btn-primary" id="retiradasNewBtn">+ Nova retirada</button>
+          <!-- 79ª rodada, pedido da Raquel: "deve ter opção de baixar
+               relatório por retirada, por mês, por data e por marca". A
+               marca já filtra pelas abas acima; os botões abaixo exportam
+               exatamente o que os filtros da barra de busca (logo abaixo)
+               estiverem mostrando na tela. -->
+          <button class="btn-secondary no-print" id="retiradasExportExcelBtn" type="button">⬇️ Exportar Excel</button>
+          <button class="btn-secondary no-print" id="retiradasExportPdfBtn" type="button">🖨️ Exportar PDF</button>
+        </div>
+
+        <div class="demandas-filter-bar no-print">
+          <input type="text" id="retiradasFilterSearch" placeholder="Buscar por produto, quem retirou ou motivo...">
+          <input type="date" id="retiradasFilterData" title="Filtrar por uma data exata">
+          <input type="month" id="retiradasFilterMes" title="Filtrar por mês">
+          <button type="button" class="btn-secondary" id="retiradasFilterClear">Limpar filtros</button>
         </div>
 
         <div id="retiradaFormWrap" class="form-card" hidden>
@@ -1535,15 +1549,27 @@
             <div><label>Data da retirada</label><input id="retiradaFormDate" type="date"></div>
             <div><label>Quem retirou</label><input id="retiradaFormUser" type="text" placeholder="Nome de quem retirou"></div>
           </div>
-          <label>Produto retirado</label>
-          <select id="retiradaFormProdutoSelect"></select>
+
+          <!-- 79ª rodada, pedido da Raquel: "a tabela deve deixar
+               adicionar mais de um item por retirada, por que tem
+               retiradas que são pegos vários itens" -- uma retirada agora
+               é 1 data + 1 pessoa + uma LISTA de itens (cada um com seu
+               produto e quantidade), montada aqui antes de salvar. -->
+          <label>Itens retirados</label>
+          <div id="retiradaFormItemsList" class="retirada-items-list"></div>
+          <p class="muted" id="retiradaFormItemsEmpty" style="margin:2px 0 10px;">Nenhum item adicionado ainda — escolha um produto e a quantidade abaixo, depois clique em "Adicionar item".</p>
+          <div class="form-row">
+            <div><label>Produto</label><select id="retiradaFormProdutoSelect"></select></div>
+            <div><label>Quantidade</label><input id="retiradaFormQuantidade" type="number" min="1" step="1" placeholder="1"></div>
+          </div>
           <div class="form-row" id="retiradaFormNovoProdutoRow" hidden>
             <div><label>Nome do novo produto</label><input id="retiradaFormNovoProdutoNome" type="text" placeholder="Ex.: Garrafa de vinho tinto reserva"></div>
             <div><label>Grupo <span class="muted" style="font-weight:400;">(ex.: Vinhos)</span></label><input id="retiradaFormNovoProdutoGrupo" type="text" placeholder="Vinhos"></div>
           </div>
-          <div class="form-row">
-            <div><label>Quantidade retirada</label><input id="retiradaFormQuantidade" type="number" min="1" step="1" placeholder="1"></div>
-            <div><label>Motivo</label><input id="retiradaFormMotivo" type="text"></div>
+          <button type="button" class="btn-secondary" id="retiradaFormAddItemBtn">+ Adicionar item à lista</button>
+
+          <div class="form-row" style="margin-top:16px;">
+            <div><label>Motivo <span class="muted" style="font-weight:400;">(vale pra retirada inteira)</span></label><input id="retiradaFormMotivo" type="text"></div>
           </div>
           <div id="retiradaFormError" class="error" hidden></div>
           <div class="form-actions">
@@ -1553,7 +1579,7 @@
         </div>
 
         <table class="data-table">
-          <thead><tr><th>Data</th><th>Produto</th><th>Quem retirou</th><th>Qtd.</th><th>Motivo</th><th></th></tr></thead>
+          <thead><tr><th>Data</th><th>Itens retirados</th><th>Quem retirou</th><th>Motivo</th><th></th></tr></thead>
           <tbody id="retiradasBody"></tbody>
         </table>
         <p class="muted" id="retiradasEmpty" hidden>Nenhuma retirada registrada ainda pra essa marca.</p>
@@ -1574,6 +1600,23 @@
           <button class="btn-secondary no-print" id="campanhaCooperadaExportExcelBtn" type="button">⬇️ Exportar Excel</button>
           <button class="btn-secondary no-print" id="campanhaCooperadaExportPdfBtn" type="button">🖨️ Exportar PDF</button>
           <button class="btn-secondary no-print" id="campanhaCooperadaPublicLinkBtn" type="button">🔗 Link externo</button>
+        </div>
+
+        <!-- 79ª rodada, pedido da Raquel: "relatório de campanhas, por
+             representante, produto, cliente, marca, data e aprovação" --
+             marca já filtra pelas abas acima; a busca abaixo cobre
+             cliente/representante/produto de uma vez, mais aprovação e um
+             intervalo de datas (por data do pedido). -->
+        <div class="demandas-filter-bar no-print">
+          <input type="text" id="campanhaCooperadaFilterSearch" placeholder="Buscar por cliente, representante ou produto...">
+          <select id="campanhaCooperadaFilterAprovado">
+            <option value="">Aprovação: todas</option>
+            <option value="sim">Aprovadas</option>
+            <option value="nao">Não aprovadas</option>
+          </select>
+          <input type="date" id="campanhaCooperadaFilterDataInicio" title="Data do pedido a partir de">
+          <input type="date" id="campanhaCooperadaFilterDataFim" title="Data do pedido até">
+          <button type="button" class="btn-secondary" id="campanhaCooperadaFilterClear">Limpar filtros</button>
         </div>
 
         <!-- 66ª rodada, "Rodada H" da Pendência 51: link externo (só
@@ -1942,9 +1985,22 @@
           <button class="tab-btn" data-expositores-orcamentos-brand="ghelplus">GhelPlus</button>
         </div>
         <!-- 78ª rodada, pedido da Raquel: "colque filtro nos expositores,
-             para buscar por modelo" -- busca pelo nome do expositor. -->
-        <div style="margin:12px 0;max-width:280px;">
+             para buscar por modelo" -- busca pelo nome do expositor.
+             79ª rodada, pedido da Raquel: "coloque filtro tbm, modelo,
+             data, fornecedor, status" -- os 3 novos filtram as linhas de
+             fornecedor DENTRO de cada expositor (abre sozinho os
+             expositores que tiverem alguma linha batendo, esconde os que
+             não tiverem nenhuma). -->
+        <div class="demandas-filter-bar no-print">
           <input type="text" id="expositoresOrcamentosModeloFilter" placeholder="Filtrar por modelo (nome do expositor)...">
+          <input type="text" id="expositoresOrcamentosFornecedorFilter" placeholder="Filtrar por fornecedor...">
+          <input type="date" id="expositoresOrcamentosDataFilter" title="Filtrar pela data da cotação">
+          <select id="expositoresOrcamentosStatusFilter">
+            <option value="">Status: todos</option>
+            <option value="escolhido">Escolhido</option>
+            <option value="pendente">Pendente</option>
+          </select>
+          <button type="button" class="btn-secondary" id="expositoresOrcamentosFilterClear">Limpar filtros</button>
         </div>
 
         <div id="expositoresOrcamentosFormWrap" class="form-card form-card-wide" hidden>

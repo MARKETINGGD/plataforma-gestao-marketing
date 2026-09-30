@@ -7041,6 +7041,17 @@
   let retiradasBrand = 'debacco';
   let retiradasItems = [];
   let retiradasCatalog = [];
+  // 79ª rodada, pedido da Raquel: "a tabela deve deixar adicionar mais de
+  // um item por retirada" -- lista de itens montada NA TELA enquanto o
+  // formulário está aberto, antes de existir qualquer retirada de
+  // verdade; só vira um registro (com todos os itens juntos) quando
+  // clica em Salvar. Mesmo espírito do draftChecklist de Demandas.
+  let retiradaPendingItems = [];
+  // Filtros (79ª rodada, pedido da Raquel: "deve ter a opção de baixar
+  // relatório por retirada, por mês, por data e por marca (deve ter um
+  // filtro de busca também)") -- marca já filtra pelas abas; os 3 abaixo
+  // se somam a ela.
+  let retiradasFilters = { search: '', data: '', mes: '' };
 
   function retiradaProdutoOptionsHTML() {
     const sorted = retiradasCatalog.slice().sort((a, b) => (a.item || '').localeCompare(b.item || ''));
@@ -7061,19 +7072,41 @@
     renderRetiradas();
   }
 
+  // Texto com todos os itens de uma retirada, pra mostrar na tabela/
+  // exportar e também pra buscar (ex.: "Caneta Metálica (x3), Copo
+  // Térmico (x2)").
+  function retiradaItemsLabel(r) {
+    return (r.items || []).map((it) => `${it.item} (x${it.quantidade})`).join(', ');
+  }
+
+  function retiradaMatchesFilters(r) {
+    const f = retiradasFilters;
+    if (f.search) {
+      const q = f.search.trim().toLowerCase();
+      const haystack = `${retiradaItemsLabel(r)} ${r.withdrawnByName || ''} ${r.motivo || ''}`.toLowerCase();
+      if (q && !haystack.includes(q)) return false;
+    }
+    if (f.data && r.date !== f.data) return false;
+    if (f.mes && !(r.date || '').startsWith(f.mes)) return false;
+    return true;
+  }
+  function getFilteredRetiradas() {
+    return retiradasItems.filter(retiradaMatchesFilters);
+  }
+
   function renderRetiradas() {
     const body = $('#retiradasBody');
     body.innerHTML = '';
     const editable = canEditBrindes();
-    $('#retiradasEmpty').hidden = retiradasItems.length > 0;
-    retiradasItems.forEach((r) => {
+    const rows = getFilteredRetiradas();
+    $('#retiradasEmpty').hidden = rows.length > 0;
+    rows.forEach((r) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${fmtDate(r.date)}</td>
-        <td>${r.item}</td>
-        <td>${r.withdrawnByName || ''}</td>
-        <td>${r.quantidade || ''}</td>
-        <td>${r.motivo || ''}</td>
+        <td>${escapeHtml(retiradaItemsLabel(r))}</td>
+        <td>${escapeHtml(r.withdrawnByName || '')}</td>
+        <td>${escapeHtml(r.motivo || '')}</td>
         <td></td>
       `;
       if (editable) {
@@ -7092,6 +7125,31 @@
     });
   }
 
+  $('#retiradasFilterSearch').addEventListener('input', (e) => { retiradasFilters.search = e.target.value; renderRetiradas(); });
+  $('#retiradasFilterData').addEventListener('change', (e) => { retiradasFilters.data = e.target.value; renderRetiradas(); });
+  $('#retiradasFilterMes').addEventListener('change', (e) => { retiradasFilters.mes = e.target.value; renderRetiradas(); });
+  $('#retiradasFilterClear').onclick = () => {
+    retiradasFilters = { search: '', data: '', mes: '' };
+    $('#retiradasFilterSearch').value = '';
+    $('#retiradasFilterData').value = '';
+    $('#retiradasFilterMes').value = '';
+    renderRetiradas();
+  };
+
+  $('#retiradasExportExcelBtn').onclick = () => {
+    const headers = ['Data', 'Marca', 'Produto', 'Quantidade', 'Quem retirou', 'Motivo'];
+    // Uma linha por ITEM (não por retirada) -- fica mais fácil de somar/
+    // filtrar por produto numa planilha depois de exportado.
+    const rows = [];
+    getFilteredRetiradas().forEach((r) => {
+      (r.items || []).forEach((it) => {
+        rows.push([fmtDate(r.date), BRAND_LABEL[retiradasBrand] || retiradasBrand, it.item, it.quantidade, r.withdrawnByName || '', r.motivo || '']);
+      });
+    });
+    exportRowsToExcel(`Papoi - Retiradas Internas - ${retiradasBrand}.xlsx`, 'Retiradas Internas', headers, rows);
+  };
+  $('#retiradasExportPdfBtn').onclick = exportViewToPdf;
+
   $all('.tab-btn[data-retiradas-brand]').forEach((b) => {
     b.onclick = () => {
       retiradasBrand = b.dataset.retiradasBrand;
@@ -7099,6 +7157,27 @@
       loadRetiradas();
     };
   });
+
+  function renderRetiradaPendingItems() {
+    const wrap = $('#retiradaFormItemsList');
+    wrap.innerHTML = '';
+    $('#retiradaFormItemsEmpty').hidden = retiradaPendingItems.length > 0;
+    retiradaPendingItems.forEach((it, idx) => {
+      const row = document.createElement('div');
+      row.className = 'retirada-item-row';
+      row.innerHTML = `<span>${escapeHtml(it.item)} — quantidade: ${it.quantidade}</span>`;
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'retirada-item-row-remove';
+      removeBtn.textContent = '✕ Remover';
+      removeBtn.onclick = () => {
+        retiradaPendingItems.splice(idx, 1);
+        renderRetiradaPendingItems();
+      };
+      row.appendChild(removeBtn);
+      wrap.appendChild(row);
+    });
+  }
 
   function openRetiradaForm() {
     $('#retiradaFormDate').value = new Date().toISOString().slice(0, 10);
@@ -7111,6 +7190,8 @@
     $('#retiradaFormQuantidade').value = '1';
     $('#retiradaFormMotivo').value = '';
     $('#retiradaFormError').hidden = true;
+    retiradaPendingItems = [];
+    renderRetiradaPendingItems();
     $('#retiradaFormWrap').hidden = false;
   }
   $('#retiradasNewBtn').onclick = openRetiradaForm;
@@ -7118,36 +7199,58 @@
   $('#retiradaFormProdutoSelect').onchange = () => {
     $('#retiradaFormNovoProdutoRow').hidden = $('#retiradaFormProdutoSelect').value !== '__novo__';
   };
-  $('#retiradaFormSave').onclick = async () => {
+
+  // "+ Adicionar item à lista" -- valida só o item atual (produto +
+  // quantidade) e empilha no rascunho, limpando os campos pra já poder
+  // adicionar o próximo item sem reabrir nada.
+  $('#retiradaFormAddItemBtn').onclick = () => {
     const produtoSelect = $('#retiradaFormProdutoSelect').value;
     const isNovo = produtoSelect === '__novo__';
+    const quantidade = Number($('#retiradaFormQuantidade').value);
+    const entry = { quantidade };
+    if (isNovo) {
+      entry.item = $('#retiradaFormNovoProdutoNome').value.trim();
+      entry.group = $('#retiradaFormNovoProdutoGrupo').value.trim();
+    } else {
+      const catalogItem = retiradasCatalog.find((it) => it.id === produtoSelect);
+      entry.catalogItemId = produtoSelect;
+      entry.item = catalogItem ? catalogItem.item : '';
+    }
+    if (!entry.item) {
+      $('#retiradaFormError').textContent = 'Escolha ou cadastre o produto do item.';
+      $('#retiradaFormError').hidden = false;
+      return;
+    }
+    if (!quantidade || quantidade < 1) {
+      $('#retiradaFormError').textContent = 'Informe a quantidade do item (mínimo 1).';
+      $('#retiradaFormError').hidden = false;
+      return;
+    }
+    $('#retiradaFormError').hidden = true;
+    retiradaPendingItems.push(entry);
+    renderRetiradaPendingItems();
+    $('#retiradaFormProdutoSelect').value = '';
+    $('#retiradaFormNovoProdutoRow').hidden = true;
+    $('#retiradaFormNovoProdutoNome').value = '';
+    $('#retiradaFormNovoProdutoGrupo').value = '';
+    $('#retiradaFormQuantidade').value = '1';
+  };
+
+  $('#retiradaFormSave').onclick = async () => {
     const payload = {
       brand: retiradasBrand,
       date: $('#retiradaFormDate').value,
       withdrawnByName: $('#retiradaFormUser').value.trim(),
-      quantidade: Number($('#retiradaFormQuantidade').value),
-      motivo: $('#retiradaFormMotivo').value.trim()
+      motivo: $('#retiradaFormMotivo').value.trim(),
+      items: retiradaPendingItems
     };
-    if (isNovo) {
-      payload.item = $('#retiradaFormNovoProdutoNome').value.trim();
-      payload.group = $('#retiradaFormNovoProdutoGrupo').value.trim();
-    } else {
-      const catalogItem = retiradasCatalog.find((it) => it.id === produtoSelect);
-      payload.catalogItemId = produtoSelect;
-      payload.item = catalogItem ? catalogItem.item : '';
-    }
-    if (!payload.item) {
-      $('#retiradaFormError').textContent = 'Escolha ou cadastre o produto retirado.';
+    if (retiradaPendingItems.length === 0) {
+      $('#retiradaFormError').textContent = 'Adicione pelo menos um item retirado (produto + quantidade) à lista.';
       $('#retiradaFormError').hidden = false;
       return;
     }
     if (!payload.withdrawnByName) {
       $('#retiradaFormError').textContent = 'Escreva o nome de quem retirou.';
-      $('#retiradaFormError').hidden = false;
-      return;
-    }
-    if (!payload.quantidade || payload.quantidade < 1) {
-      $('#retiradaFormError').textContent = 'Informe a quantidade retirada (mínimo 1).';
       $('#retiradaFormError').hidden = false;
       return;
     }
@@ -7174,6 +7277,12 @@
   let campanhaCooperadaBrandFilter = 'todos';
   let campanhaCooperadaItems = [];
   let editingCampanhaCooperadaId = null;
+  // 79ª rodada, pedido da Raquel: "relatório de campanhas, por
+  // representante, produto, cliente, marca, data e aprovação" -- marca
+  // continua nas abas (campanhaCooperadaBrandFilter); os outros 4 critérios
+  // (representante/produto/cliente numa busca só, aprovação, e intervalo
+  // de datas do pedido) somam-se aqui.
+  let campanhaCooperadaFilters = { search: '', aprovado: '', dataInicio: '', dataFim: '' };
 
   function canEditCampanhaCooperada() {
     if (!currentUser) return false;
@@ -7192,9 +7301,30 @@
     return value ? '<span class="badge badge-success">Sim</span>' : '<span class="badge">Não</span>';
   }
 
+  // Predicado único, reaproveitado pela tabela E pela exportação -- assim
+  // o Excel/PDF exportado sempre bate exatamente com o que está filtrado
+  // na tela (antes o Excel ignorava tudo que não fosse a marca).
+  function campanhaCooperadaMatchesFilters(it) {
+    if (campanhaCooperadaBrandFilter !== 'todos' && it.brand !== campanhaCooperadaBrandFilter) return false;
+    const f = campanhaCooperadaFilters;
+    if (f.search) {
+      const q = f.search.trim().toLowerCase();
+      const haystack = `${it.cliente || ''} ${it.representante || ''} ${it.produto || ''}`.toLowerCase();
+      if (q && !haystack.includes(q)) return false;
+    }
+    if (f.aprovado === 'sim' && !it.aprovado) return false;
+    if (f.aprovado === 'nao' && it.aprovado) return false;
+    if (f.dataInicio && (!it.dataPedido || it.dataPedido < f.dataInicio)) return false;
+    if (f.dataFim && (!it.dataPedido || it.dataPedido > f.dataFim)) return false;
+    return true;
+  }
+  function getFilteredCampanhasCooperadas() {
+    return campanhaCooperadaItems.filter(campanhaCooperadaMatchesFilters);
+  }
+
   function renderCampanhasCooperadas() {
     $('#campanhaCooperadaNewBtn').hidden = !canEditCampanhaCooperada();
-    const rows = campanhaCooperadaItems.filter((it) => campanhaCooperadaBrandFilter === 'todos' || it.brand === campanhaCooperadaBrandFilter);
+    const rows = getFilteredCampanhasCooperadas();
     const body = $('#campanhaCooperadaBody');
     $('#campanhaCooperadaEmpty').hidden = rows.length > 0;
     const editable = canEditCampanhaCooperada();
@@ -7279,21 +7409,32 @@
     $('#campanhaCooperadaFormWrap').hidden = false;
   }
   $('#campanhaCooperadaNewBtn').onclick = () => openCampanhaCooperadaForm(null);
-  // Exportar (65ª rodada) -- mesmo filtro de marca da tela
-  // (campanhaCooperadaBrandFilter, pode ser "todos").
+  // Exportar (65ª rodada, ajustado na 79ª pra respeitar os novos filtros
+  // também, não só a marca -- reaproveita getFilteredCampanhasCooperadas(),
+  // o mesmo predicado usado na tabela, pra Excel/PDF baterem com a tela).
   $('#campanhaCooperadaExportExcelBtn').onclick = () => {
     const headers = ['Marca', 'Cliente', 'Representante', 'Produto', 'Gerente responsável', 'Qtd.', 'Data pedido', 'Data entrega', 'Aprovado', 'Cobrança enviada', 'Finalizado'];
-    const rows = campanhaCooperadaItems
-      .filter((it) => campanhaCooperadaBrandFilter === 'todos' || it.brand === campanhaCooperadaBrandFilter)
-      .map((it) => [
-        BRAND_LABEL[it.brand] || it.brand, it.cliente, it.representante || '', it.produto || '',
-        it.responsavelNome || '', it.quantidade != null ? it.quantidade : '',
-        it.dataPedido ? fmtDate(it.dataPedido) : '', it.dataEntrega ? fmtDate(it.dataEntrega) : '',
-        it.aprovado ? 'Sim' : 'Não', it.cobrancaEnviada ? 'Sim' : 'Não', it.finalizado ? 'Sim' : 'Não'
-      ]);
+    const rows = getFilteredCampanhasCooperadas().map((it) => [
+      BRAND_LABEL[it.brand] || it.brand, it.cliente, it.representante || '', it.produto || '',
+      it.responsavelNome || '', it.quantidade != null ? it.quantidade : '',
+      it.dataPedido ? fmtDate(it.dataPedido) : '', it.dataEntrega ? fmtDate(it.dataEntrega) : '',
+      it.aprovado ? 'Sim' : 'Não', it.cobrancaEnviada ? 'Sim' : 'Não', it.finalizado ? 'Sim' : 'Não'
+    ]);
     exportRowsToExcel('Papoi - Campanha Cooperada.xlsx', 'Campanha Cooperada', headers, rows);
   };
   $('#campanhaCooperadaExportPdfBtn').onclick = exportViewToPdf;
+  $('#campanhaCooperadaFilterSearch').addEventListener('input', (e) => { campanhaCooperadaFilters.search = e.target.value; renderCampanhasCooperadas(); });
+  $('#campanhaCooperadaFilterAprovado').addEventListener('change', (e) => { campanhaCooperadaFilters.aprovado = e.target.value; renderCampanhasCooperadas(); });
+  $('#campanhaCooperadaFilterDataInicio').addEventListener('change', (e) => { campanhaCooperadaFilters.dataInicio = e.target.value; renderCampanhasCooperadas(); });
+  $('#campanhaCooperadaFilterDataFim').addEventListener('change', (e) => { campanhaCooperadaFilters.dataFim = e.target.value; renderCampanhasCooperadas(); });
+  $('#campanhaCooperadaFilterClear').onclick = () => {
+    campanhaCooperadaFilters = { search: '', aprovado: '', dataInicio: '', dataFim: '' };
+    $('#campanhaCooperadaFilterSearch').value = '';
+    $('#campanhaCooperadaFilterAprovado').value = '';
+    $('#campanhaCooperadaFilterDataInicio').value = '';
+    $('#campanhaCooperadaFilterDataFim').value = '';
+    renderCampanhasCooperadas();
+  };
   $('#campanhaCooperadaFormCancel').onclick = () => { $('#campanhaCooperadaFormWrap').hidden = true; };
   $('#campanhaCooperadaFileInput').onchange = async () => {
     const file = $('#campanhaCooperadaFileInput').files[0];
@@ -7863,6 +8004,12 @@
   let expositoresOrcamentosCanEdit = false;
   let editingExpositoresOrcamentoId = null;
   const expositoresOrcamentosExpanded = new Set(); // ids com "Ver detalhes" aberto
+  // 79ª rodada, pedido da Raquel: "coloque filtro tbm, modelo, data,
+  // fornecedor, status. O status tbm deve ter a opção de ser editado" --
+  // modelo já existia (filtra os CARDS pelo nome); os 3 novos filtram as
+  // LINHAS de fornecedor dentro de cada card (data/fornecedor/status =
+  // "escolhido", confirmado com a Raquel que "o status é escolhido").
+  let expositoresOrcamentosFilters = { fornecedor: '', data: '', status: '' };
 
   async function loadExpositoresOrcamentos() {
     try {
@@ -7881,21 +8028,52 @@
     return (it.nome || '').toLowerCase().includes(q);
   }
 
+  // Filtro por fornecedor/data/status -- roda em cima de cada LINHA de
+  // fornecedor (não do card do expositor inteiro), já que são campos que
+  // só existem lá dentro.
+  function orcamentoFornecedorMatchesFilters(f) {
+    const filters = expositoresOrcamentosFilters;
+    if (filters.fornecedor) {
+      const q = filters.fornecedor.trim().toLowerCase();
+      if (q && !(f.fornecedor || '').toLowerCase().includes(q)) return false;
+    }
+    if (filters.data && f.data !== filters.data) return false;
+    if (filters.status === 'escolhido' && !f.escolhido) return false;
+    if (filters.status === 'pendente' && f.escolhido) return false;
+    return true;
+  }
+  function hasActiveFornecedorFilters() {
+    const f = expositoresOrcamentosFilters;
+    return !!(f.fornecedor || f.data || f.status);
+  }
+
   function orcamentoFornecedorRowHtml(orc, f) {
+    let statusCell;
+    if (f.escolhido) {
+      // 79ª rodada: antes, uma vez escolhido não tinha como voltar atrás
+      // sem escolher outro fornecedor no lugar -- "o status tbm deve ter
+      // a opção de ser editado" -- "Desmarcar" devolve pro estado pendente.
+      statusCell = expositoresOrcamentosCanEdit
+        ? `<b>✓ Escolhido</b> <button type="button" class="btn-link" data-desescolher-fornecedor="${f.id}">Desmarcar</button>`
+        : '<b>✓ Escolhido</b>';
+    } else {
+      statusCell = expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link" data-escolher-fornecedor="${f.id}">Escolher</button>` : '—';
+    }
     return `
       <tr data-fornecedor-row="${f.id}"${f.escolhido ? ' style="background:color-mix(in srgb, var(--primary) 12%, var(--card));"' : ''}>
         <td>${escapeHtml(f.fornecedor)}</td>
+        <td>${f.data ? fmtDate(f.data) : '—'}</td>
         <td>${f.valor === null || f.valor === undefined ? '—' : fmtMoney(f.valor)}</td>
         <td>${escapeHtml(f.material || '—')}</td>
         <td>${escapeHtml(f.prazoEntrega || '—')}</td>
         <td>${escapeHtml(f.pedidoMinimo || '—')}</td>
-        <td>${f.escolhido ? '<b>✓ Escolhido</b>' : (expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link" data-escolher-fornecedor="${f.id}">Escolher</button>` : '—')}</td>
+        <td>${statusCell}</td>
         <td>${expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link danger" data-del-fornecedor="${f.id}">Excluir</button>` : ''}</td>
       </tr>
     `;
   }
 
-  function orcamentoDetailsHtml(orc) {
+  function orcamentoDetailsHtml(orc, fornecedoresOverride) {
     const imagensHtml = (orc.imagens || []).map((f) => `
       <div class="orcamento-file-thumb" data-imagem-item="${f.id}">
         <a href="${f.url}" target="_blank" rel="noopener"><img src="${f.url}" alt="${escapeHtml(f.name)}"></a>
@@ -7908,7 +8086,10 @@
         ${expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link danger" data-del-desenho="${f.id}">Excluir</button>` : ''}
       </div>
     `).join('') || '<p class="muted" style="font-size:12px;">Nenhum arquivo de desenho técnico ainda.</p>';
-    const fornecedoresRows = (orc.fornecedores || []).map((f) => orcamentoFornecedorRowHtml(orc, f)).join('');
+    // Quando algum filtro de fornecedor/data/status está ativo, mostra só
+    // as linhas que batem (fornecedoresOverride); senão, mostra todas.
+    const fornecedoresSource = fornecedoresOverride || orc.fornecedores || [];
+    const fornecedoresRows = fornecedoresSource.map((f) => orcamentoFornecedorRowHtml(orc, f)).join('');
     return `
       <div class="orcamento-files-row">
         <div>
@@ -7924,13 +8105,14 @@
       </div>
       <b style="display:block;margin-top:16px;">Empresas orçadas <span class="muted" style="font-weight:400;font-size:12px;">(compare e marque a escolhida)</span></b>
       <table class="data-table" style="margin-top:6px;">
-        <thead><tr><th>Fornecedor</th><th>Valor</th><th>Material</th><th>Prazo de entrega</th><th>Pedido mínimo</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Fornecedor</th><th>Data</th><th>Valor</th><th>Material</th><th>Prazo de entrega</th><th>Pedido mínimo</th><th>Status</th><th></th></tr></thead>
         <tbody data-fornecedores-body="${orc.id}">${fornecedoresRows}</tbody>
       </table>
-      ${(orc.fornecedores || []).length === 0 ? '<p class="muted" style="font-size:12px;">Nenhum fornecedor orçado ainda.</p>' : ''}
+      ${fornecedoresSource.length === 0 ? '<p class="muted" style="font-size:12px;">Nenhum fornecedor orçado ainda.</p>' : ''}
       ${expositoresOrcamentosCanEdit ? `
         <div class="orcamento-fornecedor-add-row" data-fornecedor-add="${orc.id}">
           <input type="text" placeholder="Fornecedor" data-f-fornecedor>
+          <input type="date" placeholder="Data da cotação" data-f-data title="Data da cotação">
           <input type="number" step="0.01" placeholder="Valor (R$)" data-f-valor>
           <input type="text" placeholder="Material" data-f-material>
           <input type="text" placeholder="Prazo de entrega" data-f-prazo>
@@ -7943,14 +8125,26 @@
 
   function renderExpositoresOrcamentos() {
     const query = $('#expositoresOrcamentosModeloFilter').value;
-    const rows = expositoresOrcamentosItems.filter((it) => expositorOrcamentoMatchesModelo(it, query));
+    // 79ª rodada: quando fornecedor/data/status está em uso, filtra pelas
+    // LINHAS de fornecedor de cada expositor -- some da lista quem não
+    // tiver nenhuma linha batendo, e abre sozinho ("Ver detalhes") quem
+    // tiver, pra já mostrar a linha que bateu sem precisar clicar.
+    const activeFornecedorFilters = hasActiveFornecedorFilters();
+    const rows = expositoresOrcamentosItems
+      .filter((it) => expositorOrcamentoMatchesModelo(it, query))
+      .map((it) => {
+        if (!activeFornecedorFilters) return { orc: it, fornecedoresOverride: null };
+        const matched = (it.fornecedores || []).filter(orcamentoFornecedorMatchesFilters);
+        return matched.length > 0 ? { orc: it, fornecedoresOverride: matched } : null;
+      })
+      .filter(Boolean);
     const list = $('#expositoresOrcamentosList');
     $('#expositoresOrcamentosEmpty').hidden = rows.length > 0;
-    list.innerHTML = rows.map((orc) => {
+    list.innerHTML = rows.map(({ orc, fornecedoresOverride }) => {
       // "a imagem dele deve aparecer ao lado do nome, para ficar mais
       // visual" -- usa a 1ª imagem enviada como uma espécie de capa.
       const capa = (orc.imagens || [])[0];
-      const expanded = expositoresOrcamentosExpanded.has(orc.id);
+      const expanded = activeFornecedorFilters ? true : expositoresOrcamentosExpanded.has(orc.id);
       return `
         <div class="compare-card" data-orc-card="${orc.id}">
           <div class="compare-card-head">
@@ -7966,7 +8160,7 @@
               ${expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link" data-edit-orc="${orc.id}">Editar</button> <button type="button" class="btn-link danger" data-del-orc="${orc.id}">Excluir</button>` : ''}
             </span>
           </div>
-          <div class="orcamento-details" ${expanded ? '' : 'hidden'}>${expanded ? orcamentoDetailsHtml(orc) : ''}</div>
+          <div class="orcamento-details" ${expanded ? '' : 'hidden'}>${expanded ? orcamentoDetailsHtml(orc, fornecedoresOverride) : ''}</div>
         </div>
       `;
     }).join('');
@@ -8038,6 +8232,7 @@
         const row = $(`[data-fornecedor-add="${orcId}"]`);
         const payload = {
           fornecedor: row.querySelector('[data-f-fornecedor]').value.trim(),
+          data: row.querySelector('[data-f-data]').value || null,
           valor: row.querySelector('[data-f-valor]').value || null,
           material: row.querySelector('[data-f-material]').value.trim(),
           prazoEntrega: row.querySelector('[data-f-prazo]').value.trim(),
@@ -8055,6 +8250,17 @@
       b.onclick = async () => {
         try {
           await api(`/api/expositores/orcamentos/${orcId}/fornecedores/${b.dataset.escolherFornecedor}`, { method: 'PUT', body: JSON.stringify({ escolhido: true }) });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    // 79ª rodada: "Desmarcar" -- devolve o status pra pendente sem
+    // escolher nenhum outro fornecedor no lugar.
+    $all('[data-desescolher-fornecedor]').forEach((b) => {
+      const orcId = b.closest('[data-orc-card]').dataset.orcCard;
+      b.onclick = async () => {
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/fornecedores/${b.dataset.desescolherFornecedor}`, { method: 'PUT', body: JSON.stringify({ escolhido: false }) });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
@@ -8103,6 +8309,17 @@
     }
   };
   $('#expositoresOrcamentosModeloFilter').addEventListener('input', renderExpositoresOrcamentos);
+  $('#expositoresOrcamentosFornecedorFilter').addEventListener('input', (e) => { expositoresOrcamentosFilters.fornecedor = e.target.value; renderExpositoresOrcamentos(); });
+  $('#expositoresOrcamentosDataFilter').addEventListener('change', (e) => { expositoresOrcamentosFilters.data = e.target.value; renderExpositoresOrcamentos(); });
+  $('#expositoresOrcamentosStatusFilter').addEventListener('change', (e) => { expositoresOrcamentosFilters.status = e.target.value; renderExpositoresOrcamentos(); });
+  $('#expositoresOrcamentosFilterClear').onclick = () => {
+    expositoresOrcamentosFilters = { fornecedor: '', data: '', status: '' };
+    $('#expositoresOrcamentosModeloFilter').value = '';
+    $('#expositoresOrcamentosFornecedorFilter').value = '';
+    $('#expositoresOrcamentosDataFilter').value = '';
+    $('#expositoresOrcamentosStatusFilter').value = '';
+    renderExpositoresOrcamentos();
+  };
 
   // ---------- Controle de Expositores (68ª rodada, "Rodada I") ----------
   let expositoresEstoqueItems = [];

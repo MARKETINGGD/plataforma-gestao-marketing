@@ -538,11 +538,15 @@ router.delete('/orcamentos/:id/desenho-tecnico/:fileId', requireAuth, requireExp
 router.post('/orcamentos/:id/fornecedores', requireAuth, requireExpositoresEdit, (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
-  const { fornecedor, valor, material, prazoEntrega, pedidoMinimo } = req.body || {};
+  const { fornecedor, valor, material, prazoEntrega, pedidoMinimo, data } = req.body || {};
   if (!str(fornecedor)) return res.status(400).json({ error: 'Informe o nome do fornecedor.' });
   const linha = {
     id: nanoid(),
     fornecedor: str(fornecedor),
+    // 79ª rodada, pedido da Raquel: "coloque filtro tbm, modelo, data,
+    // fornecedor, status" -- data da cotação desse fornecedor (não
+    // existia nenhum campo de data em Orçamentos antes).
+    data: str(data) || null,
     valor: numOrNull(valor),
     material: str(material),
     prazoEntrega: str(prazoEntrega),
@@ -562,10 +566,17 @@ router.put('/orcamentos/:id/fornecedores/:fornecedorId', requireAuth, requireExp
   const fornecedores = orc.fornecedores || [];
   const alvo = fornecedores.find((f) => f.id === req.params.fornecedorId);
   if (!alvo) return res.status(404).json({ error: 'Fornecedor não encontrado.' });
-  const { fornecedor, valor, material, prazoEntrega, pedidoMinimo, escolhido } = req.body || {};
-  // Marcar um como escolhido desmarca qualquer outro automaticamente --
-  // "Quando selecionar um, deve ter qual foi o fornecedor escolhido" só
-  // faz sentido como uma escolha ÚNICA por expositor, pra comparação.
+  const { fornecedor, valor, material, prazoEntrega, pedidoMinimo, escolhido, data } = req.body || {};
+  // 79ª rodada, pedido da Raquel: "o status tbm deve ter a opção de ser
+  // editado" (status = o campo `escolhido`) -- antes só dava pra marcar
+  // um fornecedor como escolhido (o botão "Escolher" chamava esta mesma
+  // rota com `escolhido:true`); não existia jeito de DESMARCAR de volta
+  // sem escolher outro no lugar. `escolhido === false` explícito
+  // (distinto de undefined) agora desmarca esse fornecedor sem mexer nos
+  // outros. Marcar um como TRUE continua desmarcando qualquer outro
+  // automaticamente -- "Quando selecionar um, deve ter qual foi o
+  // fornecedor escolhido" só faz sentido como uma escolha ÚNICA por
+  // expositor, pra comparação.
   const novaLista = fornecedores.map((f) => {
     if (f.id !== req.params.fornecedorId) {
       return escolhido === true ? Object.assign({}, f, { escolhido: false }) : f;
@@ -576,6 +587,7 @@ router.put('/orcamentos/:id/fornecedores/:fornecedorId', requireAuth, requireExp
     if (material !== undefined) atualizado.material = str(material);
     if (prazoEntrega !== undefined) atualizado.prazoEntrega = str(prazoEntrega);
     if (pedidoMinimo !== undefined) atualizado.pedidoMinimo = str(pedidoMinimo);
+    if (data !== undefined) atualizado.data = str(data) || null;
     if (escolhido !== undefined) atualizado.escolhido = !!escolhido;
     return atualizado;
   });

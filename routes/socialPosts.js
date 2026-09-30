@@ -727,10 +727,19 @@ router.put('/:id/approval', requireAuth, (req, res) => {
     // do(s) próprio(s) aviso(s) de "aguardando aprovação" (kind
     // 'post_ready_for_approval') já endereçado(s) só a gerente/coordenador,
     // em vez de criar um recado solto novo pra esse mesmo público.
+    // 79ª rodada, pedido direto da Raquel: "é admim, mas o cargo é
+    // coordenadora, use sempre o cargo para falar sobre as aprovações no
+    // lembretes. por que esta aparecendo admim" -- antes, quem aprovava
+    // logado com `role:'super_admin'` (a própria Raquel, dona da única
+    // conta com acesso total à Plataforma) SEMPRE aparecia como
+    // "Administrador(a)" no aviso, ignorando o cargo de verdade dela
+    // (coordenadora) cadastrado no perfil. `role` é só o NÍVEL DE ACESSO
+    // dentro da Papoi (o que a pessoa pode fazer), não o cargo dela na
+    // empresa -- os dois são coisas diferentes, e o aviso deve falar
+    // sempre do cargo, não do nível de acesso. Agora todo mundo (admin ou
+    // não) usa o mesmo cargo cadastrado no perfil.
     const approverUser = db.get('users').find({ id: req.user.id }).value();
-    const cargoLabel = req.user.role === 'super_admin'
-      ? 'Administrador(a)'
-      : (CARGO_LABEL_PT[(approverUser || {}).cargo] || 'aprovador(a)');
+    const cargoLabel = CARGO_LABEL_PT[(approverUser || {}).cargo] || 'aprovador(a)';
     updateAutoRecadosForPost({
       sourceSocialPostId: fresh.id,
       kind: 'post_ready_for_approval',

@@ -60,6 +60,11 @@
   // do card. Um só por vez (ou nenhum).
   let selectedResponsibleId = null;
   let selectedLabelIds = new Set();
+  // Marcas do card (79ª rodada, pedido da Raquel: "deixa a opção de usar mais
+  // de uma marca no card, em vez de ser so de bacco, ou spo Ghel, poder
+  // marcar mais de uma") -- antes era 1 marca só (<select>), agora um
+  // chip-picker igual Etiquetas/Responsáveis, com 0 ou mais marcadas.
+  let selectedBrandIds = new Set();
   let selectedDemColor = null; // cor de fundo do card (opcional, 12ª rodada) — null = sem cor
   let editingLabelColor = null;
   let demandasScope = 'geral'; // 'geral' | 'pessoal'
@@ -611,8 +616,14 @@
     debacco: '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAE/klEQVR4nO2dT4scRRiHn7e6Y2ISQRDBCEEN5BIhCoIiEQ/6AQTRg4GI4MHPoN/AYD6BHv2HioF4EHKKBxFFSTyoEDUYDDkIkhxi4k6m6vXQ3TvDumtwdjY7Ne/vgWbpmh2o6Xr6rZ7pqd9Y07SOqI0RcMXdL5jxNXA65/wFcL1/vAUycMuxNQmwLPh54MOc89vApb4xAeW/niUB6sWntgRY337VnROljI/TVYqGrhqsiwRYHkq/tQDu/l3TpFdv3rz5fd82Xu9JEmD5cLozvgWugb+ccz7JBhKk29w5sfUYk4vAvWCfppSO0Q1++69/VgVYaoYLwAT+XM75FGuuCSTA8lPoqsL1nNPjMPqRqXcHmgKWn2Gw96SU3wfuoBPChgfF8tMAYzN7JKX2dbopIIGmgEgMnxms5Dw+BFwETBUgDkY3FdzZNM0bdDKYKkAshrG+kfP4IHBZFSAWRjf/706pfQl0ERgRAxz8BTQFhGYl53RYFSAmBdiZkj8tAWLiAGb+pASIiQG4+8MSICYGYGb7JUBMhm8P3S0BYrNLAsRG9wKiIwGCIwGCIwGCIwGCIwGCIwGCIwGCIwGCIwGCIwGCIwGCIwGCIwGCIwGCIwGCMyRJLCo2tYktoKVbOrzoDJLW0NeqaN05td2dWAcDdpv5/WAPAbv69iHtQhVhTiz6gTTgwZR2PAPlFTN7qm/PqBrMAzcW90A6a1Ium6Z5EewEsB9JMA+8hgpgTHJuCnBfSs3HfTWQBJtj4QVYyxB2uDel5oyZPUYnhd7OzkZ1AsBEggNN054F9qILw1nxGs+cMbADuODOW3Rn/yJ/lrHQ1HrWJLqLxHubpv0FuKvfr/X1bBdVVgCYfB7whztfTrWJ/0mtAkCfkW/m5/p9Rd3MQM0CALi7/bndnaiZ2gUAnfmbYhkEEJtAAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRHAgRnGQTQesBNULsAZub3bHcnaqZmAQrd0rBH+31Vghmo9aBpefh8qHZ5eAN4Su1rdIM/RoM/EzUetOmImHPAHhQRMyvVVYDpkKiP6M5+0ODPzKILMETEtf3fMbAvpebzPiEss/ivYaFRUGRsFj4mLsHOB1Iqz/ZRsUf6dg3+fHBLqf1su3uxAbvNfB/YAWBn36aw6Pni1jRtDREriovfGryWH4zQwG8RtfxghNgi9BYqOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgOBIgNtUtDBHz5W8JEJPhi8BXJUBMHMDdf5cAMXEAM/tBAsTEANztq1oWhoj5s5JzOqwKEI8MuLufhdHPEiAefZSOfUJFawPFfBjG+kbO44PAZVWAWGTAwN8DLgOtKkAcvN9Wch4fAi4CpgoQhwwkd94EfqO7D1RUAWKQgcbdz5WSn+j3C7oZFIJCd7b/VUpzFBgxmQ50O3jJGUK2DPwojH6iy4NYDd9qt6Vb4nawGqTlXo6VUk4xyVlcRRVg+XC6QW6Aa+DPl1LeZZ3BBwmwTBQmmcmtu3+bkh3JOZ9kg8EHTQE141NbmtquunOilHy8lDyiqwTrDj5IgJpZk5fo54EPcs7vAJf6xsQtUuAkQJ2MgCvu/qsZ3wCnc85ngBv940P8X9ng+av8A8mdXG5ISzLcAAAAAElFTkSuQmCC" width="15" height="15" style="vertical-align:-3px;border-radius:3px;object-fit:cover" alt="">',
     boutiqueinox: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><circle cx="7.6" cy="12" r="4.3" stroke="#010835" stroke-width="2.3"/><circle cx="14.6" cy="12" r="4.3" stroke="#010835" stroke-width="2.3"/></svg>'
   };
+  // 79ª rodada: Demandas passou a aceitar mais de 1 marca por card, então
+  // esta função agora também aceita um ARRAY de marcas (mostra 1 ícone por
+  // marca, na ordem que vier) -- continua aceitando 1 marca só (string),
+  // como sempre, pra não quebrar nenhum outro lugar da Papoi que ainda
+  // chama isso com 1 marca (Agendamento, Cronograma, Brindes etc.).
   function brandIconHtml(brand) {
-    return BRAND_ICON_SVG[brand] ? `<span class="card-brand-icon" title="${BRAND_LABEL[brand] || brand}">${BRAND_ICON_SVG[brand]}</span>` : '';
+    const list = Array.isArray(brand) ? brand : (brand ? [brand] : []);
+    return list.map((b) => (BRAND_ICON_SVG[b] ? `<span class="card-brand-icon" title="${BRAND_LABEL[b] || b}">${BRAND_ICON_SVG[b]}</span>` : '')).join('');
   }
   const INFLUENCER_STATUS_LABEL = { a_publicar: 'A publicar', publicada: 'Publicada', cancelada: 'Cancelada' };
   // Cores da 15ª rodada: status em "farol" (amarelo/verde/vermelho) e cada
@@ -1823,7 +1834,7 @@
     wrap.innerHTML = items.map((d) => `
       <div class="stat-bar-row stat-bar-row-clickable" data-id="${d.id}">
         <div class="stat-bar-row-top">
-          <span class="stat-bar-label">${brandIconHtml(d.brand)}${escapeHtml(d.title)}</span>
+          <span class="stat-bar-label">${brandIconHtml(d.brands)}${escapeHtml(d.title)}</span>
         </div>
         <div class="muted" style="font-size:12px;">
           ${d.dueDate ? fmtDate(d.dueDate) : 'sem data'}${d.assigneeNames.length ? ' · ' + escapeHtml(d.assigneeNames.join(', ')) : ''}
@@ -4300,7 +4311,9 @@
     if (demandasFilters.search && !(d.title || '').toLowerCase().includes(demandasFilters.search.toLowerCase())) return false;
     if (demandasFilters.network && d.network !== demandasFilters.network) return false;
     if (demandasFilters.labelId && !(d.labelIds || []).includes(demandasFilters.labelId)) return false;
-    if (demandasFilters.brand && d.brand !== demandasFilters.brand) return false;
+    // 79ª rodada: card pode ter mais de uma marca -- filtrar por "De Bacco"
+    // também acha um card marcado De Bacco+GhelPlus, não só De Bacco sozinho.
+    if (demandasFilters.brand && !(d.brands || []).includes(demandasFilters.brand)) return false;
     if (demandasFilters.status && d.status !== demandasFilters.status) return false;
     return true;
   }
@@ -4668,7 +4681,7 @@
           ${cardLabels.length > 0 ? `<div class="kanban-card-labels">${cardLabels.map((l) => `<span class="kanban-label-chip" title="${l.name}" style="background:${l.color}"></span>`).join('')}</div>` : ''}
           <div class="kanban-card-title-row">
             <button type="button" class="kanban-check-btn${d.status === 'concluida' ? ' checked' : ''}" title="${d.status === 'concluida' ? 'Marcar como não concluída' : 'Marcar como concluída'}"></button>
-            <div class="kanban-card-title">${brandIconHtml(d.brand)}${d.title}</div>
+            <div class="kanban-card-title">${brandIconHtml(d.brands)}${d.title}</div>
           </div>
           ${d.network ? `<div class="kanban-card-network">${networkIconHtml(d.network)} ${SOCIAL_PLATFORM_LABEL[d.network] || d.network}</div>` : ''}
           <div class="kanban-card-meta">
@@ -4817,6 +4830,7 @@
         </label>
         <input type="date" class="checklist-due-input" title="Data de entrega deste item (opcional)" value="${item.dueDate || ''}">
         <select class="checklist-assignee-select">${checklistAssigneeOptionsHTML(item.assigneeId || null)}</select>
+        <select class="checklist-item-brand-select" title="De qual marca é este item" ${selectedBrandIds.size > 1 ? '' : 'hidden'}>${checklistBrandOptionsHTML(item.brand || null)}</select>
       `;
       row.querySelector('input[type="checkbox"]').onchange = async (ev) => {
         if (isDraft) {
@@ -4849,6 +4863,19 @@
           return;
         }
         await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'PUT', body: JSON.stringify({ assigneeId }) });
+        editingDemandaId = demanda.id;
+        await refreshOpenDemanda();
+      };
+      // De qual marca é este item (79ª rodada, pedido da Raquel) — só
+      // aparece quando o card tem mais de 1 marca marcada (ver
+      // refreshChecklistBrandUI acima).
+      row.querySelector('.checklist-item-brand-select').onchange = async (ev) => {
+        const brand = ev.target.value || null;
+        if (isDraft) {
+          item.brand = brand;
+          return;
+        }
+        await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'PUT', body: JSON.stringify({ brand }) });
         editingDemandaId = demanda.id;
         await refreshOpenDemanda();
       };
@@ -4998,6 +5025,55 @@
     return labels.filter((l) => !l.ownerId);
   }
 
+  // 79ª rodada, pedido explícito da Raquel: "deixa a opção de usar mais de
+  // uma marca no card, em vez de ser so de bacco, ou spo Ghel, poder marcar
+  // mais de uma. e quando o card tiver mais de uma marca, o check list,
+  // deve ter a opção de dizer de qual marca é o check" -- chip-picker de
+  // marcas (mesmo estilo de Etiquetas/Responsáveis) + os seletores de marca
+  // do checklist (só aparecem quando o card tem MAIS DE 1 marca marcada).
+  const DEMANDA_BRAND_ORDER = ['debacco', 'ghelplus', 'duranox', 'boutiqueinox'];
+  function renderBrandChips() {
+    const wrap = $('#demCardBrandList');
+    wrap.innerHTML = '';
+    DEMANDA_BRAND_ORDER.forEach((b) => {
+      const chip = document.createElement('label');
+      chip.className = 'chip-toggle' + (selectedBrandIds.has(b) ? ' active' : '');
+      chip.innerHTML = `<input type="checkbox" style="display:none;" ${selectedBrandIds.has(b) ? 'checked' : ''}> ${brandIconHtml(b)} ${BRAND_LABEL[b]}`;
+      chip.onclick = (ev) => {
+        ev.preventDefault();
+        if (selectedBrandIds.has(b)) selectedBrandIds.delete(b); else selectedBrandIds.add(b);
+        chip.classList.toggle('active', selectedBrandIds.has(b));
+        chip.querySelector('input').checked = selectedBrandIds.has(b);
+        // Marcar/desmarcar uma marca pode mudar se o seletor "de qual marca
+        // é o item" deve aparecer (só com mais de 1 marca) e quais opções
+        // ele deve ter -- atualiza tanto o campo de "novo item" quanto os
+        // itens já existentes na hora.
+        refreshChecklistBrandUI();
+      };
+      wrap.appendChild(chip);
+    });
+  }
+
+  // Opções do seletor "de qual marca é este item do checklist" -- só as
+  // marcas que o CARD tem marcadas (não as 4 sempre), mais "Sem marca".
+  function checklistBrandOptionsHTML(selectedBrand) {
+    const opts = ['<option value="">Sem marca</option>'].concat(
+      DEMANDA_BRAND_ORDER.filter((b) => selectedBrandIds.has(b))
+        .map((b) => `<option value="${b}"${selectedBrand === b ? ' selected' : ''}>${BRAND_LABEL[b]}</option>`)
+    );
+    return opts.join('');
+  }
+
+  // Atualiza o seletor de marca do "novo item" e recalcula a lista de
+  // itens já existentes (cada um com o próprio seletor) -- chamado sempre
+  // que a marcação de marcas do CARD muda.
+  function refreshChecklistBrandUI() {
+    const show = selectedBrandIds.size > 1;
+    $('#demChecklistBrand').hidden = !show;
+    $('#demChecklistBrand').innerHTML = checklistBrandOptionsHTML(null);
+    renderChecklist(openDemandaCache || { checklist: draftChecklist });
+  }
+
   function renderLabelChips() {
     const wrap = $('#demLabelList');
     wrap.innerHTML = '';
@@ -5045,6 +5121,11 @@
     selectedAssigneeIds = new Set(demanda ? (demanda.assigneeIds || []) : []);
     selectedResponsibleId = demanda ? (demanda.responsibleId || null) : null;
     selectedLabelIds = new Set(demanda ? (demanda.labelIds || []) : []);
+    // 79ª rodada: card aceita 0+ marcas agora -- `demanda.brands` é o campo
+    // novo (sempre um array, já migrado pelo serialize() no servidor); cai
+    // pro `demanda.brand` (string única, formato antigo) só de defesa, caso
+    // algum outro lugar da Papoi ainda devolva o formato velho.
+    selectedBrandIds = new Set(demanda ? (demanda.brands && demanda.brands.length ? demanda.brands : (demanda.brand ? [demanda.brand] : [])) : []);
     selectedDemColor = demanda ? (demanda.color || null) : null;
     $('#demCardTitle').value = demanda ? demanda.title : '';
     $('#demCardStatus').value = demanda ? demanda.status : 'a_fazer';
@@ -5060,7 +5141,7 @@
       $('#demCardList').innerHTML = personalLists.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
       $('#demCardList').value = demanda ? (demanda.personalListId || '') : (personalLists[0] ? personalLists[0].id : '');
     }
-    $('#demCardBrand').value = demanda ? (demanda.brand || '') : '';
+    renderBrandChips();
     // Rede (38ª rodada, pedido da Raquel): opcional -- mostra o ícone da
     // rede no card, igual à Marca acima. Demanda vinda de Agendamento/
     // Influencer já chega com isso preenchido sozinho; quem cria direto
@@ -5079,6 +5160,8 @@
     $('#demCardError').hidden = true;
     $('#demChecklistInput').value = '';
     $('#demChecklistAssignee').innerHTML = checklistAssigneeOptionsHTML(null);
+    $('#demChecklistBrand').innerHTML = checklistBrandOptionsHTML(null);
+    $('#demChecklistBrand').hidden = selectedBrandIds.size <= 1;
     $('#demFileInput').value = '';
     renderAssigneeChips();
     // Também marcado(a) no mesmo agendamento (34ª rodada) — só aparece em
@@ -5143,7 +5226,7 @@
       color: selectedDemColor,
       link: $('#demCardLink').value.trim() || null,
       checklistTitle: $('#demChecklistTitle').value.trim() || 'Checklist',
-      brand: $('#demCardBrand').value || null,
+      brands: Array.from(selectedBrandIds),
       network: $('#demCardNetwork').value || null,
       visibility: demandasScope
     };
@@ -5212,18 +5295,24 @@
     const text = $('#demChecklistInput').value.trim();
     if (!text) return;
     const assigneeId = $('#demChecklistAssignee').value || null;
+    // De qual marca é o item novo (79ª rodada) — só existe de verdade
+    // quando o card tem mais de 1 marca marcada (select escondido/vazio
+    // fora disso, ver refreshChecklistBrandUI).
+    const brand = $('#demChecklistBrand').value || null;
     if (!editingDemandaId) {
       // Card ainda não salvo: guarda no rascunho local (26ª rodada) — vai
       // junto no payload quando o card for salvo pela primeira vez.
-      draftChecklist.push({ text, done: false, assigneeId });
+      draftChecklist.push({ text, done: false, assigneeId, brand });
       $('#demChecklistInput').value = '';
       $('#demChecklistAssignee').value = '';
+      $('#demChecklistBrand').value = '';
       renderChecklist({ checklist: draftChecklist });
       return;
     }
-    await api(`/api/demandas/${editingDemandaId}/checklist`, { method: 'POST', body: JSON.stringify({ text, assigneeId }) });
+    await api(`/api/demandas/${editingDemandaId}/checklist`, { method: 'POST', body: JSON.stringify({ text, assigneeId, brand }) });
     $('#demChecklistInput').value = '';
     $('#demChecklistAssignee').value = '';
+    $('#demChecklistBrand').value = '';
     await refreshOpenDemanda();
   };
 
@@ -6488,8 +6577,8 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${escapeHtml(pessoas)}</td>
-        <td>${brandIconHtml(d.brand)}${escapeHtml(d.title || '')}</td>
-        <td>${d.brand ? (BRAND_LABEL[d.brand] || d.brand) : '—'}</td>
+        <td>${brandIconHtml(d.brands)}${escapeHtml(d.title || '')}</td>
+        <td>${(d.brands && d.brands.length) ? d.brands.map((b) => BRAND_LABEL[b] || b).join(', ') : '—'}</td>
         <td><span class="badge">${ACOMPANHAMENTO_STATUS_LABEL[d.statusKey] || d.statusKey}</span></td>
         <td>${d.createdAt ? fmtDate(d.createdAt.slice(0, 10)) : '—'}</td>
         <td>${d.dueDate ? fmtDate(d.dueDate) : '—'}</td>

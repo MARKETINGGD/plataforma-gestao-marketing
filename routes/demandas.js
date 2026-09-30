@@ -191,6 +191,36 @@ function validBrand(brand) {
   return BRANDS.includes(brand) ? brand : null;
 }
 
+// 79ª rodada, pedido explícito da Raquel: "deixa a opção de usar mais de
+// uma marca no card, em vez de ser so de bacco, ou spo Ghel, poder marcar
+// mais de uma" -- o card passou a aceitar 0 ou mais marcas (`brands`,
+// array), em vez de só 1 (`brand`, string, usado até aqui). Filtra contra
+// a lista de marcas válidas e tira repetido; aceita tanto um array quanto
+// um valor solto (compatibilidade com quem ainda mandar `brand` string).
+function validBrands(input) {
+  const arr = Array.isArray(input) ? input : (input ? [input] : []);
+  const seen = new Set();
+  const out = [];
+  arr.forEach((b) => {
+    if (BRANDS.includes(b) && !seen.has(b)) {
+      seen.add(b);
+      out.push(b);
+    }
+  });
+  return out;
+}
+
+// Lê as marcas de uma demanda gravada no banco, migrando "on read" o campo
+// antigo (`brand`, string única, de antes da 79ª rodada) pro novo formato
+// (`brands`, array) sem precisar rodar nenhuma migração no dado já salvo --
+// mesmo espírito das outras migrações "on read" já usadas nesta base
+// (postType em routes/socialPosts.js, items de retiradasInternas, etc.).
+function brandsOf(d) {
+  if (Array.isArray(d.brands)) return d.brands.filter((b) => BRANDS.includes(b));
+  if (d.brand && BRANDS.includes(d.brand)) return [d.brand];
+  return [];
+}
+
 function validNetwork(network) {
   return NETWORKS.includes(network) ? network : null;
 }
@@ -246,7 +276,13 @@ function sanitizeChecklistInput(items) {
         // liste, de forma individual") — opcional, independente da data de
         // entrega do card. Mesmo padrão simples de validação já usado pra
         // dueDate do card inteiro (só aceita string não-vazia ou null).
-        dueDate: (it || {}).dueDate || null
+        dueDate: (it || {}).dueDate || null,
+        // De qual marca é este item (79ª rodada, pedido da Raquel: "quando o
+        // card tiver mais de uma marca, o checklist deve ter a opção de
+        // dizer de qual marca é o check") -- opcional, 1 marca só por item
+        // (a tela só mostra esse seletor quando o card TEM mais de 1 marca
+        // marcada, mas o campo aceita normalmente mesmo fora desse caso).
+        brand: validBrand((it || {}).brand)
       };
     })
     .filter((it) => it.text);
@@ -290,8 +326,17 @@ function serialize(d, viewerId) {
     color: d.color || null,
     link: d.link || null,
     checklistTitle: d.checklistTitle || 'Checklist',
-    brand: d.brand || null,
+    // 79ª rodada: `brands` (array, 0+ marcas) é a fonte de verdade a partir
+    // de agora -- `brand` (string única) continua devolvido só por
+    // compatibilidade com qualquer leitura antiga desse campo (sempre a
+    // primeira marca, ou null sem nenhuma).
+    brands: brandsOf(d),
+    brand: brandsOf(d)[0] || null,
     network: d.network || null,
+    // Marca de cada item do checklist (79ª rodada) -- normaliza pra null
+    // item que nunca teve esse campo gravado (checklist criado antes desta
+    // rodada).
+    checklist: (d.checklist || []).map((it) => Object.assign({}, it, { brand: it.brand || null })),
     // Responsável geral (30ª rodada, marcação passou a pontuar na 32ª):
     // pontua igual a qualquer outro marcado na demanda — ver GET
     // /reis-do-marketing abaixo.
@@ -452,7 +497,7 @@ router.get('/summary', requireAuth, (req, res) => {
     id: d.id,
     title: d.title,
     dueDate: d.dueDate || null,
-    brand: d.brand || null,
+    brands: brandsOf(d),
     network: d.network || null,
     assigneeNames: (d.assigneeIds || []).map((id) => resolveUserName(id, '')).filter(Boolean)
   });
@@ -664,7 +709,10 @@ router.get('/team-report', requireAuth, (req, res) => {
   function matchesPeriodAndBrand(d) {
     if (from && (!d.createdAt || d.createdAt.slice(0, 10) < from)) return false;
     if (to && (!d.createdAt || d.createdAt.slice(0, 10) > to)) return false;
-    if (brandFilter && d.brand !== brandFilter) return false;
+    // 79ª rodada: card pode ter mais de uma marca marcada -- filtrar por
+    // "De Bacco" também tem que achar um card marcado De Bacco+GhelPlus,
+    // não só o que é De Bacco sozinho.
+    if (brandFilter && !brandsOf(d).includes(brandFilter)) return false;
     return true;
   }
 
@@ -700,7 +748,7 @@ router.get('/team-report', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, recurrence, link, checklistTitle, checklist, responsibleId, brand, network, personalListId } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, recurrence, link, checklistTitle, checklist, responsibleId, brand, brands, network, personalListId } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
   // Aceita tanto o campo novo (`recurrence`: 'none'/'mensal'/'diaria')
   // quanto o booleano antigo (`recurring`, mapeado pra 'mensal' — mesmo
@@ -747,7 +795,10 @@ router.post('/', requireAuth, (req, res) => {
     color: validColor(color),
     link: validLink(link),
     checklistTitle: validChecklistTitle(checklistTitle),
-    brand: validBrand(brand),
+    // 79ª rodada: aceita `brands` (array, o formato novo) OU `brand` (string
+    // solta, formato antigo -- compatibilidade com qualquer chamador que
+    // ainda não tenha sido atualizado).
+    brands: validBrands(brands !== undefined ? brands : brand),
     network: validNetwork(network),
     // 26ª rodada: o checklist agora pode ser montado antes de o card existir
     // (rascunho local no front) — o que chegar aqui já vira o checklist do
@@ -884,7 +935,7 @@ router.put('/:id/personal-list', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, network, personalListId } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, brands, network, personalListId } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   // 78ª rodada: mudar de lista pessoal pelo próprio modal de edição do
   // card (mesma regra da rota dedicada PUT /:id/personal-list acima --
@@ -948,7 +999,11 @@ router.put('/:id', requireAuth, (req, res) => {
   }
   if (link !== undefined) updates.link = validLink(link);
   if (checklistTitle !== undefined) updates.checklistTitle = validChecklistTitle(checklistTitle);
-  if (brand !== undefined) updates.brand = validBrand(brand);
+  // 79ª rodada: mesma regra de aceitar `brands` (array) OU `brand` (string
+  // solta) do POST acima -- qualquer um dos dois dispara a atualização.
+  if (brands !== undefined || brand !== undefined) {
+    updates.brands = validBrands(brands !== undefined ? brands : brand);
+  }
   if (network !== undefined) updates.network = validNetwork(network);
 
   // Recorrência (15ª rodada): se essa demanda é (ou está virando) recorrente,
@@ -1143,7 +1198,9 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
   const assigneeId = validUserId((req.body || {}).assigneeId);
   // Data de entrega do item (31ª rodada) — opcional, aceita já na criação.
   const dueDate = (req.body || {}).dueDate || null;
-  const item = { id: nanoid(), text, done: false, assigneeId, doneAt: null, dueDate };
+  // De qual marca é este item (79ª rodada) — opcional, aceita já na criação.
+  const brand = validBrand((req.body || {}).brand);
+  const item = { id: nanoid(), text, done: false, assigneeId, doneAt: null, dueDate, brand };
   const checklist = [...(demanda.checklist || []), item];
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_add', details: `Item adicionado ao checklist: "${text}"`, meta: { visibility: demanda.visibility } });
@@ -1153,7 +1210,7 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
 router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { text, done, assigneeId, dueDate } = req.body || {};
+  const { text, done, assigneeId, dueDate, brand } = req.body || {};
   const before = (demanda.checklist || []).find((it) => it.id === req.params.itemId);
   const checklist = (demanda.checklist || []).map((it) => {
     if (it.id !== req.params.itemId) return it;
@@ -1164,7 +1221,10 @@ router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
       assigneeId !== undefined ? { assigneeId: validUserId(assigneeId) } : {},
       // Data de entrega do item (31ª rodada) — envia string vazia/null pra
       // limpar, igual ao padrão já usado na dueDate do card inteiro.
-      dueDate !== undefined ? { dueDate: dueDate || null } : {}
+      dueDate !== undefined ? { dueDate: dueDate || null } : {},
+      // De qual marca é este item (79ª rodada) — mesmo padrão de limpar com
+      // string vazia/null.
+      brand !== undefined ? { brand: validBrand(brand) } : {}
     );
     // doneAt (30ª rodada): marca o instante em que o item foi concluído —
     // é o que o REIS DO MARKETING usa pra saber se a conclusão foi NESTE

@@ -2489,32 +2489,28 @@
         <select id="demCardList"></select>
       </div>
 
-      <div class="modal-row modal-row-2">
-        <div>
-          <label>Marca <span class="muted" style="font-weight:400;">(opcional — ícone no início do título)</span></label>
-          <select id="demCardBrand">
-            <option value="">Nenhuma</option>
-            <option value="debacco">De Bacco</option>
-            <option value="ghelplus">GhelPlus</option>
-            <option value="duranox">Duranox</option>
-            <option value="boutiqueinox">Boutique Inox</option>
-          </select>
-        </div>
-        <div>
-          <label>Rede <span class="muted" style="font-weight:400;">(opcional — pra demanda de rede social)</span></label>
-          <select id="demCardNetwork">
-            <option value="">Nenhuma</option>
-            <option value="instagram">Instagram</option>
-            <option value="facebook">Facebook</option>
-            <option value="linkedin">LinkedIn</option>
-            <option value="tiktok">TikTok</option>
-            <option value="youtube">YouTube</option>
-            <option value="pinterest">Pinterest</option>
-            <option value="newsletter">Newsletter</option>
-            <option value="influencer">Influencer</option>
-            <option value="blog">Blog</option>
-          </select>
-        </div>
+      <!-- 79ª rodada, pedido explícito da Raquel: "deixa a opção de usar
+           mais de uma marca no card, em vez de ser so de bacco, ou spo
+           Ghel, poder marcar mais de uma" -- antes era um <select> de 1
+           marca só; agora um chip-picker (mesmo estilo de Etiquetas/
+           Responsáveis abaixo), com 0 ou mais marcas marcadas. -->
+      <label>Marcas <span class="muted" style="font-weight:400;">(opcional — pode marcar mais de uma; mostra os ícones no início do título)</span></label>
+      <div id="demCardBrandList" class="chip-picker"></div>
+
+      <div>
+        <label>Rede <span class="muted" style="font-weight:400;">(opcional — pra demanda de rede social)</span></label>
+        <select id="demCardNetwork">
+          <option value="">Nenhuma</option>
+          <option value="instagram">Instagram</option>
+          <option value="facebook">Facebook</option>
+          <option value="linkedin">LinkedIn</option>
+          <option value="tiktok">TikTok</option>
+          <option value="youtube">YouTube</option>
+          <option value="pinterest">Pinterest</option>
+          <option value="newsletter">Newsletter</option>
+          <option value="influencer">Influencer</option>
+          <option value="blog">Blog</option>
+        </select>
       </div>
 
       <div>
@@ -2562,6 +2558,12 @@
       <div class="checklist-add">
         <input id="demChecklistInput" type="text" placeholder="Novo item do checklist">
         <select id="demChecklistAssignee" class="checklist-assignee-select" title="Responsável do item (opcional)"></select>
+        <!-- 79ª rodada, pedido da Raquel: "quando o card tiver mais de uma
+             marca, o checklist deve ter a opção de dizer de qual marca é o
+             check" -- só aparece quando o card TEM mais de 1 marca marcada
+             (ver refreshChecklistBrandUI em app.js); com 0 ou 1 marca não
+             existe ambiguidade nenhuma pra desfazer. -->
+        <select id="demChecklistBrand" class="checklist-assignee-select" title="De qual marca é este item (opcional)" hidden></select>
         <button id="demChecklistAdd" class="btn-secondary">Adicionar</button>
       </div>
 

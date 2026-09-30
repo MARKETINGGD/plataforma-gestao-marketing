@@ -194,12 +194,20 @@ async function uploadVideo({ accessToken, ownerUrn, buffer }) {
 }
 
 // ---------- Posts API ----------
-// Um post de texto puro (sem media nenhuma), com 1 imagem ou com 1 vídeo --
-// `mediaUrn` vem de uploadImage/uploadVideo acima. `authorUrn` é sempre
-// `urn:li:organization:{id}` (só posta como a Página da marca, nunca como
-// pessoa física). `visibility: PUBLIC` e `lifecycleState: PUBLISHED`
-// publicam na hora (sem rascunho pendente do lado da LinkedIn).
-async function createPost({ accessToken, authorUrn, commentary, mediaUrn }) {
+// Um post de texto puro (sem media nenhuma), com 1 imagem, com 1 vídeo, ou
+// com VÁRIAS imagens (carrossel -- 78ª rodada, pedido da Raquel: "LinkedIn
+// deve aceitar carrossel"). `mediaUrn` (uma URN só) vem de uploadImage/
+// uploadVideo acima, pro caso de 1 arquivo -- `mediaUrns` (array, 2+ URNs
+// de IMAGEM) é o carrossel, documentado pela LinkedIn como `multiImage`
+// dentro do `content` do post. A LinkedIn não documenta um "carrossel de
+// vídeo" (a Videos API só tem 1 vídeo por post) -- por isso
+// isLinkedInCarouselEligible() em linkedinPublisher.js só permite o
+// carrossel quando TODOS os arquivos são imagem, nunca vídeo misturado.
+// `authorUrn` é sempre `urn:li:organization:{id}` (só posta como a Página
+// da marca, nunca como pessoa física). `visibility: PUBLIC` e
+// `lifecycleState: PUBLISHED` publicam na hora (sem rascunho pendente do
+// lado da LinkedIn).
+async function createPost({ accessToken, authorUrn, commentary, mediaUrn, mediaUrns }) {
   const payload = {
     author: authorUrn,
     commentary: commentary || '',
@@ -208,7 +216,9 @@ async function createPost({ accessToken, authorUrn, commentary, mediaUrn }) {
     lifecycleState: 'PUBLISHED',
     isReshareDisabledByAuthor: false
   };
-  if (mediaUrn) {
+  if (Array.isArray(mediaUrns) && mediaUrns.length > 1) {
+    payload.content = { multiImage: { images: mediaUrns.map((id) => ({ id })) } };
+  } else if (mediaUrn) {
     payload.content = { media: { id: mediaUrn } };
   }
   const res = await fetch(`${LINKEDIN_API_BASE}/posts`, {

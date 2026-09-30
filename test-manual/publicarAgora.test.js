@@ -72,18 +72,21 @@ async function run() {
 
   const statusRes = await fetch(`${BASE}/api/auth/status`).then((r) => r.json());
   let token;
+  let userId;
   if (statusRes.needsSetup) {
     const setupRes = await fetch(`${BASE}/api/auth/setup`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Admin Teste', username: 'admin-publicar-agora', password: '123456' })
     }).then((r) => r.json());
     token = setupRes.token;
+    userId = setupRes.user && setupRes.user.id;
   } else {
     const loginRes = await fetch(`${BASE}/api/auth/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: 'admin', password: '123456' })
     }).then((r) => r.json());
     token = loginRes.token;
+    userId = loginRes.user && loginRes.user.id;
   }
   check('login/setup do admin devolveu token', !!token);
 
@@ -97,11 +100,15 @@ async function run() {
   }).write();
 
   async function createPost(body) {
+    // 78ª rodada: responsável (estrela) passou a ser obrigatório na
+    // criação -- o admin logado se marca como envolvido/responsável por
+    // padrão, a menos que o teste já mande outra coisa.
     const res = await fetch(`${BASE}/api/social-posts`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(Object.assign({
         brand: 'ghelplus', platform: 'instagram', status: 'agendado',
-        scheduledDate: '2020-01-01', scheduledTime: '08:00', caption: 'Legenda de teste'
+        scheduledDate: '2020-01-01', scheduledTime: '08:00', caption: 'Legenda de teste',
+        involvedUserIds: [userId], responsibleId: userId
       }, body))
     }).then((r) => r.json());
     return res.post;

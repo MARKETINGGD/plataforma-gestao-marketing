@@ -59,6 +59,10 @@ async function main() {
   await page.selectOption('#socialPostFormType', 'reels');
   await page.fill('#socialPostFormCaption', 'Legenda de teste Playwright');
   await page.fill('#socialPostFormDate', '2020-01-01');
+  // 78ª rodada: responsável (estrela) passou a ser obrigatório -- marca a
+  // 1ª pessoa da lista como envolvida e depois como responsável.
+  await page.click('#socialPostFormInvolvedList .chip-toggle:first-child input[type="checkbox"]');
+  await page.click('#socialPostFormInvolvedList .chip-toggle:first-child .chip-responsible-btn');
   await page.click('#socialPostFormSave');
   await page.waitForFunction(() => {
     const err = document.querySelector('#socialPostFormError');

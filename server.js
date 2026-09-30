@@ -119,6 +119,11 @@ require('./utils/pinterestPublisher').startPinterestPublisherScheduler();
 // sai em modo privado).
 require('./utils/tiktokPublisher').startTikTokPublisherScheduler();
 
+// 78ª rodada: aviso de aniversário de influencer, 10 dias antes, pra quem
+// cadastrou o influencer + a coordenadora (ver
+// utils/influencerBirthdayReminders.js) -- checa de hora em hora.
+require('./utils/influencerBirthdayReminders').startInfluencerBirthdayScheduler();
+
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).
 app.use((req, res, next) => {

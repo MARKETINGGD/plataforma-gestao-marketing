@@ -52,14 +52,19 @@ async function main() {
     // Cria 1 post de teste no ano atual (Instagram/De Bacco) pra aparecer
     // no relatório mensal.
     const currentYear = new Date().getFullYear();
+    // 78ª rodada: responsável (estrela) passou a ser obrigatório -- o
+    // próprio admin logado se marca como envolvido/responsável.
     const created = await page.evaluate(async (year) => {
       const token = localStorage.getItem('token');
+      const me = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } }).then((r) => r.json());
+      const myId = me.user.id;
       const res = await fetch('/api/social-posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({
           platform: 'instagram', brand: 'debacco', scheduledDate: `${year}-03-15`, scheduledTime: '10:00',
-          postType: 'estatico', status: 'agendado', subject: '[Teste 65ª rodada] Post relatório'
+          postType: 'estatico', status: 'agendado', subject: '[Teste 65ª rodada] Post relatório',
+          involvedUserIds: [myId], responsibleId: myId
         })
       });
       return (await res.json()).post;

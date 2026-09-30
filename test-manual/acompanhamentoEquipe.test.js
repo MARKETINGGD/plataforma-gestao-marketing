@@ -115,25 +115,28 @@ async function run() {
   check('analista recebe 403 ao tentar acessar o relatório', forbiddenRes.status === 403);
 
   // ---------- Cenário de dados ----------
+  // 78ª rodada: responsável (estrela) passou a ser obrigatório -- cada
+  // demanda de teste marca a própria primeira pessoa envolvida como
+  // responsável, só pra satisfazer a regra (não é o foco deste teste).
   // d1: ana1, concluída, marca debacco, criada "no período".
   const d1 = await createDemanda(adminToken, {
-    title: 'AE Concluída Debacco', assigneeIds: [ana1.id], status: 'concluida',
+    title: 'AE Concluída Debacco', assigneeIds: [ana1.id], responsibleId: ana1.id, status: 'concluida',
     brand: 'debacco', dueDate: '2026-09-10', link: 'https://example.com/doc1'
   });
   // d2: ana1 + ana2, em andamento, marca ghelplus, sem link.
   const d2 = await createDemanda(adminToken, {
-    title: 'AE Andamento Ghelplus', assigneeIds: [ana1.id, ana2.id], status: 'andamento',
+    title: 'AE Andamento Ghelplus', assigneeIds: [ana1.id, ana2.id], responsibleId: ana1.id, status: 'andamento',
     brand: 'ghelplus', dueDate: '2026-12-31'
   });
   // d3: ana2, "atrasada" -- status ainda não concluído, dueDate no passado.
   const d3 = await createDemanda(adminToken, {
-    title: 'AE Atrasada Debacco', assigneeIds: [ana2.id], status: 'a_fazer',
+    title: 'AE Atrasada Debacco', assigneeIds: [ana2.id], responsibleId: ana2.id, status: 'a_fazer',
     brand: 'debacco', dueDate: '2020-01-01'
   });
   // d4: só coordenadora (fora da "equipe") -- não deve aparecer na lista
   // detalhada quando nenhuma pessoa está selecionada no filtro.
   const d4 = await createDemanda(coordToken, {
-    title: 'AE Pessoal Coordenadora', assigneeIds: [coord.id], status: 'a_fazer'
+    title: 'AE Pessoal Coordenadora', assigneeIds: [coord.id], responsibleId: coord.id, status: 'a_fazer'
   });
   check('4 demandas de teste criadas', !!(d1 && d2 && d3 && d4));
 

@@ -205,16 +205,37 @@ function storieLinkReminder(post) {
 // tem legenda de verdade na Meta (nunca vai junto na publicação, ver
 // comentário na 56ª rodada), então exigir legenda preenchida pra avisar
 // só atrasava avisos de Storie sem necessidade nenhuma.
+// 78ª rodada, pedido explícito da Raquel: "para disparar o pedido de
+// aprovação, os posts das redes devem ter todas as questões que falamos
+// (de acordo com cada um)" -- antes disso, o critério era uma regra única
+// genérica (legenda + arte, com Storie como única exceção), igual pra
+// qualquer rede. Agora cada rede usa o que ELA PRÓPRIA exige pra publicar
+// (mesmo campo que os publicadores automáticos usam como "confirmação de
+// pronto" -- ver isEligible de cada utils/*Publisher.js): YouTube/
+// Pinterest usam o Assunto (vira título); LinkedIn/TikTok usam a Legenda,
+// igual Meta. Storie continua a única exceção de sempre (a Meta nunca
+// manda legenda de Storie, então não faz sentido exigir uma aqui).
+// Newsletter/Blog/Influencer (sem nenhuma automação própria) caem no
+// critério genérico de sempre (legenda + arte).
 function isReadyForApproval(post) {
   const hasArte = (post.files || []).length > 0;
   if (post.postType === 'storie') return hasArte;
+  const hasAssunto = !!(post.subject && post.subject.trim());
+  if (post.platform === 'youtube' || post.platform === 'pinterest') {
+    return hasAssunto && hasArte;
+  }
   const hasLegenda = !!(post.caption && post.caption.trim());
   return hasLegenda && hasArte;
 }
 function notifyReadyForApproval(post) {
   if (!isReadyForApproval(post)) return;
+  // 78ª rodada, pedido explícito da Raquel: "o aviso de pedido de
+  // aprovação deve vir apenas para quem vai aprovar (admin, gerente e
+  // coordenador)" -- antes só ia pra cargo gerente/coordenador, sem
+  // incluir o admin da Plataforma (isSuperAdmin), mesmo ele também
+  // podendo aprovar/reprovar (ver canApprove acima).
   const recipientIds = db.get('users').value()
-    .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
+    .filter((u) => u.isSuperAdmin || u.cargo === 'gerente' || u.cargo === 'coordenador')
     .map((u) => u.id);
   if (recipientIds.length === 0) return;
   const postTitle = post.subject && post.subject.trim()
@@ -263,9 +284,18 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
       archived: false,
       dueDate: post.scheduledDate || null,
       assigneeIds: [userId],
+      // 78ª rodada, pedido da Raquel: "toda demanda deve ter um
+      // responsável marcado, não importa de onde veio" -- essa demanda
+      // nasce com 1 pessoa só marcada (a própria pessoa envolvida), então
+      // ela já nasce como a responsável, sem precisar perguntar nada.
+      responsibleId: userId,
       labelIds: [],
       checklist: [],
       files: [],
+      // 78ª rodada: mesmo espírito de "todo card novo nasce no topo da
+      // lista" já aplicado à criação manual em routes/demandas.js -- vale
+      // igual pro card gerado automaticamente por um agendamento.
+      order: -Date.now(),
       sourceSocialPostId: post.id,
       // Rede do agendamento de origem (36ª rodada, pedido da Raquel: "onde
       // diz o nome da rede social, deve ter o icone da rede, pequeno e
@@ -402,6 +432,14 @@ router.post('/', requireAuth, (req, res) => {
   if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco, GhelPlus, Duranox ou Boutique Inox).' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
   const finalInvolvedIds = validInvolvedIds(involvedUserIds);
+  // 78ª rodada, pedido explícito da Raquel: "ao criar o agendamento, deve
+  // ser obrigatorio colocar o responsável (estrelinha)". Agendamento
+  // criado automaticamente a partir de uma ação de Influencer
+  // (utils/tripleSync.js) já herda o responsável da própria ação, então
+  // nunca passa por aqui sem um -- essa validação é só pra criação manual.
+  if (!responsibleId || !finalInvolvedIds.includes(responsibleId)) {
+    return res.status(400).json({ error: 'Marque um responsável (estrela) para este agendamento.' });
+  }
   const post = Object.assign({
     id: nanoid(),
     brand,
@@ -466,11 +504,19 @@ router.put('/:id', requireAuth, async (req, res) => {
   // Responsável geral (51ª rodada) — mesmo padrão de validação/queda
   // automática já usado em Demandas e na ação de influencer (ver comentário
   // equivalente em routes/influencers.js).
+  const effectiveInvolvedIdsForResp = updates.involvedUserIds !== undefined ? updates.involvedUserIds : (post.involvedUserIds || []);
   if (responsibleId !== undefined) {
-    const effectiveInvolvedIds = updates.involvedUserIds !== undefined ? updates.involvedUserIds : (post.involvedUserIds || []);
-    updates.responsibleId = effectiveInvolvedIds.includes(responsibleId) ? responsibleId : null;
+    updates.responsibleId = effectiveInvolvedIdsForResp.includes(responsibleId) ? responsibleId : null;
   } else if (updates.involvedUserIds !== undefined && post.responsibleId && !updates.involvedUserIds.includes(post.responsibleId)) {
     updates.responsibleId = null;
+  }
+  // 78ª rodada: mesmo espírito de Demandas -- só recusa a edição se ESSA
+  // atualização fosse deixar sem responsável um post que JÁ TINHA um
+  // marcado; post antigo sem responsável nenhum continua editável nos
+  // outros campos, sem travar o Agendamento inteiro de uma vez.
+  if (post.responsibleId) {
+    const effResp = updates.responsibleId !== undefined ? updates.responsibleId : post.responsibleId;
+    if (!effResp) return res.status(400).json({ error: 'Todo agendamento precisa de um responsável (estrela) marcado -- escolha um antes de salvar.' });
   }
   if (changeSuggestions !== undefined) {
     updates.changeSuggestions = changeSuggestions;
@@ -679,31 +725,53 @@ router.put('/:id/approval', requireAuth, (req, res) => {
     // post na 63ª rodada, ver checkNewPostApprovals em public/app.js).
     // 51ª rodada, pedido da Raquel: "O recado avisando que o post foi
     // aprovado, só deve aparecer para quem é o responsável pela demanda
-    // (aquele que tem a estrelinha marcada), e não para todos" — agora
-    // endereça só pro responsável geral marcado (fresh.responsibleId). Posts
-    // sem ninguém marcado como responsável (cadastros antigos de antes dessa
-    // rodada, ou alguém que simplesmente esqueceu de marcar a estrelinha)
-    // caem no comportamento antigo como fallback, pra ninguém deixar de ser
-    // avisado por falta de marcação.
-    const recipientIds = fresh.responsibleId
-      ? [fresh.responsibleId]
-      : Array.from(new Set([fresh.createdBy, ...(fresh.involvedUserIds || [])].filter(Boolean)));
+    // (aquele que tem a estrelinha marcada), e não para todos". 78ª
+    // rodada, pedido explícito de novo: "avisa quem é o responsável
+    // marcado com estrela, não avisa nenhum envolvido além do
+    // responsável geral" -- removido o fallback pra criador+envolvidos
+    // que existia aqui (agora sem efeito de qualquer forma, já que
+    // responsável passou a ser obrigatório em todo post novo, ver 78ª
+    // rodada em routes/socialPosts.js POST /).
     const postTitle = fresh.subject && fresh.subject.trim()
       ? fresh.subject.trim()
       : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;
-    createAutoRecado({
-      recipientIds,
-      text: fresh.status === 'publicado'
-        ? 'Aviso Papoi: Seu post foi aprovado (já está publicado).'
-        : fresh.status === 'agendado'
-          ? 'Aviso Papoi: Seu post foi aprovado e está agendado.'
-          : 'Aviso Papoi: Seu post foi aprovado e está pronto para ser agendado.',
-      postTitle,
-      postBrand: fresh.brand,
-      postNetwork: fresh.platform,
-      sourceSocialPostId: fresh.id,
-      kind: 'post_approved'
-    });
+    if (fresh.responsibleId) {
+      createAutoRecado({
+        recipientIds: [fresh.responsibleId],
+        text: fresh.status === 'publicado'
+          ? 'Aviso Papoi: Seu post foi aprovado (já está publicado).'
+          : fresh.status === 'agendado'
+            ? 'Aviso Papoi: Seu post foi aprovado e está agendado.'
+            : 'Aviso Papoi: Seu post foi aprovado e está pronto para ser agendado.',
+        postTitle,
+        postBrand: fresh.brand,
+        postNetwork: fresh.platform,
+        sourceSocialPostId: fresh.id,
+        kind: 'post_approved'
+      });
+    }
+  } else if (approvalStatus === 'reprovado') {
+    // 78ª rodada, pedido explícito da Raquel: "ao reprovar um post, deve
+    // vir um aviso para a dona ou dono da demanda, dizendo que o post foi
+    // reprovado" -- antes, reprovar não disparava recado nenhum (só
+    // mudava o status, visível a todo mundo na Prévia do Feed). Mesmo
+    // público do aviso de aprovação (só o responsável marcado).
+    if (fresh.responsibleId) {
+      const postTitle = fresh.subject && fresh.subject.trim()
+        ? fresh.subject.trim()
+        : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;
+      createAutoRecado({
+        recipientIds: [fresh.responsibleId],
+        text: fresh.approvalNotes
+          ? `Aviso Papoi: Seu post foi reprovado. Alterações pedidas: ${fresh.approvalNotes}`
+          : 'Aviso Papoi: Seu post foi reprovado.',
+        postTitle,
+        postBrand: fresh.brand,
+        postNetwork: fresh.platform,
+        sourceSocialPostId: fresh.id,
+        kind: 'post_rejected'
+      });
+    }
   }
   res.json({ post: serialize(fresh) });
 });

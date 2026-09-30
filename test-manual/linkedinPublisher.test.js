@@ -18,10 +18,15 @@ const { nanoid } = require('../utils/id');
 const linkedinClient = require('../utils/linkedinClient');
 let calls = [];
 let shouldFail = false;
+let uploadImageCallCount = 0;
 linkedinClient.uploadImage = async (args) => {
   calls.push({ fn: 'uploadImage', args: { ownerUrn: args.ownerUrn, bytes: args.buffer.length } });
   if (shouldFail) throw new linkedinClient.LinkedInApiError('Falha simulada no upload da imagem.');
-  return 'urn:li:image:fake-image-1';
+  uploadImageCallCount += 1;
+  // Contador (não sempre a mesma URN) -- necessário pro teste de carrossel
+  // (78ª rodada) conseguir conferir que cada imagem do carrossel virou uma
+  // URN DIFERENTE (não a mesma imagem repetida 2x por engano).
+  return `urn:li:image:fake-image-${uploadImageCallCount}`;
 };
 linkedinClient.uploadVideo = async (args) => {
   calls.push({ fn: 'uploadVideo', args: { ownerUrn: args.ownerUrn, bytes: args.buffer.length } });
@@ -41,6 +46,7 @@ const linkedinPublisher = require('../utils/linkedinPublisher');
 const uploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'social', 'xyz-linkedin', 'creative');
 fs.mkdirSync(uploadsRoot, { recursive: true });
 fs.writeFileSync(path.join(uploadsRoot, 'foto.jpg'), Buffer.from('fake-jpg-bytes'));
+fs.writeFileSync(path.join(uploadsRoot, 'foto2.jpg'), Buffer.from('fake-jpg-bytes-2'));
 fs.writeFileSync(path.join(uploadsRoot, 'video.mp4'), Buffer.from('fake-mp4-bytes'));
 
 function makePost(overrides) {
@@ -147,20 +153,44 @@ async function run() {
   check('com vídeo: createPost recebeu o mediaUrn certo', createCall4 && createCall4.args.mediaUrn === 'urn:li:video:fake-video-1');
   cleanupPost(post4.id);
 
-  // ---------- 5. mais de 1 arquivo: v1 não suporta (fica manual, não elegível) ----------
+  // ---------- 5. imagem + vídeo misturados: continua fora (não existe
+  // "carrossel de vídeo" na LinkedIn) ----------
   const post5 = makePost({
     files: [
       { id: 'f1', url: '/uploads/social/xyz-linkedin/creative/foto.jpg', name: 'foto.jpg' },
       { id: 'f2', url: '/uploads/social/xyz-linkedin/creative/video.mp4', name: 'video.mp4' }
     ]
   });
-  check('mais de 1 arquivo: NÃO elegível pra publicação automática nesta 1ª versão', linkedinPublisher.isEligible(post5) === false);
+  check('imagem + vídeo misturados: NÃO elegível (LinkedIn não tem carrossel de vídeo)', linkedinPublisher.isEligible(post5) === false);
   calls = [];
   await linkedinPublisher.checkAndPublishScheduledPosts();
   const post5After = db.get('socialPosts').find({ id: post5.id }).value();
-  check('mais de 1 arquivo: publishStatus continua null (não tentou)', post5After.publishStatus === null);
-  check('mais de 1 arquivo: nenhuma chamada de rede foi feita', calls.length === 0);
+  check('imagem + vídeo misturados: publishStatus continua null (não tentou)', post5After.publishStatus === null);
+  check('imagem + vídeo misturados: nenhuma chamada de rede foi feita', calls.length === 0);
   cleanupPost(post5.id);
+
+  // ---------- 5b. carrossel de verdade: 2+ imagens, sem nenhum vídeo (78ª
+  // rodada, pedido explícito da Raquel: "LinkedIn deve aceitar carrossel")
+  // ----------
+  calls = [];
+  uploadImageCallCount = 0;
+  const post5b = makePost({
+    files: [
+      { id: 'f1', url: '/uploads/social/xyz-linkedin/creative/foto.jpg', name: 'foto.jpg' },
+      { id: 'f2', url: '/uploads/social/xyz-linkedin/creative/foto2.jpg', name: 'foto2.jpg' }
+    ]
+  });
+  check('carrossel de 2 imagens: elegível pra publicação automática', linkedinPublisher.isEligible(post5b) === true);
+  await linkedinPublisher.checkAndPublishScheduledPosts();
+  const post5bAfter = db.get('socialPosts').find({ id: post5b.id }).value();
+  check('carrossel de 2 imagens: publishStatus vira "published"', post5bAfter.publishStatus === 'published');
+  check('carrossel de 2 imagens: chamou uploadImage 2 vezes (uma por imagem)', calls.filter((c) => c.fn === 'uploadImage').length === 2);
+  check('carrossel de 2 imagens: NÃO chamou uploadVideo nenhuma vez', !calls.some((c) => c.fn === 'uploadVideo'));
+  const createCall5b = calls.find((c) => c.fn === 'createPost');
+  check('carrossel de 2 imagens: createPost recebeu mediaUrns com as 2 URNs (multiImage)', createCall5b && Array.isArray(createCall5b.args.mediaUrns) && createCall5b.args.mediaUrns.length === 2);
+  check('carrossel de 2 imagens: as 2 URNs são DIFERENTES entre si (não a mesma imagem repetida)', createCall5b && createCall5b.args.mediaUrns[0] !== createCall5b.args.mediaUrns[1]);
+  check('carrossel de 2 imagens: NÃO mandou mediaUrn singular junto (só mediaUrns)', createCall5b && !createCall5b.args.mediaUrn);
+  cleanupPost(post5b.id);
 
   // ---------- 6. arquivo referenciado não existe mais no disco ----------
   calls = [];

@@ -53,7 +53,11 @@ const router = express.Router();
 
 const BRANDS = ['debacco', 'ghelplus'];
 const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus' };
-const LANCAMENTO_STATUSES = ['certificacao', 'compra', 'fiscal', 'liberado'];
+// 78ª rodada, pedido explícito da Raquel: "adicione também o status -
+// Lançado. E adicione depois de certificação - Engenharia" -- fluxo passa
+// de 4 pra 6 etapas: Certificação → Engenharia → Compra → Fiscal →
+// Liberado → Lançado (a etapa final, de verdade, separada de "Liberado").
+const LANCAMENTO_STATUSES = ['certificacao', 'engenharia', 'compra', 'fiscal', 'liberado', 'lancado'];
 // Chaves válidas do link externo AGREGADO de Concorrência (68ª rodada,
 // pedido da Raquel: "compartilhar... ou todas as análises") -- mesmo
 // padrão "todos/debacco/ghelplus" já usado em Feiras/Influencers.
@@ -93,7 +97,16 @@ function sanitizeConcorrentes(arr) {
       preco: priceOrNull(c && c.preco),
       diferenciais: str(c && c.diferenciais),
       observacoes: str(c && c.observacoes),
-      link: str(c && c.link) || null
+      // 78ª rodada, pedido explícito da Raquel: "link de pagina de venda,
+      // deve ter em todas as marcas concorrentes, menos na nossa. Link de
+      // referencia, deve ter em todas as marcas, inclusive na nossa" --
+      // antes só existia 1 campo `link` genérico por concorrente. Agora
+      // são 2 campos -- `link` continua gravado, igual à `linkReferencia`,
+      // só por compatibilidade com quem ainda lê esse campo direto (ex.:
+      // exportação em Excel, análise criada antes desta rodada).
+      linkReferencia: str(c && (c.linkReferencia !== undefined ? c.linkReferencia : c.link)) || null,
+      linkPaginaVenda: str(c && c.linkPaginaVenda) || null,
+      link: str(c && (c.linkReferencia !== undefined ? c.linkReferencia : c.link)) || null
     }))
     .filter((c) => c.nome);
 }
@@ -169,11 +182,14 @@ router.post('/concorrencia', requireAuth, requireProdutosEdit, (req, res) => {
     // campos soltos (compat com formulário antigo, de antes da 42ª rodada)
     concorrente, produto, preco, diferenciais, link, observacoes,
     nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes,
-    // 68ª rodada, pedido da Raquel: "um local para colocar o link de uma
-    // página de venda do produto (assim fica fácil de acompanhar o valor
-    // atualizado do produto)" -- separado do "Link de referência"
-    // (nossoLink) já existente, que serve pra qualquer link de apoio à
-    // análise (não necessariamente uma página de venda com preço ao vivo).
+    // 68ª rodada: "página de venda" tinha nascido aqui, no nosso lado.
+    // 78ª rodada, pedido explícito da Raquel, reverte isso: "link de
+    // pagina de venda... menos na nossa" -- passou a ser um campo só dos
+    // CONCORRENTES (ver linkPaginaVenda em sanitizeConcorrentes acima), o
+    // nosso lado fica só com "Link de referência" (nossoLink). O campo
+    // ainda é aceito aqui por compatibilidade com análise antiga que já
+    // tinha isso preenchido, mas a tela não mostra/edita mais esse campo
+    // do nosso lado.
     nossoLinkVenda
   } = req.body || {};
   const tituloTrim = str(titulo);

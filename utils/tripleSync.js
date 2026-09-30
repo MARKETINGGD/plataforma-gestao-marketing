@@ -58,6 +58,10 @@ function createLinkedSocialPost(inf, infPost, req) {
     postType: 'estatico',
     carouselBriefings: [],
     involvedUserIds: infPost.involvedUserIds || [],
+    // 78ª rodada: a ação de influencer já exige um responsável marcado
+    // (ver routes/influencers.js) -- o agendamento gerado a partir dela
+    // herda o mesmo responsável, pra nunca nascer "órfão".
+    responsibleId: infPost.responsibleId || null,
     changeSuggestions: '',
     link: '',
     briefingText: '',
@@ -104,6 +108,9 @@ function syncInfluencerActionToSocialPost(infPost, updates, req) {
     postUpdates.subject = `${inf ? inf.name : ''} · ${updates.formato || 'Post de influencer'}`;
   }
   if (updates.involvedUserIds !== undefined) postUpdates.involvedUserIds = validUserIds(updates.involvedUserIds);
+  // 78ª rodada: responsável marcado na ação também propaga pro agendamento
+  // ligado -- "tudo se altera junto", mesmo espírito de sempre.
+  if (updates.responsibleId !== undefined) postUpdates.responsibleId = updates.responsibleId;
   let willPublish = false;
   if (updates.status !== undefined) {
     if (updates.status === 'publicada' && post.status !== 'publicado') {

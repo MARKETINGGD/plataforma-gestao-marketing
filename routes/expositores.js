@@ -1,4 +1,7 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
@@ -355,5 +358,237 @@ router.use('/catalogo', makeCatalogFileRouter({
   permissionKey: 'expositores',
   resourceLabel: 'Catálogo de Expositores'
 }));
+
+// ---------- Book Técnico (78ª rodada, pedido explícito da Raquel: "book
+// tecnico será um arquivo, igual catalogo") -- a tela nasceu só como
+// navegação em branco na 46ª rodada ("deixe em branco por enquanto, só
+// crie ele no sub menu"); agora vira arquivo por marca de verdade, mesmo
+// módulo genérico do Catálogo (coleção separada -- 3 "catálogos"
+// diferentes agora: Produtos, Expositores e Book Técnico).
+router.use('/book-tecnico', makeCatalogFileRouter({
+  collectionName: 'expositoresBookTecnicoFiles',
+  uploadsSubdir: 'expositores-book-tecnico',
+  brands: BRANDS,
+  brandLabelPt: BRAND_LABEL_PT,
+  permissionKey: 'expositores',
+  resourceLabel: 'Book Técnico de Expositores'
+}));
+
+// ---------- Orçamentos (78ª rodada) ----------
+// Pedido detalhado da Raquel: "Orçamento deve ter: Nome do expositor, ano
+// de lançamento, imagens, desenho técnico, a imagem dele deve aparecer ao
+// lado do nome, para ficar mais visual, empresas orçadas (deve ser
+// semelhante a uma planilha, para poder comparar qual o melhor orçamento
+// para esse expositor (deve ter Fornecedor, valor, material, prazo de
+// entrega, pedido minimo). Deve ter a opção de cadastrar quantos
+// fornecedores forem necessários para esse expositor. Quando selecionar
+// um, deve ter qual foi o fornecedor escolhido."
+//
+// Cada "expositor orçado" é um documento (`expositoresOrcamentos`) com:
+// nome, ano de lançamento, uma lista de imagens e outra de arquivos de
+// desenho técnico (qualquer quantidade, mesmo padrão de upload usado no
+// resto da Plataforma -- soma, nunca substitui sozinho), e uma lista de
+// "empresas orçadas" (`fornecedores`, sem limite de quantos) -- no máximo
+// 1 marcada como escolhida por vez (marcar uma desmarca a anterior
+// automaticamente, não dá pra ter 2 "escolhidas" ao mesmo tempo).
+//
+// Sem link externo por enquanto (a Raquel não pediu pra esse recurso
+// específico, diferente de Catálogo/Book Técnico/Controle de Expositores)
+// -- limite consciente de escopo, registrado no handoff.
+const orcamentoUploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'expositores-orcamentos');
+const orcamentoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(orcamentoUploadsRoot, req.params.id);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+// 50MB por arquivo -- generoso pra imagem/desenho técnico em boa
+// resolução, sem chegar no limite de 1GB usado pra vídeo em Demandas.
+const uploadOrcamento = multer({ storage: orcamentoStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+function findOrcamentoOr404(req, res) {
+  const orc = db.get('expositoresOrcamentos').find({ id: req.params.id }).value();
+  if (!orc) {
+    res.status(404).json({ error: 'Orçamento não encontrado.' });
+    return null;
+  }
+  return orc;
+}
+
+function serializeOrcamento(orc) {
+  return Object.assign({}, orc, {
+    imagens: orc.imagens || [],
+    desenhoTecnico: orc.desenhoTecnico || [],
+    fornecedores: orc.fornecedores || []
+  });
+}
+
+router.get('/orcamentos', requireAuth, (req, res) => {
+  const { brand } = req.query;
+  let rows = db.get('expositoresOrcamentos').value();
+  if (brand) rows = rows.filter((r) => r.brand === brand);
+  res.json({ canEdit: canEdit(req), items: rows.map(serializeOrcamento) });
+});
+
+router.post('/orcamentos', requireAuth, requireExpositoresEdit, (req, res) => {
+  const { brand, nome, anoLancamento } = req.body || {};
+  if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca.' });
+  if (!str(nome)) return res.status(400).json({ error: 'Informe o nome do expositor.' });
+  const orc = {
+    id: nanoid(),
+    brand,
+    nome: str(nome),
+    anoLancamento: numOrNull(anoLancamento),
+    imagens: [],
+    desenhoTecnico: [],
+    fornecedores: [],
+    createdAt: new Date().toISOString(),
+    createdBy: req.user.id,
+    updatedAt: new Date().toISOString()
+  };
+  db.get('expositoresOrcamentos').push(orc).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'create' });
+  res.json({ item: serializeOrcamento(orc) });
+});
+
+router.put('/orcamentos/:id', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const { nome, anoLancamento } = req.body || {};
+  const updates = { updatedAt: new Date().toISOString() };
+  if (nome !== undefined) {
+    if (!str(nome)) return res.status(400).json({ error: 'Informe o nome do expositor.' });
+    updates.nome = str(nome);
+  }
+  if (anoLancamento !== undefined) updates.anoLancamento = numOrNull(anoLancamento);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: updates.nome || orc.nome, action: 'update' });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.delete('/orcamentos/:id', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  db.get('expositoresOrcamentos').remove({ id: orc.id }).write();
+  const dir = path.join(orcamentoUploadsRoot, orc.id);
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'delete' });
+  res.json({ ok: true });
+});
+
+// ---- imagens (várias, cada upload soma -- nunca substitui sozinho) ----
+router.post('/orcamentos/:id/imagens', requireAuth, requireExpositoresEdit, uploadOrcamento.array('files', 20), (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const files = (req.files || []).map((f) => ({
+    id: nanoid(), name: f.originalname, url: `/uploads/expositores-orcamentos/${orc.id}/${f.filename}`
+  }));
+  if (files.length === 0) return res.status(400).json({ error: 'Selecione ao menos uma imagem.' });
+  const imagens = (orc.imagens || []).concat(files);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ imagens, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'update', details: `${files.length} imagem(ns) adicionada(s)` });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.delete('/orcamentos/:id/imagens/:fileId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const target = (orc.imagens || []).find((f) => f.id === req.params.fileId);
+  if (!target) return res.status(404).json({ error: 'Imagem não encontrada.' });
+  const imagens = (orc.imagens || []).filter((f) => f.id !== req.params.fileId);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ imagens, updatedAt: new Date().toISOString() }).write();
+  const diskPath = path.join(__dirname, '..', 'data', target.url.replace(/^\//, ''));
+  if (fs.existsSync(diskPath)) fs.rmSync(diskPath, { force: true });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+// ---- desenho técnico (mesmo padrão das imagens, coleção separada) ----
+router.post('/orcamentos/:id/desenho-tecnico', requireAuth, requireExpositoresEdit, uploadOrcamento.array('files', 20), (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const files = (req.files || []).map((f) => ({
+    id: nanoid(), name: f.originalname, url: `/uploads/expositores-orcamentos/${orc.id}/${f.filename}`
+  }));
+  if (files.length === 0) return res.status(400).json({ error: 'Selecione ao menos um arquivo.' });
+  const desenhoTecnico = (orc.desenhoTecnico || []).concat(files);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ desenhoTecnico, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'update', details: `${files.length} arquivo(s) de desenho técnico adicionado(s)` });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.delete('/orcamentos/:id/desenho-tecnico/:fileId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const target = (orc.desenhoTecnico || []).find((f) => f.id === req.params.fileId);
+  if (!target) return res.status(404).json({ error: 'Arquivo não encontrado.' });
+  const desenhoTecnico = (orc.desenhoTecnico || []).filter((f) => f.id !== req.params.fileId);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ desenhoTecnico, updatedAt: new Date().toISOString() }).write();
+  const diskPath = path.join(__dirname, '..', 'data', target.url.replace(/^\//, ''));
+  if (fs.existsSync(diskPath)) fs.rmSync(diskPath, { force: true });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+// ---- empresas orçadas ("fornecedores") -- planilha comparativa, quantas
+// forem necessárias por expositor, no máximo 1 marcada como escolhida. ----
+router.post('/orcamentos/:id/fornecedores', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const { fornecedor, valor, material, prazoEntrega, pedidoMinimo } = req.body || {};
+  if (!str(fornecedor)) return res.status(400).json({ error: 'Informe o nome do fornecedor.' });
+  const linha = {
+    id: nanoid(),
+    fornecedor: str(fornecedor),
+    valor: numOrNull(valor),
+    material: str(material),
+    prazoEntrega: str(prazoEntrega),
+    pedidoMinimo: str(pedidoMinimo),
+    escolhido: false,
+    createdAt: new Date().toISOString()
+  };
+  const fornecedores = (orc.fornecedores || []).concat([linha]);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ fornecedores, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'update', details: `Fornecedor adicionado: ${linha.fornecedor}` });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.put('/orcamentos/:id/fornecedores/:fornecedorId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const fornecedores = orc.fornecedores || [];
+  const alvo = fornecedores.find((f) => f.id === req.params.fornecedorId);
+  if (!alvo) return res.status(404).json({ error: 'Fornecedor não encontrado.' });
+  const { fornecedor, valor, material, prazoEntrega, pedidoMinimo, escolhido } = req.body || {};
+  // Marcar um como escolhido desmarca qualquer outro automaticamente --
+  // "Quando selecionar um, deve ter qual foi o fornecedor escolhido" só
+  // faz sentido como uma escolha ÚNICA por expositor, pra comparação.
+  const novaLista = fornecedores.map((f) => {
+    if (f.id !== req.params.fornecedorId) {
+      return escolhido === true ? Object.assign({}, f, { escolhido: false }) : f;
+    }
+    const atualizado = Object.assign({}, f);
+    if (fornecedor !== undefined) atualizado.fornecedor = str(fornecedor) || f.fornecedor;
+    if (valor !== undefined) atualizado.valor = numOrNull(valor);
+    if (material !== undefined) atualizado.material = str(material);
+    if (prazoEntrega !== undefined) atualizado.prazoEntrega = str(prazoEntrega);
+    if (pedidoMinimo !== undefined) atualizado.pedidoMinimo = str(pedidoMinimo);
+    if (escolhido !== undefined) atualizado.escolhido = !!escolhido;
+    return atualizado;
+  });
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ fornecedores: novaLista, updatedAt: new Date().toISOString() }).write();
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.delete('/orcamentos/:id/fornecedores/:fornecedorId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const fornecedores = (orc.fornecedores || []).filter((f) => f.id !== req.params.fornecedorId);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ fornecedores, updatedAt: new Date().toISOString() }).write();
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
 
 module.exports = router;

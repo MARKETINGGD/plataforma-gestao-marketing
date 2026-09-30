@@ -32,6 +32,12 @@
   </div>
   <h2 id="pubInfName" style="margin:18px 0 2px;"></h2>
   <p class="muted" style="margin:0 0 18px;">Tabela de conteúdos deste influencer — link externo, somente leitura.</p>
+  <!-- 78ª rodada, pedido da Raquel: "esse link tbm deve ter um filtro
+       para o status" -- filtra a tabela abaixo sem recarregar nada. -->
+  <div style="margin-bottom:12px;">
+    <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Filtrar por status</label>
+    <select id="pubInfStatusFilter"><option value="">Todos os status</option></select>
+  </div>
   <table class="data-table">
     <thead>
       <tr>
@@ -40,6 +46,7 @@
         <th>Status</th>
         <th>Data da postagem</th>
         <th>Arquivo</th>
+        <th>Link de publicação</th>
         <th>Observações</th>
         <th>Notas extras</th>
       </tr>
@@ -60,6 +67,11 @@
   </div>
   <h2 id="pubInfGroupName" style="margin:18px 0 2px;"></h2>
   <p class="muted" style="margin:0 0 18px;">Tabela de ações de influencers — link externo, somente leitura.</p>
+  <!-- 78ª rodada, pedido da Raquel: filtro de status também aqui. -->
+  <div style="margin-bottom:12px;">
+    <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Filtrar por status</label>
+    <select id="pubInfGroupStatusFilter"><option value="">Todos os status</option></select>
+  </div>
   <table class="data-table">
     <thead>
       <tr>
@@ -70,6 +82,7 @@
         <th>Status</th>
         <th>Data de entrega</th>
         <th>Arquivo</th>
+        <th>Link de publicação</th>
         <th>Observações</th>
         <th>Notas extras</th>
       </tr>
@@ -436,7 +449,16 @@
                   <p class="muted" id="chatConversationSubtitle">Mural de conversa da equipe — qualquer pessoa logada na Plataforma vê as mensagens daqui.</p>
                 </div>
               </div>
+              <button type="button" class="btn-secondary" id="chatSearchToggleBtn" title="Buscar mensagem nesta conversa">🔍 Buscar</button>
               <button class="btn-secondary" id="chatNudgeBtn" hidden title="Vibra a tela e toca um som pra quem está na conversa">🔔 Chamar atenção</button>
+            </div>
+            <!-- 78ª rodada, pedido da Raquel: "deve ter a opção de buscar
+                 mensagem dentro da conversa" -- busca só no histórico DESSA
+                 conversa (Geral, grupo ou DM), não em todas de uma vez. -->
+            <div id="chatSearchBar" class="chat-search-bar" hidden>
+              <input type="text" id="chatSearchInput" placeholder="Buscar nesta conversa...">
+              <button type="button" class="btn-link" id="chatSearchCloseBtn">Fechar ✕</button>
+              <div id="chatSearchResults" class="chat-search-results" hidden></div>
             </div>
             <div class="chat-wrap">
               <div id="chatMessages" class="chat-messages"></div>
@@ -456,6 +478,11 @@
           <div class="view-toolbar-actions">
             <button class="btn-secondary" id="demandasManageTeamBtn">Equipe</button>
             <button class="btn-secondary" id="demandasManageLabelsBtn">Etiquetas</button>
+            <!-- 78ª rodada, pedido da Raquel: "na area pessoal, deve ter a
+                 opção de criar listas e nomear elas... isso deve valer
+                 apenas para a area pessoal" -- só aparece na aba Minha
+                 Área Pessoal (ver applyDemandasScopeUI em app.js). -->
+            <button class="btn-secondary" id="demandasNewListBtn" hidden>+ Nova lista</button>
             <button class="btn-secondary" id="demandasToggleArchived">Ver arquivadas</button>
             <button class="btn-secondary" id="demandasHistoryBtn">Histórico</button>
             <button class="btn-primary" id="demandasNewBtn">+ Nova demanda</button>
@@ -466,6 +493,19 @@
           <button class="tab-btn" data-demandas-scope="pessoal">Minha Área Pessoal</button>
         </div>
         <p class="muted" id="demandasScopeHint">Visível para toda a equipe.</p>
+        <!-- 78ª rodada, pedido da Raquel: "as demandas devem ter um filtro
+             de busca (em cada lista), deve ter a opção de filtrar por rede
+             social, etiqueta, marca, status" -- filtra os cards em TODAS
+             as listas do quadro de uma vez (ver applyDemandasFilters em
+             app.js), sem mexer em quais listas existem. -->
+        <div class="demandas-filter-bar">
+          <input type="text" id="demandasFilterSearch" placeholder="Buscar por título...">
+          <select id="demandasFilterNetwork"><option value="">Todas as redes</option></select>
+          <select id="demandasFilterLabel"><option value="">Todas as etiquetas</option></select>
+          <select id="demandasFilterBrand"><option value="">Todas as marcas</option></select>
+          <select id="demandasFilterStatus"><option value="">Todos os status</option></select>
+          <button type="button" class="btn-secondary" id="demandasFilterClear">Limpar filtros</button>
+        </div>
         <div class="kanban" id="kanbanBoard"></div>
         <div id="archivedWrap" hidden>
           <h3>Demandas arquivadas</h3>
@@ -894,6 +934,9 @@
               <button class="tab-btn" data-all-brand="ghelplus">GhelPlus</button>
             </div>
             <div class="view-toolbar-actions">
+              <!-- 78ª rodada, pedido da Raquel: filtro de status também na
+                   aba "Todas as ações" (relatório por marca/todas as marcas). -->
+              <select id="influencerAllStatusFilter"><option value="">Todos os status</option></select>
               <button class="btn-secondary" id="influencerAllPublicLinkBtn">Link externo</button>
             </div>
           </div>
@@ -924,6 +967,7 @@
                 <th>Status</th>
                 <th>Data de entrega</th>
                 <th>Arquivo</th>
+                <th>Link de publicação</th>
                 <th>Observações</th>
                 <th>Notas extras</th>
               </tr>
@@ -940,10 +984,13 @@
 
           <!-- Dados pessoais + contrato (21ª rodada, pedido da Raquel: "na
                hora de cadastrar a influencer, temos que colocar os dados
-               dela, dados pessoais, contrato (em arquivo)"). Tudo opcional,
-               pra não travar quem só quer cadastrar o nome rapidinho e
-               completar depois. -->
-          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Dados pessoais (opcional)</p>
+               dela, dados pessoais, contrato (em arquivo)"). 78ª rodada:
+               viraram OBRIGATÓRIOS no cadastro de um influencer novo
+               (pedido explícito da Raquel) -- editar um já cadastrado
+               antes desta regra continua liberado mesmo com campo em
+               branco (ver openInfluencerForm/#influencerFormSave em
+               app.js). -->
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;" id="influencerFormPersonalHint">Dados pessoais (obrigatório)</p>
           <div class="form-row">
             <div>
               <label>CPF</label>
@@ -995,6 +1042,9 @@
             <h3 id="influencerTableTitle"></h3>
             <div class="view-toolbar-actions">
               <button class="btn-secondary" id="influencerTableBackBtn">← Voltar</button>
+              <!-- 78ª rodada, pedido da Raquel: filtro de status também na
+                   tabela de cada influencer. -->
+              <select id="influencerPostsStatusFilter"><option value="">Todos os status</option></select>
               <button class="btn-secondary" id="influencerPublicLinkBtn">Link externo</button>
               <button class="btn-primary" id="influencerPostNewBtn">+ Novo item</button>
             </div>
@@ -1021,6 +1071,7 @@
                 <th>Status</th>
                 <th>Data da postagem</th>
                 <th>Arquivo</th>
+                <th>Link de publicação</th>
                 <th>Parceria / Nota fiscal</th>
                 <th>Observações</th>
                 <th>Notas extras</th>
@@ -1074,6 +1125,11 @@
           <label>Arquivo</label>
           <input id="influencerPostFormFile" type="file">
           <p class="muted" id="influencerPostFormFileAtual" style="font-size:12px;"></p>
+          <!-- 78ª rodada, pedido da Raquel: "quando a ação tiver um link de
+               publicado, deve ter esse link ao lado de arquivo" -- link de
+               verdade do post já publicado (opcional). -->
+          <label>Link de publicação <span class="muted" style="font-weight:400;">(opcional -- link do post já publicado)</span></label>
+          <input id="influencerPostFormLink" type="text" placeholder="https://...">
 
           <!-- Parceria em permuta (22ª rodada, pedido da Raquel: "adicione
                as datas de saída de cada entrega, quando a parceria for em
@@ -1690,6 +1746,13 @@
             <button class="btn-secondary no-print" id="concorrenciaExportPdfBtn" type="button">🖨️ Exportar PDF</button>
             <button class="btn-secondary no-print" id="concorrenciaPublicLinkBtn" type="button">🔗 Link externo (todas as análises)</button>
           </div>
+          <!-- 78ª rodada, pedido da Raquel: "deve ter dentro da analise e
+               do link, um filtro por produto, assim podemos ver apenas
+               cubas, apenas pias..." -- filtra pelo nosso produto OU pelo
+               produto de qualquer concorrente na mesma análise. -->
+          <div style="margin-bottom:12px;max-width:280px;">
+            <input type="text" id="concorrenciaProductFilter" placeholder="Filtrar por produto (ex.: cubas, pias...)">
+          </div>
 
           <!-- 68ª rodada, pedido da Raquel: "compartilhar... ou todas as
                análises" -- este é o link AGREGADO (a lista inteira,
@@ -1733,26 +1796,32 @@
               <div></div>
             </div>
 
+            <!-- 78ª rodada, pedido da Raquel: "deixe padrão em analise de
+                 concorrência a nossa marca primeiro e muda para o nome da
+                 marca (GhelPlus/De Bacco)" -- nossa marca vem ANTES do(s)
+                 concorrente(s) agora, com o nome de verdade da marca (id
+                 #concorrenciaFormNossaMarcaLabel, atualizado ao trocar o
+                 select de marca acima). -->
             <div class="compare-row">
+              <div class="compare-col">
+                <h4 id="concorrenciaFormNossaMarcaLabel">Nossa marca</h4>
+                <label>Produto</label><input id="concorrenciaFormNossoProduto" type="text">
+                <label>Preço (R$)</label><input id="concorrenciaFormNossoPreco" type="number" step="0.01">
+                <label>Diferenciais</label><textarea id="concorrenciaFormNossoDiferenciais" rows="2"></textarea>
+                <label>Observações</label><textarea id="concorrenciaFormNossasObservacoes" rows="2"></textarea>
+                <!-- 78ª rodada, pedido da Raquel: "link de referencia, deve
+                     ter em todas as marcas, inclusive na nossa" -- fica só
+                     esse aqui; "página de venda" saiu do nosso lado (ver
+                     comentário abaixo, no lado dos concorrentes). -->
+                <label>Link de referência</label><input id="concorrenciaFormNossoLink" type="text" placeholder="https://...">
+              </div>
+              <div class="compare-vs">×</div>
               <div class="compare-col">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
                   <h4 style="margin:0;">Concorrentes</h4>
                   <button type="button" class="btn-link" id="concorrenciaAddConcorrenteBtn">+ Adicionar concorrente</button>
                 </div>
                 <div id="concorrenciaConcorrentesRows"></div>
-              </div>
-              <div class="compare-vs">×</div>
-              <div class="compare-col">
-                <h4>Nossa marca</h4>
-                <label>Produto</label><input id="concorrenciaFormNossoProduto" type="text">
-                <label>Preço (R$)</label><input id="concorrenciaFormNossoPreco" type="number" step="0.01">
-                <label>Diferenciais</label><textarea id="concorrenciaFormNossoDiferenciais" rows="2"></textarea>
-                <label>Observações</label><textarea id="concorrenciaFormNossasObservacoes" rows="2"></textarea>
-                <label>Link de referência</label><input id="concorrenciaFormNossoLink" type="text" placeholder="https://...">
-                <!-- 68ª rodada, pedido da Raquel: "um local para colocar
-                     o link de uma página de venda do produto (assim fica
-                     fácil de acompanhar o valor atualizado do produto)". -->
-                <label>Página de venda (preço atualizado)</label><input id="concorrenciaFormNossoLinkVenda" type="text" placeholder="https://...">
               </div>
             </div>
 
@@ -1763,7 +1832,11 @@
             </div>
           </div>
 
-          <div id="concorrenciaList"></div>
+          <!-- 78ª rodada, pedido da Raquel: "o link externo, deve ter uma
+               barra de rolagem, ele ficou mto extenso" -- mesma correção
+               também aqui dentro da Papoi (lista pode crescer bastante),
+               não só no link externo (ver #sharePublicContent em app.js). -->
+          <div id="concorrenciaList" class="concorrencia-scroll-list"></div>
           <p class="muted" id="concorrenciaEmpty" hidden>Nenhuma análise de concorrência cadastrada ainda.</p>
         </div>
 
@@ -1800,9 +1873,11 @@
               <div><label>Status</label>
                 <select id="lancamentoFormStatus">
                   <option value="certificacao">Certificação</option>
+                  <option value="engenharia">Engenharia</option>
                   <option value="compra">Compra</option>
                   <option value="fiscal">Fiscal</option>
                   <option value="liberado">Liberado</option>
+                  <option value="lancado">Lançado</option>
                 </select>
               </div>
             </div>
@@ -1837,27 +1912,55 @@
         <div id="produtosCatalogoList"></div>
       </section>
 
-      <!-- Book Técnico (46ª rodada): por enquanto só a navegação/aba por
-           marca, sem conteúdo -- a Raquel pediu "deixe em branco por
-           enquanto, só crie ele no sub menu". O link externo de
-           compartilhamento mencionado por ela fica pra uma próxima rodada. -->
+      <!-- Book Técnico (46ª rodada: nasceu só como navegação em branco;
+           78ª rodada, pedido explícito da Raquel: "book tecnico será um
+           arquivo, igual catalogo" -- mesmo padrão do Catálogo, 1 arquivo
+           atual por marca, upload novo substitui o anterior. -->
       <section id="view-expositores-book-tecnico" class="view" hidden>
         <h2>Expositores — Book Técnico</h2>
-        <div class="tabs">
-          <button class="tab-btn active" data-expositores-book-brand="debacco">De Bacco</button>
-          <button class="tab-btn" data-expositores-book-brand="ghelplus">GhelPlus</button>
-        </div>
-        <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar o book técnico (com link externo de compartilhamento) por aqui.</p>
+        <p class="muted">Suba aqui o book técnico atualizado de cada marca -- enviar um arquivo novo substitui o anterior.</p>
+        <div id="expositoresBookTecnicoList"></div>
       </section>
 
-      <!-- Orçamentos (46ª rodada): idem -- "apenas crie o sub menu". -->
+      <!-- Orçamentos (78ª rodada, pedido detalhado da Raquel: nome do
+           expositor, ano de lançamento, imagens, desenho técnico (com a
+           imagem aparecendo ao lado do nome), e uma planilha comparativa
+           de empresas orçadas por expositor, com a opção de marcar qual
+           foi a escolhida). A tela nasceu só como navegação em branco na
+           46ª rodada ("apenas crie o sub menu") -- ganha dado de verdade
+           agora. -->
       <section id="view-expositores-orcamentos" class="view" hidden>
-        <h2>Expositores — Orçamentos</h2>
+        <div class="view-toolbar">
+          <h2>Expositores — Orçamentos</h2>
+          <div class="view-toolbar-actions">
+            <button class="btn-primary" id="expositoresOrcamentosNewBtn">+ Novo expositor</button>
+          </div>
+        </div>
         <div class="tabs">
           <button class="tab-btn active" data-expositores-orcamentos-brand="debacco">De Bacco</button>
           <button class="tab-btn" data-expositores-orcamentos-brand="ghelplus">GhelPlus</button>
         </div>
-        <p class="muted">Essa área ainda está em construção. Em breve você vai poder gerenciar orçamentos de expositores por aqui.</p>
+        <!-- 78ª rodada, pedido da Raquel: "colque filtro nos expositores,
+             para buscar por modelo" -- busca pelo nome do expositor. -->
+        <div style="margin:12px 0;max-width:280px;">
+          <input type="text" id="expositoresOrcamentosModeloFilter" placeholder="Filtrar por modelo (nome do expositor)...">
+        </div>
+
+        <div id="expositoresOrcamentosFormWrap" class="form-card form-card-wide" hidden>
+          <h3 id="expositoresOrcamentosFormTitle">Novo expositor</h3>
+          <div class="form-row modal-row-2">
+            <div><label>Nome do expositor</label><input id="expositoresOrcamentosFormNome" type="text" placeholder="Ex.: Expositor GP Cubas N1/N2/N3"></div>
+            <div><label>Ano de lançamento</label><input id="expositoresOrcamentosFormAno" type="number" step="1" placeholder="Ex.: 2026"></div>
+          </div>
+          <div id="expositoresOrcamentosFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="expositoresOrcamentosFormSave" class="btn-primary">Salvar</button>
+            <button id="expositoresOrcamentosFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <div id="expositoresOrcamentosList"></div>
+        <p class="muted" id="expositoresOrcamentosEmpty" hidden>Nenhum expositor orçado ainda nessa marca.</p>
       </section>
 
       <!-- Controle de Expositores (68ª rodada, "Rodada I" da Pendência 51,
@@ -1896,6 +1999,14 @@
             </div>
           </div>
           <button class="btn-primary" id="expositoresEstoqueGenLinkBtn" type="button">Gerar link externo</button>
+        </div>
+
+        <!-- 78ª rodada, pedido da Raquel: "coloque filtro nos expositores,
+             para buscar por modelo, isso vale para o link externo tbm" --
+             busca pela descrição (entrada ou saída), que é o "modelo" do
+             expositor nessa planilha. -->
+        <div style="margin:12px 0;max-width:280px;" class="no-print">
+          <input type="text" id="expositoresEstoqueModeloFilter" placeholder="Filtrar por modelo (descrição)...">
         </div>
 
         <!-- 70ª rodada, pedido da Raquel: "Os lançamentos mensais, o total
@@ -2308,6 +2419,14 @@
         </div>
       </div>
 
+      <!-- 78ª rodada, pedido da Raquel: listas nomeáveis -- só aparece
+           enquanto o card está sendo criado/editado dentro da Área
+           Pessoal (ver openDemandaModal em app.js). -->
+      <div id="demCardListWrap" hidden>
+        <label>Lista</label>
+        <select id="demCardList"></select>
+      </div>
+
       <div class="modal-row modal-row-2">
         <div>
           <label>Marca <span class="muted" style="font-weight:400;">(opcional — ícone no início do título)</span></label>
@@ -2387,6 +2506,19 @@
       <label>Arquivos</label>
       <div id="demFiles" class="file-list"></div>
       <input id="demFileInput" type="file">
+
+      <!-- Comentários (78ª rodada, pedido da Raquel: "no card, deve ter a
+           opção de por comentários que ficam no histórico dele") -- vira
+           só mais uma entrada no histórico abaixo (mesma tabela de
+           auditLog), sem precisar de nenhuma lista separada. Só existe
+           pra demanda já criada. -->
+      <div id="demCommentWrap" hidden>
+        <label>Comentar</label>
+        <div class="demanda-comment-row">
+          <textarea id="demCommentInput" rows="2" placeholder="Escreva um comentário sobre esse card..."></textarea>
+          <button type="button" class="btn-secondary" id="demCommentAdd">Comentar</button>
+        </div>
+      </div>
 
       <!-- Histórico do card (22ª rodada, pedido da Raquel: "no card...
            deve aparecer o histórico daquele card, mostrando o que foi

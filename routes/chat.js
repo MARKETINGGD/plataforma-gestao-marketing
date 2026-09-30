@@ -6,6 +6,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
+const { createAutoRecado } = require('./recados');
 
 const router = express.Router();
 
@@ -83,8 +84,14 @@ function serialize(m) {
     id: m.id,
     conversationId: m.conversationId || 'geral',
     kind: m.kind || 'text',
-    text: m.text,
-    mentionedUserIds: m.mentionedUserIds || [],
+    // 78ª rodada, pedido da Raquel: "apagar mensagem, com rastro 'mensagem
+    // apagada'" -- mensagem apagada não some da lista (deixaria um buraco
+    // sem explicação pra quem já estava vendo a conversa), fica marcada
+    // como `deleted` e sem o texto original nenhum (nem aqui, nem no banco
+    // -- ver DELETE /messages/:id abaixo).
+    text: m.deleted ? '' : m.text,
+    deleted: !!m.deleted,
+    mentionedUserIds: m.deleted ? [] : (m.mentionedUserIds || []),
     createdBy: m.createdBy,
     // Nome e foto resolvidos ao vivo (20ª rodada) — ver utils/names.js.
     createdByName: resolveUserName(m.createdBy, m.createdByName),
@@ -148,6 +155,29 @@ function parseMentions(text, candidates) {
   return Array.from(found);
 }
 
+// Aviso de menção (78ª rodada, pedido da Raquel: "aviso de menção
+// notificando só quem foi mencionado" -- antes, marcar "@Nome" só
+// destacava o nome visualmente pra quem já estava com a conversa aberta,
+// sem avisar ninguém de verdade). Vira um recado automático (aba Recados,
+// tela Início) endereçado SÓ a quem foi de fato @mencionado -- nunca pro
+// resto do grupo/conversa, e nunca pra quem mandou a mensagem (não faz
+// sentido avisar a própria pessoa que ela se mencionou).
+function mentionLabel(conv, senderName) {
+  if (!conv || conv.type === 'geral') return `${senderName} te mencionou no chat Geral`;
+  if (conv.type === 'group') return `${senderName} te mencionou no grupo "${conv.name}"`;
+  return `${senderName} te mencionou numa conversa`;
+}
+
+function notifyMentions(message, conv, senderName) {
+  const recipients = (message.mentionedUserIds || []).filter((id) => id !== message.createdBy);
+  if (recipients.length === 0) return;
+  createAutoRecado({
+    recipientIds: recipients,
+    text: mentionLabel(conv, senderName),
+    kind: 'chat_mention'
+  });
+}
+
 // Sem paginação por página — só um corte de segurança pra não mandar o
 // histórico inteiro se o chat crescer muito ao longo do tempo.
 const HISTORY_LIMIT = 200;
@@ -189,6 +219,7 @@ router.post('/messages', requireAuth, (req, res) => {
     createdAt: new Date().toISOString()
   };
   db.get('chatMessages').push(message).write();
+  notifyMentions(message, { type: 'geral' }, req.user.name || req.user.username);
   res.json({ message: serialize(message) });
 });
 
@@ -202,7 +233,13 @@ router.delete('/messages/:id', requireAuth, (req, res) => {
   if (message.createdBy !== req.user.id && req.user.role !== 'super_admin') {
     return res.status(403).json({ error: 'Você só pode apagar as suas próprias mensagens.' });
   }
-  db.get('chatMessages').remove({ id: req.params.id }).write();
+  // "Soft delete" (78ª rodada) -- antes tirava a linha inteira do banco
+  // (`remove`), sumindo sem rastro pra quem já tinha a conversa aberta.
+  // Agora a mensagem continua existindo (mantém posição no histórico e
+  // menções apontando pra ela não quebram), só marcada como apagada -- o
+  // texto original é descartado de vez (não fica nem aqui, nem em nenhum
+  // outro lugar do banco).
+  db.get('chatMessages').find({ id: req.params.id }).assign({ deleted: true, text: '', mentionedUserIds: [] }).write();
   res.json({ ok: true });
 });
 
@@ -280,6 +317,29 @@ router.get('/conversations/:id/messages', requireAuth, (req, res) => {
   });
 });
 
+// Busca dentro da conversa (78ª rodada, pedido da Raquel: "deve ter a
+// opção de buscar mensagem dentro da conversa"). Só olha pra mensagens de
+// texto de verdade (ignora "chamar atenção" e mensagens já apagadas — não
+// faz sentido "achar" um texto que não existe mais). Sem paginação: um
+// corte de segurança (mesmo MAX de resultados do HISTORY_LIMIT) já é mais
+// que suficiente pra um resultado de busca.
+const SEARCH_RESULTS_LIMIT = 100;
+
+router.get('/conversations/:id/search', requireAuth, (req, res) => {
+  const conv = getConversation(req.params.id);
+  if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+  if (!isParticipant(conv, req.user.id)) return res.status(403).json({ error: 'Você não participa dessa conversa.' });
+  const q = ((req.query.q || '') + '').trim().toLowerCase();
+  if (!q) return res.json({ messages: [] });
+  const all = conv.type === 'geral'
+    ? db.get('chatMessages').value().filter(isGeral)
+    : db.get('chatMessages').value().filter((m) => m.conversationId === conv.id);
+  const matches = all
+    .filter((m) => !m.deleted && m.kind !== 'nudge' && (m.text || '').toLowerCase().includes(q))
+    .slice(-SEARCH_RESULTS_LIMIT);
+  res.json({ messages: matches.map(serialize) });
+});
+
 router.post('/conversations/:id/messages', requireAuth, (req, res) => {
   const conv = getConversation(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
@@ -304,6 +364,7 @@ router.post('/conversations/:id/messages', requireAuth, (req, res) => {
     createdAt: new Date().toISOString()
   };
   db.get('chatMessages').push(message).write();
+  notifyMentions(message, conv, req.user.name || req.user.username);
   res.json({ message: serialize(message) });
 });
 

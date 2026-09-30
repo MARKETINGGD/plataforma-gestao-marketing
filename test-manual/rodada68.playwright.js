@@ -126,6 +126,10 @@ async function main() {
   check('o link de download aponta pro arquivo certo', !!downloadLinkHref && downloadLinkHref.includes('.pdf'));
 
   // ---------- Análise de Concorrência: página de venda + Excel/PDF + links ----------
+  // 78ª rodada, pedido da Raquel: "página de venda" saiu do lado "Nossa
+  // marca" e passou a ser um campo do lado do CONCORRENTE (junto com o
+  // "Link de referência", que continua existindo dos dois lados) -- teste
+  // ajustado pra preencher/conferir no lugar certo.
   await page.click('#navProdutosConcorrencia');
   await page.waitForSelector('#produtosConcorrenciaWrap:not([hidden])', { timeout: 5000 });
   await page.click('#concorrenciaNewBtn');
@@ -133,14 +137,14 @@ async function main() {
   await page.fill('#concorrenciaFormTitulo', 'Análise Teste 68ª Rodada');
   await page.fill('#concorrenciaFormData', '2026-09-24');
   await page.fill('#concorrenciaConcorrentesRows input[data-crow="nome"]', 'Concorrente Teste');
+  await page.fill('#concorrenciaConcorrentesRows input[data-crow="linkPaginaVenda"]', 'https://exemplo.com/produto-teste');
   await page.fill('#concorrenciaFormNossoProduto', 'Nosso Produto Teste');
-  await page.fill('#concorrenciaFormNossoLinkVenda', 'https://exemplo.com/produto-teste');
   await page.click('#concorrenciaFormSave');
   await page.waitForSelector('#concorrenciaFormWrap', { state: 'hidden', timeout: 5000 });
   await page.waitForTimeout(400);
   const concorrenciaListText = await page.textContent('#concorrenciaList');
   check('nova análise aparece na lista', concorrenciaListText.includes('Análise Teste 68ª Rodada'));
-  check('campo "Página de venda" aparece no cartão com o link certo', concorrenciaListText.includes('exemplo.com/produto-teste'));
+  check('campo "Página de venda" do concorrente aparece no cartão com o link certo', concorrenciaListText.includes('exemplo.com/produto-teste'));
 
   let downloadFired = false;
   page.once('download', () => { downloadFired = true; });

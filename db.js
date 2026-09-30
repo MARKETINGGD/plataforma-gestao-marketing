@@ -157,11 +157,34 @@ db.defaults({
   // catálogo... deve ser separado por marca" e, à parte, o mesmo pra
   // Expositores) -- 1 arquivo atual por marca (upload substitui o
   // anterior, que é apagado do disco), nunca um histórico de versões.
-  // Coleções separadas de propósito (são 2 pedidos distintos, catálogos
+  // Coleções separadas de propósito (são pedidos distintos, "catálogos"
   // diferentes) -- ver utils/catalogFileStore.js (mesmo módulo genérico
-  // reaproveitado pelas 2).
+  // reaproveitado pelos 3).
   produtosCatalogoFiles: [],
-  expositoresCatalogoFiles: []
+  expositoresCatalogoFiles: [],
+  // 78ª rodada: Book Técnico de Expositores vira arquivo por marca, mesmo
+  // padrão do Catálogo -- precisa da própria coleção vazia inicial, senão
+  // db.get('expositoresBookTecnicoFiles') não existe e o upload silenciosamente
+  // não persiste nada (achado ao testar essa mesma rodada).
+  expositoresBookTecnicoFiles: [],
+  // Aviso de aniversário de influencer (78ª rodada) -- registro de "já
+  // avisei esse influencer nesse ano" pra nunca mandar o mesmo aviso 2x
+  // (ver utils/influencerBirthdayReminders.js).
+  influencerBirthdayFired: [],
+  // Orçamentos de Expositores (78ª rodada, pedido da Raquel: nome do
+  // expositor, ano de lançamento, imagens, desenho técnico e uma
+  // planilha comparativa de empresas orçadas por expositor) -- ver
+  // routes/expositores.js.
+  expositoresOrcamentos: [],
+  // Listas nomeáveis da Área Pessoal de Demandas (78ª rodada, pedido da
+  // Raquel: "na area pessoal, deve ter a opção de criar listas e nomear
+  // elas... isso deve valer apenas para a area pessoal"). Cada lista
+  // pertence a UMA pessoa (`ownerId`) -- nunca é vista por mais ninguém,
+  // nem por quem tiver uma demanda em comum (ver personalListIdFor em
+  // routes/demandas.js). Lista sempre com pelo menos 1 item por pessoa
+  // (a "Minhas tarefas" default é criada sozinha na primeira vez que
+  // alguém abre a Área Pessoal).
+  personalLists: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

@@ -81,6 +81,46 @@ function canAccess(demanda, user) {
   return demanda.createdBy === user.id || (demanda.assigneeIds || []).includes(user.id);
 }
 
+// ---------- Listas pessoais da Área Pessoal (78ª rodada) ----------
+// Pedido da Raquel: "na area pessoal, deve ter a opção de criar listas e
+// nomear elas, hoje só tem a opção de criar cards... isso deve valer
+// apenas para a area pessoal" — e, no mesmo pedido, a correção de um bug
+// relacionado: "quem criou a demanda e marcou o outro colega, não precisa
+// ter o card duplicado e uma lista com o nome da pessoa marcada, o card
+// deve aparecer na lista pessoal de quem foi marcado e aparecer no card
+// de quem marcou, apenas isso" (ver pendência #28 do handoff).
+//
+// Cada lista pertence a UMA pessoa (`ownerId`) — mesmo quando uma demanda
+// pessoal é compartilhada com outra pessoa marcada (`assigneeIds`), as
+// listas continuam 100% privadas: a Ana nunca vê o nome das listas da
+// Bia, e vice-versa. `personalPlacements` (no próprio documento da
+// demanda) é o que resolve isso: é um mapa `{ [userId]: listId }` —
+// cada pessoa que organiza esse card no próprio quadro grava a PRÓPRIA
+// escolha ali, sem mexer na escolha de mais ninguém. Quem nunca organizou
+// aquele card no próprio quadro (o caso mais comum de "fui marcado por
+// alguém") cai sozinho na lista padrão da própria pessoa — nunca cria
+// lista nova, nunca duplica nada.
+function ensureDefaultPersonalList(userId) {
+  const existing = db.get('personalLists').value().filter((l) => l.ownerId === userId);
+  if (existing.length > 0) return existing.slice().sort((a, b) => a.order - b.order)[0];
+  const list = { id: nanoid(), ownerId: userId, name: 'Minhas tarefas', order: Date.now(), createdAt: new Date().toISOString() };
+  db.get('personalLists').push(list).write();
+  return list;
+}
+
+function personalListsFor(userId) {
+  ensureDefaultPersonalList(userId);
+  return db.get('personalLists').value().filter((l) => l.ownerId === userId).slice().sort((a, b) => a.order - b.order);
+}
+
+function personalListIdFor(demanda, userId) {
+  const placements = demanda.personalPlacements || {};
+  if (placements[userId] && db.get('personalLists').find({ id: placements[userId], ownerId: userId }).value()) {
+    return placements[userId];
+  }
+  return ensureDefaultPersonalList(userId).id;
+}
+
 function isOverdue(demanda) {
   if (!demanda.dueDate || demanda.status === 'concluida' || demanda.archived) return false;
   const today = new Date().toISOString().slice(0, 10);
@@ -229,7 +269,7 @@ function cardOrder(d) {
 // histórico (22ª rodada) — mesmos valores de STATUSES acima.
 const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', aprovacao: 'Em Aprovação', concluida: 'Concluída' };
 
-function serialize(d) {
+function serialize(d, viewerId) {
   // Quando a demanda veio de um agendamento de redes sociais (uma por
   // pessoa marcada como envolvida, ver createDemandCardsForNewInvolved em
   // routes/socialPosts.js), mostra quem mais foi marcado junto no mesmo
@@ -256,6 +296,11 @@ function serialize(d) {
     // pontua igual a qualquer outro marcado na demanda — ver GET
     // /reis-do-marketing abaixo.
     responsibleId: d.responsibleId || null,
+    // 78ª rodada: em qual lista pessoal ESSA pessoa (quem está pedindo)
+    // organiza esse card — só existe de verdade quando visibility ===
+    // 'pessoal' e a chamada informou quem está vendo (ver personalListIdFor
+    // acima). Sempre null pra demanda do quadro Geral.
+    personalListId: (d.visibility === 'pessoal' && viewerId) ? personalListIdFor(d, viewerId) : null,
     // recurrence é a fonte de verdade a partir da 44ª rodada (mensal/
     // diária); `recurring` continua sendo devolvido, recalculado ao vivo,
     // só por compatibilidade com qualquer leitura antiga desse campo.
@@ -355,7 +400,7 @@ router.get('/', requireAuth, (req, res) => {
   const filtered = scope === 'geral'
     ? all.filter((d) => d.visibility !== 'pessoal')
     : all.filter((d) => d.visibility === 'pessoal' && canAccess(d, req.user));
-  res.json({ demandas: filtered.map(serialize) });
+  res.json({ demandas: filtered.map((d) => serialize(d, req.user.id)) });
 });
 
 // Histórico do quadro geral inteiro (22ª rodada, pedido da Raquel: "no
@@ -516,6 +561,11 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
     return !dueDate || dueDate.slice(0, 7) === ym;
   }
   db.get('demandas').value().forEach((d) => {
+    // 78ª rodada, pedido explícito da Raquel: demanda da Área Pessoal
+    // (visibility 'pessoal') deixa de pontuar -- reverte a decisão da 33ª
+    // rodada ("pontua igual, venha de onde vier"). Só o Quadro Geral
+    // conta a partir de agora.
+    if (d.visibility === 'pessoal') return;
     // 36ª rodada, pedido da Raquel: demanda arquivada continua pontuando,
     // desde que a conclusão em si tenha acontecido dentro do mês --
     // arquivar é só "tirar do quadro ativo", não deveria zerar ponto já
@@ -650,7 +700,7 @@ router.get('/team-report', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, recurrence, link, checklistTitle, checklist, responsibleId, brand, network } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, visibility, color, recurring, recurrence, link, checklistTitle, checklist, responsibleId, brand, network, personalListId } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Dê um título para a demanda.' });
   // Aceita tanto o campo novo (`recurrence`: 'none'/'mensal'/'diaria')
   // quanto o booleano antigo (`recurring`, mapeado pra 'mensal' — mesmo
@@ -659,6 +709,24 @@ router.post('/', requireAuth, (req, res) => {
   const finalRecurrence = validRecurrence(recurrence) || (recurring ? 'mensal' : 'none');
   if (finalRecurrence !== 'none' && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
   const finalAssigneeIds = validUserIds(assigneeIds);
+  // 78ª rodada, pedido explícito da Raquel: "toda ação, demanda e afins
+  // sempre deve ter um responsável" -- nenhuma demanda pode ser criada
+  // sem alguém marcado com a estrela, não importa de onde ela nasça.
+  // Demandas geradas automaticamente pelo servidor (Agendamento/
+  // Influencer, ver createDemandCardsForNewInvolved em
+  // routes/socialPosts.js) já preenchem isso sozinhas -- essa validação
+  // aqui é só pra criação manual/direta, feita por uma pessoa.
+  //
+  // Área Pessoal sem ninguém marcado continua permitida (cai na própria
+  // coluna de quem criou, ver comentário no PUT/no front) -- nesse caso
+  // específico (sem nenhum envolvido pra escolher) quem criou já é,
+  // sozinha, a responsável, sem precisar escolher nada na tela.
+  let finalResponsibleId = responsibleId;
+  if (finalAssigneeIds.length === 0) {
+    finalResponsibleId = req.user.id;
+  } else if (!responsibleId || !finalAssigneeIds.includes(responsibleId)) {
+    return res.status(400).json({ error: 'Marque um responsável (estrela) para esta demanda.' });
+  }
   const demanda = {
     id: nanoid(),
     title: title.trim(),
@@ -670,10 +738,11 @@ router.post('/', requireAuth, (req, res) => {
     recurrence: finalRecurrence,
     recurring: finalRecurrence !== 'none',
     assigneeIds: finalAssigneeIds,
-    // Responsável geral (30ª rodada): precisa estar entre os marcados na
-    // demanda, senão não faz sentido (não dá pra marcar como responsável
-    // alguém que nem está no card).
-    responsibleId: finalAssigneeIds.includes(responsibleId) ? responsibleId : null,
+    // Responsável geral (30ª rodada, obrigatório desde a 78ª): precisa
+    // estar entre os marcados na demanda, exceto no caso "sem ninguém
+    // marcado" da Área Pessoal (ver comentário acima), que cai pra quem
+    // criou.
+    responsibleId: finalResponsibleId,
     labelIds: validLabelIds(labelIds),
     color: validColor(color),
     link: validLink(link),
@@ -684,8 +753,26 @@ router.post('/', requireAuth, (req, res) => {
     // (rascunho local no front) — o que chegar aqui já vira o checklist do
     // card assim que ele é criado, em vez de nascer sempre vazio.
     checklist: sanitizeChecklistInput(checklist),
+    // 78ª rodada: em qual lista pessoal (própria de quem criou) o card
+    // nasce -- só faz sentido pra visibility 'pessoal', e só grava algo
+    // quando a pessoa escolheu uma lista sua de verdade (se não escolher
+    // nada, ou mandar uma lista que não é dela, cai sozinho na lista
+    // padrão dela, resolvido ao vivo por personalListIdFor()).
+    personalPlacements: (VISIBILITIES.includes(visibility) && visibility === 'pessoal' && personalListId && db.get('personalLists').find({ id: personalListId, ownerId: req.user.id }).value())
+      ? { [req.user.id]: personalListId }
+      : {},
     files: [],
-    order: Date.now(),
+    // 78ª rodada, pedido explícito da Raquel: "todo novo card cadastrado
+    // deve ficar em primeiro lugar na lista" -- antes usava `Date.now()`
+    // (positivo), que empurrava o card novo pro FIM da lista (qualquer
+    // card mais antigo tem um timestamp menor). Usando o negativo do
+    // timestamp, o card novo sempre fica menor que qualquer order já
+    // existente (todos positivos, sejam da criação normal de antes desta
+    // rodada, sejam de arrasto manual/"ordenar por data") -- e, entre 2
+    // cards novos, o mais recente ainda fica por cima do anterior (mais
+    // negativo). Quem arrastar o card muda a ordem normalmente depois
+    // (ver PUT /reorder abaixo) -- isso só define a posição de NASCIMENTO.
+    order: -Date.now(),
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
     createdByName: req.user.name,
@@ -693,7 +780,7 @@ router.post('/', requireAuth, (req, res) => {
   };
   db.get('demandas').push(demanda).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'create', meta: { visibility: demanda.visibility } });
-  res.json({ demanda: serialize(demanda) });
+  res.json({ demanda: serialize(demanda, req.user.id) });
 });
 
 // Reordenar cards dentro de uma lista do quadro (21ª rodada) — usado tanto
@@ -715,11 +802,100 @@ router.put('/reorder', requireAuth, (req, res) => {
   res.json({ ok: true, updated });
 });
 
+// ---------- Listas pessoais da Área Pessoal (78ª rodada) ----------
+// Rotas literais (`/personal-lists...`) DEPOIS de `/reorder` mas SEMPRE
+// ANTES de `PUT /:id`/`DELETE /:id` abaixo -- mesmo cuidado de ordem de
+// rotas já usado no `/reorder` acima e no `/history` lá em cima (senão o
+// Express interpretaria "personal-lists" como um :id de demanda de
+// verdade, e essas rotas nunca seriam alcançadas).
+function serializePersonalList(l) {
+  return { id: l.id, name: l.name, order: l.order };
+}
+
+router.get('/personal-lists', requireAuth, (req, res) => {
+  res.json({ lists: personalListsFor(req.user.id).map(serializePersonalList) });
+});
+
+router.post('/personal-lists', requireAuth, (req, res) => {
+  const name = ((req.body || {}).name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Dê um nome para a lista.' });
+  const maxOrder = Math.max(0, ...db.get('personalLists').value().filter((l) => l.ownerId === req.user.id).map((l) => l.order));
+  const list = { id: nanoid(), ownerId: req.user.id, name, order: maxOrder + 1000, createdAt: new Date().toISOString() };
+  db.get('personalLists').push(list).write();
+  res.json({ list: serializePersonalList(list) });
+});
+
+router.put('/personal-lists/reorder', requireAuth, (req, res) => {
+  const order = Array.isArray((req.body || {}).order) ? req.body.order : [];
+  order.forEach((id, idx) => {
+    const list = db.get('personalLists').find({ id, ownerId: req.user.id }).value();
+    if (!list) return; // ignora id que não existe ou não é dessa pessoa
+    db.get('personalLists').find({ id }).assign({ order: idx * 1000 }).write();
+  });
+  res.json({ ok: true });
+});
+
+router.put('/personal-lists/:id', requireAuth, (req, res) => {
+  const list = db.get('personalLists').find({ id: req.params.id, ownerId: req.user.id }).value();
+  if (!list) return res.status(404).json({ error: 'Lista não encontrada.' });
+  const name = ((req.body || {}).name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Dê um nome para a lista.' });
+  db.get('personalLists').find({ id: req.params.id }).assign({ name }).write();
+  res.json({ list: serializePersonalList(db.get('personalLists').find({ id: req.params.id }).value()) });
+});
+
+// Apagar uma lista nunca apaga os cards que estavam nela -- eles voltam
+// pra lista padrão da própria pessoa (ensureDefaultPersonalList), igual
+// já acontece pra quem nunca organizou o card em lista nenhuma. Não deixa
+// apagar a última lista que resta (sempre precisa sobrar pelo menos 1,
+// senão a Área Pessoal fica sem nenhuma coluna pra mostrar nada).
+router.delete('/personal-lists/:id', requireAuth, (req, res) => {
+  const mine = db.get('personalLists').value().filter((l) => l.ownerId === req.user.id);
+  const list = mine.find((l) => l.id === req.params.id);
+  if (!list) return res.status(404).json({ error: 'Lista não encontrada.' });
+  if (mine.length <= 1) return res.status(400).json({ error: 'Você precisa ter pelo menos uma lista na Área Pessoal.' });
+  db.get('personalLists').remove({ id: req.params.id }).write();
+  db.get('demandas').value().forEach((d) => {
+    if (d.personalPlacements && d.personalPlacements[req.user.id] === req.params.id) {
+      const updated = Object.assign({}, d.personalPlacements);
+      delete updated[req.user.id];
+      db.get('demandas').find({ id: d.id }).assign({ personalPlacements: updated }).write();
+    }
+  });
+  res.json({ ok: true });
+});
+
+// Mover um card pra outra lista pessoal (78ª rodada) -- só mexe na
+// organização de QUEM PEDIU (personalPlacements é por pessoa, ver
+// comentário lá em cima); nunca move o card pra fora do alcance de quem
+// mais o vê. `listId` precisa ser uma lista da PRÓPRIA pessoa que pediu.
+router.put('/:id/personal-list', requireAuth, (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) return;
+  if (demanda.visibility !== 'pessoal') return res.status(400).json({ error: 'Só demandas da Área Pessoal têm lista.' });
+  const listId = (req.body || {}).listId;
+  const list = db.get('personalLists').find({ id: listId, ownerId: req.user.id }).value();
+  if (!list) return res.status(400).json({ error: 'Lista inválida.' });
+  const placements = Object.assign({}, demanda.personalPlacements || {}, { [req.user.id]: listId });
+  db.get('demandas').find({ id: req.params.id }).assign({ personalPlacements: placements }).write();
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
+});
+
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, network } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, network, personalListId } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
+  // 78ª rodada: mudar de lista pessoal pelo próprio modal de edição do
+  // card (mesma regra da rota dedicada PUT /:id/personal-list acima --
+  // só aceita uma lista que seja DA PRÓPRIA pessoa que está salvando, e só
+  // mexe na organização dela, nunca na de quem mais vir esse card).
+  if (personalListId !== undefined && demanda.visibility === 'pessoal') {
+    const list = db.get('personalLists').find({ id: personalListId, ownerId: req.user.id }).value();
+    if (list) {
+      updates.personalPlacements = Object.assign({}, demanda.personalPlacements || {}, { [req.user.id]: personalListId });
+    }
+  }
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
   if (dueDate !== undefined) updates.dueDate = dueDate || null;
@@ -729,13 +905,35 @@ router.put('/:id', requireAuth, (req, res) => {
   // DEPOIS dessa atualização (novos assigneeIds, se vieram junto; senão os
   // que a demanda já tinha) — pra não perder a marcação por engano quando o
   // card é salvo sem mexer nos marcados.
+  const effectiveAssigneeIdsForResp = updates.assigneeIds !== undefined ? updates.assigneeIds : (demanda.assigneeIds || []);
   if (responsibleId !== undefined) {
-    const effectiveAssigneeIds = updates.assigneeIds !== undefined ? updates.assigneeIds : (demanda.assigneeIds || []);
-    updates.responsibleId = effectiveAssigneeIds.includes(responsibleId) ? responsibleId : null;
+    updates.responsibleId = effectiveAssigneeIdsForResp.includes(responsibleId) ? responsibleId : null;
   } else if (updates.assigneeIds !== undefined && demanda.responsibleId && !updates.assigneeIds.includes(demanda.responsibleId)) {
     // Se o responsável geral atual saiu da lista de marcados nessa mesma
     // atualização, a marcação cai junto (não faz sentido sobreviver sozinha).
     updates.responsibleId = null;
+  }
+  // Área Pessoal sem ninguém marcado (mesmo caso do POST acima): quem
+  // criou a demanda continua sendo a responsável sozinha, sem travar a
+  // edição pedindo pra escolher alguém que nem existe pra marcar.
+  if (effectiveAssigneeIdsForResp.length === 0 && (updates.responsibleId === null || updates.responsibleId === undefined)) {
+    updates.responsibleId = demanda.createdBy || req.user.id;
+  }
+  // 78ª rodada, pedido da Raquel: "toda demanda deve ter um responsável
+  // marcado, não importa de onde veio". A obrigatoriedade de verdade é
+  // aplicada na CRIAÇÃO (ver POST acima, e o preenchimento automático em
+  // createDemandCardsForNewInvolved pras demandas que nascem de
+  // Agendamento/Influencer) -- aqui na edição, só recusa se essa PRÓPRIA
+  // edição fosse deixar uma demanda que JÁ TINHA responsável sem nenhum
+  // (removido sem substituto), pra nunca "desmarcar" por acidente. Uma
+  // demanda antiga (de antes desta regra existir) que ainda não tem
+  // responsável nenhum continua editável normalmente nos outros campos --
+  // não trava o quadro inteiro até alguém preencher isso peça por peça.
+  if (demanda.responsibleId) {
+    const effectiveResponsibleId = updates.responsibleId !== undefined ? updates.responsibleId : demanda.responsibleId;
+    if (!effectiveResponsibleId) {
+      return res.status(400).json({ error: 'Toda demanda precisa de um responsável (estrela) marcado -- escolha um antes de salvar.' });
+    }
   }
   if (labelIds !== undefined) updates.labelIds = validLabelIds(labelIds);
   if (color !== undefined) updates.color = validColor(color);
@@ -827,7 +1025,7 @@ router.put('/:id', requireAuth, (req, res) => {
       markSocialPostPublished(demanda.sourceSocialPostId, req);
     }
   }
-  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()), recurringReset });
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id), recurringReset });
 });
 
 router.put('/:id/archive', requireAuth, (req, res) => {
@@ -918,6 +1116,22 @@ router.get('/:id/history', requireAuth, (req, res) => {
   res.json({ history: entries });
 });
 
+// Comentários (78ª rodada, pedido da Raquel: "no card, deve ter a opção de
+// por comentários que ficam no histórico dele") -- vira só mais uma
+// entrada no MESMO auditLog do histórico acima (`action: 'comment'`), sem
+// precisar de uma coleção nova nem de uma tela separada: o comentário
+// aparece junto com o resto do histórico, na ordem certa, com quem
+// escreveu e quando. Mesmo controle de acesso de sempre (findOr404) —
+// comentar numa demanda pessoal exige poder VER ela.
+router.post('/:id/comments', requireAuth, (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) return;
+  const text = ((req.body || {}).text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Escreva um comentário.' });
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'comment', details: text, meta: { visibility: demanda.visibility } });
+  res.json({ ok: true });
+});
+
 // ---------- checklist ----------
 router.post('/:id/checklist', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
@@ -933,7 +1147,7 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
   const checklist = [...(demanda.checklist || []), item];
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_add', details: `Item adicionado ao checklist: "${text}"`, meta: { visibility: demanda.visibility } });
-  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
 router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
@@ -977,7 +1191,7 @@ router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
     }
     if (detail) logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_update', details: detail, meta: { visibility: demanda.visibility } });
   }
-  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
 router.delete('/:id/checklist/:itemId', requireAuth, (req, res) => {
@@ -987,7 +1201,7 @@ router.delete('/:id/checklist/:itemId', requireAuth, (req, res) => {
   const checklist = (demanda.checklist || []).filter((it) => it.id !== req.params.itemId);
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   if (target) logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_remove', details: `Item removido do checklist: "${target.text}"`, meta: { visibility: demanda.visibility } });
-  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
 // ---------- arquivos ----------
@@ -1007,7 +1221,7 @@ router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
   const files = [...(demanda.files || []), fileMeta];
   db.get('demandas').find({ id: req.params.id }).assign({ files, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'file_upload', details: `Arquivo enviado: ${fileMeta.name}`, meta: { visibility: demanda.visibility } });
-  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
 router.delete('/:id/files/:fileId', requireAuth, (req, res) => {
@@ -1021,7 +1235,7 @@ router.delete('/:id/files/:fileId', requireAuth, (req, res) => {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'file_delete', details: `Arquivo removido: ${target.name}`, meta: { visibility: demanda.visibility } });
   }
-  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value()) });
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
 module.exports = router;

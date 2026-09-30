@@ -122,6 +122,10 @@ function serializePostPublic(p) {
     status: p.status,
     dataPostagem: p.dataPostagem,
     arquivo: p.arquivo || null,
+    // Link de publicação (78ª rodada) -- não é dado sensível (é literalmente
+    // o link público do post já no ar), então entra também no link
+    // externo/relatório, ao lado de "Arquivo", igual pedido pela Raquel.
+    linkPublicacao: p.linkPublicacao || null,
     observacoes: p.observacoes,
     notas: p.notas
   };
@@ -183,10 +187,27 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ influencers: list.map(serializeInfluencer) });
 });
 
+// Dados pessoais obrigatórios no CADASTRO (78ª rodada, pedido explícito da
+// Raquel: "ao cadastrar a influencer, deve ser obrigatório os dados
+// pessoais"). Só na criação -- editar um influencer já cadastrado (de
+// antes desta rodada, sem esses campos) continua liberado normalmente,
+// mesmo espírito de "nunca apagar/travar o que já existe" já usado no
+// resto da Plataforma (ver comentário de personalFields acima).
+const REQUIRED_PERSONAL_FIELD_LABELS = {
+  cpf: 'CPF', rg: 'RG', telefone: 'telefone', email: 'email',
+  dataNascimento: 'data de nascimento', endereco: 'endereço'
+};
+
 router.post('/', requireAuth, (req, res) => {
   const { brand, name } = req.body || {};
   if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Marca inválida.' });
   if (!name || !name.trim()) return res.status(400).json({ error: 'Informe o nome do influencer.' });
+  const personal = personalFields(req.body || {});
+  for (const key of Object.keys(REQUIRED_PERSONAL_FIELD_LABELS)) {
+    if (!personal[key]) {
+      return res.status(400).json({ error: `Informe o campo "${REQUIRED_PERSONAL_FIELD_LABELS[key]}" para cadastrar o influencer.` });
+    }
+  }
   const inf = Object.assign({
     id: nanoid(),
     brand,
@@ -195,7 +216,7 @@ router.post('/', requireAuth, (req, res) => {
     contrato: null,
     createdAt: new Date().toISOString(),
     createdBy: req.user.id
-  }, personalFields(req.body || {}));
+  }, personal);
   db.get('influencers').push(inf).write();
   logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'create' });
   res.json({ influencer: serializeInfluencer(inf) });
@@ -330,8 +351,14 @@ router.get('/:id', requireAuth, (req, res) => {
 router.post('/:id/posts', requireAuth, (req, res) => {
   const inf = findInfluencerOr404(req, res);
   if (!inf) return;
-  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds, responsibleId } = req.body || {};
+  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds, responsibleId, linkPublicacao } = req.body || {};
   const finalInvolvedIds = validUserIds(involvedUserIds);
+  // 78ª rodada, pedido explícito da Raquel: "toda ação, demanda e afins
+  // sempre deve ter um responsável" -- confirmado que vale também pras
+  // ações de Influencer.
+  if (!responsibleId || !finalInvolvedIds.includes(responsibleId)) {
+    return res.status(400).json({ error: 'Marque um responsável (estrela) para esta ação.' });
+  }
   const post = {
     id: nanoid(),
     influencerId: inf.id,
@@ -340,6 +367,12 @@ router.post('/:id/posts', requireAuth, (req, res) => {
     status: STATUSES.includes(status) ? status : 'a_publicar',
     dataPostagem: dataPostagem || null,
     arquivo: null,
+    // Link de publicação (78ª rodada, pedido da Raquel: "quando a ação
+    // tiver um link de publicado, deve ter esse link ao lado de arquivo")
+    // -- link de verdade do post já publicado (ex.: link do Instagram),
+    // diferente do `link` de referência usado em outras telas. Opcional --
+    // só faz sentido preencher depois que a ação já foi ao ar.
+    linkPublicacao: (linkPublicacao || '').trim() || null,
     observacoes: (observacoes || '').trim(),
     notas: (notas || '').trim(),
     // Parceria em permuta (22ª rodada) — ver comentário de TIPOS_PARCERIA.
@@ -369,12 +402,13 @@ router.put('/:id/posts/:postId', requireAuth, (req, res) => {
   if (!inf) return;
   const post = db.get('influencerPosts').find({ id: req.params.postId, influencerId: inf.id }).value();
   if (!post) return res.status(404).json({ error: 'Item não encontrado.' });
-  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds, responsibleId } = req.body || {};
+  const { formato, rede, status, dataPostagem, observacoes, notas, tipoParceria, dataSaida, involvedUserIds, responsibleId, linkPublicacao } = req.body || {};
   const updates = {};
   if (formato !== undefined) updates.formato = (formato || '').trim();
   if (rede !== undefined) updates.rede = REDES.includes(rede) ? rede : null;
   if (status !== undefined) updates.status = STATUSES.includes(status) ? status : post.status;
   if (dataPostagem !== undefined) updates.dataPostagem = dataPostagem || null;
+  if (linkPublicacao !== undefined) updates.linkPublicacao = (linkPublicacao || '').trim() || null;
   if (observacoes !== undefined) updates.observacoes = (observacoes || '').trim();
   if (notas !== undefined) updates.notas = (notas || '').trim();
   if (tipoParceria !== undefined) updates.tipoParceria = TIPOS_PARCERIA.includes(tipoParceria) ? tipoParceria : null;

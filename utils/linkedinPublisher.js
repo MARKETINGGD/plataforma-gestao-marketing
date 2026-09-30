@@ -4,14 +4,14 @@
 // de verdade rodando sozinho no servidor, checando a cada poucos minutos
 // se algum post agendado pra LinkedIn já venceu e tem conta conectada.
 //
-// Escopo desta 1ª versão (deliberadamente restrito, mesmo espírito de como
-// a Meta cresceu aos poucos): publica texto puro, texto + 1 imagem, ou
-// texto + 1 vídeo, como a Página (organization) da marca conectada. Post
-// com MAIS de 1 arquivo (o equivalente a um "carrossel" da LinkedIn) fica
-// de fora por enquanto — a LinkedIn até aceita múltiplas imagens num post,
-// mas isso não foi pesquisado/implementado ainda; ver
-// PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md seção 7 pra esse próximo passo
-// candidato. Continua 100% manual pra qualquer post assim, como sempre foi.
+// Escopo: publica texto puro, texto + 1 imagem, texto + 1 vídeo, ou texto +
+// VÁRIAS imagens (carrossel -- 78ª rodada, pedido explícito da Raquel:
+// "LinkedIn deve aceitar carrossel", antes travado em "máximo 1 arquivo"),
+// como a Página (organization) da marca conectada. O carrossel da LinkedIn
+// (`multiImage`, ver utils/linkedinClient.js) só aceita IMAGEM — post com
+// mais de 1 arquivo onde qualquer um deles é vídeo continua de fora da
+// publicação automática (não existe "carrossel de vídeo" na API da
+// LinkedIn), e segue 100% manual, como sempre foi.
 //
 // **Ainda sem nenhum teste real** (diferente da Meta) — a LinkedIn exige
 // aprovação prévia do "Community Management API" antes de qualquer token
@@ -64,9 +64,12 @@ function isEligible(post) {
   // Legenda preenchida como confirmação de que o post está pronto — mesmo
   // critério já usado pela Meta (o texto vira o "commentary" do post).
   if (!post.caption || !post.caption.trim()) return false;
-  // v1: só texto puro, 1 imagem ou 1 vídeo — mais de 1 arquivo (carrossel)
-  // fica fora por enquanto, ver comentário do topo do arquivo.
-  if ((post.files || []).length > 1) return false;
+  // 78ª rodada: texto puro, 1 arquivo (imagem OU vídeo), ou VÁRIAS imagens
+  // (carrossel) -- a única combinação que continua de fora é mais de 1
+  // arquivo com QUALQUER vídeo no meio, porque a LinkedIn não tem
+  // "carrossel de vídeo" (ver comentário no topo do arquivo).
+  const files = post.files || [];
+  if (files.length > 1 && files.some(isVideoFile)) return false;
   if (!post.scheduledDate) return false;
   if (!isDue(post)) return false;
   return true;
@@ -94,22 +97,38 @@ async function attemptPublish(post, account) {
   const files = post.files || [];
   const authorUrn = `urn:li:organization:${account.organizationId}`;
   let mediaUrn = null;
-  if (files.length === 1) {
-    const file = files[0];
+  let mediaUrns = null;
+  function readFileBuffer(file) {
     const diskPath = diskPathForFile(file);
     if (!fs.existsSync(diskPath)) {
       throw new linkedinClient.LinkedInApiError(`Não encontrei o arquivo desse post no servidor (${file.name || file.url || 'sem nome'}) -- confirme se o upload terminou e edite o agendamento para tentar de novo.`);
     }
-    const buffer = fs.readFileSync(diskPath);
+    return fs.readFileSync(diskPath);
+  }
+  if (files.length === 1) {
+    const file = files[0];
+    const buffer = readFileBuffer(file);
     mediaUrn = isVideoFile(file)
       ? await linkedinClient.uploadVideo({ accessToken: account.accessToken, ownerUrn: authorUrn, buffer })
       : await linkedinClient.uploadImage({ accessToken: account.accessToken, ownerUrn: authorUrn, buffer });
+  } else if (files.length > 1) {
+    // 78ª rodada, carrossel: isEligible() já garante que nenhum desses
+    // arquivos é vídeo (a LinkedIn só aceita carrossel de imagem) --
+    // sequencial de propósito, mesmo motivo de sempre (mais fácil de
+    // acompanhar erro, não bate limite de conexões simultâneas).
+    mediaUrns = [];
+    for (const file of files) {
+      const buffer = readFileBuffer(file);
+      const urn = await linkedinClient.uploadImage({ accessToken: account.accessToken, ownerUrn: authorUrn, buffer });
+      mediaUrns.push(urn);
+    }
   }
   const created = await linkedinClient.createPost({
     accessToken: account.accessToken,
     authorUrn,
     commentary: post.caption,
-    mediaUrn
+    mediaUrn,
+    mediaUrns
   });
   const externalPostId = created.id;
   const externalPermalink = linkedinClient.buildPermalink(externalPostId);

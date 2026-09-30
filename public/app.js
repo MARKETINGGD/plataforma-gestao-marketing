@@ -495,7 +495,8 @@
     checklist_update: 'atualizou item do checklist',
     checklist_remove: 'removeu item do checklist',
     file_upload: 'enviou um arquivo',
-    file_delete: 'removeu um arquivo'
+    file_delete: 'removeu um arquivo',
+    comment: 'comentou'
   };
   // Monta a lista de histórico num container — reaproveitado tanto pelo
   // histórico de UM card (modal da demanda) quanto pelo histórico do
@@ -1043,25 +1044,34 @@
       if (!data.ok) throw new Error(data.body.error || 'Link inválido.');
       const { influencer, posts } = data.body;
       $('#pubInfName').textContent = influencer.name + ' — ' + (BRAND_LABEL[influencer.brand] || influencer.brand);
-      const body = $('#pubInfPostsBody');
-      body.innerHTML = '';
-      $('#pubInfEmpty').hidden = posts.length > 0;
-      posts.forEach((p) => {
-        const tr = document.createElement('tr');
-        if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
-          tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
-        }
-        tr.innerHTML = `
-          <td>${p.formato || '—'}</td>
-          <td>${networkIconHtml(p.rede)} ${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
-          <td>${influencerStatusPillHTML(p.status, false)}</td>
-          <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
-          <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
-          <td>${p.observacoes || '—'}</td>
-          <td>${p.notas || '—'}</td>
-        `;
-        body.appendChild(tr);
-      });
+      $('#pubInfStatusFilter').innerHTML = '<option value="">Todos os status</option>' +
+        Object.keys(INFLUENCER_STATUS_LABEL).map((k) => `<option value="${k}">${INFLUENCER_STATUS_LABEL[k]}</option>`).join('');
+      function render() {
+        const statusFilter = $('#pubInfStatusFilter').value;
+        const filtered = statusFilter ? posts.filter((p) => p.status === statusFilter) : posts;
+        const body = $('#pubInfPostsBody');
+        body.innerHTML = '';
+        $('#pubInfEmpty').hidden = filtered.length > 0;
+        filtered.forEach((p) => {
+          const tr = document.createElement('tr');
+          if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
+            tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+          }
+          tr.innerHTML = `
+            <td>${p.formato || '—'}</td>
+            <td>${networkIconHtml(p.rede)} ${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+            <td>${influencerStatusPillHTML(p.status, false)}</td>
+            <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
+            <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+            <td>${p.linkPublicacao ? `<a href="${p.linkPublicacao}" target="_blank" rel="noopener">Ver post</a>` : '—'}</td>
+            <td>${p.observacoes || '—'}</td>
+            <td>${p.notas || '—'}</td>
+          `;
+          body.appendChild(tr);
+        });
+      }
+      $('#pubInfStatusFilter').onchange = render;
+      render();
       showScreen('influencer-public');
     } catch (e) {
       $('#pubInfError').hidden = false;
@@ -1079,27 +1089,36 @@
       if (!data.ok) throw new Error(data.body.error || 'Link inválido.');
       const { key, posts } = data.body;
       $('#pubInfGroupName').textContent = 'Todas as ações — ' + (GROUP_KEY_LABEL[key] || key);
-      const body = $('#pubInfGroupPostsBody');
-      body.innerHTML = '';
-      $('#pubInfGroupEmpty').hidden = posts.length > 0;
-      posts.forEach((p) => {
-        const tr = document.createElement('tr');
-        if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
-          tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
-        }
-        tr.innerHTML = `
-          <td>${p.influencerName}</td>
-          <td>${BRAND_LABEL[p.brand] || p.brand}</td>
-          <td>${p.formato || '—'}</td>
-          <td>${networkIconHtml(p.rede)} ${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
-          <td>${influencerStatusPillHTML(p.status, false)}</td>
-          <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
-          <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
-          <td>${p.observacoes || '—'}</td>
-          <td>${p.notas || '—'}</td>
-        `;
-        body.appendChild(tr);
-      });
+      $('#pubInfGroupStatusFilter').innerHTML = '<option value="">Todos os status</option>' +
+        Object.keys(INFLUENCER_STATUS_LABEL).map((k) => `<option value="${k}">${INFLUENCER_STATUS_LABEL[k]}</option>`).join('');
+      function render() {
+        const statusFilter = $('#pubInfGroupStatusFilter').value;
+        const filtered = statusFilter ? posts.filter((p) => p.status === statusFilter) : posts;
+        const body = $('#pubInfGroupPostsBody');
+        body.innerHTML = '';
+        $('#pubInfGroupEmpty').hidden = filtered.length > 0;
+        filtered.forEach((p) => {
+          const tr = document.createElement('tr');
+          if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
+            tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+          }
+          tr.innerHTML = `
+            <td>${p.influencerName}</td>
+            <td>${BRAND_LABEL[p.brand] || p.brand}</td>
+            <td>${p.formato || '—'}</td>
+            <td>${networkIconHtml(p.rede)} ${SOCIAL_PLATFORM_LABEL[p.rede] || p.rede || '—'}</td>
+            <td>${influencerStatusPillHTML(p.status, false)}</td>
+            <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
+            <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+            <td>${p.linkPublicacao ? `<a href="${p.linkPublicacao}" target="_blank" rel="noopener">Ver post</a>` : '—'}</td>
+            <td>${p.observacoes || '—'}</td>
+            <td>${p.notas || '—'}</td>
+          `;
+          body.appendChild(tr);
+        });
+      }
+      $('#pubInfGroupStatusFilter').onchange = render;
+      render();
       showScreen('influencer-group-public');
     } catch (e) {
       $('#pubInfGroupError').hidden = false;
@@ -1221,18 +1240,35 @@
       empty = rows.length === 0;
       html = publicTableHtml(['Marca', 'Cliente', 'Representante', 'Produto', 'Gerente responsável', 'Qtd.', 'Data pedido', 'Data entrega', 'Aprovado', 'Cobrança', 'Finalizado'], rows);
     } else if (resource === 'expositoresEstoque') {
-      const rows = (data.items || []).map((it) => [
-        it.codigoEntrada, it.descricaoEntrada, it.codigoSaida, it.descricaoSaida, fmtMoney(it.valorUnitario),
-        it.saldoPR, it.saldoSP, it.saldoNE, it.saldoTotal, it.consumoMensal, fmtMoney(it.valorTotalMensal)
-      ]);
-      empty = rows.length === 0;
-      html = publicTableHtml(['Código entrada', 'Descrição entrada', 'Código saída', 'Descrição saída', 'R$ Unit.', 'Saldo PR', 'Saldo SP', 'Saldo NE', 'Total', 'Consumo mensal', 'R$ Total/mês'], rows);
+      // 78ª rodada, pedido da Raquel: "coloque filtro nos expositores,
+      // para buscar por modelo, isso vale para o link externo tbm" --
+      // mesmo critério do filtro de dentro da Papoi (descrição de
+      // entrada/saída), renderizado à parte pra poder refiltrar sem
+      // recarregar a página (ver bloco logo depois do innerHTML abaixo).
+      const items = data.items || [];
+      empty = items.length === 0;
+      html = `
+        <div style="margin-bottom:12px;max-width:280px;">
+          <input type="text" id="sharePublicExpositoresModeloFilter" placeholder="Filtrar por modelo (descrição)...">
+        </div>
+        <div id="sharePublicExpositoresEstoqueTable"></div>
+      `;
     } else if (resource === 'concorrencia') {
       // 68ª rodada: link agregado (lista inteira da marca/escopo) --
       // reaproveita o mesmo cartão comparativo usado dentro da Papoi.
+      // 78ª rodada, pedido da Raquel: "o link externo, deve ter uma barra
+      // de rolagem, ele ficou mto extenso" + "deve ter... um filtro por
+      // produto" -- a lista fica numa área com altura própria/rolagem
+      // (ver renderização em separado logo abaixo, depois do innerHTML),
+      // com um filtro de texto por cima que reduz o que precisa rolar.
       const items = data.items || [];
       empty = items.length === 0;
-      html = items.map((it) => concorrenciaCardHtml(it, { editable: false, actionsHtml: '' })).join('');
+      html = `
+        <div style="margin-bottom:12px;max-width:280px;">
+          <input type="text" id="sharePublicConcorrenciaFilter" placeholder="Filtrar por produto (ex.: cubas, pias...)">
+        </div>
+        <div id="sharePublicConcorrenciaList" class="concorrencia-scroll-list"></div>
+      `;
     } else if (resource === 'concorrenciaItem') {
       // 68ª rodada: link de 1 análise só.
       empty = !data.item;
@@ -1240,6 +1276,38 @@
     }
     $('#sharePublicContent').innerHTML = html;
     $('#sharePublicEmpty').hidden = !empty;
+    // 78ª rodada: preenche/filtra o Controle de Expositores separadamente
+    // (mesmo motivo do bloco de concorrência abaixo -- precisa existir no
+    // DOM antes de conseguir achar o filtro/tabela).
+    if (resource === 'expositoresEstoque') {
+      const items = data.items || [];
+      function renderFilteredExpositoresEstoque() {
+        const query = $('#sharePublicExpositoresModeloFilter').value;
+        const filtered = items.filter((it) => expositorEstoqueMatchesModelo(it, query));
+        const rows = filtered.map((it) => [
+          it.codigoEntrada, it.descricaoEntrada, it.codigoSaida, it.descricaoSaida, fmtMoney(it.valorUnitario),
+          it.saldoPR, it.saldoSP, it.saldoNE, it.saldoTotal, it.consumoMensal, fmtMoney(it.valorTotalMensal)
+        ]);
+        $('#sharePublicExpositoresEstoqueTable').innerHTML = publicTableHtml(['Código entrada', 'Descrição entrada', 'Código saída', 'Descrição saída', 'R$ Unit.', 'Saldo PR', 'Saldo SP', 'Saldo NE', 'Total', 'Consumo mensal', 'R$ Total/mês'], rows);
+        $('#sharePublicEmpty').hidden = filtered.length > 0;
+      }
+      $('#sharePublicExpositoresModeloFilter').addEventListener('input', renderFilteredExpositoresEstoque);
+      renderFilteredExpositoresEstoque();
+    }
+    // 78ª rodada: preenche/filtra a lista de concorrência separadamente
+    // (ver comentário acima) -- precisa ser depois do innerHTML porque o
+    // filtro de texto e a lista só existem no DOM a partir daqui.
+    if (resource === 'concorrencia') {
+      const items = data.items || [];
+      function renderFilteredConcorrencia() {
+        const query = $('#sharePublicConcorrenciaFilter').value;
+        const filtered = items.filter((it) => concorrenciaMatchesProduct(it, query));
+        $('#sharePublicConcorrenciaList').innerHTML = filtered.map((it) => concorrenciaCardHtml(it, { editable: false, actionsHtml: '' })).join('');
+        $('#sharePublicEmpty').hidden = filtered.length > 0;
+      }
+      $('#sharePublicConcorrenciaFilter').addEventListener('input', renderFilteredConcorrencia);
+      renderFilteredConcorrencia();
+    }
   }
   async function loadSharePublicPage(shareToken) {
     try {
@@ -1599,9 +1667,13 @@
       $all('.tab-btn[data-expositores-book-brand]').forEach((x) => x.classList.toggle('active', x === b));
     };
   });
+  // 78ª rodada: Orçamentos ganhou dado de verdade -- trocar de marca agora
+  // recarrega a lista, igual ao resto da Plataforma.
   $all('.tab-btn[data-expositores-orcamentos-brand]').forEach((b) => {
     b.onclick = () => {
       $all('.tab-btn[data-expositores-orcamentos-brand]').forEach((x) => x.classList.toggle('active', x === b));
+      expositoresOrcamentosBrand = b.dataset.expositoresOrcamentosBrand;
+      loadExpositoresOrcamentos();
     };
   });
   $all('.navlink').forEach((b) => {
@@ -1659,6 +1731,9 @@
         if (b.dataset.view === 'expositores-catalogo') loadExpositoresCatalogo();
         // 77ª rodada
         if (b.dataset.view === 'acompanhamento-equipe') loadAcompanhamentoEquipe();
+        // 78ª rodada
+        if (b.dataset.view === 'expositores-book-tecnico') loadExpositoresBookTecnico();
+        if (b.dataset.view === 'expositores-orcamentos') loadExpositoresOrcamentos();
       }
     };
   });
@@ -2243,17 +2318,53 @@
     const row = document.createElement('div');
     const mine = m.createdBy === currentUser.id;
     row.className = 'chat-msg-row' + (mine ? ' mine' : '');
+    // 78ª rodada: guarda o id na linha pra dar pra achar ela de novo depois
+    // (usado pelo apagar mensagem, ver markChatMessageDeletedInUI abaixo --
+    // a mesma mensagem pode estar visível em mais de um lugar ao mesmo
+    // tempo: tela cheia, janelinha flutuante e/ou a bolha fixa do Geral).
+    row.dataset.msgId = m.id;
     const time = new Date(m.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     const avatarPerson = mine ? currentUser : { name: m.createdByName, photoUrl: m.createdByPhotoUrl };
     const bubble = document.createElement('div');
     bubble.className = 'chat-msg';
-    bubble.innerHTML = `<div class="chat-msg-meta"><b>${mine ? 'Você' : escapeHtml(m.createdByName)}</b><span>${time}</span></div><div class="chat-msg-text"></div>`;
-    // Texto com menções destacadas — já passa por escapeHtml dentro de
-    // highlightMentionsHtml, então segue seguro mesmo indo por innerHTML.
-    bubble.querySelector('.chat-msg-text').innerHTML = highlightMentionsHtml(m.text, m.mentionedUserIds, currentConversationParticipants);
+    // Apagar mensagem (78ª rodada, pedido da Raquel -- a API já existia,
+    // só faltava o botão): só quem escreveu (ou admin da plataforma, pra
+    // moderar) pode apagar, e só enquanto ainda não estiver apagada.
+    const canDelete = !m.deleted && (mine || currentUser.isSuperAdmin);
+    const deleteBtnHtml = canDelete ? `<button type="button" class="chat-msg-delete-btn" title="Apagar mensagem">🗑</button>` : '';
+    bubble.innerHTML = `<div class="chat-msg-meta"><b>${mine ? 'Você' : escapeHtml(m.createdByName)}</b><span>${time}</span>${deleteBtnHtml}</div><div class="chat-msg-text"></div>`;
+    const textEl = bubble.querySelector('.chat-msg-text');
+    if (m.deleted) {
+      textEl.innerHTML = '<i class="chat-msg-deleted">Mensagem apagada</i>';
+    } else {
+      // Texto com menções destacadas — já passa por escapeHtml dentro de
+      // highlightMentionsHtml, então segue seguro mesmo indo por innerHTML.
+      textEl.innerHTML = highlightMentionsHtml(m.text, m.mentionedUserIds, currentConversationParticipants);
+    }
+    if (canDelete) {
+      bubble.querySelector('.chat-msg-delete-btn').onclick = async () => {
+        if (!confirm('Apagar esta mensagem? No lugar dela vai ficar "Mensagem apagada" pra quem já viu a conversa.')) return;
+        try {
+          await api(`/api/chat/messages/${encodeURIComponent(m.id)}`, { method: 'DELETE' });
+          markChatMessageDeletedInUI(m.id);
+        } catch (e) { alert(e.message || 'Não foi possível apagar a mensagem.'); }
+      };
+    }
     row.innerHTML = avatarHtml(avatarPerson, 28);
     row.appendChild(bubble);
     return row;
+  }
+
+  // Atualiza toda cópia visível dessa mensagem na tela (pode estar em mais
+  // de um lugar ao mesmo tempo -- ver comentário acima) sem precisar
+  // recarregar o histórico inteiro de nenhuma das janelas.
+  function markChatMessageDeletedInUI(msgId) {
+    document.querySelectorAll('.chat-msg-row[data-msg-id="' + msgId + '"]').forEach((row) => {
+      const textEl = row.querySelector('.chat-msg-text');
+      if (textEl) textEl.innerHTML = '<i class="chat-msg-deleted">Mensagem apagada</i>';
+      const btn = row.querySelector('.chat-msg-delete-btn');
+      if (btn) btn.remove();
+    });
   }
 
   function chatIsScrolledToBottom(wrap) {
@@ -2298,9 +2409,20 @@
       item.className = 'chat-conversation-item' + (conv.id === currentConversationId ? ' active' : '');
       // 42ª rodada: grupo com foto cadastrada mostra a foto no lugar do
       // ícone 👥 na lista de conversas.
-      const iconHtml = conv.type === 'group' && conv.photoUrl
-        ? `<span class="chat-conversation-icon chat-conversation-icon-photo" style="background-image:url('${conv.photoUrl}')"></span>`
-        : `<span class="chat-conversation-icon">${conversationIcon(conv)}</span>`;
+      // 78ª rodada, pedido da Raquel (com print mostrando duas pessoas com
+      // a mesma letra "M" e "E" na lista de conversas): DM mostra a
+      // fotinho de verdade da outra pessoa, igual já acontecia no
+      // cabeçalho da conversa aberta -- só cai pra círculo com a inicial
+      // (avatarHtml) quando aquela pessoa realmente não tem foto cadastrada.
+      let iconHtml;
+      if (conv.type === 'group' && conv.photoUrl) {
+        iconHtml = `<span class="chat-conversation-icon chat-conversation-icon-photo" style="background-image:url('${conv.photoUrl}')"></span>`;
+      } else if (conv.type === 'dm') {
+        const other = (conv.participants || []).find((p) => p.id !== currentUser.id) || (conv.participants || [])[0];
+        iconHtml = avatarHtml(other, 26, 'chat-conversation-icon');
+      } else {
+        iconHtml = `<span class="chat-conversation-icon">${conversationIcon(conv)}</span>`;
+      }
       item.innerHTML = `${iconHtml}<span class="chat-conversation-name"></span>`;
       item.querySelector('.chat-conversation-name').textContent = conv.name;
       item.onclick = () => selectConversation(conv.id);
@@ -2323,6 +2445,7 @@
   async function selectConversation(id) {
     currentConversationId = id;
     chatLastId = null;
+    closeChatSearch();
     renderChatConversationList();
     await loadChat();
   }
@@ -2503,6 +2626,57 @@
       alert(e.message || 'Não foi possível chamar atenção agora.');
     }
   };
+
+  // ---------- Buscar mensagem dentro da conversa (78ª rodada) ----------
+  let chatSearchDebounce = null;
+  function closeChatSearch() {
+    $('#chatSearchBar').hidden = true;
+    $('#chatSearchInput').value = '';
+    $('#chatSearchResults').hidden = true;
+    $('#chatSearchResults').innerHTML = '';
+  }
+  async function runChatSearch(q) {
+    const box = $('#chatSearchResults');
+    if (!q.trim()) { box.hidden = true; box.innerHTML = ''; return; }
+    try {
+      const data = await api(`/api/chat/conversations/${encodeURIComponent(currentConversationId)}/search?q=${encodeURIComponent(q)}`);
+      const results = (data.messages || []).slice().reverse(); // mais recente primeiro
+      box.innerHTML = '';
+      if (results.length === 0) {
+        box.innerHTML = '<div class="chat-search-result-empty">Nenhuma mensagem encontrada.</div>';
+      } else {
+        results.forEach((m) => {
+          const item = document.createElement('div');
+          item.className = 'chat-search-result-item';
+          const time = new Date(m.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+          item.innerHTML = `<span class="chat-search-result-meta">${escapeHtml(m.createdByName)} · ${time}</span><span class="chat-search-result-text"></span>`;
+          item.querySelector('.chat-search-result-text').textContent = m.text;
+          item.onclick = () => {
+            const target = document.querySelector('#chatMessages .chat-msg-row[data-msg-id="' + m.id + '"]');
+            if (target) {
+              target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              target.classList.add('search-highlight');
+              setTimeout(() => target.classList.remove('search-highlight'), 1600);
+            }
+          };
+          box.appendChild(item);
+        });
+      }
+      box.hidden = false;
+    } catch (e) { /* ignora falha pontual de busca */ }
+  }
+  $('#chatSearchToggleBtn').onclick = () => {
+    const bar = $('#chatSearchBar');
+    bar.hidden = !bar.hidden;
+    if (!bar.hidden) $('#chatSearchInput').focus();
+    else closeChatSearch();
+  };
+  $('#chatSearchCloseBtn').onclick = closeChatSearch;
+  $('#chatSearchInput').addEventListener('input', (e) => {
+    clearTimeout(chatSearchDebounce);
+    const q = e.target.value;
+    chatSearchDebounce = setTimeout(() => runChatSearch(q), 300);
+  });
 
   // 42ª rodada, pedido da Raquel: "deve ter a opção de por uma imagem na
   // foto do grupo" -- clica no círculo do cabeçalho, escolhe a imagem,
@@ -3975,19 +4149,84 @@
     return (STATUS_COLUMNS.find((c) => c.key === key) || {}).label || key;
   }
 
+  // 78ª rodada: listas nomeáveis da Área Pessoal (só existem/importam
+  // nesse escopo -- ver comentário em kanbanColumns()).
+  let personalLists = [];
+  async function loadPersonalLists() {
+    try {
+      const data = await api('/api/demandas/personal-lists');
+      personalLists = data.lists || [];
+    } catch (e) { personalLists = []; }
+  }
+
   async function loadDemandas() {
-    const [ativas, arquivadas, labelsData] = await Promise.all([
+    const calls = [
       api('/api/demandas?archived=false&scope=' + demandasScope),
       api('/api/demandas?archived=true&scope=' + demandasScope),
       api('/api/labels')
-    ]);
+    ];
+    if (demandasScope === 'pessoal') calls.push(loadPersonalLists());
+    const [ativas, arquivadas, labelsData] = await Promise.all(calls);
     demandas = ativas.demandas;
     demandasArchived = arquivadas.demandas;
     labels = labelsData.labels;
     labelSuggestedColors = labelsData.suggestedColors || [];
+    populateDemandasFilterLabelOptions();
     renderKanban();
     renderArchived();
   }
+
+  // ---------- Filtro de busca das Demandas (78ª rodada) ----------
+  // Pedido da Raquel: "as demandas devem ter um filtro de busca (em cada
+  // lista), deve ter a opção de filtrar por rede social, etiqueta, marca,
+  // status" -- filtra os cards mostrados em TODAS as listas do quadro
+  // aberto no momento (Geral ou Área Pessoal), sem mexer em quais listas
+  // existem nem no que fica salvo no banco.
+  let demandasFilters = { search: '', network: '', labelId: '', brand: '', status: '' };
+  function populateDemandasFilterStaticOptions() {
+    $('#demandasFilterNetwork').innerHTML = '<option value="">Todas as redes</option>' +
+      Object.keys(SOCIAL_PLATFORM_LABEL).map((k) => `<option value="${k}">${SOCIAL_PLATFORM_LABEL[k]}</option>`).join('');
+    $('#demandasFilterBrand').innerHTML = '<option value="">Todas as marcas</option>' +
+      Object.keys(BRAND_LABEL).map((k) => `<option value="${k}">${BRAND_LABEL[k]}</option>`).join('');
+    $('#demandasFilterStatus').innerHTML = '<option value="">Todos os status</option>' +
+      STATUS_COLUMNS.map((c) => `<option value="${c.key}">${c.label}</option>`).join('');
+  }
+  populateDemandasFilterStaticOptions();
+
+  // Etiquetas são diferentes por escopo (cada Área Pessoal tem as suas) --
+  // recarrega sempre que `labels` muda (ver loadDemandas acima), mantendo
+  // a seleção atual se a etiqueta escolhida ainda existir nesse escopo.
+  function populateDemandasFilterLabelOptions() {
+    const sel = $('#demandasFilterLabel');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Todas as etiquetas</option>' +
+      labels.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
+    if (labels.some((l) => l.id === current)) sel.value = current;
+    else { demandasFilters.labelId = ''; sel.value = ''; }
+  }
+
+  function demandaMatchesFilters(d) {
+    if (demandasFilters.search && !(d.title || '').toLowerCase().includes(demandasFilters.search.toLowerCase())) return false;
+    if (demandasFilters.network && d.network !== demandasFilters.network) return false;
+    if (demandasFilters.labelId && !(d.labelIds || []).includes(demandasFilters.labelId)) return false;
+    if (demandasFilters.brand && d.brand !== demandasFilters.brand) return false;
+    if (demandasFilters.status && d.status !== demandasFilters.status) return false;
+    return true;
+  }
+  $('#demandasFilterSearch').addEventListener('input', (e) => { demandasFilters.search = e.target.value; renderKanban(); });
+  $('#demandasFilterNetwork').addEventListener('change', (e) => { demandasFilters.network = e.target.value; renderKanban(); });
+  $('#demandasFilterLabel').addEventListener('change', (e) => { demandasFilters.labelId = e.target.value; renderKanban(); });
+  $('#demandasFilterBrand').addEventListener('change', (e) => { demandasFilters.brand = e.target.value; renderKanban(); });
+  $('#demandasFilterStatus').addEventListener('change', (e) => { demandasFilters.status = e.target.value; renderKanban(); });
+  function clearDemandasFilters() {
+    demandasFilters = { search: '', network: '', labelId: '', brand: '', status: '' };
+    $('#demandasFilterSearch').value = '';
+    $('#demandasFilterNetwork').value = '';
+    $('#demandasFilterLabel').value = '';
+    $('#demandasFilterBrand').value = '';
+    $('#demandasFilterStatus').value = '';
+  }
+  $('#demandasFilterClear').onclick = () => { clearDemandasFilters(); renderKanban(); };
 
   $all('.tab-btn[data-demandas-scope]').forEach((b) => {
     b.onclick = () => {
@@ -4000,9 +4239,27 @@
       $('#archivedWrap').hidden = true;
       $('#kanbanBoard').hidden = false;
       $('#demandasToggleArchived').textContent = 'Ver arquivadas';
+      // 78ª rodada: "+ Nova lista" só faz sentido na Área Pessoal (listas
+      // nomeáveis não existem no quadro Geral, que continua 1 coluna por
+      // pessoa da equipe).
+      $('#demandasNewListBtn').hidden = demandasScope !== 'pessoal';
+      // Etiquetas são por escopo (cada Área Pessoal tem as próprias) -- um
+      // filtro de etiqueta escolhido num escopo não faria sentido no
+      // outro, então some junto com a troca de aba.
+      clearDemandasFilters();
       loadDemandas();
     };
   });
+
+  $('#demandasNewListBtn').onclick = async () => {
+    const nome = prompt('Nome da nova lista:');
+    if (!nome || !nome.trim()) return;
+    try {
+      await api('/api/demandas/personal-lists', { method: 'POST', body: JSON.stringify({ name: nome.trim() }) });
+      await loadPersonalLists();
+      renderKanban();
+    } catch (e) { alert(e.message || 'Não foi possível criar a lista.'); }
+  };
 
   function labelById(id) { return labels.find((l) => l.id === id); }
 
@@ -4032,11 +4289,18 @@
 
   function kanbanColumns() {
     if (demandasScope === 'geral') return applyColumnOrder(teamMembers);
-    const me = { id: currentUser.id, name: (currentUser.name || currentUser.username) + ' (você)', columnColor: currentUser.columnColor || null };
-    const others = new Set();
-    demandas.forEach((d) => (d.assigneeIds || []).forEach((id) => { if (id !== currentUser.id) others.add(id); }));
-    const otherCols = teamMembers.filter((m) => others.has(m.id));
-    return applyColumnOrder([me].concat(otherCols));
+    // 78ª rodada, pedido da Raquel: "quem criou a demanda e marcou o outro
+    // colega, não precisa ter o card duplicado e uma lista com o nome da
+    // pessoa marcada, o card deve aparecer na lista pessoal de quem foi
+    // marcado e aparecer no card de quem marcou, apenas isso" -- antes,
+    // cada pessoa extra marcada numa demanda pessoal ganhava a própria
+    // coluna (com o nome dela) DENTRO do quadro de quem estava olhando, e
+    // o mesmo card aparecia duplicado nela (ver git blame/handoff, pendência
+    // #28). A API só devolve demandas pessoais que EU (quem está olhando)
+    // posso acessar, então a Área Pessoal nunca mais mostra coluna de
+    // outra pessoa -- só as MINHAS listas (mesmo pedido, item novo: "deve
+    // ter a opção de criar listas e nomear elas").
+    return personalLists;
   }
 
   // Persiste a nova ordem depois de soltar uma coluna arrastada (17ª rodada).
@@ -4048,8 +4312,13 @@
   }
 
   function demandaInColumn(d, colId) {
+    // 78ª rodada: na Área Pessoal, a coluna de um card é sempre a lista
+    // pessoal calculada pelo backend pra QUEM ESTÁ OLHANDO (personalListId
+    // já vem certo na resposta da API -- ver personalListIdFor() em
+    // routes/demandas.js), nunca mais os `assigneeIds` (isso é só pra
+    // decidir QUEM VÊ o card, não em qual lista ele aparece pra cada um).
+    if (demandasScope === 'pessoal') return d.personalListId === colId;
     const ids = d.assigneeIds || [];
-    if (demandasScope === 'pessoal' && ids.length === 0) return colId === currentUser.id;
     if (colId === '') return ids.length === 0;
     return ids.includes(colId);
   }
@@ -4131,41 +4400,104 @@
     } catch (e) { alert('Não foi possível salvar a nova ordem por data.'); }
   }
 
+  // 78ª rodada: persiste a ordem das LISTAS pessoais (equivalente, pra
+  // Área Pessoal, ao saveColumnOrder de cima, que é só pra colunas de
+  // membro da equipe no quadro Geral -- listas pessoais moram no backend,
+  // não numa preferência do usuário).
+  async function savePersonalListOrder(order) {
+    personalLists = order.map((id) => personalLists.find((l) => l.id === id)).filter(Boolean);
+    try {
+      await api('/api/demandas/personal-lists/reorder', { method: 'PUT', body: JSON.stringify({ order }) });
+    } catch (e) { /* ignora falha pontual — a ordem local já foi aplicada */ }
+  }
+
+  // 78ª rodada: mover um card pra OUTRA lista pessoal (arrastar entre
+  // colunas só é permitido na Área Pessoal -- no quadro Geral, colunas são
+  // pessoas, e mudar de coluna mudaria quem é responsável, o que nunca foi
+  // pedido). `listId` é sempre uma lista da PRÓPRIA pessoa vendo a tela.
+  async function moveCardToPersonalListAndReorder(items, draggedId, targetId, listId) {
+    const dragged = demandas.find((x) => x.id === draggedId);
+    if (!dragged) return;
+    dragged.personalListId = listId;
+    const withoutDragged = items.filter((x) => x.id !== draggedId);
+    let insertAt = targetId ? withoutDragged.findIndex((x) => x.id === targetId) : withoutDragged.length;
+    if (insertAt === -1) insertAt = withoutDragged.length;
+    const prev = withoutDragged[insertAt - 1];
+    const next = withoutDragged[insertAt];
+    const newOrder = computeOrderBetween(prev ? prev.order : null, next ? next.order : null);
+    dragged.order = newOrder;
+    draggedCardId = null;
+    renderKanban();
+    try {
+      await api(`/api/demandas/${dragged.id}/personal-list`, { method: 'PUT', body: JSON.stringify({ listId }) });
+      await api('/api/demandas/reorder', { method: 'PUT', body: JSON.stringify({ items: [{ id: dragged.id, order: newOrder }] }) });
+    } catch (e) { /* ignora falha pontual — a mudança local já foi aplicada */ }
+  }
+
   function renderKanban() {
     const board = $('#kanbanBoard');
     board.innerHTML = '';
     const columns = kanbanColumns();
+    const isPessoal = demandasScope === 'pessoal';
     columns.forEach((member) => {
       const colEl = document.createElement('div');
       colEl.className = 'kanban-col';
       // Ordem manual dos cards dentro da lista (21ª rodada) — arrastável;
       // "order" sempre vem preenchido pelo backend (ver cardOrder() em
       // routes/demandas.js), inclusive pra demandas antigas sem esse campo.
-      const items = demandas.filter((d) => demandaInColumn(d, member.id)).sort((a, b) => a.order - b.order);
-      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${member.name}</span><button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button><button type="button" class="color-dot-btn" title="Cor da lista"></button><span class="kanban-count">${items.length}</span></div>`;
+      const items = demandas.filter((d) => demandaInColumn(d, member.id) && demandaMatchesFilters(d)).sort((a, b) => a.order - b.order);
+      // 78ª rodada: na Área Pessoal, cada lista é MINHA (criada por mim,
+      // com o nome que eu quiser) -- ganha renomear/excluir no lugar do
+      // seletor de cor por pessoa, que só faz sentido no quadro Geral.
+      const extraHeaderBtnsHtml = isPessoal
+        ? `<button type="button" class="kanban-rename-list-btn" title="Renomear lista">✎</button><button type="button" class="kanban-delete-list-btn" title="Excluir lista">🗑</button>`
+        : `<button type="button" class="color-dot-btn" title="Cor da lista"></button>`;
+      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${escapeHtml(member.name)}</span><button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button>${extraHeaderBtnsHtml}<span class="kanban-count">${items.length}</span></div>`;
       colEl.querySelector('.kanban-sort-date-btn').onclick = (e) => {
         e.stopPropagation();
         sortColumnByDate(items);
       };
-      // Cor customizável da lista (13ª rodada, pedido da Raquel) — mesmo
-      // tom claro (color-mix) já usado nos cards, só que mais suave por
-      // cobrir uma área bem maior, mais um topo colorido pra destacar.
-      const colorBtn = colEl.querySelector('.color-dot-btn');
-      setColorDotBtn(colorBtn, member.columnColor || null);
-      if (member.columnColor) {
-        colEl.style.background = `color-mix(in srgb, ${member.columnColor} 10%, white)`;
-        colEl.style.borderTop = `3px solid ${member.columnColor}`;
+      if (isPessoal) {
+        colEl.querySelector('.kanban-rename-list-btn').onclick = async (e) => {
+          e.stopPropagation();
+          const novoNome = prompt('Novo nome da lista:', member.name);
+          if (!novoNome || !novoNome.trim() || novoNome.trim() === member.name) return;
+          try {
+            await api('/api/demandas/personal-lists/' + member.id, { method: 'PUT', body: JSON.stringify({ name: novoNome.trim() }) });
+            await loadPersonalLists();
+            renderKanban();
+          } catch (err) { alert(err.message || 'Não foi possível renomear a lista.'); }
+        };
+        colEl.querySelector('.kanban-delete-list-btn').onclick = async (e) => {
+          e.stopPropagation();
+          if (!confirm(`Excluir a lista "${member.name}"? Os cards dela voltam pra lista padrão.`)) return;
+          try {
+            await api('/api/demandas/personal-lists/' + member.id, { method: 'DELETE' });
+            await loadDemandas();
+          } catch (err) { alert(err.message || 'Não foi possível excluir a lista.'); }
+        };
+      } else {
+        // Cor customizável da lista (13ª rodada, pedido da Raquel) — mesmo
+        // tom claro (color-mix) já usado nos cards, só que mais suave por
+        // cobrir uma área bem maior, mais um topo colorido pra destacar.
+        // Só existe no quadro Geral -- listas da Área Pessoal não têm cor.
+        const colorBtn = colEl.querySelector('.color-dot-btn');
+        setColorDotBtn(colorBtn, member.columnColor || null);
+        if (member.columnColor) {
+          colEl.style.background = `color-mix(in srgb, ${member.columnColor} 10%, white)`;
+          colEl.style.borderTop = `3px solid ${member.columnColor}`;
+        }
+        colorBtn.onclick = (e) => {
+          e.stopPropagation();
+          openColorPopover(colorBtn, member.columnColor || null, async (color) => {
+            await api('/api/auth/team/' + member.id + '/color', { method: 'PUT', body: JSON.stringify({ color }) });
+            const tm = teamMembers.find((m) => m.id === member.id);
+            if (tm) tm.columnColor = color;
+            if (currentUser.id === member.id) currentUser.columnColor = color;
+            renderKanban();
+          });
+        };
       }
-      colorBtn.onclick = (e) => {
-        e.stopPropagation();
-        openColorPopover(colorBtn, member.columnColor || null, async (color) => {
-          await api('/api/auth/team/' + member.id + '/color', { method: 'PUT', body: JSON.stringify({ color }) });
-          const tm = teamMembers.find((m) => m.id === member.id);
-          if (tm) tm.columnColor = color;
-          if (currentUser.id === member.id) currentUser.columnColor = color;
-          renderKanban();
-        });
-      };
 
       // Arrastar e soltar pra reordenar as listas — preferência pessoal de
       // quem está vendo (17ª rodada), não muda a ordem que os outros veem.
@@ -4193,7 +4525,7 @@
         order.splice(fromIdx, 1);
         order.splice(toIdx, 0, draggedColId);
         draggedColId = null;
-        saveColumnOrder(order);
+        if (isPessoal) savePersonalListOrder(order); else saveColumnOrder(order);
         renderKanban();
       });
 
@@ -4207,13 +4539,16 @@
       // rodada). stopPropagation em tudo aqui pra não se confundir com o
       // drag-and-drop das LISTAS (colEl, algumas linhas acima) — sem isso
       // arrastar um card também dispararia o dragstart/drop da coluna.
-      // draggedCardInThisList() trava o reordenar só dentro da MESMA lista
-      // — mesmo card aparecendo em duas colunas (vários responsáveis) não
-      // é o caso comum, e mover entre colunas mudaria quem é responsável,
-      // o que não foi pedido aqui (só reordenar dentro da lista).
+      // No quadro Geral, draggedCardInThisList() trava o reordenar só
+      // dentro da MESMA lista — mudar de coluna mudaria quem é
+      // responsável, o que não foi pedido. Na Área Pessoal (78ª rodada,
+      // pedido da Raquel: listas nomeáveis) faz sentido arrastar um card
+      // pra OUTRA lista sua — aqui não muda responsável nenhum, só
+      // organização pessoal.
       const draggedCardInThisList = () => draggedCardId && items.some((x) => x.id === draggedCardId);
+      const draggedCardAllowedHere = () => isPessoal ? !!draggedCardId : draggedCardInThisList();
       list.addEventListener('dragover', (e) => {
-        if (!draggedCardInThisList()) return;
+        if (!draggedCardAllowedHere()) return;
         e.preventDefault();
         e.stopPropagation();
         list.classList.add('drag-over-list');
@@ -4223,11 +4558,12 @@
         list.classList.remove('drag-over-list');
       });
       list.addEventListener('drop', (e) => {
-        if (!draggedCardInThisList()) return;
+        if (!draggedCardAllowedHere()) return;
         e.preventDefault();
         e.stopPropagation();
         list.classList.remove('drag-over-list');
-        reorderCardTo(items, draggedCardId, null);
+        if (draggedCardInThisList()) reorderCardTo(items, draggedCardId, null);
+        else moveCardToPersonalListAndReorder(items, draggedCardId, null, member.id);
       });
       items.forEach((d) => {
         const card = document.createElement('div');
@@ -4289,7 +4625,7 @@
           card.classList.remove('card-dragging');
         });
         card.addEventListener('dragover', (e) => {
-          if (!draggedCardInThisList() || draggedCardId === d.id) return;
+          if (!draggedCardAllowedHere() || draggedCardId === d.id) return;
           e.preventDefault();
           e.stopPropagation();
           card.classList.add('drag-over-card');
@@ -4299,11 +4635,12 @@
           card.classList.remove('drag-over-card');
         });
         card.addEventListener('drop', (e) => {
-          if (!draggedCardInThisList() || draggedCardId === d.id) return;
+          if (!draggedCardAllowedHere() || draggedCardId === d.id) return;
           e.preventDefault();
           e.stopPropagation();
           card.classList.remove('drag-over-card');
-          reorderCardTo(items, draggedCardId, d.id);
+          if (draggedCardInThisList()) reorderCardTo(items, draggedCardId, d.id);
+          else moveCardToPersonalListAndReorder(items, draggedCardId, d.id, member.id);
         });
 
         list.appendChild(card);
@@ -4616,6 +4953,13 @@
     // marca no início do título do card. Demanda vinda de Agendamento/
     // Influencer já chega com isso preenchido sozinho; quem cria direto
     // aqui pode escolher.
+    // 78ª rodada: seletor de lista pessoal -- só existe/aparece dentro da
+    // Área Pessoal (na Geral não tem lista nomeável, ver pedido da Raquel).
+    $('#demCardListWrap').hidden = demandasScope !== 'pessoal';
+    if (demandasScope === 'pessoal') {
+      $('#demCardList').innerHTML = personalLists.map((l) => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
+      $('#demCardList').value = demanda ? (demanda.personalListId || '') : (personalLists[0] ? personalLists[0].id : '');
+    }
     $('#demCardBrand').value = demanda ? (demanda.brand || '') : '';
     // Rede (38ª rodada, pedido da Raquel): opcional -- mostra o ícone da
     // rede no card, igual à Marca acima. Demanda vinda de Agendamento/
@@ -4667,9 +5011,22 @@
     // O checklist agora fica sempre liberado, mesmo num card ainda não
     // salvo — os itens ficam no rascunho local até o Save (26ª rodada).
     $('#demFileInput').style.display = demanda ? '' : 'none';
+    // 78ª rodada: comentário só faz sentido em card que já existe (precisa
+    // de um id pra anexar o comentário no histórico dele).
+    $('#demCommentWrap').hidden = !demanda;
+    $('#demCommentInput').value = '';
     loadDemHistory(demanda ? demanda.id : null);
     $('#demandaModal').hidden = false;
   }
+  $('#demCommentAdd').onclick = async () => {
+    const text = $('#demCommentInput').value.trim();
+    if (!text || !editingDemandaId) return;
+    try {
+      await api(`/api/demandas/${editingDemandaId}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
+      $('#demCommentInput').value = '';
+      await loadDemHistory(editingDemandaId);
+    } catch (e) { alert(e.message || 'Não foi possível salvar o comentário.'); }
+  };
   $('#demCardClose').onclick = () => { $('#demandaModal').hidden = true; loadDemandas(); };
   $('#demCardRecurrence').onchange = () => { $('#demCardRecurringHint').hidden = $('#demCardRecurrence').value === 'none'; };
 
@@ -4690,6 +5047,11 @@
       network: $('#demCardNetwork').value || null,
       visibility: demandasScope
     };
+    // 78ª rodada: em qual lista pessoal o card fica -- só manda esse campo
+    // dentro da Área Pessoal (no quadro Geral não existe lista nomeável).
+    if (demandasScope === 'pessoal') {
+      payload.personalListId = $('#demCardList').value || null;
+    }
     // Card novo: manda junto os itens de checklist montados no rascunho
     // antes de salvar (26ª rodada) — daí em diante o checklist passa a ser
     // mutado pela API normalmente, como qualquer card já existente.
@@ -4711,6 +5073,15 @@
     // aparecer. Na área pessoal continua opcional (cai na própria coluna).
     if (demandasScope === 'geral' && payload.assigneeIds.length === 0) {
       $('#demCardError').textContent = 'Escolha pelo menos um responsável.';
+      $('#demCardError').hidden = false;
+      return;
+    }
+    // 78ª rodada, pedido da Raquel: "toda demanda deve ter um responsável
+    // marcado com estrela" -- só exige escolher quando tem gente marcada
+    // pra escolher (na Área Pessoal sem ninguém marcado, quem cria já
+    // vira responsável sozinha, sem precisar escolher nada aqui).
+    if (payload.assigneeIds.length > 0 && !payload.responsibleId) {
+      $('#demCardError').textContent = 'Marque um responsável (estrela) para esta demanda.';
       $('#demCardError').hidden = false;
       return;
     }
@@ -4839,6 +5210,8 @@
       const nameInput = document.createElement('input');
       nameInput.type = 'text';
       nameInput.value = l.name;
+      nameInput.title = 'Nome da etiqueta';
+      nameInput.placeholder = 'Nome da etiqueta';
       nameInput.onchange = async () => {
         try {
           await api('/api/labels/' + l.id, { method: 'PUT', body: JSON.stringify({ name: nameInput.value }) });
@@ -4849,6 +5222,7 @@
       const colorPicker = document.createElement('input');
       colorPicker.type = 'color';
       colorPicker.value = l.color;
+      colorPicker.title = 'Cor da etiqueta';
       colorPicker.onchange = async () => {
         try {
           await api('/api/labels/' + l.id, { method: 'PUT', body: JSON.stringify({ color: colorPicker.value }) });
@@ -5079,7 +5453,11 @@
   const LINK_HINT_BY_PLATFORM = {
     tiktok: '(vídeo muito longo? cole aqui o link dele)',
     youtube: '(vídeo muito longo? cole aqui o link dele)',
-    newsletter: '(link da news)'
+    newsletter: '(link da news)',
+    // 78ª rodada, pedido da Raquel: já funcionava (esse campo já vira o
+    // link de destino do Pin, ver utils/pinterestPublisher.js), só faltava
+    // deixar isso visível igual as outras redes já tinham.
+    pinterest: '(link de destino do Pin -- pra onde a pessoa vai ao clicar)'
   };
   // 63ª rodada, "Rodada E" da Pendência 51, pedido da Raquel: "Stories
   // devem suportar um link clicável" -- a Meta não deixa a Papoi anexar
@@ -5496,6 +5874,13 @@
       $('#socialPostFormError').hidden = false;
       return;
     }
+    // 78ª rodada, pedido explícito da Raquel: "ao criar o agendamento,
+    // deve ser obrigatorio colocar o responsável (estrelinha)".
+    if (!payload.responsibleId) {
+      $('#socialPostFormError').textContent = 'Marque um responsável (estrela) para este agendamento.';
+      $('#socialPostFormError').hidden = false;
+      return;
+    }
     try {
       if (editingSocialPostId) {
         await api('/api/social-posts/' + editingSocialPostId, { method: 'PUT', body: JSON.stringify(payload) });
@@ -5615,22 +6000,13 @@
   };
 
   // ---------- Cronograma de Marketing ----------
-  // A aba Calendário fica restrita: todo mundo pode ver, exceto quem tem
-  // cargo "Gerente" (pedido explícito da Raquel). A Prévia do Feed continua
-  // aberta pra todo mundo. Como os dois usam os mesmos dados do Agendamento
-  // (que quem tem cargo Gerente já enxerga por completo na Prévia do Feed
-  // e no próprio Agendamento), essa é uma restrição de tela/fluxo de
-  // trabalho, não uma restrição de dado sensível — por isso o bloqueio é só
-  // no frontend, sem gate correspondente no backend.
+  // 78ª rodada, pedido explícito da Raquel: "o calendário deve ficar
+  // visivel para todos, inclusive a gerente" -- reverte a restrição de
+  // antes (a aba Calendário ficava escondida só pra cargo Gerente).
+  // Função mantida (em vez de removida) só como ponto único de acesso da
+  // aba, caso surja outra regra de visibilidade no futuro.
   function applyCronogramaAccess() {
-    const blocked = currentUser.cargo === 'gerente';
-    $('#cronogramaTabCalendario').hidden = blocked;
-    if (blocked) {
-      cronogramaTab = 'feed';
-      $all('.tab-btn[data-cronograma-tab]').forEach((x) => x.classList.toggle('active', x.dataset.cronogramaTab === 'feed'));
-      $('#cronogramaCalendarioWrap').hidden = true;
-      $('#cronogramaFeedWrap').hidden = false;
-    }
+    $('#cronogramaTabCalendario').hidden = false;
   }
 
   $all('.tab-btn[data-cronograma-brand]').forEach((b) => {
@@ -5723,20 +6099,34 @@
 
     content.innerHTML = Object.keys(byMonth).sort((a, b) => a - b).map((m) => {
       const monthPosts = byMonth[m];
-      const rowsHtml = monthPosts.map((p) => `
+      const rowsHtml = monthPosts.map((p) => {
+        // 78ª rodada, pedido da Raquel: "incluir antes de status o link da
+        // publicação (publicada pelo papoi, o link do post mesmo)" --
+        // prioriza o link de verdade da rede (`externalPermalink`, gravado
+        // na hora que a Papoi publica automaticamente), e só cai pro campo
+        // "Link" digitado à mão quando não existe um automático (post
+        // ainda não publicado, ou publicado manualmente numa rede sem
+        // automação).
+        const publicacaoLink = p.externalPermalink || p.link || '';
+        const linkCell = publicacaoLink
+          ? `<a href="${escapeHtml(publicacaoLink)}" target="_blank" rel="noopener">Ver post</a>`
+          : '—';
+        return `
         <tr>
           <td>${fmtDate(p.scheduledDate)}</td>
           <td>${p.scheduledTime || '—'}</td>
           <td>${networkIconHtml(p.platform)} ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
           <td>${SOCIAL_POST_TYPE_LABEL[p.postType] || p.postType}</td>
           <td>${(p.subject && p.subject.trim()) || (p.caption || '').slice(0, 60) || '—'}</td>
+          <td>${linkCell}</td>
           <td>${SOCIAL_STATUS_LABEL[p.status] || p.status}</td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
       return `
         <h4 style="margin:18px 0 8px;">${MONTHS_FULL[m]} de ${cronogramaRelatorioYear} <span class="muted" style="font-weight:400;font-size:13px;">(${monthPosts.length} post${monthPosts.length === 1 ? '' : 's'})</span></h4>
         <table class="data-table">
-          <thead><tr><th>Data</th><th>Hora</th><th>Rede</th><th>Tipo</th><th>Assunto</th><th>Status</th></tr></thead>
+          <thead><tr><th>Data</th><th>Hora</th><th>Rede</th><th>Tipo</th><th>Assunto</th><th>Link</th><th>Status</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       `;
@@ -5749,7 +6139,7 @@
     const posts = socialPosts
       .filter((p) => (p.brand || 'debacco') === cronogramaBrand && (p.scheduledDate || '').startsWith(String(cronogramaRelatorioYear)))
       .sort((a, b) => (a.scheduledDate + (a.scheduledTime || '')).localeCompare(b.scheduledDate + (b.scheduledTime || '')));
-    const headers = ['Mês', 'Data', 'Hora', 'Rede', 'Tipo', 'Assunto', 'Status'];
+    const headers = ['Mês', 'Data', 'Hora', 'Rede', 'Tipo', 'Assunto', 'Link', 'Status'];
     const rows = posts.map((p) => [
       MONTHS_FULL[Number(p.scheduledDate.slice(5, 7)) - 1],
       fmtDate(p.scheduledDate),
@@ -5757,6 +6147,7 @@
       SOCIAL_PLATFORM_LABEL[p.platform] || p.platform,
       SOCIAL_POST_TYPE_LABEL[p.postType] || p.postType,
       (p.subject && p.subject.trim()) || p.caption || '',
+      p.externalPermalink || p.link || '',
       SOCIAL_STATUS_LABEL[p.status] || p.status
     ]);
     exportRowsToExcel(`Papoi - Relatorio Cronograma ${BRAND_LABEL[cronogramaBrand] || cronogramaBrand} ${cronogramaRelatorioYear}.xlsx`, 'Relatório mensal', headers, rows);
@@ -6140,11 +6531,17 @@
         : '';
 
       const accountLabel = SOCIAL_PLATFORM_LABEL[p.platform] || p.platform;
-      // Foto de quem criou o agendamento (20ª rodada) — antes esse círculo
-      // sempre mostrava a inicial de quem está OLHANDO a tela (currentUser),
-      // não de quem criou o post; corrigido junto pra fazer sentido com a
-      // foto de verdade agora disponível.
-      const avatarPerson = { name: p.createdByName, photoUrl: p.createdByPhotoUrl };
+      // 78ª rodada, pedido explícito da Raquel: "no cabeçalho, da previa do
+      // feed, deve sempre mostrar o responsável pela demanda (que tem a
+      // estrelinha)" -- antes mostrava sempre quem CRIOU o agendamento.
+      // Post sem responsável marcado (dado antigo, de antes da 78ª rodada
+      // tornar isso obrigatório) cai de volta em quem criou, pra nunca
+      // ficar sem ninguém identificável no cabeçalho.
+      const responsibleUser = p.responsibleId ? teamMembers.find((m) => m.id === p.responsibleId) : null;
+      const headerPersonName = responsibleUser ? responsibleUser.name : p.createdByName;
+      const avatarPerson = responsibleUser
+        ? { name: responsibleUser.name, photoUrl: responsibleUser.photoUrl }
+        : { name: p.createdByName, photoUrl: p.createdByPhotoUrl };
       // Formato de cada rede (pedido da Raquel, 16ª/45ª rodada): mostrado
       // como referência pra quem está montando o criativo, além de já
       // bater com a proporção do preview (ver .feed-preview-media no CSS).
@@ -6153,7 +6550,7 @@
         <div class="feed-preview-header">
           ${avatarHtml(avatarPerson, 32, 'feed-preview-avatar')}
           <div class="feed-preview-headtext">
-            <span class="feed-preview-account">${p.createdByName || accountLabel}</span>
+            <span class="feed-preview-account">${headerPersonName || accountLabel}</span>
             <span class="feed-preview-meta">${fmtDate(p.scheduledDate)}${p.scheduledTime ? ' · ' + p.scheduledTime : ''} · ${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}</span>
             <span class="feed-preview-format">${networkIconHtml(p.platform)} ${formatLabel}</span>
           </div>
@@ -6850,6 +7247,18 @@
   let concorrenciaItems = [];
   let lancamentosItems = [];
   let concorrenciaBrandFilter = 'todos';
+  // 78ª rodada, pedido da Raquel: "deve ter dentro da analise e do link,
+  // um filtro por produto, assim podemos ver apenas cubas, apenas
+  // pias..." -- compara contra o NOSSO produto e o de qualquer
+  // concorrente na mesma análise (uma análise pode comparar vários
+  // concorrentes ao mesmo tempo, ver concorrentesDe()).
+  function concorrenciaMatchesProduct(it, query) {
+    if (!query) return true;
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    if ((it.nossoProduto || '').toLowerCase().includes(q)) return true;
+    return concorrentesDe(it).some((c) => (c.produto || '').toLowerCase().includes(q));
+  }
   let lancamentosBrandFilter = 'todos';
   let editingConcorrenciaId = null;
   // 42ª rodada: linhas de concorrente do formulário (1 ou mais), editadas
@@ -6862,7 +7271,9 @@
   // status do conjunto anterior não é migrado sozinho -- continua com o
   // valor salvo (aparece cru na tabela, já que não está no mapa) até
   // alguém abrir e salvar de novo escolhendo um status atual.
-  const LANCAMENTO_STATUS_LABEL = { certificacao: 'Certificação', compra: 'Compra', fiscal: 'Fiscal', liberado: 'Liberado' };
+  // 78ª rodada, pedido da Raquel: novo status "Engenharia" (logo depois de
+  // Certificação) e "Lançado" (etapa final, depois de Liberado).
+  const LANCAMENTO_STATUS_LABEL = { certificacao: 'Certificação', engenharia: 'Engenharia', compra: 'Compra', fiscal: 'Fiscal', liberado: 'Liberado', lancado: 'Lançado' };
 
   function canEditProdutos() {
     if (!currentUser) return false;
@@ -6902,7 +7313,7 @@
   // 1 item só, pra não precisar esperar a migração rodar em produção.
   function concorrentesDe(it) {
     if (Array.isArray(it.concorrentes) && it.concorrentes.length) return it.concorrentes;
-    return [{ nome: it.concorrente, produto: it.produto, preco: it.preco, diferenciais: it.diferenciais, observacoes: it.observacoes, link: it.link }];
+    return [{ nome: it.concorrente, produto: it.produto, preco: it.preco, diferenciais: it.diferenciais, observacoes: it.observacoes, linkReferencia: it.link, linkPaginaVenda: null, link: it.link }];
   }
   function concorrenciaPrecoTxt(v) { return v === null || v === undefined ? '—' : fmtMoney(v); }
   function concorrenciaLinkTxt(v) { return v ? `<a href="${v}" target="_blank" rel="noopener">${v}</a>` : '—'; }
@@ -6926,6 +7337,22 @@
           ${editable ? `<span><button class="btn-link" data-edit-concorrencia="${it.id}">Editar</button> <button class="btn-link danger" data-del-concorrencia="${it.id}">Excluir</button> <button class="btn-link" data-share-concorrencia="${it.id}">🔗 Compartilhar</button></span>` : (actionsHtml || '')}
         </div>
         <div class="compare-card-body-multi">
+          <!-- 78ª rodada, pedido explícito da Raquel: "deixe padrão em
+               analise de concorrência a nossa marca primeiro e muda para
+               o nome da marca (GhelPlus/De Bacco)" -- nossa marca vem
+               ANTES do(s) concorrente(s) agora, com o nome de verdade. -->
+          <div class="compare-col">
+            <h4>${BRAND_LABEL[it.brand] || it.brand}</h4>
+            ${campo('Produto', it.nossoProduto || '—')}
+            ${campo('Preço', concorrenciaPrecoTxt(it.nossoPreco))}
+            ${campo('Diferenciais', it.nossoDiferenciais || '—')}
+            ${campo('Observações', it.nossasObservacoes || '—')}
+            <!-- 78ª rodada: "link de referencia, deve ter em todas as
+                 marcas, inclusive na nossa" -- "página de venda" saiu do
+                 nosso lado, ficou só nos concorrentes (ver abaixo). -->
+            ${campo('Link de referência', concorrenciaLinkTxt(it.nossoLink))}
+          </div>
+          <div class="compare-vs">×</div>
           ${concorrentes.map((c) => `
             <div class="compare-col">
               <h4>${c.nome || '—'}</h4>
@@ -6933,26 +7360,21 @@
               ${campo('Preço', concorrenciaPrecoTxt(c.preco))}
               ${campo('Diferenciais', c.diferenciais || '—')}
               ${campo('Observações', c.observacoes || '—')}
-              ${campo('Link', concorrenciaLinkTxt(c.link))}
+              ${campo('Link de referência', concorrenciaLinkTxt(c.linkReferencia !== undefined ? c.linkReferencia : c.link))}
+              ${campo('Link de página de venda', concorrenciaLinkTxt(c.linkPaginaVenda))}
             </div>
           `).join('')}
-          <div class="compare-vs">×</div>
-          <div class="compare-col">
-            <h4>Nossa marca</h4>
-            ${campo('Produto', it.nossoProduto || '—')}
-            ${campo('Preço', concorrenciaPrecoTxt(it.nossoPreco))}
-            ${campo('Diferenciais', it.nossoDiferenciais || '—')}
-            ${campo('Observações', it.nossasObservacoes || '—')}
-            ${campo('Link de referência', concorrenciaLinkTxt(it.nossoLink))}
-            ${campo('Página de venda (preço atualizado)', concorrenciaLinkTxt(it.nossoLinkVenda))}
-          </div>
         </div>
       </div>
     `;
   }
   function renderConcorrencia() {
     $('#concorrenciaNewBtn').hidden = !canEditProdutos();
-    const rows = concorrenciaItems.filter((it) => concorrenciaBrandFilter === 'todos' || it.brand === concorrenciaBrandFilter);
+    const productQuery = $('#concorrenciaProductFilter').value;
+    const rows = concorrenciaItems.filter((it) =>
+      (concorrenciaBrandFilter === 'todos' || it.brand === concorrenciaBrandFilter) &&
+      concorrenciaMatchesProduct(it, productQuery)
+    );
     const list = $('#concorrenciaList');
     $('#concorrenciaEmpty').hidden = rows.length > 0;
     list.innerHTML = rows.map((it) => concorrenciaCardHtml(it, { editable: canEditProdutos() })).join('');
@@ -6997,7 +7419,8 @@
         <label>Preço (R$)</label><input type="number" step="0.01" data-crow="preco">
         <label>Diferenciais</label><textarea rows="2" data-crow="diferenciais"></textarea>
         <label>Observações</label><textarea rows="2" data-crow="observacoes"></textarea>
-        <label>Link de referência</label><input type="text" data-crow="link" placeholder="https://...">
+        <label>Link de referência</label><input type="text" data-crow="linkReferencia" placeholder="https://...">
+        <label>Link de página de venda</label><input type="text" data-crow="linkPaginaVenda" placeholder="https://...">
       </div>
     `).join('');
     $all('#concorrenciaConcorrentesRows .concorrente-form-row').forEach((rowEl, idx) => {
@@ -7007,7 +7430,10 @@
       rowEl.querySelector('[data-crow="preco"]').value = (row.preco !== null && row.preco !== undefined) ? row.preco : '';
       rowEl.querySelector('[data-crow="diferenciais"]').value = row.diferenciais || '';
       rowEl.querySelector('[data-crow="observacoes"]').value = row.observacoes || '';
-      rowEl.querySelector('[data-crow="link"]').value = row.link || '';
+      // 78ª rodada: linha antiga só tinha `link` -- cai como valor inicial
+      // do "Link de referência", já que era pra qualquer link de apoio.
+      rowEl.querySelector('[data-crow="linkReferencia"]').value = row.linkReferencia !== undefined ? (row.linkReferencia || '') : (row.link || '');
+      rowEl.querySelector('[data-crow="linkPaginaVenda"]').value = row.linkPaginaVenda || '';
     });
     $all('[data-remove-concorrente-row]').forEach((b) => {
       b.onclick = () => {
@@ -7026,13 +7452,14 @@
         preco: rowEl.querySelector('[data-crow="preco"]').value,
         diferenciais: rowEl.querySelector('[data-crow="diferenciais"]').value,
         observacoes: rowEl.querySelector('[data-crow="observacoes"]').value,
-        link: rowEl.querySelector('[data-crow="link"]').value
+        linkReferencia: rowEl.querySelector('[data-crow="linkReferencia"]').value,
+        linkPaginaVenda: rowEl.querySelector('[data-crow="linkPaginaVenda"]').value
       };
     });
   }
   $('#concorrenciaAddConcorrenteBtn').onclick = () => {
     syncConcorrenciaRowsFromDOM();
-    concorrenciaFormRows.push({ nome: '', produto: '', preco: '', diferenciais: '', observacoes: '', link: '' });
+    concorrenciaFormRows.push({ nome: '', produto: '', preco: '', diferenciais: '', observacoes: '', linkReferencia: '', linkPaginaVenda: '' });
     renderConcorrenciaRows();
   };
 
@@ -7049,21 +7476,26 @@
     const existingRows = item && Array.isArray(item.concorrentes) && item.concorrentes.length
       ? item.concorrentes
       : item
-        ? [{ nome: item.concorrente, produto: item.produto, preco: item.preco, diferenciais: item.diferenciais, observacoes: item.observacoes, link: item.link }]
-        : [{ nome: '', produto: '', preco: '', diferenciais: '', observacoes: '', link: '' }];
+        ? [{ nome: item.concorrente, produto: item.produto, preco: item.preco, diferenciais: item.diferenciais, observacoes: item.observacoes, linkReferencia: item.link, linkPaginaVenda: '' }]
+        : [{ nome: '', produto: '', preco: '', diferenciais: '', observacoes: '', linkReferencia: '', linkPaginaVenda: '' }];
     concorrenciaFormRows = existingRows.map((r) => ({ ...r }));
     renderConcorrenciaRows();
     $('#concorrenciaFormNossoProduto').value = item ? (item.nossoProduto || '') : '';
     $('#concorrenciaFormNossoPreco').value = item && item.nossoPreco !== null && item.nossoPreco !== undefined ? item.nossoPreco : '';
     $('#concorrenciaFormNossoDiferenciais').value = item ? (item.nossoDiferenciais || '') : '';
     $('#concorrenciaFormNossoLink').value = item ? (item.nossoLink || '') : '';
-    $('#concorrenciaFormNossoLinkVenda').value = item ? (item.nossoLinkVenda || '') : '';
     $('#concorrenciaFormNossasObservacoes').value = item ? (item.nossasObservacoes || '') : '';
+    // 78ª rodada: "Nossa marca" mostra o nome de verdade da marca escolhida.
+    $('#concorrenciaFormNossaMarcaLabel').textContent = BRAND_LABEL[$('#concorrenciaFormBrand').value] || 'Nossa marca';
     $('#concorrenciaFormError').hidden = true;
     $('#concorrenciaFormWrap').hidden = false;
   }
   $('#concorrenciaNewBtn').onclick = () => openConcorrenciaForm(null);
   $('#concorrenciaFormCancel').onclick = () => { $('#concorrenciaFormWrap').hidden = true; };
+  // 78ª rodada: rótulo "Nossa marca" acompanha a marca escolhida no select.
+  $('#concorrenciaFormBrand').onchange = () => {
+    $('#concorrenciaFormNossaMarcaLabel').textContent = BRAND_LABEL[$('#concorrenciaFormBrand').value] || 'Nossa marca';
+  };
   $('#concorrenciaFormSave').onclick = async () => {
     syncConcorrenciaRowsFromDOM();
     const concorrentes = concorrenciaFormRows
@@ -7073,7 +7505,8 @@
         preco: r.preco === '' || r.preco === null || r.preco === undefined ? null : r.preco,
         diferenciais: (r.diferenciais || '').trim(),
         observacoes: (r.observacoes || '').trim(),
-        link: (r.link || '').trim()
+        linkReferencia: (r.linkReferencia || '').trim(),
+        linkPaginaVenda: (r.linkPaginaVenda || '').trim()
       }))
       .filter((r) => r.nome);
     const payload = {
@@ -7086,8 +7519,9 @@
       nossoProduto: $('#concorrenciaFormNossoProduto').value.trim(),
       nossoPreco: $('#concorrenciaFormNossoPreco').value || null,
       nossoDiferenciais: $('#concorrenciaFormNossoDiferenciais').value.trim(),
+      // 78ª rodada: "página de venda" saiu do nosso lado -- só ficou o
+      // link de referência aqui.
       nossoLink: $('#concorrenciaFormNossoLink').value.trim(),
-      nossoLinkVenda: $('#concorrenciaFormNossoLinkVenda').value.trim(),
       nossasObservacoes: $('#concorrenciaFormNossasObservacoes').value.trim()
     };
     if (!payload.titulo) {
@@ -7125,16 +7559,28 @@
       renderConcorrencia();
     };
   });
+  $('#concorrenciaProductFilter').addEventListener('input', renderConcorrencia);
 
   // 68ª rodada, pedido da Raquel: "gerar em PDF e excel" + link externo
   // agregado (a lista inteira da aba de marca ativa).
-  const CONCORRENCIA_EXPORT_HEADERS = ['Marca', 'Título', 'Data', 'Concorrente(s)', 'Produto concorrente', 'Preço concorrente', 'Nosso produto', 'Nosso preço', 'Página de venda'];
+  // 78ª rodada: "Página de venda" saiu do nosso lado, agora é um dado por
+  // concorrente -- a exportação mostra a do 1º concorrente da lista, junto
+  // com o link de referência dele (mesmo espírito de "Produto/Preço
+  // concorrente" logo antes, que já só mostravam o 1º).
+  const CONCORRENCIA_EXPORT_HEADERS = ['Marca', 'Título', 'Data', 'Concorrente(s)', 'Produto concorrente', 'Preço concorrente', 'Link referência concorrente', 'Link página de venda concorrente', 'Nosso produto', 'Nosso preço', 'Nosso link de referência'];
   function concorrenciaExportRows() {
     const rows = concorrenciaItems.filter((it) => concorrenciaBrandFilter === 'todos' || it.brand === concorrenciaBrandFilter);
     return rows.map((it) => {
       const nomes = concorrentesDe(it).map((c) => c.nome).filter(Boolean).join(', ');
       const precos = concorrentesDe(it).map((c) => c.preco).filter((v) => v !== null && v !== undefined).map(fmtMoney).join(', ');
-      return [BRAND_LABEL[it.brand] || it.brand, it.titulo || '', it.data ? fmtDate(it.data) : '', nomes, concorrentesDe(it)[0] && concorrentesDe(it)[0].produto || '', precos, it.nossoProduto || '', it.nossoPreco === null || it.nossoPreco === undefined ? '' : fmtMoney(it.nossoPreco), it.nossoLinkVenda || ''];
+      const primeiroConcorrente = concorrentesDe(it)[0] || {};
+      return [
+        BRAND_LABEL[it.brand] || it.brand, it.titulo || '', it.data ? fmtDate(it.data) : '', nomes,
+        primeiroConcorrente.produto || '', precos,
+        (primeiroConcorrente.linkReferencia !== undefined ? primeiroConcorrente.linkReferencia : primeiroConcorrente.link) || '',
+        primeiroConcorrente.linkPaginaVenda || '',
+        it.nossoProduto || '', it.nossoPreco === null || it.nossoPreco === undefined ? '' : fmtMoney(it.nossoPreco), it.nossoLink || ''
+      ];
     });
   }
   $('#concorrenciaExportExcelBtn').onclick = () => exportRowsToExcel(`analise-concorrencia-${concorrenciaBrandFilter}.xlsx`, 'Concorrência', CONCORRENCIA_EXPORT_HEADERS, concorrenciaExportRows());
@@ -7274,6 +7720,266 @@
       renderCatalogFileScreen('expositoresCatalogoList', '/api/expositores/catalogo', data.items || [], data.canEdit, loadExpositoresCatalogo);
     } catch (e) { alert(e.message); }
   }
+  // 78ª rodada, pedido da Raquel: "book tecnico será um arquivo, igual
+  // catalogo" -- mesmo componente genérico, coleção própria no backend.
+  async function loadExpositoresBookTecnico() {
+    try {
+      const data = await api('/api/expositores/book-tecnico');
+      renderCatalogFileScreen('expositoresBookTecnicoList', '/api/expositores/book-tecnico', data.items || [], data.canEdit, loadExpositoresBookTecnico);
+    } catch (e) { alert(e.message); }
+  }
+
+  // ---------- Orçamentos de Expositores (78ª rodada) ----------
+  // Pedido detalhado da Raquel: "Nome do expositor, ano de lançamento,
+  // imagens, desenho técnico, a imagem dele deve aparecer ao lado do
+  // nome... empresas orçadas (Fornecedor, valor, material, prazo de
+  // entrega, pedido minimo), quantos fornecedores forem necessários...
+  // quando selecionar um, deve ter qual foi o fornecedor escolhido."
+  let expositoresOrcamentosBrand = 'debacco';
+  let expositoresOrcamentosItems = [];
+  let expositoresOrcamentosCanEdit = false;
+  let editingExpositoresOrcamentoId = null;
+  const expositoresOrcamentosExpanded = new Set(); // ids com "Ver detalhes" aberto
+
+  async function loadExpositoresOrcamentos() {
+    try {
+      const data = await api('/api/expositores/orcamentos?brand=' + encodeURIComponent(expositoresOrcamentosBrand));
+      expositoresOrcamentosItems = data.items || [];
+      expositoresOrcamentosCanEdit = data.canEdit;
+      $('#expositoresOrcamentosNewBtn').hidden = !expositoresOrcamentosCanEdit;
+      renderExpositoresOrcamentos();
+    } catch (e) { alert(e.message); }
+  }
+
+  function expositorOrcamentoMatchesModelo(it, query) {
+    if (!query) return true;
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (it.nome || '').toLowerCase().includes(q);
+  }
+
+  function orcamentoFornecedorRowHtml(orc, f) {
+    return `
+      <tr data-fornecedor-row="${f.id}"${f.escolhido ? ' style="background:color-mix(in srgb, var(--primary) 12%, white);"' : ''}>
+        <td>${escapeHtml(f.fornecedor)}</td>
+        <td>${f.valor === null || f.valor === undefined ? '—' : fmtMoney(f.valor)}</td>
+        <td>${escapeHtml(f.material || '—')}</td>
+        <td>${escapeHtml(f.prazoEntrega || '—')}</td>
+        <td>${escapeHtml(f.pedidoMinimo || '—')}</td>
+        <td>${f.escolhido ? '<b>✓ Escolhido</b>' : (expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link" data-escolher-fornecedor="${f.id}">Escolher</button>` : '—')}</td>
+        <td>${expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link danger" data-del-fornecedor="${f.id}">Excluir</button>` : ''}</td>
+      </tr>
+    `;
+  }
+
+  function orcamentoDetailsHtml(orc) {
+    const imagensHtml = (orc.imagens || []).map((f) => `
+      <div class="orcamento-file-thumb" data-imagem-item="${f.id}">
+        <a href="${f.url}" target="_blank" rel="noopener"><img src="${f.url}" alt="${escapeHtml(f.name)}"></a>
+        ${expositoresOrcamentosCanEdit ? `<button type="button" class="orcamento-file-remove" data-del-imagem="${f.id}" title="Remover">✕</button>` : ''}
+      </div>
+    `).join('') || '<p class="muted" style="font-size:12px;">Nenhuma imagem ainda.</p>';
+    const desenhoHtml = (orc.desenhoTecnico || []).map((f) => `
+      <div class="file-item">
+        <a href="${f.url}" target="_blank" rel="noopener">📐 ${escapeHtml(f.name)}</a>
+        ${expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link danger" data-del-desenho="${f.id}">Excluir</button>` : ''}
+      </div>
+    `).join('') || '<p class="muted" style="font-size:12px;">Nenhum arquivo de desenho técnico ainda.</p>';
+    const fornecedoresRows = (orc.fornecedores || []).map((f) => orcamentoFornecedorRowHtml(orc, f)).join('');
+    return `
+      <div class="orcamento-files-row">
+        <div>
+          <b>Imagens</b>
+          <div class="orcamento-file-grid">${imagensHtml}</div>
+          ${expositoresOrcamentosCanEdit ? `<input type="file" accept="image/*" multiple data-upload-imagens="${orc.id}">` : ''}
+        </div>
+        <div>
+          <b>Desenho técnico</b>
+          <div>${desenhoHtml}</div>
+          ${expositoresOrcamentosCanEdit ? `<input type="file" multiple data-upload-desenho="${orc.id}">` : ''}
+        </div>
+      </div>
+      <b style="display:block;margin-top:16px;">Empresas orçadas <span class="muted" style="font-weight:400;font-size:12px;">(compare e marque a escolhida)</span></b>
+      <table class="data-table" style="margin-top:6px;">
+        <thead><tr><th>Fornecedor</th><th>Valor</th><th>Material</th><th>Prazo de entrega</th><th>Pedido mínimo</th><th>Status</th><th></th></tr></thead>
+        <tbody data-fornecedores-body="${orc.id}">${fornecedoresRows}</tbody>
+      </table>
+      ${(orc.fornecedores || []).length === 0 ? '<p class="muted" style="font-size:12px;">Nenhum fornecedor orçado ainda.</p>' : ''}
+      ${expositoresOrcamentosCanEdit ? `
+        <div class="orcamento-fornecedor-add-row" data-fornecedor-add="${orc.id}">
+          <input type="text" placeholder="Fornecedor" data-f-fornecedor>
+          <input type="number" step="0.01" placeholder="Valor (R$)" data-f-valor>
+          <input type="text" placeholder="Material" data-f-material>
+          <input type="text" placeholder="Prazo de entrega" data-f-prazo>
+          <input type="text" placeholder="Pedido mínimo" data-f-pedido>
+          <button type="button" class="btn-secondary" data-add-fornecedor="${orc.id}">+ Adicionar fornecedor</button>
+        </div>
+      ` : ''}
+    `;
+  }
+
+  function renderExpositoresOrcamentos() {
+    const query = $('#expositoresOrcamentosModeloFilter').value;
+    const rows = expositoresOrcamentosItems.filter((it) => expositorOrcamentoMatchesModelo(it, query));
+    const list = $('#expositoresOrcamentosList');
+    $('#expositoresOrcamentosEmpty').hidden = rows.length > 0;
+    list.innerHTML = rows.map((orc) => {
+      // "a imagem dele deve aparecer ao lado do nome, para ficar mais
+      // visual" -- usa a 1ª imagem enviada como uma espécie de capa.
+      const capa = (orc.imagens || [])[0];
+      const expanded = expositoresOrcamentosExpanded.has(orc.id);
+      return `
+        <div class="compare-card" data-orc-card="${orc.id}">
+          <div class="compare-card-head">
+            <div style="display:flex;align-items:center;gap:12px;">
+              ${capa ? `<img src="${capa.url}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex:0 0 auto;">` : '<div style="width:48px;height:48px;border-radius:8px;background:var(--bg);flex:0 0 auto;"></div>'}
+              <div>
+                <h4>${escapeHtml(orc.nome)}</h4>
+                <div class="compare-card-meta">${orc.anoLancamento ? 'Ano de lançamento: ' + orc.anoLancamento : 'Ano de lançamento não informado'} · ${(orc.fornecedores || []).length} fornecedor(es) orçado(s)</div>
+              </div>
+            </div>
+            <span>
+              <button type="button" class="btn-link" data-toggle-orc="${orc.id}">${expanded ? 'Ocultar detalhes ▴' : 'Ver detalhes ▾'}</button>
+              ${expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link" data-edit-orc="${orc.id}">Editar</button> <button type="button" class="btn-link danger" data-del-orc="${orc.id}">Excluir</button>` : ''}
+            </span>
+          </div>
+          <div class="orcamento-details" ${expanded ? '' : 'hidden'}>${expanded ? orcamentoDetailsHtml(orc) : ''}</div>
+        </div>
+      `;
+    }).join('');
+
+    $all('[data-toggle-orc]').forEach((b) => {
+      b.onclick = () => {
+        const id = b.dataset.toggleOrc;
+        if (expositoresOrcamentosExpanded.has(id)) expositoresOrcamentosExpanded.delete(id);
+        else expositoresOrcamentosExpanded.add(id);
+        renderExpositoresOrcamentos();
+      };
+    });
+    $all('[data-edit-orc]').forEach((b) => {
+      b.onclick = () => openExpositoresOrcamentoForm(expositoresOrcamentosItems.find((it) => it.id === b.dataset.editOrc));
+    });
+    $all('[data-del-orc]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir este expositor orçado? Isso apaga também as imagens, desenho técnico e a lista de fornecedores.')) return;
+        try {
+          await api('/api/expositores/orcamentos/' + b.dataset.delOrc, { method: 'DELETE' });
+          expositoresOrcamentosExpanded.delete(b.dataset.delOrc);
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-upload-imagens]').forEach((input) => {
+      input.onchange = async () => {
+        if (!input.files.length) return;
+        const fd = new FormData();
+        Array.from(input.files).forEach((f) => fd.append('files', f));
+        try {
+          await api('/api/expositores/orcamentos/' + input.dataset.uploadImagens + '/imagens', { method: 'POST', body: fd });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-upload-desenho]').forEach((input) => {
+      input.onchange = async () => {
+        if (!input.files.length) return;
+        const fd = new FormData();
+        Array.from(input.files).forEach((f) => fd.append('files', f));
+        try {
+          await api('/api/expositores/orcamentos/' + input.dataset.uploadDesenho + '/desenho-tecnico', { method: 'POST', body: fd });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-del-imagem]').forEach((b) => {
+      const orcId = b.closest('[data-orc-card]').dataset.orcCard;
+      b.onclick = async () => {
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/imagens/${b.dataset.delImagem}`, { method: 'DELETE' });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-del-desenho]').forEach((b) => {
+      const orcId = b.closest('[data-orc-card]').dataset.orcCard;
+      b.onclick = async () => {
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/desenho-tecnico/${b.dataset.delDesenho}`, { method: 'DELETE' });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-add-fornecedor]').forEach((btn) => {
+      btn.onclick = async () => {
+        const orcId = btn.dataset.addFornecedor;
+        const row = $(`[data-fornecedor-add="${orcId}"]`);
+        const payload = {
+          fornecedor: row.querySelector('[data-f-fornecedor]').value.trim(),
+          valor: row.querySelector('[data-f-valor]').value || null,
+          material: row.querySelector('[data-f-material]').value.trim(),
+          prazoEntrega: row.querySelector('[data-f-prazo]').value.trim(),
+          pedidoMinimo: row.querySelector('[data-f-pedido]').value.trim()
+        };
+        if (!payload.fornecedor) { alert('Informe o nome do fornecedor.'); return; }
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/fornecedores`, { method: 'POST', body: JSON.stringify(payload) });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-escolher-fornecedor]').forEach((b) => {
+      const orcId = b.closest('[data-orc-card]').dataset.orcCard;
+      b.onclick = async () => {
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/fornecedores/${b.dataset.escolherFornecedor}`, { method: 'PUT', body: JSON.stringify({ escolhido: true }) });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-del-fornecedor]').forEach((b) => {
+      const orcId = b.closest('[data-orc-card]').dataset.orcCard;
+      b.onclick = async () => {
+        if (!confirm('Excluir este fornecedor orçado?')) return;
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/fornecedores/${b.dataset.delFornecedor}`, { method: 'DELETE' });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+  }
+
+  function openExpositoresOrcamentoForm(orc) {
+    editingExpositoresOrcamentoId = orc ? orc.id : null;
+    $('#expositoresOrcamentosFormTitle').textContent = orc ? 'Editar expositor' : 'Novo expositor';
+    $('#expositoresOrcamentosFormNome').value = orc ? orc.nome : '';
+    $('#expositoresOrcamentosFormAno').value = orc && orc.anoLancamento ? orc.anoLancamento : '';
+    $('#expositoresOrcamentosFormError').hidden = true;
+    $('#expositoresOrcamentosFormWrap').hidden = false;
+  }
+  $('#expositoresOrcamentosNewBtn').onclick = () => openExpositoresOrcamentoForm(null);
+  $('#expositoresOrcamentosFormCancel').onclick = () => { $('#expositoresOrcamentosFormWrap').hidden = true; };
+  $('#expositoresOrcamentosFormSave').onclick = async () => {
+    const nome = $('#expositoresOrcamentosFormNome').value.trim();
+    if (!nome) {
+      $('#expositoresOrcamentosFormError').textContent = 'Informe o nome do expositor.';
+      $('#expositoresOrcamentosFormError').hidden = false;
+      return;
+    }
+    const payload = { nome, anoLancamento: $('#expositoresOrcamentosFormAno').value || null };
+    try {
+      if (editingExpositoresOrcamentoId) {
+        await api('/api/expositores/orcamentos/' + editingExpositoresOrcamentoId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/expositores/orcamentos', { method: 'POST', body: JSON.stringify(Object.assign({ brand: expositoresOrcamentosBrand }, payload)) });
+      }
+      $('#expositoresOrcamentosFormWrap').hidden = true;
+      await loadExpositoresOrcamentos();
+    } catch (e) {
+      $('#expositoresOrcamentosFormError').textContent = e.message;
+      $('#expositoresOrcamentosFormError').hidden = false;
+    }
+  };
+  $('#expositoresOrcamentosModeloFilter').addEventListener('input', renderExpositoresOrcamentos);
 
   // ---------- Controle de Expositores (68ª rodada, "Rodada I") ----------
   let expositoresEstoqueItems = [];
@@ -7293,9 +7999,21 @@
       loadExpositoresLancamentosHistorico();
     } catch (e) { alert(e.message); }
   }
+  // 78ª rodada, pedido da Raquel: "coloque filtro nos expositores, para
+  // buscar por modelo" -- "modelo" aqui é a descrição do item (entrada OU
+  // saída), já que a planilha de Controle de Expositores não tem um campo
+  // "modelo" à parte.
+  function expositorEstoqueMatchesModelo(it, query) {
+    if (!query) return true;
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (it.descricaoEntrada || '').toLowerCase().includes(q) || (it.descricaoSaida || '').toLowerCase().includes(q);
+  }
   function renderExpositoresEstoque() {
     const body = $('#expositoresEstoqueBody');
-    body.innerHTML = expositoresEstoqueItems.map((it) => `
+    const modeloQuery = $('#expositoresEstoqueModeloFilter').value;
+    const rowsToShow = expositoresEstoqueItems.filter((it) => expositorEstoqueMatchesModelo(it, modeloQuery));
+    body.innerHTML = rowsToShow.map((it) => `
       <tr>
         <td>${it.codigoEntrada || '—'}</td>
         <td>${escapeHtml(it.descricaoEntrada || '—')}</td>
@@ -7418,6 +8136,7 @@
   }
   $('#expositoresEstoqueExportExcelBtn').onclick = () => exportRowsToExcel(`controle-expositores-${expositoresEstoqueBrand}.xlsx`, 'Controle Expositores', EXPOSITORES_ESTOQUE_EXPORT_HEADERS, expositoresEstoqueExportRows());
   $('#expositoresEstoqueExportPdfBtn').onclick = () => exportViewToPdf();
+  $('#expositoresEstoqueModeloFilter').addEventListener('input', renderExpositoresEstoque);
 
   // ---------- Lançamento mensal de Expositores no Budget (70ª rodada,
   // pedido da Raquel: "Os lançamentos mensais, o total de cada marca no
@@ -8621,6 +9340,11 @@
     try {
       const data = await api('/api/influencers/all/posts');
       influencerAllPosts = data.posts;
+      if (!$('#influencerAllStatusFilter').innerHTML.includes('option value="a_publicar"')) {
+        $('#influencerAllStatusFilter').innerHTML = '<option value="">Todos os status</option>' +
+          Object.keys(INFLUENCER_STATUS_LABEL).map((k) => `<option value="${k}">${INFLUENCER_STATUS_LABEL[k]}</option>`).join('');
+        $('#influencerAllStatusFilter').onchange = renderInfluencerAllPosts;
+      }
       renderInfluencerAllPosts();
     } catch (e) {
       alert(e.message);
@@ -8630,7 +9354,11 @@
   function renderInfluencerAllPosts() {
     const body = $('#influencerAllBody');
     body.innerHTML = '';
-    const list = influencerAllBrandFilter === 'todos' ? influencerAllPosts : influencerAllPosts.filter((p) => p.brand === influencerAllBrandFilter);
+    let list = influencerAllBrandFilter === 'todos' ? influencerAllPosts : influencerAllPosts.filter((p) => p.brand === influencerAllBrandFilter);
+    // 78ª rodada, pedido da Raquel: filtro de status também aqui (relatório
+    // por marca/todas as marcas).
+    const statusFilter = $('#influencerAllStatusFilter').value;
+    if (statusFilter) list = list.filter((p) => p.status === statusFilter);
     $('#influencerAllEmpty').hidden = list.length > 0;
     list.forEach((p) => {
       const tr = document.createElement('tr');
@@ -8645,6 +9373,7 @@
         <td>${influencerStatusPillHTML(p.status, false)}</td>
         <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
         <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+        <td>${p.linkPublicacao ? `<a href="${p.linkPublicacao}" target="_blank" rel="noopener">Ver post</a>` : '—'}</td>
         <td>${p.observacoes || '—'}</td>
         <td>${p.notas || '—'}</td>
       `;
@@ -8736,6 +9465,10 @@
       $('#influencerFormContractCurrent').hidden = true;
     }
     $('#influencerFormError').hidden = true;
+    // 78ª rodada: obrigatório só no cadastro novo (o texto avisa isso
+    // claramente -- editar um influencer antigo sem esses dados não fica
+    // "preso" tendo que preencher tudo antes de conseguir salvar mais nada).
+    $('#influencerFormPersonalHint').textContent = inf ? 'Dados pessoais' : 'Dados pessoais (obrigatório)';
     $('#influencerTableWrap').hidden = true;
     $('#influencerFormWrap').hidden = false;
   }
@@ -8761,6 +9494,23 @@
       dataNascimento: $('#influencerFormDataNascimento').value || '',
       endereco: $('#influencerFormEndereco').value.trim()
     };
+    // 78ª rodada, pedido da Raquel: "ao cadastrar a influencer, deve ser
+    // obrigatório os dados pessoais" -- só barra no CADASTRO (influencer
+    // novo); editar um já existente continua liberado mesmo com campo em
+    // branco (dado antigo, de antes desta regra), igual o backend também
+    // trata (ver REQUIRED_PERSONAL_FIELD_LABELS em routes/influencers.js).
+    if (!editingInfluencerId) {
+      const REQUIRED = [
+        ['cpf', 'CPF'], ['rg', 'RG'], ['telefone', 'telefone'], ['email', 'email'],
+        ['dataNascimento', 'data de nascimento'], ['endereco', 'endereço']
+      ];
+      const faltando = REQUIRED.find(([key]) => !personalPayload[key]);
+      if (faltando) {
+        $('#influencerFormError').textContent = `Informe o campo "${faltando[1]}" para cadastrar o influencer.`;
+        $('#influencerFormError').hidden = false;
+        return;
+      }
+    }
     try {
       let infId = editingInfluencerId;
       if (infId) {
@@ -8793,6 +9543,11 @@
       currentInfluencer = data.influencer;
       currentInfluencerPosts = data.posts;
       $('#influencerTableTitle').textContent = currentInfluencer.name + ' — ' + (BRAND_LABEL[currentInfluencer.brand] || currentInfluencer.brand);
+      if (!$('#influencerPostsStatusFilter').innerHTML.includes('option value="a_publicar"')) {
+        $('#influencerPostsStatusFilter').innerHTML = '<option value="">Todos os status</option>' +
+          Object.keys(INFLUENCER_STATUS_LABEL).map((k) => `<option value="${k}">${INFLUENCER_STATUS_LABEL[k]}</option>`).join('');
+        $('#influencerPostsStatusFilter').onchange = renderInfluencerPosts;
+      }
       renderInfluencerPosts();
       $('#influencerTableWrap').hidden = false;
     } catch (e) {
@@ -8804,8 +9559,12 @@
   function renderInfluencerPosts() {
     const body = $('#influencerPostsBody');
     body.innerHTML = '';
-    $('#influencerPostsEmpty').hidden = currentInfluencerPosts.length > 0;
-    currentInfluencerPosts.forEach((p) => {
+    // 78ª rodada, pedido da Raquel: filtro de status também na tabela de
+    // cada influencer.
+    const statusFilter = $('#influencerPostsStatusFilter').value;
+    const list = statusFilter ? currentInfluencerPosts.filter((p) => p.status === statusFilter) : currentInfluencerPosts;
+    $('#influencerPostsEmpty').hidden = list.length > 0;
+    list.forEach((p) => {
       const tr = document.createElement('tr');
       if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
         tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
@@ -8822,6 +9581,7 @@
         <td>${influencerStatusPillHTML(p.status, true, p.id)}</td>
         <td>${p.dataPostagem ? fmtDate(p.dataPostagem) : '—'}</td>
         <td>${p.arquivo ? `<a href="${p.arquivo.url}" target="_blank" rel="noopener">${p.arquivo.name}</a>` : '—'}</td>
+        <td>${p.linkPublicacao ? `<a href="${p.linkPublicacao}" target="_blank" rel="noopener">Ver post</a>` : '—'}</td>
         <td>${parceriaHtml}</td>
         <td>${p.observacoes || '—'}</td>
         <td>${p.notas || '—'}</td>
@@ -8871,6 +9631,7 @@
     $('#influencerPostFormNotas').value = post ? post.notas : '';
     $('#influencerPostFormFile').value = '';
     $('#influencerPostFormFileAtual').textContent = post && post.arquivo ? ('Arquivo atual: ' + post.arquivo.name) : '';
+    $('#influencerPostFormLink').value = post ? (post.linkPublicacao || '') : '';
     // Parceria em permuta (22ª rodada) — data de saída só faz sentido
     // quando o tipo é "permuta", então o campo fica escondido nos outros
     // casos (ver onchange do select logo abaixo).
@@ -8897,6 +9658,7 @@
       rede: $('#influencerPostFormRede').value,
       status: $('#influencerPostFormStatus').value,
       dataPostagem: $('#influencerPostFormData').value || null,
+      linkPublicacao: $('#influencerPostFormLink').value.trim() || null,
       observacoes: $('#influencerPostFormObs').value.trim(),
       notas: $('#influencerPostFormNotas').value.trim(),
       tipoParceria: $('#influencerPostFormParceria').value || null,
@@ -8904,6 +9666,13 @@
       involvedUserIds: Array.from(influencerInvolvedIds),
       responsibleId: influencerResponsibleId
     };
+    // 78ª rodada, pedido da Raquel: "toda ação, demanda e afins sempre
+    // deve ter um responsável" -- confirmado que vale também aqui.
+    if (!payload.responsibleId) {
+      $('#influencerPostFormError').textContent = 'Marque um responsável (estrela) para esta ação.';
+      $('#influencerPostFormError').hidden = false;
+      return;
+    }
     try {
       let postId = editingInfluencerPostId;
       if (postId) {

@@ -106,6 +106,12 @@ function serialize(p) {
     responsibleId: p.responsibleId || null,
     changeSuggestions: p.changeSuggestions || '',
     changeSuggestionsAt: p.changeSuggestionsAt || null,
+    // Espelho automático Instagram -> Facebook (79ª rodada) -- ver
+    // createFacebookMirror() mais abaixo. Só um dos dois é preenchido por
+    // post: quem nasceu do espelhamento tem mirroredFromPostId; quem
+    // gerou o espelho tem mirroredToPostId.
+    mirroredFromPostId: p.mirroredFromPostId || null,
+    mirroredToPostId: p.mirroredToPostId || null,
     // Publicação automática de verdade (54ª rodada) — só faz sentido pra
     // platform 'instagram'/'facebook' com conta Meta conectada pra marca
     // do post (ver routes/socialAccounts.js/utils/metaPublisher.js).
@@ -415,6 +421,85 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ posts: sorted.map(serialize) });
 });
 
+// Espelho automático Instagram -> Facebook (79ª rodada, pedido da Raquel:
+// "O agendamento do Instagram/facebook, esta postando apenas no
+// instagram, sempre que postar no insta, deve ir ao facebook tbm, nas
+// duas marcas. Deve ser padrão isso.") -- confirmado em
+// routes/socialAccounts.js que De Bacco e GhelPlus já conectam Instagram
+// e Facebook JUNTOS (1 conexão Meta só, com igUserId E pageId), então só
+// essas 2 marcas ganham o espelho automático (as únicas com Facebook de
+// verdade conectado). Duranox/Boutique Inox continuam sem nenhuma conta
+// Meta conectada -- criar um "espelho" ali não publicaria em lugar
+// nenhum, só duplicaria trabalho manual à toa.
+const MIRROR_BRANDS = ['debacco', 'ghelplus'];
+
+// Cria a cópia no Facebook a partir de um post do Instagram recém-criado
+// -- mesmo conteúdo (legenda, tipo, data/hora, assunto, link, roteiro,
+// responsável/envolvidos), só a rede muda. Publicação automática de
+// verdade só existe pra Facebook Estático (ver
+// utils/metaPublisher.js:isMetaAutoPublishSupported) -- pra Carrossel/
+// Reels/Storie o espelho nasce igual, só que a confirmação de "Publicado"
+// continua manual, do mesmo jeito que já era pra qualquer combinação sem
+// publicador automático (TikTok, Facebook Reels/Carrossel/Storie etc.).
+// Guarda `mirroredFromPostId`/`mirroredToPostId` nos dois lados pra tela
+// poder mostrar que um nasceu do outro.
+function createFacebookMirror(igPost, req) {
+  const mirror = {
+    id: nanoid(),
+    brand: igPost.brand,
+    platform: 'facebook',
+    scheduledDate: igPost.scheduledDate,
+    scheduledTime: igPost.scheduledTime,
+    caption: igPost.caption,
+    subject: igPost.subject,
+    status: igPost.status,
+    postType: igPost.postType,
+    carouselBriefings: igPost.carouselBriefings,
+    involvedUserIds: igPost.involvedUserIds,
+    responsibleId: igPost.responsibleId,
+    changeSuggestions: '',
+    link: igPost.link,
+    briefingText: igPost.briefingText,
+    scriptText: igPost.scriptText,
+    scriptLink: igPost.scriptLink,
+    files: [],
+    layoutFiles: [],
+    briefingFile: null,
+    scriptFile: null,
+    mirroredFromPostId: igPost.id,
+    createdAt: new Date().toISOString(),
+    createdBy: req.user.id,
+    createdByName: req.user.name,
+    updatedAt: new Date().toISOString()
+  };
+  db.get('socialPosts').push(mirror).write();
+  db.get('socialPosts').find({ id: igPost.id }).assign({ mirroredToPostId: mirror.id }).write();
+  createDemandCardsForNewInvolved(mirror, mirror.involvedUserIds, req);
+  logAudit({ user: req.user, entityType: 'socialPost', entityId: mirror.id, entityLabel: `${mirror.brand} · facebook ${mirror.scheduledDate} (espelho automático do Instagram)`, action: 'create' });
+  return mirror;
+}
+
+// Copia o criativo recém-enviado no Instagram pro espelho do Facebook
+// (arquivo físico + entrada em `files`) -- sem isso, o post espelhado
+// nasceria sempre sem arte nenhuma, preso pra sempre em "aguardando
+// aprovação" (nunca fica pronto, já que `isReadyForApproval` exige arte).
+function copyFileToMirror(sourcePostId, mirrorPostId, fileMeta) {
+  const srcPath = path.join(uploadsRoot, sourcePostId, 'creative', path.basename(fileMeta.url));
+  if (!fs.existsSync(srcPath)) return null;
+  const destDir = path.join(uploadsRoot, mirrorPostId, 'creative');
+  fs.mkdirSync(destDir, { recursive: true });
+  const destFilename = path.basename(srcPath);
+  const destPath = path.join(destDir, destFilename);
+  fs.copyFileSync(srcPath, destPath);
+  return {
+    id: nanoid(),
+    name: fileMeta.name,
+    url: `/uploads/social/${mirrorPostId}/creative/${destFilename}`,
+    size: fileMeta.size,
+    uploadedAt: new Date().toISOString()
+  };
+}
+
 function validInvolvedIds(ids) {
   if (!Array.isArray(ids)) return [];
   const users = db.get('users').value();
@@ -479,7 +564,16 @@ router.post('/', requireAuth, (req, res) => {
     cascadeCompleteDemandas(post.id, null, req);
   }
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${brand} · ${platform} ${scheduledDate}`, action: 'create' });
-  res.json({ post: serialize(post) });
+  // 79ª rodada, pedido da Raquel: "sempre que postar no insta, deve ir ao
+  // facebook tbm, nas duas marcas. Deve ser padrão isso." -- sem
+  // depender de nenhuma escolha manual, todo post de Instagram criado pra
+  // De Bacco/GhelPlus já nasce com uma cópia no Facebook.
+  let mirrorPost = null;
+  if (platform === 'instagram' && MIRROR_BRANDS.includes(brand)) {
+    mirrorPost = createFacebookMirror(post, req);
+  }
+  const responsePost = db.get('socialPosts').find({ id: post.id }).value();
+  res.json({ post: serialize(responsePost), mirrorPost: mirrorPost ? serialize(mirrorPost) : null });
 });
 
 router.put('/:id', requireAuth, async (req, res) => {
@@ -784,18 +878,30 @@ router.put('/:id/approval', requireAuth, (req, res) => {
   } else if (approvalStatus === 'reprovado') {
     // 78ª rodada, pedido explícito da Raquel: "ao reprovar um post, deve
     // vir um aviso para a dona ou dono da demanda, dizendo que o post foi
-    // reprovado" -- antes, reprovar não disparava recado nenhum (só
-    // mudava o status, visível a todo mundo na Prévia do Feed). Mesmo
-    // público do aviso de aprovação (só o responsável marcado).
-    if (fresh.responsibleId) {
-      const postTitle = fresh.subject && fresh.subject.trim()
-        ? fresh.subject.trim()
-        : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;
+    // reprovado" -- antes, reprovar não disparava recado nenhum.
+    // 79ª rodada, pedido direto da Raquel: "esse recado deve vir para quem
+    // é o responsável pelo post (tem estrelinha), gerente e coordenador,
+    // deve mostrar quem reprovou/rejeitou" -- antes ia só pro responsável,
+    // e não dizia quem reprovou (diferente do aviso de "aprovado por
+    // (cargo)", que já mostrava). Agora usa o mesmo público de
+    // notifyReadyForApproval (responsável + todo mundo com cargo gerente/
+    // coordenador, sem repetir id) e o mesmo formato "por (cargo) (nome)"
+    // já usado na aprovação.
+    const postTitle = fresh.subject && fresh.subject.trim()
+      ? fresh.subject.trim()
+      : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;
+    const reprovadorUser = db.get('users').find({ id: req.user.id }).value();
+    const reprovadorCargoLabel = CARGO_LABEL_PT[(reprovadorUser || {}).cargo] || 'aprovador(a)';
+    const gerenciaIds = db.get('users').value()
+      .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
+      .map((u) => u.id);
+    const recipientIds = Array.from(new Set([fresh.responsibleId, ...gerenciaIds].filter(Boolean)));
+    if (recipientIds.length > 0) {
       createAutoRecado({
-        recipientIds: [fresh.responsibleId],
+        recipientIds,
         text: fresh.approvalNotes
-          ? `Aviso Papoi: Seu post foi reprovado. Alterações pedidas: ${fresh.approvalNotes}`
-          : 'Aviso Papoi: Seu post foi reprovado.',
+          ? `Aviso Papoi: post reprovado por ${reprovadorCargoLabel} (${req.user.name}). Alterações pedidas: ${fresh.approvalNotes}`
+          : `Aviso Papoi: post reprovado por ${reprovadorCargoLabel} (${req.user.name}).`,
         postTitle,
         postBrand: fresh.brand,
         postNetwork: fresh.platform,
@@ -803,6 +909,64 @@ router.put('/:id/approval', requireAuth, (req, res) => {
         kind: 'post_rejected'
       });
     }
+  }
+  res.json({ post: serialize(fresh) });
+});
+
+// 79ª rodada, pedido da Raquel: "Quando ele é rejeitado, terá a sugestão
+// de alteração. Quando a pessoa responsável ajustar, dever ter a opção
+// de dar um check/ok, na sugestão, e ai o post deve voltar para
+// aprovação." -- a "sugestão de alteração" de um post reprovado é
+// `approvalNotes` (o texto que quem reprovou escreveu, mostrado como
+// "Alterações pedidas" no recado acima e na tela). Diferente de aprovar/
+// reprovar (só gerente/coordenador/admin, ver canApprove), reenviar pra
+// aprovação depois de ajustar é ação de quem É RESPONSÁVEL pelo post --
+// por isso essa rota tem sua própria checagem de permissão, mais estreita
+// que canApprove (mas super_admin/gerente/coordenador também podem, caso
+// precisem reenviar em nome de alguém).
+function canResubmit(req, post) {
+  if (req.user.id === post.responsibleId) return true;
+  return canApprove(req);
+}
+router.put('/:id/resubmit', requireAuth, (req, res) => {
+  const post = findOr404(req, res);
+  if (!post) return;
+  if (post.approvalStatus !== 'reprovado') {
+    return res.status(400).json({ error: 'Este post não está reprovado -- não há nada pra reenviar.' });
+  }
+  if (!canResubmit(req, post)) {
+    return res.status(403).json({ error: 'Só quem é responsável por este post (ou gerente/coordenador/admin) pode reenviar para aprovação.' });
+  }
+  // Mantém `approvalNotes` de propósito (não limpa aqui) -- quem for
+  // aprovar/reprovar de novo continua vendo o que tinha sido pedido,
+  // pra conferir se o ajuste realmente resolveu. Só a PRÓXIMA decisão de
+  // aprovação (rota acima) limpa o campo, do jeito que já sempre fez.
+  const updates = {
+    approvalStatus: 'pendente',
+    approvedByName: '',
+    approvedBy: null,
+    approvedAt: null,
+    updatedAt: new Date().toISOString()
+  };
+  db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update', details: 'Reenviado para aprovação depois de ajustar a sugestão de alteração' });
+  const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
+  const postTitle = fresh.subject && fresh.subject.trim()
+    ? fresh.subject.trim()
+    : `${PLATFORM_LABEL_PT[fresh.platform] || fresh.platform} · ${fresh.scheduledDate || 'sem data'}`;
+  const recipientIds = db.get('users').value()
+    .filter((u) => u.isSuperAdmin || u.cargo === 'gerente' || u.cargo === 'coordenador')
+    .map((u) => u.id);
+  if (recipientIds.length > 0) {
+    createAutoRecado({
+      recipientIds,
+      text: `Aviso Papoi: ${req.user.name} ajustou o post depois da reprovação e reenviou para aprovação.`,
+      postTitle,
+      postBrand: fresh.brand,
+      postNetwork: fresh.platform,
+      sourceSocialPostId: fresh.id,
+      kind: 'post_resubmitted'
+    });
   }
   res.json({ post: serialize(fresh) });
 });
@@ -864,6 +1028,21 @@ router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
   }
   db.get('socialPosts').find({ id: req.params.id }).assign(fileUpdates).write();
   const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
+  // 79ª rodada: o espelho do Facebook nasce sem nenhum arquivo -- sem
+  // copiar o criativo assim que ele é enviado no Instagram, o post
+  // espelhado nunca ficaria "pronto" (isReadyForApproval exige arte).
+  if (fresh.mirroredToPostId) {
+    const mirror = db.get('socialPosts').find({ id: fresh.mirroredToPostId }).value();
+    if (mirror) {
+      const newFileMeta = files[files.length - 1];
+      const copied = copyFileToMirror(fresh.id, mirror.id, newFileMeta);
+      if (copied) {
+        const mirrorFiles = [...(mirror.files || []), copied];
+        db.get('socialPosts').find({ id: mirror.id }).assign({ files: mirrorFiles, updatedAt: new Date().toISOString() }).write();
+        notifyReadyForApproval(db.get('socialPosts').find({ id: mirror.id }).value());
+      }
+    }
+  }
   notifyReadyForApproval(fresh);
   res.json({ post: serialize(fresh) });
 });

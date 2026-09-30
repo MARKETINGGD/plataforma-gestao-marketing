@@ -5895,6 +5895,15 @@
   function openSocialPostForm(post) {
     editingSocialPostId = post ? post.id : null;
     $('#socialPostFormTitle').textContent = post ? 'Editar agendamento' : 'Novo agendamento';
+    if (post && post.mirroredToPostId) {
+      $('#socialPostFormMirrorInfo').textContent = '🔗 Este post foi espelhado automaticamente no Facebook (mesma marca/data).';
+      $('#socialPostFormMirrorInfo').hidden = false;
+    } else if (post && post.mirroredFromPostId) {
+      $('#socialPostFormMirrorInfo').textContent = '🔗 Este post nasceu do espelhamento automático do Instagram.';
+      $('#socialPostFormMirrorInfo').hidden = false;
+    } else {
+      $('#socialPostFormMirrorInfo').hidden = true;
+    }
     $('#socialPostFormBrand').value = post ? (post.brand || 'debacco') : socialTab;
     renderSocialPlatformOptions(post ? post.platform : null);
     updateSocialTypeOptions(post ? (post.postType || 'estatico') : 'estatico');
@@ -5989,6 +5998,14 @@
         editingSocialPostId = created.post.id;
         openSocialPostForm(created.post);
         await loadSocialPosts();
+        // 79ª rodada, pedido da Raquel: "sempre que postar no insta, deve
+        // ir ao facebook tbm, nas duas marcas. Deve ser padrão isso." --
+        // o backend já cria o espelho sozinho (ver POST /api/social-posts);
+        // esse aviso só confirma pra quem criou que aconteceu, pra não
+        // parecer mágica/sumir sem explicação.
+        if (created.mirrorPost) {
+          alert('Este post foi espelhado automaticamente no Facebook também (mesma marca, mesma data). Envie o criativo aqui no Instagram -- ele copia sozinho pro post do Facebook.');
+        }
         return;
       }
       $('#socialPostFormWrap').hidden = true;
@@ -6530,6 +6547,21 @@
     }
   }
 
+  // 79ª rodada: reenviar um post reprovado pra aprovação depois de ajustar
+  // (ver PUT /:id/resubmit em routes/socialPosts.js) -- diferente de
+  // setPostApproval acima, essa rota não exige ser gerente/coordenador/
+  // admin, só ser o responsável marcado (estrela) do post.
+  async function resubmitPostForApproval(postId) {
+    try {
+      await api(`/api/social-posts/${postId}/resubmit`, { method: 'PUT' });
+      const fresh = await api('/api/social-posts');
+      socialPosts = fresh.posts;
+      renderCronogramaFeed();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   // Quadradinho de aprovação — verde quando aprovado, vermelho quando
   // reprovado (e nesse caso abre um campo pra escrever as alterações
   // necessárias). Só quem pode aprovar consegue clicar; os demais só veem
@@ -6581,6 +6613,19 @@
       readonly.className = 'approval-notes-readonly';
       readonly.textContent = p.approvalNotes;
       notesWrap.appendChild(readonly);
+    }
+    // 79ª rodada, pedido da Raquel: "Quando a pessoa responsável ajustar,
+    // dever ter a opção de dar um check/ok, na sugestão, e ai o post deve
+    // voltar para aprovação." -- só quem É o responsável marcado (estrela)
+    // vê esse botão, mesmo que ela também possa aprovar/reprovar (reenviar
+    // é uma ação diferente das duas de cima).
+    if (p.approvalStatus === 'reprovado' && currentUser && currentUser.id === p.responsibleId) {
+      const resubmitBtn = document.createElement('button');
+      resubmitBtn.type = 'button';
+      resubmitBtn.className = 'btn-link';
+      resubmitBtn.textContent = '✓ Já ajustei — reenviar para aprovação';
+      resubmitBtn.onclick = () => resubmitPostForApproval(p.id);
+      notesWrap.appendChild(resubmitBtn);
     }
     wrap.appendChild(notesWrap);
 

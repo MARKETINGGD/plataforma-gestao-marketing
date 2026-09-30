@@ -549,6 +549,11 @@
 
         <div id="socialPostFormWrap" class="form-card" hidden>
           <h3 id="socialPostFormTitle">Novo agendamento</h3>
+          <!-- 79ª rodada, pedido da Raquel: "sempre que postar no insta,
+               deve ir ao facebook tbm" -- avisa quando este post é um dos
+               dois lados de um espelho automático (ver
+               routes/socialPosts.js: createFacebookMirror). -->
+          <p class="muted" id="socialPostFormMirrorInfo" hidden style="margin-top:-6px;"></p>
           <input type="hidden" id="socialPostFormId">
           <div class="form-row">
             <div>

@@ -1062,7 +1062,11 @@
         filtered.forEach((p) => {
           const tr = document.createElement('tr');
           if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
-            tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+            // 79ª rodada: era `..., white)` fixo -- mesma família do bug do
+            // card de Demandas, texto claro do tema escuro ficava
+            // ilegível num fundo que continuava quase branco. var(--card)
+            // acompanha o tema nos 2 casos.
+            tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, var(--card))`;
           }
           tr.innerHTML = `
             <td>${p.formato || '—'}</td>
@@ -1107,7 +1111,11 @@
         filtered.forEach((p) => {
           const tr = document.createElement('tr');
           if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
-            tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+            // 79ª rodada: era `..., white)` fixo -- mesma família do bug do
+            // card de Demandas, texto claro do tema escuro ficava
+            // ilegível num fundo que continuava quase branco. var(--card)
+            // acompanha o tema nos 2 casos.
+            tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, var(--card))`;
           }
           tr.innerHTML = `
             <td>${p.influencerName}</td>
@@ -1755,7 +1763,10 @@
     // de fora, como pedido na 14ª rodada.
     const content = $('.content');
     const color = currentUser.homeColor || null;
-    content.style.background = color ? `color-mix(in srgb, ${color} 10%, white)` : '';
+    // 79ª rodada: mesmo bug do "white" fixo (ver comentário no kanban-card
+    // de Demandas) -- no tema escuro isso pintava a tela Início inteira
+    // quase branca, com o texto (claro no escuro) ilegível em cima.
+    content.style.background = color ? `color-mix(in srgb, ${color} 10%, var(--card))` : '';
     setColorDotBtn($('#homeColorBtn'), color);
   }
   $('#homeColorBtn').onclick = (e) => {
@@ -4564,7 +4575,9 @@
         const colorBtn = colEl.querySelector('.color-dot-btn');
         setColorDotBtn(colorBtn, member.columnColor || null);
         if (member.columnColor) {
-          colEl.style.background = `color-mix(in srgb, ${member.columnColor} 10%, white)`;
+          // 79ª rodada: mesmo bug do "white" fixo (ver comentário no
+          // kanban-card acima) -- var(--card) acompanha o tema.
+          colEl.style.background = `color-mix(in srgb, ${member.columnColor} 10%, var(--card))`;
           colEl.style.borderTop = `3px solid ${member.columnColor}`;
         }
         colorBtn.onclick = (e) => {
@@ -4673,10 +4686,17 @@
           ${d.createdByName ? `<div class="kanban-card-creator">Criado por: ${d.createdByName}</div>` : ''}
         `;
         if (d.color) {
-          // Tom claro (mistura com branco) pra manter o texto legível — a
-          // cor cheia fica só na barra da borda esquerda, como um "aceno"
-          // de cor sem virar um card ilegível.
-          card.style.background = `color-mix(in srgb, ${d.color} 18%, white)`;
+          // Tom claro (mistura com o fundo do card) pra manter o texto
+          // legível — a cor cheia fica só na barra da borda esquerda, como
+          // um "aceno" de cor sem virar um card ilegível. 79ª rodada,
+          // pedido da Raquel: "Em agendamento tbm, veja que os cards que n
+          // tem cor ficam estranhos" -- misturava com "white" LITERAL, que
+          // no tema escuro dava um card quase branco com o texto (claro no
+          // escuro) ilegível em cima. Misturando com var(--card) em vez de
+          // white, o resultado acompanha o tema: continua um tom clarinho
+          // no tema claro (var(--card) já é branco lá) e vira um tom
+          // escurecido coerente no tema escuro.
+          card.style.background = `color-mix(in srgb, ${d.color} 18%, var(--card))`;
           card.style.borderLeftColor = d.color;
           card.style.borderLeftWidth = '4px';
         }
@@ -7863,7 +7883,7 @@
 
   function orcamentoFornecedorRowHtml(orc, f) {
     return `
-      <tr data-fornecedor-row="${f.id}"${f.escolhido ? ' style="background:color-mix(in srgb, var(--primary) 12%, white);"' : ''}>
+      <tr data-fornecedor-row="${f.id}"${f.escolhido ? ' style="background:color-mix(in srgb, var(--primary) 12%, var(--card));"' : ''}>
         <td>${escapeHtml(f.fornecedor)}</td>
         <td>${f.valor === null || f.valor === undefined ? '—' : fmtMoney(f.valor)}</td>
         <td>${escapeHtml(f.material || '—')}</td>
@@ -9466,7 +9486,8 @@
     list.forEach((p) => {
       const tr = document.createElement('tr');
       if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
-        tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+        // 79ª rodada: mesmo bug do "white" fixo (ver comentário acima).
+        tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, var(--card))`;
       }
       tr.innerHTML = `
         <td>${p.influencerName}</td>
@@ -9670,7 +9691,8 @@
     list.forEach((p) => {
       const tr = document.createElement('tr');
       if (p.rede && INFLUENCER_REDE_COLOR[p.rede]) {
-        tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, white)`;
+        // 79ª rodada: mesmo bug do "white" fixo (ver comentário acima).
+        tr.style.background = `color-mix(in srgb, ${INFLUENCER_REDE_COLOR[p.rede]} 12%, var(--card))`;
       }
       const parceriaLabel = p.tipoParceria === 'permuta' ? 'Permuta' : (p.tipoParceria === 'paga' ? 'Paga' : '—');
       const parceriaHtml = [

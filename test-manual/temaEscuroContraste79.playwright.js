@@ -6,8 +6,23 @@
 // tinha fundo fixo claro sem cor de texto própria, deixando o título e os
 // rótulos "Usuário"/"Senha" quase invisíveis no tema escuro (texto herdava
 // var(--text), que fica claro no escuro, sobre um fundo que continuava
-// claro). Este teste confirma os dois consertos. Servidor de teste isolado
-// precisa estar rodando em http://localhost:4123.
+// claro). Este teste confirma os dois consertos.
+//
+// 2º round de feedback da Raquel no mesmo dia ("ainda ficou ruim... Deve
+// mudar o chat tbm, veja q ele n aparece tbm... os cards que n tem cor
+// ficam estranhos"): achou uma 3ª causa, mais espalhada -- vários lugares
+// usavam `color-mix(in srgb, <cor>, white)` com "white" LITERAL (não uma
+// variável), pra clarear uma cor de destaque mantendo texto escuro por
+// cima legível. No tema escuro isso continuava dando um fundo quase
+// branco (a mistura ignora o tema), só que o texto virava CLARO (var(--
+// text) no escuro) -- texto claro em cima de fundo quase branco, invisível
+// de novo. Afetava a bolha das PRÓPRIAS mensagens do chat, a conversa
+// selecionada na lista, @menções, os cards de Demandas com "cor de fundo"
+// escolhida, colunas do kanban com cor, a cor de fundo da tela Início, e
+// linhas de tabela (rede do influencer, fornecedor escolhido). Trocado
+// "white" por var(--card) em TODOS -- acompanha o tema nos 2 casos, sem
+// mudar nada visualmente no tema claro (onde var(--card) já é branco).
+// Servidor de teste isolado precisa estar rodando em http://localhost:4123.
 const { chromium } = require('playwright');
 
 const BASE = 'http://localhost:4123';
@@ -19,8 +34,14 @@ function check(label, cond) {
 
 function parseRgba(s) {
   const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/.exec(s || '');
-  if (!m) return null;
-  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), m[4] !== undefined ? parseFloat(m[4]) : 1];
+  if (m) return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), m[4] !== undefined ? parseFloat(m[4]) : 1];
+  // Chromium resolve o computed style de `color-mix()` pra notação CSS
+  // Color 4 `color(srgb r g b [/ a])` (componentes de 0 a 1), não
+  // `rgb()`/`rgba()` -- usado pelas bolhas de mensagem própria, conversa
+  // selecionada e card colorido (todas via color-mix() depois do conserto).
+  const m2 = /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)/.exec(s || '');
+  if (m2) return [Math.round(parseFloat(m2[1]) * 255), Math.round(parseFloat(m2[2]) * 255), Math.round(parseFloat(m2[3]) * 255), m2[4] !== undefined ? parseFloat(m2[4]) : 1];
+  return null;
 }
 function parseRgb(s) { const p = parseRgba(s); return p ? [p[0], p[1], p[2]] : null; }
 function luminance([r, g, b]) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
@@ -108,6 +129,61 @@ async function main() {
     check('dia passado ainda é um pouco mais claro que o fundo da página (dá pra perceber o destaque)', pastDayComposited && pageBg && luminance(pastDayComposited) > luminance(pageBg));
   }
 
+  // ---------- 3. Chat: mensagem própria e conversa selecionada (bug do
+  // "color-mix(..., white)" fixo -- 2º round de feedback) ----------
+  await page.click('#navChat');
+  await page.waitForSelector('#view-chat:not([hidden])');
+  await page.waitForTimeout(600);
+  const activeConvBg = parseRgb(await page.evaluate(() => getComputedStyle(document.querySelector('.chat-conversation-item.active')).backgroundColor));
+  const activeConvTextColor = parseRgb(await page.evaluate(() => getComputedStyle(document.querySelector('.chat-conversation-item.active .chat-conversation-name')).color));
+  // Limiar 3:1 (WCAG AA pra texto em negrito/grande, não 4.5:1 de texto de
+  // parágrafo comum) -- o nome da conversa é bold (font-weight:700) em
+  // cima de um destaque DELIBERADAMENTE sutil (um tom de "seleção", não
+  // uma cor de alarme); medido ~3.9:1 depois do conserto, contra ~1:1 de
+  // antes (texto claro em cima de um fundo que ficava quase branco).
+  check('conversa selecionada ("Geral") NÃO fica com fundo quase branco', activeConvBg && luminance(activeConvBg) < 120);
+  check('nome da conversa selecionada tem contraste de leitura de verdade (>= 3:1, é texto em negrito)', activeConvBg && activeConvTextColor && contrastRatio(activeConvBg, activeConvTextColor) >= 3);
+
+  const msgText = 'Teste 79b tema escuro ' + Date.now();
+  await page.fill('#chatInput', msgText);
+  await page.click('#chatSendBtn');
+  await page.waitForTimeout(500);
+  const mineMsgLocator = page.locator('.chat-msg-row.mine .chat-msg').last();
+  check('mensagem própria apareceu na tela', await mineMsgLocator.count() > 0);
+  if (await mineMsgLocator.count() > 0) {
+    const mineMsgBg = parseRgb(await mineMsgLocator.evaluate((el) => getComputedStyle(el).backgroundColor));
+    const mineMsgTextColor = parseRgb(await mineMsgLocator.evaluate((el) => getComputedStyle(el.querySelector('.chat-msg-text') || el).color));
+    check('bolha da própria mensagem NÃO fica com fundo quase branco', mineMsgBg && luminance(mineMsgBg) < 120);
+    check('texto da própria mensagem tem contraste de leitura de verdade (>= 4.5:1)', mineMsgBg && mineMsgTextColor && contrastRatio(mineMsgBg, mineMsgTextColor) >= 4.5);
+  }
+
+  // ---------- 4. Demandas: card com "cor de fundo" escolhida (mesmo bug) ----------
+  await page.click('#navDemandas');
+  await page.waitForSelector('#view-demandas:not([hidden])');
+  await page.waitForTimeout(500);
+  await page.click('#demandasNewBtn');
+  await page.waitForSelector('#demandaModal:not([hidden])');
+  const cardTitle = 'Teste 79b card colorido ' + Date.now();
+  await page.fill('#demCardTitle', cardTitle);
+  await page.locator('#demColorSwatches .color-swatch:not(.color-swatch-none)').nth(3).click(); // vermelho
+  await page.locator('#demAssigneeList input[type=checkbox]').first().check();
+  await page.locator('#demAssigneeList .chip-responsible-btn').first().click();
+  await page.click('#demCardSave');
+  await page.waitForTimeout(600);
+  await page.click('#demCardClose').catch(() => {});
+  await page.waitForTimeout(400);
+  const coloredCard = page.locator('.kanban-card', { hasText: cardTitle }).first();
+  check('card colorido apareceu no quadro', await coloredCard.count() > 0);
+  if (await coloredCard.count() > 0) {
+    const cardBg = parseRgb(await coloredCard.evaluate((el) => getComputedStyle(el).backgroundColor));
+    const cardTitleColor = parseRgb(await coloredCard.evaluate((el) => getComputedStyle(el.querySelector('.kanban-card-title') || el).color));
+    // Mesmo raciocínio do contraste da conversa selecionada acima -- o
+    // destaque de cor do card é sutil de propósito (só um "aceno" de cor,
+    // a cor cheia fica na borda esquerda); medido ~4:1 depois do conserto,
+    // contra um fundo quase branco (ilegível) de antes.
+    check('card com cor de fundo NÃO fica quase branco no tema escuro', cardBg && luminance(cardBg) < 120);
+    check('título do card colorido tem contraste de leitura de verdade (>= 3:1)', cardBg && cardTitleColor && contrastRatio(cardBg, cardTitleColor) >= 3);
+  }
   check('nenhum erro de console em todo o fluxo', consoleErrors.length === 0);
   if (consoleErrors.length) console.log('Erros de console:', consoleErrors);
 

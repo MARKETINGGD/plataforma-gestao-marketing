@@ -888,7 +888,15 @@ button{font-weight:700;}
 .chat-msg-row{display:flex;align-items:flex-end;gap:8px;max-width:78%;align-self:flex-start;}
 .chat-msg-row.mine{align-self:flex-end;flex-direction:row-reverse;}
 .chat-msg{max-width:100%;padding:8px 12px;border-radius:14px;background:var(--bg);}
-.chat-msg.mine{background:color-mix(in srgb, var(--primary) 16%, white);}
+/* 79ª rodada, 3ª correção, pedido da Raquel: "Deve mudar o chat tbm, veja
+   q ele n aparece tbm" -- a bolha das SUAS PRÓPRIAS mensagens misturava
+   var(--primary) com "white" LITERAL, sem olhar pro tema. No claro isso
+   dava um lilás bem clarinho (ok, texto escuro em cima lê bem); no
+   escuro dava a MESMA cor quase branca -- só que o texto da bolha
+   (var(--text)) fica CLARO no tema escuro, ou seja, texto claro em cima
+   de um fundo quase branco: sumia. Trocando "white" por var(--card) (que
+   já é escuro no tema escuro) a mistura acompanha o tema nos 2 casos. */
+.chat-msg.mine{background:color-mix(in srgb, var(--primary) 16%, var(--card));}
 .chat-msg-meta{font-size:10.5px;color:var(--muted);margin-bottom:2px;display:flex;gap:8px;align-items:center;}
 .chat-msg-text{font-size:13.5px;line-height:1.4;white-space:pre-wrap;word-break:break-word;}
 .chat-msg-deleted{color:var(--muted);}
@@ -926,7 +934,11 @@ button{font-weight:700;}
 .chat-conversation-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;margin-top:4px;}
 .chat-conversation-item{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:10px;cursor:pointer;font-size:12.5px;color:var(--text);}
 .chat-conversation-item:hover{background:var(--bg);}
-.chat-conversation-item.active{background:color-mix(in srgb, var(--primary) 16%, white);font-weight:700;}
+/* Mesmo bug do .chat-msg.mine acima -- a conversa selecionada (ex.: "Geral")
+   misturava com "white" fixo, deixando o NOME da conversa (var(--text),
+   claro no tema escuro) invisível em cima de um fundo que continuava
+   quase branco. */
+.chat-conversation-item.active{background:color-mix(in srgb, var(--primary) 16%, var(--card));font-weight:700;}
 .chat-conversation-item .chat-conversation-icon{width:26px;height:26px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:0 0 auto;}
 /* 42ª rodada: grupo com foto cadastrada (ver renderChatConversationList em app.js). */
 .chat-conversation-item .chat-conversation-icon-photo{background-color:transparent;background-size:cover;background-position:center;}
@@ -976,7 +988,9 @@ button{font-weight:700;}
 .chat-nudge-shake{animation:chatNudgeShake .6s ease-in-out;}
 
 /* Menção (@Fulano) dentro do texto da mensagem. */
-.chat-mention{background:color-mix(in srgb, var(--primary) 22%, white);border-radius:5px;padding:0 3px;font-weight:700;}
+/* Mesmo bug -- @menção dentro de uma mensagem também misturava com
+   "white" fixo, ficando ilegível no tema escuro. */
+.chat-mention{background:color-mix(in srgb, var(--primary) 22%, var(--card));border-radius:5px;padding:0 3px;font-weight:700;}
 
 .chat-mention-suggest{position:absolute;bottom:60px;left:12px;right:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.18);max-height:160px;overflow-y:auto;z-index:5;}
 .chat-mention-suggest-item{padding:8px 12px;font-size:12.5px;cursor:pointer;}

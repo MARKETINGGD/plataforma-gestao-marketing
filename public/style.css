@@ -46,6 +46,60 @@
   --muted:#9aa1a8;
   --danger:#e5675c;
 }
+/* 79ª rodada, pedido da Raquel: "a versão de tema escuro esta bem ruim,
+   melhore isso, ele ficou feio". As variáveis acima já escureciam fundo/
+   texto/borda da Papoi inteira, mas qualquer selo, aviso ou destaque com
+   cor de fundo pastel FIXA (não uma variável -- badge de aprovado/
+   reprovado, aviso de "chamar atenção", dias passados do Cronograma,
+   linhas de Budget fora do planejado etc.) continuava exatamente com o
+   mesmo tom clarinho de sempre, virando uma mancha clara berrante em
+   cima do resto da tela escura -- isso, mais o texto do login (ver
+   .login-form acima) praticamente invisível, era o "feio" que ela viu.
+   Em vez de inventar uma cor nova pra cada um, os overrides abaixo trocam
+   o fundo pastel por uma versão translúcida (rgba) da MESMA cor -- fica
+   discreta em cima de qualquer tom de fundo escuro, sem perder o
+   significado (vermelho continua vermelho, verde continua verde etc.). */
+:root[data-theme="dark"] .badge-danger,
+:root[data-theme="dark"] .approval-notes-readonly{
+  background:rgba(229,103,92,.16);border-color:rgba(229,103,92,.4);
+}
+:root[data-theme="dark"] .badge-success{
+  background:rgba(70,196,120,.16);border-color:rgba(70,196,120,.4);color:#7ee2a0;
+}
+:root[data-theme="dark"] .chat-nudge-msg{
+  background:rgba(245,166,35,.16);border-color:rgba(245,166,35,.45);color:#fbbf77;
+}
+:root[data-theme="dark"] .feed-preview-video-missing{
+  background:rgba(245,124,0,.16);color:#fbbf77;
+}
+:root[data-theme="dark"] .budget-legend-dot-over{
+  background:rgba(229,103,92,.32);
+}
+:root[data-theme="dark"] .budget-legend-dot-unplanned{
+  background:rgba(245,166,35,.38);
+}
+:root[data-theme="dark"] .row-over{
+  background:rgba(229,103,92,.14);
+}
+:root[data-theme="dark"] .row-unplanned{
+  background:rgba(245,166,35,.16);
+}
+/* Dias já passados do Cronograma (36ª rodada) -- eram um verde pastel
+   sólido cobrindo o mês inteiro; no escuro virava um bloco de luz cru
+   por cima de quase todo o calendário. */
+:root[data-theme="dark"] .cal-day.past,
+:root[data-theme="dark"] .cal-day.past.today{
+  background:rgba(70,196,120,.14);border-color:rgba(70,196,120,.35);
+}
+:root[data-theme="dark"] .cal-day.past .cal-day-num{
+  color:#7ee2a0;
+}
+:root[data-theme="dark"] .cal-post-chip:hover{
+  background:rgba(139,130,232,.22);
+}
+:root[data-theme="dark"] .dash-card .tag{
+  background:rgba(139,130,232,.22);
+}
 *{box-sizing:border-box;}
 body{
   margin:0;
@@ -124,13 +178,23 @@ button{font-weight:700;}
   margin-left:48%;min-height:100vh;
   display:flex;align-items:center;justify-content:center;
   padding:24px;
-  background:#f4f4f3;
+  background:var(--bg);
   border-bottom-left-radius:68% 62%;
 }
 .login-form{width:100%;max-width:380px;}
 .login-form h1{font-size:26px;margin:0 0 26px;}
 .login-form label{display:block;font-size:13px;font-weight:700;margin:0 0 6px;}
-.login-form input{width:100%;padding:12px 14px;border:none;border-radius:8px;background:#e3e3e2;font-size:14px;}
+/* 79ª rodada, pedido da Raquel: "a versão de tema escuro esta bem ruim...
+   ele ficou feio" -- o tema escuro já é aplicado na tela de login (pra
+   não "piscar" clara antes do login carregar, ver applyTheme() em
+   app.js), mas o painel direito e o campo de usuário/senha tinham cor de
+   fundo FIXA (#f4f4f3/#e3e3e2, sempre clara) sem cor de texto própria --
+   o texto (título, "Usuário"/"Senha") herdava var(--text), que no escuro
+   fica CLARO, sobre um fundo que continuava claro: título e labels
+   praticamente invisíveis. Trocando pra var(--bg)/var(--card) (que já
+   viram escuros no tema escuro) o painel e o campo passam a acompanhar o
+   tema, e o texto (que já era var(--text)) volta a ter contraste nos 2. */
+.login-form input{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:14px;}
 .login-form .error{margin-bottom:2px;}
 .login-form .login-submit{
   margin-top:26px;padding:13px;border-radius:8px;font-size:13px;letter-spacing:.4px;text-transform:uppercase;

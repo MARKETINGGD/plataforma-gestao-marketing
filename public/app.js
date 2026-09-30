@@ -884,7 +884,14 @@
     if (token) headers.Authorization = 'Bearer ' + token;
     const res = await fetch(path, Object.assign({}, opts, { headers, body }));
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Erro inesperado.');
+    if (!res.ok) {
+      // 79ª rodada: preserva campos extras do erro (ex.: `canOverrideManually`,
+      // usado no status de postagem pra oferecer confirmar manualmente) --
+      // antes só sobrevivia a mensagem, o resto da resposta se perdia.
+      const err = new Error(data.error || 'Erro inesperado.');
+      if (data && typeof data === 'object') Object.assign(err, data);
+      throw err;
+    }
     return data;
   }
 
@@ -5967,6 +5974,29 @@
       $('#socialPostFormWrap').hidden = true;
       await loadSocialPosts();
     } catch (e) {
+      // 79ª rodada, pedido da Raquel: "o status de postagem, deve ter a
+      // opção de mudar manualmente (em casos que ainda n tem integração
+      // ou em casos que acontece algum problema, deixe essa
+      // possibilidade)" -- quando marcar "Publicado" falha porque a
+      // integração daquela rede/marca ainda não existe, ou porque a
+      // tentativa de publicar de verdade deu errado (`canOverrideManually`,
+      // ver PUT /api/social-posts/:id), oferece confirmar manualmente em
+      // vez de travar sem saída nenhuma.
+      if (editingSocialPostId && payload.status === 'publicado' && e.canOverrideManually) {
+        const querConfirmar = confirm(`${e.message}\n\nQuer marcar como "Publicado" manualmente mesmo assim (sem publicar pela integração automática)?`);
+        if (querConfirmar) {
+          try {
+            await api('/api/social-posts/' + editingSocialPostId, { method: 'PUT', body: JSON.stringify({ ...payload, manualOverride: true }) });
+            $('#socialPostFormWrap').hidden = true;
+            await loadSocialPosts();
+            return;
+          } catch (e2) {
+            $('#socialPostFormError').textContent = e2.message;
+            $('#socialPostFormError').hidden = false;
+            return;
+          }
+        }
+      }
       $('#socialPostFormError').textContent = e.message;
       $('#socialPostFormError').hidden = false;
     }

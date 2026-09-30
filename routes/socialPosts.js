@@ -114,7 +114,10 @@ function serialize(p) {
     // tentativa em andamento; 'published' = publicado de verdade, com
     // externalPostId/externalPermalink preenchidos; 'failed' = tentou e
     // não conseguiu, publishError tem o motivo (editar o post relevante
-    // volta o status pra null, pra tentar de novo).
+    // volta o status pra null, pra tentar de novo); 'manual' (79ª rodada)
+    // = confirmado "Publicado" à mão pela pessoa (sem integração ainda,
+    // ou depois de uma falha) -- nunca é tentativa automática de verdade,
+    // só impede o ciclo automático de tentar publicar esse post sozinho.
     publishStatus: p.publishStatus || null,
     externalPostId: p.externalPostId || null,
     externalPermalink: p.externalPermalink || null,
@@ -489,7 +492,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   // (não dava mais pra comparar "era publicado antes?" usando `post`
   // depois dessa linha).
   const previousStatus = post.status;
-  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, responsibleId, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings } = req.body || {};
+  const { platform, scheduledDate, scheduledTime, caption, status, postType, brand, involvedUserIds, responsibleId, changeSuggestions, link, subject, briefingText, scriptText, scriptLink, carouselBriefings, manualOverride } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   if (platform !== undefined && PLATFORMS.includes(platform)) updates.platform = platform;
   if (brand !== undefined && BRANDS.includes(brand)) updates.brand = brand;
@@ -555,12 +558,19 @@ router.put('/:id', requireAuth, async (req, res) => {
   };
   const wantsMarkPublished = updates.status === 'publicado' && previousStatus !== 'publicado';
   const alreadyHandledByMeta = post.publishStatus === 'published' || post.publishStatus === 'publishing';
-  // 67ª/69ª rodada: generalizado pra também cobrir LinkedIn e YouTube -- ver
-  // resolveAutoPublisher acima. `autoPublisher` é null pra qualquer rede/
-  // tipo que nenhum dos três sabe publicar sozinho (TikTok, Facebook
-  // Reels/Carrossel/Storie, LinkedIn com mais de 1 arquivo etc.),
-  // continua 100% manual como sempre foi.
-  const autoPublisher = wantsMarkPublished && !alreadyHandledByMeta ? resolveAutoPublisher(effectivePostForMeta) : null;
+  // 79ª rodada, pedido da Raquel: "o status de postagem, deve ter a opção
+  // de mudar manualmente (em casos que ainda n tem integração ou em casos
+  // que acontece algum problema, deixe essa possibilidade)" -- a trava da
+  // 11ª melhoria (abaixo) era só de ida: se não tinha conta conectada, ou
+  // se a tentativa de publicar de verdade falhasse, a tela recusava o
+  // "Publicado" manual sem nenhuma saída, mesmo pra quem só queria
+  // confirmar à mão porque a integração daquela rede ainda nem existe, ou
+  // porque algo deu errado e ela já publicou por fora. `manualOverride`
+  // (mandado pela tela só depois que a pessoa vê o erro e confirma que
+  // quer mesmo assim -- ver #socialPostFormSave em public/app.js) pula a
+  // tentativa automática e confirma na mão, do jeito que já funcionava
+  // pra TikTok/Facebook Reels/Carrossel/Storie antes da 11ª melhoria.
+  const autoPublisher = wantsMarkPublished && !alreadyHandledByMeta && !manualOverride ? resolveAutoPublisher(effectivePostForMeta) : null;
   const shouldPublishNow = !!autoPublisher;
 
   let publishedJustNow = false;
@@ -579,7 +589,7 @@ router.put('/:id', requireAuth, async (req, res) => {
           : (autoPublisher === pinterestPublisher
             ? 'do Pinterest'
             : (autoPublisher === tiktokPublisher ? 'da TikTok' : 'do Instagram/Facebook')));
-      return res.status(422).json({ error: `Não tem conta ${contaLabel} conectada pra ${brandLabel} -- conecte em Integrações antes de marcar como publicado.` });
+      return res.status(422).json({ error: `Não tem conta ${contaLabel} conectada pra ${brandLabel} -- conecte em Integrações antes de marcar como publicado, ou confirme manualmente.`, canOverrideManually: true });
     }
     // O status final vem do RESULTADO REAL da publicação (publishOne já
     // decide 'publicado' ou deixa em 'failed' sozinho) -- por isso grava
@@ -590,11 +600,23 @@ router.put('/:id', requireAuth, async (req, res) => {
     await autoPublisher.publishOne(toPublish);
     const afterPublish = db.get('socialPosts').find({ id: req.params.id }).value();
     if (afterPublish.publishStatus !== 'published') {
-      return res.status(422).json({ error: afterPublish.publishError || 'Não consegui publicar agora -- confira se a conta ainda está conectada e tente de novo em instantes.' });
+      return res.status(422).json({ error: afterPublish.publishError || 'Não consegui publicar agora -- confira se a conta ainda está conectada e tente de novo em instantes.', canOverrideManually: true });
     }
     publishedJustNow = true;
     updates.status = afterPublish.status;
   } else {
+    // Confirmação manual (rede sem publicação automática, OU pedido
+    // explícito de manualOverride) -- marca `publishStatus:'manual'` pra
+    // registrar que essa publicação foi confirmada à mão, não pela
+    // integração, e principalmente pra impedir que o ciclo automático de
+    // publicação (checkAndPublishScheduledPosts, de 2 em 2 minutos) tente
+    // publicar de novo por conta própria depois -- ver isEligible() em
+    // utils/metaPublisher.js e equivalentes, que já pulam qualquer post
+    // com `publishStatus` preenchido.
+    if (wantsMarkPublished && manualOverride) {
+      updates.publishStatus = 'manual';
+      updates.publishError = null;
+    }
     db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
   }
 

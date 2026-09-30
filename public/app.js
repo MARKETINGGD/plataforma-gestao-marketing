@@ -2542,6 +2542,74 @@
     startChatPolling();
   }
 
+  // Seletor de emojis do chat (79ª rodada, pedido da Raquel: "no chat,
+  // coloque a opção de mandar emojis"). Um único painel compartilhado
+  // (criado uma vez, reaproveitado) que qualquer botão de emoji -- do
+  // chat em tela cheia, do widget flutuante, ou de uma janela de
+  // conversa aberta -- pode abrir, apontando pra qual campo de texto
+  // recebe o emoji escolhido.
+  const CHAT_EMOJIS = ['😀','😁','😂','🤣','😊','🙂','😉','😍','😘','😜','🤔','😐','😴','😢','😭','😡','😱','😅','🥳','🤝',
+    '👍','👎','👏','🙏','💪','✌️','👋','🤞','❤️','💙','💚','💛','🧡','💜','🔥','✨','🎉','🎂','🎁','⭐',
+    '✅','❌','⚠️','❓','❗','📌','📅','⏰','🚀','👀'];
+  let chatEmojiPickerEl = null;
+  let chatEmojiTargetInput = null;
+
+  function closeChatEmojiPicker() {
+    if (chatEmojiPickerEl) chatEmojiPickerEl.hidden = true;
+    chatEmojiTargetInput = null;
+  }
+
+  function insertTextAtCursor(textarea, text) {
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
+    const pos = start + text.length;
+    textarea.focus();
+    textarea.setSelectionRange(pos, pos);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function ensureChatEmojiPicker() {
+    if (chatEmojiPickerEl) return chatEmojiPickerEl;
+    const el = document.createElement('div');
+    el.className = 'chat-emoji-picker';
+    el.hidden = true;
+    el.innerHTML = CHAT_EMOJIS.map((e) => `<button type="button">${e}</button>`).join('');
+    el.querySelectorAll('button').forEach((btn) => {
+      btn.onclick = () => {
+        if (chatEmojiTargetInput) insertTextAtCursor(chatEmojiTargetInput, btn.textContent);
+        closeChatEmojiPicker();
+      };
+    });
+    document.body.appendChild(el);
+    chatEmojiPickerEl = el;
+    document.addEventListener('click', (ev) => {
+      if (!chatEmojiPickerEl || chatEmojiPickerEl.hidden) return;
+      if (ev.target.closest('.chat-emoji-picker') || ev.target.closest('.chat-emoji-btn')) return;
+      closeChatEmojiPicker();
+    });
+    window.addEventListener('resize', closeChatEmojiPicker);
+    return el;
+  }
+
+  function toggleChatEmojiPicker(btn, textarea) {
+    const el = ensureChatEmojiPicker();
+    if (!el.hidden && chatEmojiTargetInput === textarea) {
+      closeChatEmojiPicker();
+      return;
+    }
+    chatEmojiTargetInput = textarea;
+    el.hidden = false;
+    const rect = btn.getBoundingClientRect();
+    const panelRect = el.getBoundingClientRect();
+    let left = rect.right - panelRect.width;
+    left = Math.max(8, Math.min(left, window.innerWidth - panelRect.width - 8));
+    let top = rect.top - panelRect.height - 8;
+    if (top < 8) top = rect.bottom + 8;
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+  }
+
   async function sendChatMessage() {
     const input = $('#chatInput');
     const text = input.value.trim();
@@ -2563,6 +2631,7 @@
     }
   }
   $('#chatSendBtn').onclick = sendChatMessage;
+  $('#chatEmojiBtn').onclick = () => toggleChatEmojiPicker($('#chatEmojiBtn'), $('#chatInput'));
   $('#chatInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -2919,6 +2988,7 @@
     }
   }
   $('#chatWidgetSendBtn').onclick = sendChatWidgetMessage;
+  $('#chatWidgetEmojiBtn').onclick = () => toggleChatEmojiPicker($('#chatWidgetEmojiBtn'), $('#chatWidgetInput'));
   $('#chatWidgetInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -2984,6 +3054,7 @@
       <div class="chat-widget-messages chat-messages"></div>
       <div class="chat-input-row">
         <textarea rows="1" placeholder="Escreva uma mensagem... (Enter envia, Shift+Enter quebra linha)"></textarea>
+        <button type="button" class="chat-emoji-btn" title="Emojis">😊</button>
         <button class="btn-secondary">Enviar</button>
       </div>
     `;
@@ -2992,6 +3063,8 @@
     const msgsWrap = el.querySelector('.chat-widget-messages');
     const input = el.querySelector('textarea');
     const sendBtn = el.querySelector('button.btn-secondary');
+    const emojiBtn = el.querySelector('.chat-emoji-btn');
+    emojiBtn.onclick = () => toggleChatEmojiPicker(emojiBtn, input);
     async function sendFromWindow() {
       const text = input.value.trim();
       if (!text) return;

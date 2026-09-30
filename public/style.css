@@ -667,16 +667,40 @@ button{font-weight:700;}
    Trocado por `flex-start` (alinha sempre no TOPO da linha, coluna reta
    de cima a baixo) com uma folga (margin-top) pra centralizar visualmente
    com a 1ª linha do texto, não com o topo bruto do quadradinho. */
-.checklist-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;font-size:14.5px;background:var(--bg);border-radius:8px;padding:8px 10px;}
+/* 79ª rodada, correção de bug relatado pela Raquel logo depois da 78ª: o
+   texto do item ficava espremido numa coluna de 1 caractere de largura
+   (cada letra numa linha, de cima a baixo). Causa: o <label> (checkbox +
+   texto) tinha `flex:1` disputando espaço, na mesma linha, com a data, o
+   select de responsável e os botões ✎/✕ -- controles nativos (input date,
+   select) têm uma largura mínima "dura" que o navegador não deixa
+   encolher; quando a soma deles já preenchia quase toda a largura do
+   card, sobrava só um fiapo de espaço pro texto, e com `min-width:0` +
+   `word-break:break-word` esse fiapo virava 1 caractere por linha.
+   Fix: o item agora quebra em duas linhas (`flex-wrap:wrap` no container
+   + `flex:1 1 100%` no label) -- checkbox+texto sempre ocupam a largura
+   inteira da 1ª linha, e data/responsável/editar/excluir vão pra uma 2ª
+   linha embaixo, com espaço de sobra pra eles também. */
+.checklist-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:14.5px;background:var(--bg);border-radius:8px;padding:8px 10px;}
 /* .modal-body label{font-size:12px;margin:10px 0 4px} é uma regra genérica
    do modal que também bate aqui (o item do checklist é um <label>) e sem
    este reset ela vence por ser declaração direta no próprio elemento (não
    herdada), deixando o texto pequeno de novo e empurrando o checkbox pra
    baixo com a margem de 10px -- por isso o reset explícito abaixo. */
-.checklist-item label{display:flex;align-items:flex-start;gap:8px;flex:1;min-width:0;margin:0;font-size:14.5px;}
-.checklist-item label input[type="checkbox"]{margin-top:3px;flex:0 0 auto;}
-.checklist-item label span{overflow-wrap:break-word;word-break:break-word;line-height:1.4;}
+.checklist-item label{display:flex;align-items:flex-start;gap:8px;flex:1 1 100%;min-width:0;margin:0;font-size:14.5px;}
+/* A causa real do bug (não só o wrap acima): `.modal-body input{width:100%}`
+   (regra genérica de formulário do modal) também bate no <input
+   type="checkbox">, e como ele não tinha uma `width` própria pra vencer
+   essa regra, o width:100% virava a base do flex (`flex-basis:auto` +
+   width definido = usa o width como base) -- ou seja, o CHECKBOX (não o
+   texto) é que tomava 100% da largura do label, sobrando 0px pro
+   span do texto. `width:auto` abaixo devolve o checkbox ao tamanho
+   normal dele. */
+.checklist-item label input[type="checkbox"]{margin-top:3px;flex:0 0 auto;width:auto;}
+.checklist-item label span{overflow-wrap:break-word;word-break:break-word;line-height:1.4;flex:1;min-width:0;}
 .checklist-due-input,.checklist-assignee-select{margin-top:1px;}
+/* Alinha o início da 2ª linha (data) com o texto do item acima, não com o
+   quadradinho do checkbox (26px ≈ largura do checkbox + gap da 1ª linha). */
+.checklist-due-input{margin-left:26px;}
 .checklist-assignee-select{font-size:12px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;background:var(--card);color:var(--text);font-family:inherit;max-width:130px;}
 /* Data de entrega individual do item (31ª rodada) — mesmo tamanho visual do
    select de responsável, ao lado dele na linha do item. */
@@ -817,6 +841,17 @@ button{font-weight:700;}
    escrever a mensagem". flex:0 0 auto + width:auto tiram o botão dessa
    disputa e devolvem o espaço pro campo de texto. */
 .chat-input-row button{align-self:flex-end;width:auto;flex:0 0 auto;}
+/* Seletor de emojis do chat (79ª rodada, pedido da Raquel: "no chat,
+   coloque a opção de mandar emojis"). Botão redondo ao lado do campo de
+   texto; ao clicar abre um painel (posição fixa, calculada em JS pra
+   sempre aparecer dentro da tela, acima ou abaixo do botão) com uma
+   grade de emojis comuns — clicar num emoji insere ele no ponto do
+   cursor do campo de mensagem (não substitui o texto já digitado). */
+.chat-emoji-btn{background:none;border:1px solid var(--border);border-radius:8px;padding:0;width:34px;height:34px;font-size:17px;line-height:1;cursor:pointer;color:var(--text);}
+.chat-emoji-btn:hover{background:var(--bg);}
+.chat-emoji-picker{position:fixed;z-index:500;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);padding:8px;display:grid;grid-template-columns:repeat(7,1fr);gap:2px;width:238px;max-height:220px;overflow-y:auto;}
+.chat-emoji-picker button{background:none;border:none;font-size:19px;line-height:1.6;padding:2px;border-radius:6px;cursor:pointer;}
+.chat-emoji-picker button:hover{background:var(--bg);}
 @media (max-width:900px){ .chat-wrap{height:calc(100vh - 280px);} }
 
 /* ---------- Chat da Equipe: grupos, DMs, menções, chamar atenção (40ª rodada) ---------- */

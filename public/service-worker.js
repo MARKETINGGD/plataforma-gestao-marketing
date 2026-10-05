@@ -51,6 +51,35 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// 80ª rodada, pedido da Raquel: "no celular a notificação não aparece"
+// -- causa real era no app.js (ver comentário lá em notifyOS): no
+// Android/Chrome, chamar `new Notification(...)` direto da PÁGINA dá
+// erro sempre que já existe um service worker registrado (é sempre o
+// caso aqui) -- o jeito certo é pedir pro PRÓPRIO service worker mostrar
+// a notificação (`registration.showNotification`, chamado em app.js).
+// Esse listener só cuida do CLIQUE nela: fecha a notificação, acha uma
+// aba já aberta da Papoi (ou abre uma nova, se não tiver nenhuma) e
+// repassa pra ela qual era a ação (clickId) -- quem de fato executa a
+// ação (abrir o chat, ir pro card certo etc.) é a própria página, que já
+// tem a função de verdade guardada (ver pendingOsNotifClicks em app.js);
+// o service worker não tem como guardar/chamar uma função de JS da
+// página, só sabe repassar um id de volta pra ela.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const clickId = event.notification.data && event.notification.data.clickId;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsList) => {
+      const client = clientsList[0];
+      if (client) {
+        client.focus();
+        if (clickId) client.postMessage({ type: 'papoi-notification-click', clickId });
+      } else {
+        self.clients.openWindow('/');
+      }
+    })
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   // Só GET entra no jogo de cache -- POST/PUT/DELETE (toda escrita da
   // Papoi) sempre vai direto pra rede, sem passar perto do service

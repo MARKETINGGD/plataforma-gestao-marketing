@@ -11,6 +11,14 @@
      antigas dele) pro mesmo "Adicionar à Tela de Início" abrir sem barra
      de endereço, como um app de verdade. -->
 <link rel="manifest" href="/manifest.webmanifest">
+<!-- 80ª rodada, pedido da Raquel: "quando o Papoi é aberto no
+     navegador, ele não fica com o símbolo na abinha" -- faltava
+     declarar um favicon de verdade (só existia manifest + ícone do
+     iPhone, nenhum dos dois é o que o Chrome/Edge/Firefox usam pra
+     desktop/abas) -- reaproveita os mesmos ícones quadrados já
+     usados no manifest, sem precisar de um arquivo novo. -->
+<link rel="icon" type="image/png" sizes="192x192" href="/img/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/img/icon-512.png">
 <meta name="theme-color" content="#6D63E0">
 <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -148,9 +156,26 @@
 </div>
 
 <div id="screen-app" class="screen" hidden>
+  <!-- 80ª rodada, pedido da Raquel: "a versão do celular não se ajusta
+       na tela, fica desconfigurada" -- antes disso, abaixo de 900px a
+       barra lateral virava uma faixa horizontal com os 13 itens (+
+       submenus) disputando espaço, e os submenus dos itens-pai abriam
+       EMPURRANDO essa faixa (um <div> normal dentro de um item de linha
+       flex), quebrando o layout inteiro no celular de verdade (não só
+       em tablet). Agora, só abaixo de 900px, a barra lateral vira uma
+       gaveta (painel que desliza por cima da tela, escondida por
+       padrão) -- este botão de menu (☰) e o fundo escurecido abaixo só
+       existem/aparecem nessa largura (ver .mobile-topbar/.sidebar-backdrop
+       no style.css); em telas largas ficam escondidos e a barra lateral
+       continua fixa, exatamente como sempre foi. -->
+  <div class="mobile-topbar">
+    <button type="button" id="mobileMenuToggle" class="mobile-menu-toggle" aria-label="Abrir menu">☰</button>
+    <span class="mobile-topbar-title">Plataforma de Gestão de Marketing</span>
+  </div>
+  <div id="sidebarBackdrop" class="sidebar-backdrop" hidden></div>
   <div class="app-shell">
 
-    <aside class="sidebar">
+    <aside class="sidebar" id="appSidebar">
       <div class="sidebar-brand">
         <img class="sidebar-brand-logo" src="/img/papoi-logo.png" alt="Papoi">
         <span class="sidebar-brand-sub">Plataforma de Gestão de Marketing</span>

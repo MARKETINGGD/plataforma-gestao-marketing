@@ -390,18 +390,61 @@
   // recado/demanda nova/post aprovado/mensagem de chat de uma vez só,
   // sem precisar duplicar em cada lugar que hoje mostra o aviso
   // flutuante.
+  // 80ª rodada, pedido da Raquel: "no celular a notificação não aparece"
+  // -- causa real: no Android/Chrome (e outros navegadores de celular),
+  // chamar `new Notification(...)` direto da página DÁ ERRO ("Illegal
+  // constructor") sempre que já existe um service worker registrado --
+  // e a Papoi sempre registra um (ver topo do arquivo, pra deixar o app
+  // instalável), então no celular essa chamada sempre falhava, caindo
+  // silenciosamente no catch (só "funcionava" sem ninguém perceber que
+  // nunca funcionou de verdade lá). Em vez de criar a notificação direto,
+  // agora pede pro PRÓPRIO service worker mostrar (`registration.
+  // showNotification`), que é o jeito certo e funciona em desktop E
+  // celular igual. Como `showNotification` não devolve um objeto com
+  // `.onclick` (o clique vira um evento DENTRO do service worker, que não
+  // tem acesso direto às funções da página), guarda cada `onClick` num
+  // registro local por um id (`pendingOsNotifClicks`) e só executa a
+  // função de verdade quando o service worker avisa, por mensagem, que
+  // aquele id foi clicado (ver notificationclick em service-worker.js).
+  const pendingOsNotifClicks = {};
+  let osNotifClickSeq = 0;
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || data.type !== 'papoi-notification-click') return;
+      const cb = pendingOsNotifClicks[data.clickId];
+      delete pendingOsNotifClicks[data.clickId];
+      window.focus();
+      if (cb) cb();
+    });
+  }
   function notifyOS(title, body, onClick) {
     try {
       if (!('Notification' in window)) return;
       if (Notification.permission !== 'granted') return;
       if (document.hasFocus() && !document.hidden) return;
-      const n = new Notification(title, { body: body || '', icon: '/img/papoi-logo.png' });
-      n.onclick = () => {
-        window.focus();
-        n.close();
-        if (onClick) onClick();
-      };
-    } catch (e) { /* navegador pode não suportar (ex.: alguns navegadores de celular) -- ignora */ }
+      const icon = '/img/icon-192.png';
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        const clickId = onClick ? 'n' + (++osNotifClickSeq) : null;
+        if (clickId) pendingOsNotifClicks[clickId] = onClick;
+        navigator.serviceWorker.ready.then((reg) => {
+          reg.showNotification(title, { body: body || '', icon, badge: icon, tag: 'papoi-' + Date.now(), data: { clickId } });
+        }).catch(() => {
+          // Se até isso falhar (bem raro), tenta do jeito antigo como
+          // último recurso -- mas em desktop, onde funciona de verdade.
+          try {
+            const n = new Notification(title, { body: body || '', icon });
+            n.onclick = () => { window.focus(); n.close(); if (onClick) onClick(); };
+          } catch (e) { /* ignora */ }
+        });
+      } else {
+        // Sem service worker ativo (navegador muito antigo, ou a 1ª
+        // fração de segundo antes do registro terminar) -- o jeito
+        // direto ainda funciona nesse caso.
+        const n = new Notification(title, { body: body || '', icon });
+        n.onclick = () => { window.focus(); n.close(); if (onClick) onClick(); };
+      }
+    } catch (e) { /* navegador pode não suportar -- ignora */ }
   }
 
   // Responsividade (20ª rodada, pedido da Raquel: "Deixe responsivo para
@@ -1762,6 +1805,42 @@
         if (b.dataset.view === 'expositores-orcamentos') loadExpositoresOrcamentos();
       }
     };
+  });
+
+  // ---------- Menu no celular (80ª rodada) ----------
+  // Pedido da Raquel: "a versão do celular não se ajusta na tela, fica
+  // desconfigurada" -- a barra lateral agora vira uma GAVETA abaixo de
+  // 900px (ver .sidebar/.sidebar-open no style.css), escondida por
+  // padrão e aberta só com o botão de menu (☰) da barra de topo que só
+  // existe nessa largura. Em telas grandes esses elementos ficam
+  // escondidos (display:none) e nada aqui tem efeito -- a barra lateral
+  // continua fixa, exatamente como sempre foi.
+  function openMobileSidebar() {
+    $('#appSidebar').classList.add('sidebar-open');
+    $('#sidebarBackdrop').hidden = false;
+    requestAnimationFrame(() => $('#sidebarBackdrop').classList.add('visible'));
+  }
+  function closeMobileSidebar() {
+    $('#appSidebar').classList.remove('sidebar-open');
+    $('#sidebarBackdrop').classList.remove('visible');
+    $('#sidebarBackdrop').hidden = true;
+  }
+  $('#mobileMenuToggle').onclick = () => {
+    if ($('#appSidebar').classList.contains('sidebar-open')) closeMobileSidebar();
+    else openMobileSidebar();
+  };
+  $('#sidebarBackdrop').onclick = closeMobileSidebar;
+  // Fecha a gaveta depois de qualquer ação "final" lá dentro (ir pra uma
+  // tela, abrir um sistema externo, trocar tema/notificação) -- só os
+  // botões que SÓ abrem/fecham submenu (.navlink-parent) não fecham,
+  // senão a pessoa nunca veria o submenu abrir. Um listener delegado só
+  // (em vez de mexer em cada onclick acima) porque tem bastante botão
+  // diferente dentro da barra lateral (view normal, link externo,
+  // tema/notificação) e todos devem fechar a gaveta do mesmo jeito.
+  $('#appSidebar').addEventListener('click', (e) => {
+    const btn = e.target.closest('.navlink');
+    if (!btn || btn.classList.contains('navlink-parent')) return;
+    closeMobileSidebar();
   });
 
   // ---------- Início ----------

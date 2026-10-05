@@ -7,16 +7,15 @@
 //
 // Escopo (deliberadamente restrito, pra sair do zero pro ar rápido, e
 // crescido aos poucos a pedido da Raquel): publica post ESTÁTICO (1
-// imagem) no Instagram ou Facebook, CARROSSEL (2 a 10 imagens, 8ª
-// correção), REELS (1 vídeo, 9ª melhoria) e STORIE (1 foto OU vídeo, 10ª
-// melhoria) só no Instagram, pra marca com conta Meta conectada
+// imagem), CARROSSEL (2 a 10 imagens, 8ª correção), REELS (1 vídeo, 9ª
+// melhoria) e STORIE (1 foto OU vídeo, 10ª melhoria), tanto no Instagram
+// quanto no Facebook (82ª rodada -- Carrossel/Reels/Storie no Facebook
+// entraram nesta rodada, ver utils/metaGraphClient.js pros detalhes de
+// cada mecanismo próprio do Facebook), pra marca com conta Meta conectada
 // (De Bacco/GhelPlus, ver routes/socialAccounts.js). Vídeo do TikTok/
 // YouTube (plataformas diferentes, nem são Meta) continua 100% manual,
-// como sempre foi. Carrossel, Reels e Storie no Facebook (mecanismos
-// diferentes do Instagram em todos os 3 casos) ficam de fora por
-// enquanto, mesmo motivo de escopo -- ver
-// PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md pro histórico completo de
-// cada rodada.
+// como sempre foi. Ver PLANO-INTEGRACAO-REDES-SOCIAIS-E-EMAIL.md pro
+// histórico completo de cada rodada.
 
 const path = require('path');
 const db = require('../db');
@@ -27,11 +26,15 @@ const metaGraph = require('./metaGraphClient');
 const CHECK_INTERVAL_MS = 2 * 60 * 1000; // a cada 2 minutos
 const AUTO_PUBLISH_PLATFORMS = ['instagram', 'facebook'];
 const AUTO_PUBLISH_POST_TYPES = ['estatico', 'carrossel', 'reels', 'storie'];
-// Carrossel, Reels e Storie só no Instagram por enquanto (ver comentário
-// do topo do arquivo).
-const CAROUSEL_PLATFORMS = ['instagram'];
-const REELS_PLATFORMS = ['instagram'];
-const STORIES_PLATFORMS = ['instagram'];
+// Carrossel, Reels e Storie: Instagram E Facebook desde a 82ª rodada (cada
+// um com o mecanismo PRÓPRIO do Facebook -- ver comentário no topo de
+// utils/metaGraphClient.js). Continuam como listas separadas (em vez de
+// reaproveitar AUTO_PUBLISH_PLATFORMS direto) pra deixar fácil restringir
+// de novo no futuro, caso algum dos dois precise sair de novo por algum
+// motivo -- mesmo espírito de sempre desta base.
+const CAROUSEL_PLATFORMS = ['instagram', 'facebook'];
+const REELS_PLATFORMS = ['instagram', 'facebook'];
+const STORIES_PLATFORMS = ['instagram', 'facebook'];
 // Limite de imagens por carrossel exigido pela própria Meta (não é uma
 // escolha nossa) -- publicar com menos de 2 ou mais de 10 é rejeitado pela
 // Graph API, então valida aqui ANTES de gastar uma chamada de verdade.
@@ -204,6 +207,109 @@ async function publishInstagramReels(post, account) {
   return published.id;
 }
 
+// Carrossel no FACEBOOK (82ª rodada): mesma validação de quantidade de
+// imagens do Instagram (2 a 10, limite da própria Meta pra post
+// multi-foto), mas o MECANISMO é outro -- sem container "pai" nenhum, é
+// um post comum do Feed com as fotos (ainda não publicadas sozinhas)
+// referenciadas via `attached_media` -- ver comentário completo em
+// utils/metaGraphClient.js.
+async function publishFacebookCarousel(post, account) {
+  const files = post.files || [];
+  if (files.length < CAROUSEL_MIN_ITEMS || files.length > CAROUSEL_MAX_ITEMS) {
+    throw new metaGraph.MetaGraphError(
+      `Carrossel precisa de ${CAROUSEL_MIN_ITEMS} a ${CAROUSEL_MAX_ITEMS} imagens pra publicar no Facebook -- esse post tem ${files.length}. Ajuste as imagens e edite o agendamento pra tentar de novo.`
+    );
+  }
+  const photoIds = [];
+  for (const file of files) {
+    const imageUrl = `${APP_BASE_URL}${file.url}`;
+    const photo = await metaGraph.createFacebookUnpublishedPhoto({ pageId: account.pageId, pageAccessToken: account.pageAccessToken, imageUrl });
+    photoIds.push(photo.id);
+  }
+  const published = await metaGraph.publishFacebookMultiPhotoPost({
+    pageId: account.pageId,
+    pageAccessToken: account.pageAccessToken,
+    message: post.caption,
+    photoIds
+  });
+  return published.id;
+}
+
+// Reels no FACEBOOK (82ª rodada): fluxo de 3 passos da "Video Reels API"
+// própria do Facebook (bem diferente da Content Publishing API do
+// Instagram) -- abrir sessão, mandar o vídeo pro upload (apontando pra
+// URL pública, nunca o binário), fechar com `video_state:'PUBLISHED'` --
+// ver comentário completo em utils/metaGraphClient.js. Mesma validação de
+// "exatamente 1 vídeo" do Reels do Instagram.
+async function publishFacebookReels(post, account) {
+  const files = post.files || [];
+  if (files.length !== 1) {
+    throw new metaGraph.MetaGraphError(
+      `Reels precisa de exatamente 1 vídeo pra publicar -- esse post tem ${files.length} arquivo(s). Ajuste o criativo e edite o agendamento pra tentar de novo.`
+    );
+  }
+  const file = files[0];
+  if (!isVideoFile(file)) {
+    throw new metaGraph.MetaGraphError(
+      `O arquivo desse Reels não parece ser um vídeo (${file.name || file.url || 'sem nome'}) -- formatos aceitos: MP4 ou MOV. Confirme o criativo e edite o agendamento pra tentar de novo.`
+    );
+  }
+  const videoUrl = `${APP_BASE_URL}${file.url}`;
+  const { video_id: videoId, upload_url: uploadUrl } = await metaGraph.startFacebookVideoReelsUpload({
+    pageId: account.pageId,
+    pageAccessToken: account.pageAccessToken
+  });
+  await metaGraph.uploadFacebookVideoByUrl({ uploadUrl, pageAccessToken: account.pageAccessToken, fileUrl: videoUrl });
+  await metaGraph.finishFacebookVideoReels({
+    pageId: account.pageId,
+    pageAccessToken: account.pageAccessToken,
+    videoId,
+    description: post.caption
+  });
+  // Diferente do Instagram (media_publish devolve o id do post de vez),
+  // o "finish" do Reels do Facebook não devolve nenhum id de post próprio
+  // -- o `video_id` da própria sessão de upload é o objeto certo pra
+  // buscar o permalink depois (getPermalink já sabe pedir
+  // `permalink_url` de qualquer objectId, vídeo incluso).
+  return videoId;
+}
+
+// Storie no FACEBOOK (82ª rodada): foto usa o mesmo upload "não
+// publicado" do Carrossel seguido de `/photo_stories`; vídeo usa o MESMO
+// fluxo de 3 passos do Reels, só que no endpoint `/video_stories` (sem
+// `video_state`, que é exclusivo do Reels) -- ver comentário completo em
+// utils/metaGraphClient.js. Mesma validação de "exatamente 1 arquivo,
+// foto OU vídeo" do Storie do Instagram -- e, igual ao Instagram, a Meta
+// não aceita legenda nenhuma pra Storie (nem de foto nem de vídeo); a
+// legenda da Papoi continua só anotação interna.
+async function publishFacebookStory(post, account) {
+  const files = post.files || [];
+  if (files.length !== 1) {
+    throw new metaGraph.MetaGraphError(
+      `Storie precisa de exatamente 1 arquivo (foto OU vídeo) pra publicar -- esse post tem ${files.length}. Ajuste o criativo e edite o agendamento pra tentar de novo.`
+    );
+  }
+  const file = files[0];
+  const video = isVideoFile(file);
+  const mediaUrl = `${APP_BASE_URL}${file.url}`;
+  if (video) {
+    const { video_id: videoId, upload_url: uploadUrl } = await metaGraph.startFacebookVideoStoryUpload({
+      pageId: account.pageId,
+      pageAccessToken: account.pageAccessToken
+    });
+    await metaGraph.uploadFacebookVideoByUrl({ uploadUrl, pageAccessToken: account.pageAccessToken, fileUrl: mediaUrl });
+    const published = await metaGraph.finishFacebookVideoStory({
+      pageId: account.pageId,
+      pageAccessToken: account.pageAccessToken,
+      videoId
+    });
+    return published.post_id || videoId;
+  }
+  const photo = await metaGraph.createFacebookUnpublishedPhoto({ pageId: account.pageId, pageAccessToken: account.pageAccessToken, imageUrl: mediaUrl });
+  const published = await metaGraph.createFacebookPhotoStory({ pageId: account.pageId, pageAccessToken: account.pageAccessToken, photoId: photo.id });
+  return published.post_id || photo.id;
+}
+
 // Storie (10ª melhoria): a mais simples das 4 na montagem (1 chamada só,
 // igual Reels) -- mas aceita FOTO ou VÍDEO (Reels só aceita vídeo), então
 // detecta pelo arquivo qual dos dois é, e usa os tempos de espera de
@@ -258,12 +364,19 @@ async function publishInstagramStory(post, account) {
 async function attemptPublish(post, account) {
   const files = post.files || [];
   let externalPostId;
-  if (post.platform === 'instagram' && post.postType === 'reels') {
-    externalPostId = await publishInstagramReels(post, account);
-  } else if (post.platform === 'instagram' && post.postType === 'storie') {
-    externalPostId = await publishInstagramStory(post, account);
-  } else if (post.platform === 'instagram' && post.postType === 'carrossel') {
-    externalPostId = await publishInstagramCarousel(post, account);
+  // 82ª rodada: Carrossel/Reels/Storie ganharam mecanismo PRÓPRIO também
+  // pro Facebook (antes só existiam pro Instagram) -- por isso os 3
+  // primeiros `if`s agora checam só o `postType`, não mais
+  // `platform === 'instagram'`, e decidem qual dos dois publicadores usar
+  // (Instagram ou Facebook) dentro de cada um. O Estático continua
+  // dividido por plataforma embaixo, sem mudança -- já publicava nos
+  // dois desde a 55ª rodada.
+  if (post.postType === 'reels') {
+    externalPostId = post.platform === 'instagram' ? await publishInstagramReels(post, account) : await publishFacebookReels(post, account);
+  } else if (post.postType === 'storie') {
+    externalPostId = post.platform === 'instagram' ? await publishInstagramStory(post, account) : await publishFacebookStory(post, account);
+  } else if (post.postType === 'carrossel') {
+    externalPostId = post.platform === 'instagram' ? await publishInstagramCarousel(post, account) : await publishFacebookCarousel(post, account);
   } else if (post.platform === 'instagram') {
     if (!files.length) {
       throw new metaGraph.MetaGraphError('Esse post não tem nenhum arquivo (imagem) anexado pra publicar. Anexe um criativo e edite o agendamento pra tentar de novo.');

@@ -436,11 +436,14 @@ const MIRROR_BRANDS = ['debacco', 'ghelplus'];
 // Cria a cópia no Facebook a partir de um post do Instagram recém-criado
 // -- mesmo conteúdo (legenda, tipo, data/hora, assunto, link, roteiro,
 // responsável/envolvidos), só a rede muda. Publicação automática de
-// verdade só existe pra Facebook Estático (ver
-// utils/metaPublisher.js:isMetaAutoPublishSupported) -- pra Carrossel/
-// Reels/Storie o espelho nasce igual, só que a confirmação de "Publicado"
-// continua manual, do mesmo jeito que já era pra qualquer combinação sem
-// publicador automático (TikTok, Facebook Reels/Carrossel/Storie etc.).
+// verdade existe pros 4 tipos no Facebook (Estático desde a 55ª rodada,
+// Carrossel/Reels/Storie desde a 82ª -- ver
+// utils/metaPublisher.js:isMetaAutoPublishSupported), cada um com o
+// mecanismo PRÓPRIO do Facebook (ver utils/metaGraphClient.js) -- o
+// espelho nasce igual nos 4 casos, e a confirmação de "Publicado" só
+// continua manual pra combinação que realmente não tem publicador
+// automático nenhum (TikTok, YouTube/Pinterest fora do Instagram,
+// Newsletter/Blog etc.).
 // Guarda `mirroredFromPostId`/`mirroredToPostId` nos dois lados pra tela
 // poder mostrar que um nasceu do outro.
 function createFacebookMirror(igPost, req) {
@@ -663,7 +666,9 @@ router.put('/:id', requireAuth, async (req, res) => {
   // (mandado pela tela só depois que a pessoa vê o erro e confirma que
   // quer mesmo assim -- ver #socialPostFormSave em public/app.js) pula a
   // tentativa automática e confirma na mão, do jeito que já funcionava
-  // pra TikTok/Facebook Reels/Carrossel/Storie antes da 11ª melhoria.
+  // pra qualquer rede sem publicador automático (TikTok, Newsletter, Blog
+  // etc. -- Facebook Reels/Carrossel/Storie ganharam publicador de verdade
+  // na 82ª rodada, deixaram de precisar desse caminho).
   const autoPublisher = wantsMarkPublished && !alreadyHandledByMeta && !manualOverride ? resolveAutoPublisher(effectivePostForMeta) : null;
   const shouldPublishNow = !!autoPublisher;
 
@@ -729,8 +734,9 @@ router.put('/:id', requireAuth, async (req, res) => {
   if (!publishedJustNow && updates.status === 'publicado' && previousStatus !== 'publicado') {
     cascadeCompleteDemandas(fresh.id, null, req);
     // 63ª rodada: marcar "Publicado" na mão (redes/tipos que a Papoi não
-    // publica sozinha -- TikTok, YouTube, Facebook Reels/Carrossel/Storie
-    // etc.) também avisa dona do post + coordenadora + gerente, igual à
+    // publica sozinha -- TikTok, Newsletter, Blog etc., ou qualquer
+    // combinação com manualOverride) também avisa dona do post +
+    // coordenadora + gerente, igual à
     // publicação automática (ver notifyPublishSuccess em
     // utils/metaPublisher.js, chamada só quando `publishedJustNow` é
     // true). Sem link de verdade aqui (não veio de nenhuma API), mas

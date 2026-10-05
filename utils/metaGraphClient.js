@@ -232,6 +232,104 @@ async function publishFacebookPagePost({ pageId, pageAccessToken, message, image
   return graphFetch(`/${pageId}/feed?${qs.toString()}`, { method: 'POST' });
 }
 
+// Carrossel/Reels/Storie no FACEBOOK (82ª rodada -- pedido direto da
+// Raquel, depois de confirmar que o espelhamento automático Instagram→
+// Facebook (79ª rodada) só publicava sozinho o tipo Estático: "pra
+// Carrossel/Reels/Storie no Facebook quero que publique tudo, do mesmo
+// jeito que no insta"). O Facebook usa MECANISMOS PRÓPRIOS, diferentes do
+// Instagram em todos os 3 casos -- não é a mesma Content Publishing API
+// (essa é só do Instagram) -- escrito estritamente contra a documentação
+// oficial da Meta (Page Stories API / Video API, pesquisada ao vivo nesta
+// rodada), mesmo espírito de sempre desta base (TikTok, YouTube, etc.):
+//
+//   - Carrossel: NÃO existe um "container" combinando várias imagens como
+//     no Instagram -- é um post comum do Feed (`/{page}/feed`) com várias
+//     fotos já enviadas (mas ainda NÃO publicadas, `published:false`)
+//     referenciadas no parâmetro `attached_media` (ver
+//     createFacebookUnpublishedPhoto/publishFacebookMultiPhotoPost).
+//   - Reels: fluxo de 3 passos pela "Video Reels API" própria do Facebook
+//     (`/{page}/video_reels`) -- bem diferente da Content Publishing API
+//     do Instagram: (1) abre a sessão de upload (`upload_phase:'start'`,
+//     devolve `video_id`+`upload_url`); (2) envia o vídeo pra esse
+//     `upload_url` (que fica num domínio PRÓPRIO, `rupload.facebook.com`,
+//     nunca `graph.facebook.com`) -- igual ao resto da Papoi, aponta pra
+//     URL pública do arquivo já hospedado (header `file_url`) em vez de
+//     mandar o binário, então nunca baixa/reenvia o arquivo em si; (3)
+//     fecha a publicação (`upload_phase:'finish'`, `video_state:
+//     'PUBLISHED'`, legenda no `description`).
+//   - Storie: foto usa o mesmo upload "não publicado" do Carrossel,
+//     seguido de `/{page}/photo_stories`; vídeo usa o MESMO fluxo de 3
+//     passos do Reels, só que no endpoint `/{page}/video_stories` (sem
+//     `video_state`, que é exclusivo do Reels) -- cada um documentado na
+//     própria função abaixo.
+async function createFacebookUnpublishedPhoto({ pageId, pageAccessToken, imageUrl }) {
+  const qs = new URLSearchParams({ url: imageUrl, published: 'false', access_token: pageAccessToken });
+  return graphFetch(`/${pageId}/photos?${qs.toString()}`, { method: 'POST' });
+}
+
+// `photoIds` na ordem em que devem aparecer no carrossel -- cada posição
+// do array vira `attached_media[0]`, `attached_media[1]` etc., cada um com
+// `{"media_fbid":"<id>"}` (formato documentado pela própria Meta pra post
+// multi-foto).
+async function publishFacebookMultiPhotoPost({ pageId, pageAccessToken, message, photoIds }) {
+  const qs = new URLSearchParams({ message: message || '', access_token: pageAccessToken });
+  photoIds.forEach((id, i) => {
+    qs.set(`attached_media[${i}]`, JSON.stringify({ media_fbid: id }));
+  });
+  return graphFetch(`/${pageId}/feed?${qs.toString()}`, { method: 'POST' });
+}
+
+async function startFacebookVideoReelsUpload({ pageId, pageAccessToken }) {
+  const qs = new URLSearchParams({ upload_phase: 'start', access_token: pageAccessToken });
+  return graphFetch(`/${pageId}/video_reels?${qs.toString()}`, { method: 'POST' });
+}
+
+async function startFacebookVideoStoryUpload({ pageId, pageAccessToken }) {
+  const qs = new URLSearchParams({ upload_phase: 'start', access_token: pageAccessToken });
+  return graphFetch(`/${pageId}/video_stories?${qs.toString()}`, { method: 'POST' });
+}
+
+// Passo 2 do Reels/Storie em vídeo -- `uploadUrl` vem da resposta do
+// `upload_phase:'start'` (domínio `rupload.facebook.com`, nunca o
+// `graph.facebook.com` normal, por isso não passa por `graphFetch`).
+// `file_url` como HEADER (não query string) é o jeito documentado pela
+// Meta de apontar pra um arquivo já hospedado publicamente, em vez de
+// mandar o vídeo em binário -- mesmo princípio "pull from URL" de toda a
+// Papoi (Meta/Pinterest/TikTok).
+async function uploadFacebookVideoByUrl({ uploadUrl, pageAccessToken, fileUrl }) {
+  const res = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { Authorization: `OAuth ${pageAccessToken}`, file_url: fileUrl }
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.error || body.success === false) {
+    const msg = (body.error && body.error.message) || `Erro ${res.status} ao enviar o vídeo pro upload da Meta.`;
+    throw new MetaGraphError(msg, body.error || body);
+  }
+  return body;
+}
+
+async function finishFacebookVideoReels({ pageId, pageAccessToken, videoId, description }) {
+  const qs = new URLSearchParams({
+    upload_phase: 'finish',
+    video_id: videoId,
+    video_state: 'PUBLISHED',
+    description: description || '',
+    access_token: pageAccessToken
+  });
+  return graphFetch(`/${pageId}/video_reels?${qs.toString()}`, { method: 'POST' });
+}
+
+async function finishFacebookVideoStory({ pageId, pageAccessToken, videoId }) {
+  const qs = new URLSearchParams({ upload_phase: 'finish', video_id: videoId, access_token: pageAccessToken });
+  return graphFetch(`/${pageId}/video_stories?${qs.toString()}`, { method: 'POST' });
+}
+
+async function createFacebookPhotoStory({ pageId, pageAccessToken, photoId }) {
+  const qs = new URLSearchParams({ photo_id: photoId, access_token: pageAccessToken });
+  return graphFetch(`/${pageId}/photo_stories?${qs.toString()}`, { method: 'POST' });
+}
+
 // Permalink de verdade do post publicado — usado só pra mostrar o link
 // clicável na Papoi depois de publicar (não é necessário pra publicar).
 async function getPermalink({ objectId, pageAccessToken }) {
@@ -257,5 +355,13 @@ module.exports = {
   VIDEO_CONTAINER_POLL_TIMEOUT_MS,
   publishInstagramMediaContainer,
   publishFacebookPagePost,
+  createFacebookUnpublishedPhoto,
+  publishFacebookMultiPhotoPost,
+  startFacebookVideoReelsUpload,
+  startFacebookVideoStoryUpload,
+  uploadFacebookVideoByUrl,
+  finishFacebookVideoReels,
+  finishFacebookVideoStory,
+  createFacebookPhotoStory,
   getPermalink
 };

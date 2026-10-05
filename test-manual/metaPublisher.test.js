@@ -70,6 +70,52 @@ metaGraph.publishFacebookPagePost = async (args) => {
   if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada no Facebook.');
   return { id: 'fb-post-fake-1', post_id: 'fb-post-fake-1' };
 };
+// 82ª rodada (Carrossel/Reels/Storie no Facebook, pedido da Raquel: "pra
+// Carrossel/Reels/Storie no Facebook quero que publique tudo, do mesmo
+// jeito que no insta") -- mocks dos mecanismos PRÓPRIOS do Facebook (sem
+// container, ver comentário completo em utils/metaGraphClient.js).
+let fbPhotoCounter = 0;
+metaGraph.createFacebookUnpublishedPhoto = async (args) => {
+  publishCalls.push({ fn: 'createFacebookUnpublishedPhoto', args });
+  if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada ao enviar a foto pro Facebook.');
+  fbPhotoCounter += 1;
+  return { id: `fb-photo-${fbPhotoCounter}` };
+};
+metaGraph.publishFacebookMultiPhotoPost = async (args) => {
+  publishCalls.push({ fn: 'publishFacebookMultiPhotoPost', args });
+  if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada ao publicar o carrossel no Facebook.');
+  return { id: 'fb-carousel-post-fake-1' };
+};
+metaGraph.startFacebookVideoReelsUpload = async (args) => {
+  publishCalls.push({ fn: 'startFacebookVideoReelsUpload', args });
+  if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada ao abrir a sessão de upload do Reels no Facebook.');
+  return { video_id: 'fb-reels-video-fake-1', upload_url: 'https://rupload.facebook.com/video-upload/fb-reels-video-fake-1' };
+};
+metaGraph.startFacebookVideoStoryUpload = async (args) => {
+  publishCalls.push({ fn: 'startFacebookVideoStoryUpload', args });
+  if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada ao abrir a sessão de upload do Storie em vídeo no Facebook.');
+  return { video_id: 'fb-story-video-fake-1', upload_url: 'https://rupload.facebook.com/video-upload/fb-story-video-fake-1' };
+};
+metaGraph.uploadFacebookVideoByUrl = async (args) => {
+  publishCalls.push({ fn: 'uploadFacebookVideoByUrl', args });
+  if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada ao enviar o vídeo pro upload do Facebook.');
+  return { success: true };
+};
+metaGraph.finishFacebookVideoReels = async (args) => {
+  publishCalls.push({ fn: 'finishFacebookVideoReels', args });
+  if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada ao fechar a publicação do Reels no Facebook.');
+  return { success: true };
+};
+metaGraph.finishFacebookVideoStory = async (args) => {
+  publishCalls.push({ fn: 'finishFacebookVideoStory', args });
+  if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada ao fechar o Storie em vídeo no Facebook.');
+  return { success: true, post_id: 'fb-story-video-post-fake-1' };
+};
+metaGraph.createFacebookPhotoStory = async (args) => {
+  publishCalls.push({ fn: 'createFacebookPhotoStory', args });
+  if (shouldFail) throw new metaGraph.MetaGraphError('Falha simulada ao publicar o Storie em foto no Facebook.');
+  return { success: true, post_id: 'fb-story-photo-post-fake-1' };
+};
 metaGraph.getPermalink = async () => 'https://instagram.com/p/fake/';
 
 const metaPublisher = require('../utils/metaPublisher');
@@ -347,13 +393,121 @@ async function run() {
   check('storie com 2 arquivos: falha (precisa de exatamente 1)', post13After.publishStatus === 'failed' && post13After.publishError.includes('exatamente 1') && post13After.publishError.includes('tem 2'));
   cleanupPost(post13.id);
 
+  // ---------- 13b. Carrossel no FACEBOOK (82ª rodada) — sucesso com 3
+  // imagens: SEM container pai nenhum (mecanismo diferente do Instagram)
+  // -- cada foto sobe "não publicada" (published:false) e só a última
+  // chamada (publishFacebookMultiPhotoPost) de fato publica, referenciando
+  // as 3 pelo attached_media. ----------
+  publishCalls = [];
+  fbPhotoCounter = 0;
+  const post13b = makePost({
+    platform: 'facebook',
+    postType: 'carrossel',
+    files: [
+      { id: 'c1', url: '/uploads/social/xyz/creative/1.jpg', name: '1.jpg' },
+      { id: 'c2', url: '/uploads/social/xyz/creative/2.jpg', name: '2.jpg' },
+      { id: 'c3', url: '/uploads/social/xyz/creative/3.jpg', name: '3.jpg' }
+    ]
+  });
+  await metaPublisher.checkAndPublishScheduledPosts();
+  const post13bAfter = db.get('socialPosts').find({ id: post13b.id }).value();
+  check('carrossel no Facebook com 3 imagens: publishStatus vira "published" (82ª rodada)', post13bAfter.publishStatus === 'published');
+  check('carrossel no Facebook: externalPostId é o do post final (não um container, Facebook não usa container)', post13bAfter.externalPostId === 'fb-carousel-post-fake-1');
+  const fbPhotoCalls = publishCalls.filter((c) => c.fn === 'createFacebookUnpublishedPhoto');
+  check('carrossel no Facebook: subiu exatamente 3 fotos (1 por imagem), todas "não publicadas"', fbPhotoCalls.length === 3);
+  const fbCarouselCall = publishCalls.find((c) => c.fn === 'publishFacebookMultiPhotoPost');
+  check('carrossel no Facebook: publicou com os 3 ids de foto, na ordem certa', fbCarouselCall && fbCarouselCall.args.photoIds.join(',') === 'fb-photo-1,fb-photo-2,fb-photo-3');
+  check('carrossel no Facebook: legenda vai no post final (não em cada foto)', fbCarouselCall && fbCarouselCall.args.message === 'Legenda de teste');
+  check('carrossel no Facebook: NÃO chamou nenhuma função de container do Instagram (mecanismo totalmente separado)',
+    !publishCalls.some((c) => c.fn.includes('Container')));
+  cleanupPost(post13b.id);
+
+  // ---------- 13c. Carrossel no Facebook com quantidade inválida (mesma
+  // regra de 2 a 10 do Instagram -- limite da própria Meta) ----------
+  publishCalls = [];
+  const post13c = makePost({ platform: 'facebook', postType: 'carrossel', files: [{ id: 'c1', url: '/uploads/social/xyz/creative/1.jpg', name: '1.jpg' }] });
+  await metaPublisher.checkAndPublishScheduledPosts();
+  const post13cAfter = db.get('socialPosts').find({ id: post13c.id }).value();
+  check('carrossel no Facebook com só 1 imagem: falha (mesmo limite de 2 a 10 do Instagram)', post13cAfter.publishStatus === 'failed' && post13cAfter.publishError.includes('2 a 10') && post13cAfter.publishError.includes('Facebook'));
+  check('carrossel no Facebook com 1 imagem: NÃO chegou a chamar a Graph API de verdade (validação antes)', publishCalls.length === 0);
+  cleanupPost(post13c.id);
+
+  // ---------- 13d. Reels no FACEBOOK (82ª rodada) — sucesso com 1 vídeo:
+  // fluxo de 3 passos PRÓPRIO do Facebook (start -> upload por URL ->
+  // finish com video_state:PUBLISHED), bem diferente do container único
+  // do Instagram. ----------
+  publishCalls = [];
+  const post13d = makePost({
+    platform: 'facebook',
+    postType: 'reels',
+    files: [{ id: 'v1', url: '/uploads/social/xyz/creative/video.mp4', name: 'video.mp4' }]
+  });
+  await metaPublisher.checkAndPublishScheduledPosts();
+  const post13dAfter = db.get('socialPosts').find({ id: post13d.id }).value();
+  check('reels no Facebook com 1 vídeo MP4: publishStatus vira "published" (82ª rodada)', post13dAfter.publishStatus === 'published');
+  check('reels no Facebook: externalPostId é o video_id da própria sessão de upload (finish não devolve post_id próprio)', post13dAfter.externalPostId === 'fb-reels-video-fake-1');
+  const fbReelsStart = publishCalls.find((c) => c.fn === 'startFacebookVideoReelsUpload');
+  const fbReelsUpload = publishCalls.find((c) => c.fn === 'uploadFacebookVideoByUrl');
+  const fbReelsFinish = publishCalls.find((c) => c.fn === 'finishFacebookVideoReels');
+  check('reels no Facebook: abriu a sessão de upload antes de enviar o vídeo', !!fbReelsStart);
+  check('reels no Facebook: enviou o vídeo apontando pra URL pública certa (nunca o binário)', fbReelsUpload && fbReelsUpload.args.fileUrl === 'http://localhost:4123/uploads/social/xyz/creative/video.mp4');
+  check('reels no Facebook: fechou a publicação com o video_id certo e a legenda no description', fbReelsFinish && fbReelsFinish.args.videoId === 'fb-reels-video-fake-1' && fbReelsFinish.args.description === 'Legenda de teste');
+  check('reels no Facebook: NÃO usou nenhuma função do Instagram', !publishCalls.some((c) => c.fn.includes('Instagram')));
+  cleanupPost(post13d.id);
+
+  // ---------- 13e. Reels no Facebook com arquivo que não é vídeo (mesma
+  // validação do Instagram) ----------
+  publishCalls = [];
+  const post13e = makePost({ platform: 'facebook', postType: 'reels', files: [{ id: 'f1', url: '/uploads/social/xyz/creative/foto.jpg', name: 'foto.jpg' }] });
+  await metaPublisher.checkAndPublishScheduledPosts();
+  const post13eAfter = db.get('socialPosts').find({ id: post13e.id }).value();
+  check('reels no Facebook com .jpg (não é vídeo): falha com mensagem clara', post13eAfter.publishStatus === 'failed' && post13eAfter.publishError.includes('não parece ser um vídeo'));
+  check('reels no Facebook com arquivo errado: não chamou a Graph API de verdade', publishCalls.length === 0);
+  cleanupPost(post13e.id);
+
+  // ---------- 13f. Storie no FACEBOOK (82ª rodada) — sucesso com FOTO:
+  // mesmo upload "não publicado" do Carrossel, seguido de photo_stories
+  // (sem passar por video_reels/video_stories, que são só pra vídeo). ----------
+  publishCalls = [];
+  fbPhotoCounter = 0;
+  const post13f = makePost({
+    platform: 'facebook',
+    postType: 'storie',
+    files: [{ id: 'f1', url: '/uploads/social/xyz/creative/foto-storie.jpg', name: 'foto-storie.jpg' }]
+  });
+  await metaPublisher.checkAndPublishScheduledPosts();
+  const post13fAfter = db.get('socialPosts').find({ id: post13f.id }).value();
+  check('storie no Facebook com foto: publishStatus vira "published" (82ª rodada)', post13fAfter.publishStatus === 'published');
+  check('storie no Facebook com foto: externalPostId é o post_id do photo_stories', post13fAfter.externalPostId === 'fb-story-photo-post-fake-1');
+  const fbStoryPhotoCall = publishCalls.find((c) => c.fn === 'createFacebookPhotoStory');
+  check('storie no Facebook com foto: publicou com o id da foto certo', fbStoryPhotoCall && fbStoryPhotoCall.args.photoId === 'fb-photo-1');
+  check('storie no Facebook com foto: não passou por nenhuma função de vídeo', !publishCalls.some((c) => c.fn.includes('Video')));
+  cleanupPost(post13f.id);
+
+  // ---------- 13g. Storie no Facebook — sucesso com VÍDEO: usa o MESMO
+  // fluxo de 3 passos do Reels, só que no endpoint video_stories (sem
+  // video_state, que é exclusivo do Reels). ----------
+  publishCalls = [];
+  const post13g = makePost({
+    platform: 'facebook',
+    postType: 'storie',
+    files: [{ id: 'v1', url: '/uploads/social/xyz/creative/video-storie.mp4', name: 'video-storie.mp4' }]
+  });
+  await metaPublisher.checkAndPublishScheduledPosts();
+  const post13gAfter = db.get('socialPosts').find({ id: post13g.id }).value();
+  check('storie no Facebook com vídeo: publishStatus vira "published"', post13gAfter.publishStatus === 'published');
+  check('storie no Facebook com vídeo: externalPostId é o post_id do video_stories', post13gAfter.externalPostId === 'fb-story-video-post-fake-1');
+  check('storie no Facebook com vídeo: usou startFacebookVideoStoryUpload (endpoint de STORY, não de REELS)',
+    publishCalls.some((c) => c.fn === 'startFacebookVideoStoryUpload') && !publishCalls.some((c) => c.fn === 'startFacebookVideoReelsUpload'));
+  cleanupPost(post13g.id);
+
   // ---------- 14. elegibilidade: cada regra de exclusão isoladamente ----------
   check('elegível: postType carrossel no Instagram (8ª correção, novo escopo)', metaPublisher.isEligible(makePostObjOnly({ postType: 'carrossel', files: [{ url: '/a.jpg' }, { url: '/b.jpg' }] })));
-  check('não elegível: postType carrossel no Facebook (fora do escopo -- mecanismo de multi-foto é diferente)', !metaPublisher.isEligible(makePostObjOnly({ postType: 'carrossel', platform: 'facebook', files: [{ url: '/a.jpg' }, { url: '/b.jpg' }] })));
+  check('elegível: postType carrossel no Facebook também (82ª rodada, mecanismo próprio do Facebook)', metaPublisher.isEligible(makePostObjOnly({ postType: 'carrossel', platform: 'facebook', files: [{ url: '/a.jpg' }, { url: '/b.jpg' }] })));
   check('elegível: postType reels no Instagram (9ª melhoria, novo escopo)', metaPublisher.isEligible(makePostObjOnly({ postType: 'reels', files: [{ url: '/v.mp4' }] })));
-  check('não elegível: postType reels no Facebook (fora do escopo)', !metaPublisher.isEligible(makePostObjOnly({ postType: 'reels', platform: 'facebook', files: [{ url: '/v.mp4' }] })));
+  check('elegível: postType reels no Facebook também (82ª rodada)', metaPublisher.isEligible(makePostObjOnly({ postType: 'reels', platform: 'facebook', files: [{ url: '/v.mp4' }] })));
   check('elegível: postType storie no Instagram (10ª melhoria, novo escopo)', metaPublisher.isEligible(makePostObjOnly({ postType: 'storie', files: [{ url: '/f.jpg' }] })));
-  check('não elegível: postType storie no Facebook (fora do escopo)', !metaPublisher.isEligible(makePostObjOnly({ postType: 'storie', platform: 'facebook', files: [{ url: '/f.jpg' }] })));
+  check('elegível: postType storie no Facebook também (82ª rodada)', metaPublisher.isEligible(makePostObjOnly({ postType: 'storie', platform: 'facebook', files: [{ url: '/f.jpg' }] })));
   check('não elegível: postType video_tiktok (plataforma diferente, fora do escopo)', !metaPublisher.isEligible(makePostObjOnly({ postType: 'video_tiktok', platform: 'tiktok' })));
   check('não elegível: plataforma linkedin', !metaPublisher.isEligible(makePostObjOnly({ platform: 'linkedin' })));
   check('não elegível: marca duranox (sem app Meta ainda)', !metaPublisher.isEligible(makePostObjOnly({ brand: 'duranox' })));
@@ -383,7 +537,7 @@ async function run() {
   check('isMetaAutoPublishSupported exportado e bate com a mesma matriz rede+tipo+marca do isEligible',
     typeof metaPublisher.isMetaAutoPublishSupported === 'function'
     && metaPublisher.isMetaAutoPublishSupported({ platform: 'instagram', postType: 'storie', brand: 'ghelplus' }) === true
-    && metaPublisher.isMetaAutoPublishSupported({ platform: 'facebook', postType: 'storie', brand: 'ghelplus' }) === false
+    && metaPublisher.isMetaAutoPublishSupported({ platform: 'facebook', postType: 'storie', brand: 'ghelplus' }) === true
     && metaPublisher.isMetaAutoPublishSupported({ platform: 'instagram', postType: 'video_tiktok', brand: 'ghelplus' }) === false
     && metaPublisher.isMetaAutoPublishSupported({ platform: 'instagram', postType: 'estatico', brand: 'duranox' }) === false);
   check('publishOne e findConnectedAccount também exportados (reaproveitados pelo "publicar agora" manual)',

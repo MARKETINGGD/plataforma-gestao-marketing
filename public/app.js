@@ -2098,6 +2098,52 @@
     } catch (e) { /* ignora */ }
   }
   let reisChampSeenKey = null;
+  // 85ª rodada, pedido da Raquel em cima da 84ª: "o grafico ficou errado
+  // de novo, pode diminuir ele um pouco para que todos caibam na mesma
+  // linha." A 84ª rodada tinha deixado o gráfico quebrar linha
+  // (flex-wrap:wrap) quando não cabia tudo numa linha só no PC -- ela
+  // viu o resultado (1 pessoa sozinha "perdida" numa 2ª linha) e não
+  // gostou: quer ENCOLHER o gráfico até caber tudo numa única linha, não
+  // quebrar em várias. `reisMarketingColCount` guarda quantas colunas o
+  // último `renderReisDoMarketing` desenhou -- é o que
+  // `ajustarEscalaReisMarketing` usa (junto com a largura real
+  // disponível do card, medida na hora) pra calcular o `--reis-scale`
+  // certo (ver comentário bem maior em style.css, `.reis-marketing-chart`).
+  let reisMarketingColCount = 0;
+  const REIS_BASE_COL_W = 76; // precisa bater com o `width` de .reis-bar-col no style.css
+  const REIS_BASE_GAP = 22; // precisa bater com o `gap` de .reis-marketing-chart no style.css
+  const REIS_MIN_SCALE = 0.55; // nunca encolhe além disso -- time MUITO grande ainda tem rolagem própria do navegador como saída final
+
+  function ajustarEscalaReisMarketing() {
+    const wrap = $('#reisMarketingChart');
+    if (!wrap || reisMarketingColCount === 0) return;
+    const n = reisMarketingColCount;
+    const neededW = n * REIS_BASE_COL_W + Math.max(0, n - 1) * REIS_BASE_GAP;
+    const availW = wrap.clientWidth;
+    // No celular, o CSS (@media max-width:900px) trava --reis-scale em 1
+    // com !important de qualquer forma -- calcular aqui não atrapalha,
+    // só não tem efeito visual nenhum lá.
+    let scale = availW > 0 ? Math.min(1, (availW / neededW) * 0.98) : 1;
+    scale = Math.max(REIS_MIN_SCALE, scale);
+    wrap.style.setProperty('--reis-scale', scale.toFixed(3));
+    // Saída final: um time MUITO grande, ou uma janela de PC MUITO
+    // estreita (ainda acima do corte de celular), pode não caber numa
+    // linha só nem no encolhimento máximo (REIS_MIN_SCALE) sem virar
+    // ilegível. Nesse caso raro, em vez de deixar o gráfico vazar pra
+    // fora do card (pior que uma barrinha de rolar), liga a rolagem
+    // própria por cima do que já encolheu o máximo possível -- mesma
+    // ideia de sempre, só como último recurso, não o padrão.
+    const neededAtFloor = n * (REIS_BASE_COL_W * REIS_MIN_SCALE) + Math.max(0, n - 1) * (REIS_BASE_GAP * REIS_MIN_SCALE);
+    wrap.style.overflowX = (availW > 0 && neededAtFloor > availW + 1) ? 'auto' : '';
+  }
+  // Redimensionar a janela muda quanto espaço o card tem de verdade --
+  // recalcula sozinho, com um pequeno debounce pra não rodar a cada pixel
+  // arrastado.
+  let reisResizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(reisResizeTimer);
+    reisResizeTimer = setTimeout(ajustarEscalaReisMarketing, 150);
+  });
 
   function renderReisDoMarketing(counts) {
     const wrap = $('#reisMarketingChart');
@@ -2118,7 +2164,7 @@
       .sort((a, b) => b.count - a.count || a.fullName.localeCompare(b.fullName));
 
     $('#reisMarketingEmpty').hidden = rows.length > 0;
-    if (rows.length === 0) { wrap.innerHTML = ''; return; }
+    if (rows.length === 0) { wrap.innerHTML = ''; reisMarketingColCount = 0; return; }
 
     const maxCount = Math.max(1, ...rows.map((r) => r.count));
     const BASE_BAR_H = 140; // px -- altura do 1º colocado; os outros são proporcionais
@@ -2164,6 +2210,11 @@
         </div>
       `;
     }).join('');
+    reisMarketingColCount = rows.length;
+    // `clientWidth` logo depois de trocar o innerHTML já reflete o
+    // layout novo (o navegador recalcula antes de devolver o valor) --
+    // não precisa de rAF/timeout pra medir direito.
+    ajustarEscalaReisMarketing();
   }
 
   // 30ª rodada, pedido da Raquel: o gráfico precisa se atualizar sozinho

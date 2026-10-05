@@ -512,20 +512,40 @@ button{font-weight:700;}
    com barra própria, cada uma com largura fixa, ver .reis-bar-col
    abaixo), o PC também ganhava a barrinha de rolar horizontal mesmo
    tendo bastante espaço de sobra, só não o suficiente numa ÚNICA linha.
-   Agora o padrão (PC) é `flex-wrap:wrap` sem `overflow-x`: as colunas
-   que não cabem numa linha só caem pra próxima linha, dentro do próprio
-   card, e o gráfico sempre aparece inteiro sem precisar rolar nada. Só
-   no celular (@media abaixo, mesmo corte de 900px já usado pro
-   .home-top-row virar 1 coluna) volta o comportamento de uma linha só
-   com rolagem própria (overflow-x:auto) que foi corrigido na 81ª
-   rodada -- é o celular que tem pouco espaço de verdade, então ali a
-   barrinha de rolar continua sendo o jeito certo de caber todo mundo. */
-.reis-marketing-chart{display:flex;flex-wrap:wrap;align-items:flex-end;gap:22px;padding:12px 4px 4px;min-height:190px;}
+   1ª tentativa desta rodada usou `flex-wrap:wrap` (quem não cabia caía
+   pra 2ª linha) -- a Raquel viu o resultado (1 pessoa sozinha numa 2ª
+   linha) e pediu ajuste: "o grafico ficou errado de novo, pode diminuir
+   ele um pouco para que todos caibam na mesma linha". Ou seja, ela quer
+   ENCOLHER as colunas até caber tudo numa linha só, não quebrar linha.
+   85ª rodada, correção: `flex-wrap` volta pra `nowrap` (uma linha só,
+   igual sempre foi) e entra a variável `--reis-scale` (1 por padrão,
+   sem encolher nada) -- controla de uma vez só a largura da coluna, o
+   tamanho da fotinho, a largura da barra e o espaço entre colunas (ver
+   .reis-bar-col/.reis-bar-photo/.reis-bar abaixo, todos usando
+   `calc(tamanho-original * var(--reis-scale))`). Quem calcula o valor
+   certo de `--reis-scale` é o JS, em `ajustarEscalaReisMarketing()`
+   (app.js): mede a largura disponível de verdade do card (que no PC é
+   bem maior que no celular) e o tanto de gente no gráfico, e encolhe só
+   o suficiente pra todo mundo caber numa linha só (nunca aumenta além
+   de 1, só diminui) -- roda de novo sozinho ao redimensionar a janela.
+   No celular (@media abaixo, mesmo corte de 900px já usado pro
+   .home-top-row virar 1 coluna), `--reis-scale` é travado em 1
+   (`!important`, pra sempre vencer o que o JS calculou pro PC) e volta
+   a rolagem própria (overflow-x:auto) corrigida na 81ª rodada -- no
+   celular não faz sentido encolher a fotinho de cada um até ficar
+   ilegível só pra não rolar; lá rolar é o jeito certo mesmo. Saída
+   final, só pro PC: um time MUITO grande (ou uma janela de PC MUITO
+   estreita) pode não caber numa linha só nem no encolhimento máximo
+   (55%, pra não virar ilegível) -- nesse caso raro, o próprio
+   `ajustarEscalaReisMarketing` liga `overflow-x:auto` por conta própria
+   (inline, via JS) como última saída, em vez de deixar o gráfico vazar
+   pra fora do card. */
+.reis-marketing-chart{display:flex;flex-wrap:nowrap;align-items:flex-end;gap:calc(22px * var(--reis-scale,1));padding:12px 4px 4px;min-height:190px;}
 @media (max-width:900px){
-  .reis-marketing-chart{flex-wrap:nowrap;overflow-x:auto;}
+  .reis-marketing-chart{flex-wrap:nowrap;overflow-x:auto;--reis-scale:1 !important;}
 }
-.reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:76px;height:190px;}
-.reis-bar-photo{position:relative;width:52px;height:52px;border-radius:50%;background:var(--primary) center/cover no-repeat;border:3px solid #fff;box-shadow:0 2px 6px rgba(20,10,40,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:18px;flex:0 0 auto;}
+.reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:calc(76px * var(--reis-scale,1));height:190px;}
+.reis-bar-photo{position:relative;width:calc(52px * var(--reis-scale,1));height:calc(52px * var(--reis-scale,1));border-radius:50%;background:var(--primary) center/cover no-repeat;border:3px solid #fff;box-shadow:0 2px 6px rgba(20,10,40,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:calc(18px * var(--reis-scale,1));flex:0 0 auto;}
 .reis-bar-photo-fallback{background-image:none !important;}
 .reis-crown{position:absolute;top:-20px;left:50%;transform:translateX(-50%) rotate(-8deg);font-size:22px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25));}
 
@@ -548,8 +568,8 @@ button{font-weight:700;}
   90%{transform:rotate(2deg);}
 }
 .reis-bar-photo-champ:hover{animation:reisWiggle .9s ease-in-out;cursor:pointer;}
-.reis-bar-value{font-size:12.5px;font-weight:700;color:var(--ink);margin:6px 0 4px;}
-.reis-bar{width:38px;border-radius:8px 8px 3px 3px;background:var(--primary);transition:height .4s ease;}
+.reis-bar-value{font-size:calc(12.5px * var(--reis-scale,1));font-weight:700;color:var(--ink);margin:6px 0 4px;}
+.reis-bar{width:calc(38px * var(--reis-scale,1));border-radius:8px 8px 3px 3px;background:var(--primary);transition:height .4s ease, width .2s ease;}
 /* Resumo da Início em lista + barrinhas, no lugar dos quadrados de número
    (18ª rodada) — mais visual sem virar um gráfico pesado/externo. */
 .stat-list{display:flex;flex-direction:column;gap:12px;margin-bottom:4px;}

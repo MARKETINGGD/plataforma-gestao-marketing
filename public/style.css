@@ -476,7 +476,25 @@ button{font-weight:700;}
    no mês, com a foto de cada um "subindo" junto com a barra (a barra e a
    foto ficam no mesmo bloco flex, alinhados pela base -- crescer a barra
    empurra a foto pra cima) e uma coroa no 1º lugar. */
-.reis-marketing-card{padding:0;}
+/* 81ª rodada, pedido da Raquel: "No celular, ainda ficou ruim, o
+   grafico reis do marketing, segue desconfigurado, e os recados tbm."
+   Causa raiz encontrada: REIS DO MARKETING e Recados são os 2 itens de
+   uma grade CSS (.home-top-row, logo abaixo) que vira 1 coluna só no
+   celular (ver @media abaixo). Por padrão, um item de grid tem uma
+   "largura mínima automática" igual ao tamanho do seu PRÓPRIO
+   conteúdo mais largo -- e o gráfico do Reis, quando tem várias
+   pessoas (cada coluna tem largura fixa de 76px, lado a lado, sem
+   quebrar linha -- ver .reis-bar-col/.reis-marketing-chart abaixo),
+   podia facilmente precisar de bem mais do que a largura de um
+   celular. Mesmo esse gráfico tendo rolagem própria
+   (overflow-x:auto), a GRADE não sabia disso e esticava a coluna
+   inteira (e com ela, TAMBÉM o Recados, que divide a mesma coluna
+   única no celular) pra caber o gráfico de uma vez só -- empurrando
+   tudo pra fora da tela, inclusive o Recados, que no fundo não tinha
+   nada de errado nele mesmo. `min-width:0` tira essa trava: agora a
+   coluna respeita a largura real do celular, e o gráfico rola só por
+   dentro dele mesmo quando tem gente demais pra caber de uma vez. */
+.reis-marketing-card{padding:0;min-width:0;}
 /* 32ª rodada, pedido da Raquel: REIS DO MARKETING e Recados lado a lado,
    acima dos resumos -- mesma ideia visual "sem quadro" de sempre, só lado
    a lado numa grade de 2 colunas (o gráfico um pouco mais largo que a
@@ -664,7 +682,7 @@ button{font-weight:700;}
 .checklist-progress-bar{height:100%;background:var(--primary);border-radius:4px;}
 
 /* ---------- Recados (mural da tela Início) ---------- */
-#recadosWrap{margin-bottom:20px;}
+#recadosWrap{margin-bottom:20px;min-width:0;}
 /* 13ª melhoria (24/09/2026, pedido da Raquel: "os recados, quando ficam
    muitos na tela, devem aparecer até 3, depois disso deve ter uma barra
    de rolagem") -- ~90px por card (com folga pra quando tem o link "Ver
@@ -861,6 +879,11 @@ button{font-weight:700;}
 /* ---------- Cronograma de Marketing — Prévia do Feed ---------- */
 .feed-preview-list{display:flex;flex-wrap:wrap;gap:20px;margin-top:16px;}
 .feed-preview-card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;width:340px;flex:0 0 auto;}
+/* 82ª rodada: pisca por 2,5s o card certo quando a pessoa chega na Prévia
+   do Feed clicando num recado de "pedido de aprovação" (ver
+   openPostInFeedPreview em app.js) -- sem isso, achar o post certo em
+   meio aos outros do mesmo mês/marca/rede ficaria por conta da pessoa. */
+.feed-preview-card.feed-preview-card-highlight{outline:3px solid var(--primary);outline-offset:2px;}
 .feed-preview-header{display:flex;align-items:center;gap:8px;padding:10px 12px;}
 .feed-preview-avatar{width:32px;height:32px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:0 0 auto;}
 .feed-preview-card.linkedin .feed-preview-avatar{border-radius:6px;}

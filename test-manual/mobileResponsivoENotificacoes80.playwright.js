@@ -235,8 +235,21 @@ async function main() {
     await context.close();
   }
 
-  check('nenhum erro de console/JS em todo o fluxo (celular + desktop + notificação)', allConsoleErrors.length === 0);
-  if (allConsoleErrors.length) console.log('Erros de console encontrados:', allConsoleErrors);
+  // 81ª rodada: `ensurePushSubscription()` (chamado sozinho no fim de
+  // startApp(), ver app.js) tenta consultar/inscrever push assim que
+  // loga -- o Chrome imprime esse erro específico de propósito sempre
+  // que isso roda num contexto incógnito (como as páginas deste arquivo,
+  // via `browser.newPage()` puro -- o próprio Chrome documenta essa
+  // limitação: https://crbug.com/401439, "Push API não funciona em modo
+  // incógnito"). Não é um bug -- é só uma particularidade de ambiente de
+  // teste automatizado, nunca acontece com uma pessoa de verdade usando
+  // a Papoi (ninguém abre a Papoi numa aba anônima pra trabalhar nela);
+  // o próprio `ensurePushSubscription()` já trata isso num try/catch e
+  // não deixa vazar pra lugar nenhum da tela. Filtrado daqui só pra não
+  // confundir esse "ruído" esperado com um erro de verdade.
+  const realErrors = allConsoleErrors.filter((e) => !e.includes('Push API in incognito mode'));
+  check('nenhum erro de console/JS em todo o fluxo (celular + desktop + notificação)', realErrors.length === 0);
+  if (realErrors.length) console.log('Erros de console encontrados:', realErrors);
 
   await browser.close();
   console.log(failures === 0 ? '\nTODOS OS CHECKS PASSARAM' : `\n${failures} CHECK(S) FALHARAM`);

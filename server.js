@@ -33,6 +33,9 @@ app.use('/api/expositores', require('./routes/expositores'));
 app.use('/api/feiras', require('./routes/feiras'));
 app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/chat', require('./routes/chat'));
+// Notificação push de verdade, funciona com o app fechado (81ª rodada) —
+// ver utils/webPush.js e routes/push.js.
+app.use('/api/push', require('./routes/push'));
 // Campanha Cooperada (43ª rodada) — ver routes/campanhaCooperada.js.
 app.use('/api/campanha-cooperada', require('./routes/campanhaCooperada'));
 // Link externo genérico (66ª rodada) — só o resolvedor "de qual recurso é

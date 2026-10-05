@@ -447,6 +447,44 @@
     } catch (e) { /* navegador pode não suportar -- ignora */ }
   }
 
+  // 81ª rodada, pedido da Raquel: "as notificações devem vir no cel,
+  // mesmo qdo o app esta fechado" -- notifyOS acima (e o polling que o
+  // chama) só funciona com a PÁGINA aberta. Pra chegar com o app
+  // fechado, o navegador precisa de uma "inscrição" de push registrada
+  // no servidor (ver utils/webPush.js/routes/push.js) -- feito aqui,
+  // silenciosamente, sempre que a pessoa já tem a permissão concedida
+  // (nunca pede permissão sozinho; quem pede é só o botão "Ativar
+  // notificações do sistema", ver onclick dele mais abaixo). Chamada
+  // tanto no fim de startApp() (cobre quem já tinha concedido a
+  // permissão antes desta rodada existir, migrando sozinho sem precisar
+  // clicar em nada de novo) quanto logo depois de conceder a permissão
+  // pela 1ª vez.
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  }
+  async function ensurePushSubscription() {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const reg = await navigator.serviceWorker.ready;
+      let subscription = await reg.pushManager.getSubscription();
+      if (!subscription) {
+        const vapidInfo = await api('/api/push/vapid-public-key');
+        if (!vapidInfo.configured || !vapidInfo.publicKey) return; // servidor ainda sem as chaves VAPID configuradas
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidInfo.publicKey)
+        });
+      }
+      await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: subscription.toJSON() }) });
+    } catch (e) { /* navegador pode não suportar push, ou a pessoa fechou o pedido de permissão -- não é crítico, ignora */ }
+  }
+
   // Responsividade (20ª rodada, pedido da Raquel: "Deixe responsivo para
   // qualquer tela"). As tabelas (.data-table) têm várias colunas e não
   // cabem numa tela estreita — em vez de estourar a largura da página ou
@@ -1540,6 +1578,10 @@
     // plano, igual já acontece com o Geral acima.
     await loadChatConversations();
     startConversationWindowsPolling();
+    // 81ª rodada: garante a inscrição de push (silencioso, só se a
+    // permissão já tiver sido concedida antes -- ver comentário na
+    // função). Por último de propósito, não atrasa nada da tela Início.
+    ensurePushSubscription();
   }
 
   $('#setupSubmit').onclick = async () => {
@@ -1603,6 +1645,11 @@
     if (Notification.permission === 'default') {
       await Notification.requestPermission();
       updateOsNotifBtn();
+      // 81ª rodada: concedida a permissão agora, já aproveita e inscreve
+      // pra notificação push (funciona mesmo com o app fechado) --
+      // sem isso, só funcionaria com a Papoi aberta na tela (ver
+      // notifyOS/ensurePushSubscription acima).
+      if (Notification.permission === 'granted') ensurePushSubscription();
     } else if (Notification.permission === 'denied') {
       alert('As notificações do sistema foram bloqueadas nas configurações do navegador. Pra ativar, procure o ícone de cadeado/informações do site na barra de endereço e permita notificações pra esse site.');
     } else {
@@ -3345,13 +3392,23 @@
       // pronto pra aprovar/aprovado, que sempre trazem sourceSocialPostId).
       if (r.sourceSocialPostId) {
         card.classList.add('recado-card-clickable');
-        card.title = 'Clique para ir até o post';
+        // 82ª rodada, pedido da Raquel: "quando vem o pedido de aprovação,
+        // ao clicar nele, deve ser direcionado para a previa do feed, onde
+        // ele esta cadastrado para aprovar" -- só os avisos que pedem uma
+        // APROVAÇÃO (post pronto pela 1ª vez, ou reenviado depois de
+        // ajustar uma reprovação) levam até a Prévia do Feed, que é onde a
+        // aprovação de verdade acontece; os demais (publicado/aprovado/
+        // reprovado) continuam indo até o Agendamento, como sempre, já que
+        // aí a pessoa quer conferir/editar o post, não aprovar nada.
+        const isApprovalRequest = r.kind === 'post_ready_for_approval' || r.kind === 'post_resubmitted';
+        card.title = isApprovalRequest ? 'Clique para ir até a Prévia do Feed e aprovar' : 'Clique para ir até o post';
         // Clique no link externo (ver acima) não deve também disparar essa
         // navegação interna -- são 2 destinos diferentes (rede social de
         // verdade × post dentro da Papoi).
         card.onclick = (ev) => {
           if (ev.target.closest('[data-stop-card-click]')) return;
-          openPostFromCronograma(r.sourceSocialPostId);
+          if (isApprovalRequest) openPostInFeedPreview(r.sourceSocialPostId);
+          else openPostFromCronograma(r.sourceSocialPostId);
         };
       }
       const btn = document.createElement('button');
@@ -6476,6 +6533,65 @@
     }
   }
 
+  // 82ª rodada, pedido direto da Raquel: "quando vem o pedido de
+  // aprovação, ao clicar nele, deve ser direcionado para a previa do
+  // feed, onde ele esta cadastrado para aprovar". Antes, TODO recado com
+  // post ligado (sourceSocialPostId) caía em openPostFromCronograma()
+  // acima -- certo pros avisos de "publicado"/"aprovado"/"reprovado" (ela
+  // quer EDITAR/conferir o post nesses casos), mas errado pro aviso de
+  // "pronto pra aprovar" (kind 'post_ready_for_approval', ver
+  // notifyReadyForApproval em routes/socialPosts.js) e pro de "reenviado
+  // depois de ajustar" (kind 'post_resubmitted') -- nos dois, quem recebe
+  // é sempre quem PODE aprovar (admin/gerente/coordenador, ver
+  // canApprove no servidor), e a ação que precisa fazer é justamente
+  // aprovar/reprovar, que só existe na Prévia do Feed (aba de dentro de
+  // Cronograma), não no formulário de edição do Agendamento. Ver
+  // renderRecadosForMe() abaixo, que decide qual das duas funções usar
+  // conforme o `kind` do recado.
+  async function openPostInFeedPreview(postId) {
+    setActiveNav('navCronograma');
+    showView('cronograma');
+    await loadCronograma();
+    const post = socialPosts.find((p) => p.id === postId);
+    if (!post) return;
+    // Marca e mês certos -- a Prévia do Feed só mostra 1 marca e 1 mês por
+    // vez (ver renderCronogramaFeed), então sem isso o post pedido podia
+    // nem aparecer na tela.
+    cronogramaBrand = post.brand || 'debacco';
+    $all('.tab-btn[data-cronograma-brand]').forEach((x) => x.classList.toggle('active', x.dataset.cronogramaBrand === cronogramaBrand));
+    if (post.scheduledDate) {
+      const d = new Date(post.scheduledDate + 'T00:00:00');
+      cronogramaCalMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+    }
+    // Força a aba "Prévia do Feed" (mesma troca de visibilidade que o
+    // onclick da aba faz, ver mais abaixo em "Cronograma de Marketing").
+    cronogramaTab = 'feed';
+    $all('.tab-btn[data-cronograma-tab]').forEach((x) => x.classList.toggle('active', x.dataset.cronogramaTab === 'feed'));
+    $('#cronogramaCalendarioWrap').hidden = true;
+    $('#cronogramaFeedWrap').hidden = false;
+    $('#cronogramaRelatorioWrap').hidden = true;
+    $('#cronogramaCalToolbar').hidden = false;
+    // Sub-aba da rede certa (Instagram/Facebook, LinkedIn, TikTok etc.) --
+    // acha qual bate com a rede do post usando o mesmo `match` que
+    // renderCronogramaFeed() já usa pra filtrar, em vez de duplicar essa
+    // regra aqui.
+    const netKey = Object.keys(FEED_NETWORKS).find((k) => FEED_NETWORKS[k].match(post)) || 'ig_fb';
+    cronogramaFeedNetwork = netKey;
+    $all('.tab-btn[data-feed-network]').forEach((x) => x.classList.toggle('active', x.dataset.feedNetwork === netKey));
+    renderCronograma();
+    // Rola até o card certo e pisca a borda dele por um instante -- pode
+    // ter vários posts no mesmo mês/marca/rede, sem isso a pessoa teria
+    // que procurar o post certo igual antes.
+    requestAnimationFrame(() => {
+      const card = $(`.feed-preview-card[data-post-id="${postId}"]`);
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('feed-preview-card-highlight');
+        setTimeout(() => card.classList.remove('feed-preview-card-highlight'), 2500);
+      }
+    });
+  }
+
   function renderCronogramaCalendar() {
     const year = cronogramaCalMonth.getFullYear();
     const month = cronogramaCalMonth.getMonth();
@@ -6840,6 +6956,11 @@
       const card = document.createElement('div');
       card.className = 'feed-preview-card' + (netConf.cardClass ? ' ' + netConf.cardClass : '');
       card.style.cursor = 'pointer';
+      // 82ª rodada: identifica o card pelo id do post -- é o que permite
+      // openPostInFeedPreview() (ver mais abaixo) achar e rolar até o card
+      // certo depois de trocar de aba/mês/marca, quando a pessoa clica num
+      // recado de "pedido de aprovação".
+      card.dataset.postId = p.id;
 
       const files = p.files || [];
       // YouTube (45ª rodada): a capa/thumbnail é a mídia principal do card

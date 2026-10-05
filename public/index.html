@@ -15,10 +15,27 @@
      navegador, ele não fica com o símbolo na abinha" -- faltava
      declarar um favicon de verdade (só existia manifest + ícone do
      iPhone, nenhum dos dois é o que o Chrome/Edge/Firefox usam pra
-     desktop/abas) -- reaproveita os mesmos ícones quadrados já
-     usados no manifest, sem precisar de um arquivo novo. -->
-<link rel="icon" type="image/png" sizes="192x192" href="/img/icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="/img/icon-512.png">
+     desktop/abas).
+     81ª rodada, pedido da Raquel: "o icone na barra do navegador,
+     ficou feio, faça novamente, deixando apenas a palavra papoi, sem
+     o fundo branco" -- o favicon da 80ª rodada reaproveitava
+     icon-192/512.png (o ícone quadrado de fundo branco usado pro app
+     instalado no celular/computador, pensado pra aparecer dentro de
+     um quadrado com cantos arredondados). Pra aba do navegador ela
+     quer só a palavra "papoi" mesmo, sem nenhum fundo -- trocado pros
+     favicon-*.png novos, recortados a partir do MESMO arquivo
+     /img/papoi-logo.png (a logo "papoi" de sempre, já com fundo 100%
+     transparente, igual a que aparece na tela de login e no topo do
+     menu lateral) só que centralizada num quadrado transparente nos
+     tamanhos certos de favicon. O ícone do app instalado (manifest,
+     ícone de fundo branco) continua o mesmo -- ela só reclamou da aba
+     do navegador, não do app instalado. -->
+<link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="/img/favicon-48.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/img/favicon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/img/favicon-512.png">
+<link rel="shortcut icon" href="/img/favicon.ico">
 <meta name="theme-color" content="#6D63E0">
 <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">

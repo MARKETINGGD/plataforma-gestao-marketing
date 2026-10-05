@@ -4,6 +4,9 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
+// 81ª rodada, pedido da Raquel: "as notificações devem vir no cel, mesmo
+// qdo o app esta fechado" -- ver utils/webPush.js.
+const { sendPushToUsers } = require('../utils/webPush');
 
 const router = express.Router();
 
@@ -85,6 +88,7 @@ router.post('/', requireAuth, (req, res) => {
   };
   db.get('recados').push(recado).write();
   logAudit({ user: req.user, entityType: 'recado', entityId: recado.id, entityLabel: recado.text.slice(0, 40), action: 'create' });
+  sendPushToUsers(ids, { title: recado.createdByName || 'Novo recado', body: recado.text, tag: 'papoi-recado-' + recado.id });
   res.json({ recado: serialize(recado, req.user.id) });
 });
 
@@ -175,6 +179,7 @@ function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwor
     kind: kind || null
   };
   db.get('recados').push(recado).write();
+  sendPushToUsers(ids, { title: 'Papoi', body: text, tag: 'papoi-recado-' + recado.id });
   return recado;
 }
 
@@ -194,6 +199,7 @@ function updateAutoRecadosForPost({ sourceSocialPostId, kind, text }) {
   );
   matches.forEach((r) => {
     db.get('recados').find({ id: r.id }).assign({ text, readBy: [] }).write();
+    sendPushToUsers(r.targetUserIds, { title: 'Papoi', body: text, tag: 'papoi-recado-' + r.id });
   });
   return matches.length;
 }

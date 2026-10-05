@@ -184,7 +184,23 @@ db.defaults({
   // routes/demandas.js). Lista sempre com pelo menos 1 item por pessoa
   // (a "Minhas tarefas" default é criada sozinha na primeira vez que
   // alguém abre a Área Pessoal).
-  personalLists: []
+  personalLists: [],
+  // Notificações push de verdade (81ª rodada, pedido da Raquel: "as
+  // notificações devem vir no cel, mesmo qdo o app esta fechado") --
+  // antes, "notificação do sistema" (80ª rodada) só funcionava enquanto a
+  // PÁGINA da Papoi estava aberta rodando (o polling de dentro do
+  // JavaScript da tela é quem detectava recado/mensagem novo e pedia pro
+  // service worker mostrar a notificação) -- fechando a aba (ou o
+  // Android matando o processo em segundo plano, o que acontece rápido),
+  // nada mais chegava. Com Web Push de verdade, o PRÓPRIO SERVIDOR manda
+  // a notificação pro navegador entregar (via Chrome/Android), que
+  // acorda o service worker sozinho mesmo com a Papoi fechada -- ver
+  // utils/webPush.js. Cada registro é 1 "inscrição" (1 por
+  // navegador/aparelho onde a pessoa concedeu permissão), upsert por
+  // `endpoint` (o mesmo navegador pode reconceder a permissão sem virar
+  // registro duplicado). Uma pessoa pode ter várias (celular +
+  // computador, por exemplo) -- todas recebem.
+  pushSubscriptions: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

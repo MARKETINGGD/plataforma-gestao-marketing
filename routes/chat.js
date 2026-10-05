@@ -7,6 +7,14 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { createAutoRecado } = require('./recados');
+// 81ª rodada, pedido da Raquel: "as notificações devem vir no cel, mesmo
+// qdo o app esta fechado" -- vale pro Chat da Equipe também (mensagem
+// nova já avisava quem está com a Papoi aberta, ver showChatToast/
+// notifyOS em app.js; agora também chega com o app fechado). Menção
+// (@Nome) já é coberta à parte, por dentro de createAutoRecado acima
+// (ver notifyMentions abaixo) -- esta chamada cobre a mensagem em si,
+// pra todo mundo da conversa, igual o aviso dentro da tela já fazia.
+const { sendPushToUsers } = require('../utils/webPush');
 
 const router = express.Router();
 
@@ -220,6 +228,8 @@ router.post('/messages', requireAuth, (req, res) => {
   };
   db.get('chatMessages').push(message).write();
   notifyMentions(message, { type: 'geral' }, req.user.name || req.user.username);
+  const geralRecipientIds = db.get('users').value().map((u) => u.id).filter((id) => id !== req.user.id);
+  sendPushToUsers(geralRecipientIds, { title: message.createdByName, body: message.text, tag: 'papoi-chat-geral' });
   res.json({ message: serialize(message) });
 });
 
@@ -365,6 +375,8 @@ router.post('/conversations/:id/messages', requireAuth, (req, res) => {
   };
   db.get('chatMessages').push(message).write();
   notifyMentions(message, conv, req.user.name || req.user.username);
+  const convRecipientIds = (conv.participantIds || []).filter((id) => id !== req.user.id);
+  sendPushToUsers(convRecipientIds, { title: message.createdByName, body: message.text, tag: 'papoi-chat-' + conv.id });
   res.json({ message: serialize(message) });
 });
 

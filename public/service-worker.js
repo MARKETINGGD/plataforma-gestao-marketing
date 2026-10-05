@@ -67,6 +67,11 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const clickId = event.notification.data && event.notification.data.clickId;
+  // `url` (81ª rodada) só vem preenchido numa notificação PUSH (disparada
+  // pelo servidor, ver listener 'push' acima) -- uma notificação
+  // disparada pela própria página (clickId, 80ª rodada) não tem isso, já
+  // resolve o clique repassando pra função certa via postMessage.
+  const url = (event.notification.data && event.notification.data.url) || '/';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsList) => {
       const client = clientsList[0];
@@ -74,8 +79,44 @@ self.addEventListener('notificationclick', (event) => {
         client.focus();
         if (clickId) client.postMessage({ type: 'papoi-notification-click', clickId });
       } else {
-        self.clients.openWindow('/');
+        self.clients.openWindow(url);
       }
+    })
+  );
+});
+
+// 81ª rodada, pedido da Raquel: "as notificações devem vir no cel, mesmo
+// qdo o app esta fechado" -- esse é o pedaço que de fato resolve isso.
+// `showNotification` (acima) só roda enquanto a PÁGINA está aberta e
+// pede pro service worker mostrar -- esse `push` aqui é diferente: quem
+// chama é o PRÓPRIO SISTEMA OPERACIONAL, acordando o service worker
+// sozinho quando o servidor manda uma notificação nova (ver
+// utils/webPush.js), mesmo com a Papoi inteira fechada/fora da memória.
+//
+// Antes de mostrar, confere se já existe uma aba da Papoi ABERTA E EM
+// FOCO -- se tiver, quem está vendo a tela já recebe o aviso de dentro
+// dela mesma (o toast colorido + som, pelo polling de sempre, ver
+// showNotifToast/showChatToast em app.js) e mostrar a notificação do
+// sistema também viraria um aviso duplicado do mesmo evento. Sem
+// nenhuma aba em foco (app fechado, em segundo plano, ou só sem
+// ninguém olhando no momento), mostra normalmente -- é exatamente esse
+// o caso que não tinha solução nenhuma antes desta rodada.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { /* payload não era JSON válido -- ignora, usa os padrões abaixo */ }
+  const title = data.title || 'Papoi';
+  const icon = '/img/icon-192.png';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsList) => {
+      const hasFocusedClient = clientsList.some((c) => c.focused);
+      if (hasFocusedClient) return;
+      return self.registration.showNotification(title, {
+        body: data.body || '',
+        icon,
+        badge: icon,
+        tag: data.tag || ('papoi-push-' + Date.now()),
+        data: { url: data.url || '/' }
+      });
     })
   );
 });

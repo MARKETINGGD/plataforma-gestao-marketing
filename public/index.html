@@ -596,6 +596,17 @@
                dois lados de um espelho automático (ver
                routes/socialPosts.js: createFacebookMirror). -->
           <p class="muted" id="socialPostFormMirrorInfo" hidden style="margin-top:-6px;"></p>
+          <!-- 86ª rodada, pedido da Raquel: "ainda esta sendo postado
+               apenas no insta, o facebook n se marca automaticamente" --
+               post de Instagram (De Bacco/GhelPlus) criado ANTES do
+               espelhamento automático existir (ou por qualquer caminho
+               que não passe pela criação normal) nunca ganha o espelho
+               sozinho depois -- este botão cria na hora (ver POST
+               /:id/espelhar-facebook em routes/socialPosts.js). -->
+          <div id="socialPostFormMirrorMissingWrap" hidden style="margin:-6px 0 10px;">
+            <p class="muted" style="margin:0 0 6px;">⚠ Este post ainda não tem uma cópia no Facebook.</p>
+            <button type="button" id="socialPostFormMirrorMissingBtn" class="btn-secondary">🔗 Espelhar no Facebook também</button>
+          </div>
           <input type="hidden" id="socialPostFormId">
           <div class="form-row">
             <div>

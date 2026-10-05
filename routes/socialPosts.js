@@ -579,6 +579,59 @@ router.post('/', requireAuth, (req, res) => {
   res.json({ post: serialize(responsePost), mirrorPost: mirrorPost ? serialize(mirrorPost) : null });
 });
 
+// 86ª rodada, pedido da Raquel: "ainda esta sendo postado apenas no
+// insta, o facebook n se marca automaticamente. Ajuste para que o face
+// e insta fiquem juntos no agendamento, assim n se perde." -- o espelho
+// automático (79ª rodada, acima) só acontece no momento da CRIAÇÃO de
+// um post novo de Instagram; um post de Instagram criado ANTES dessa
+// rodada existir (ou importado/criado por qualquer caminho que não
+// passe pelo POST / acima) nunca ganha o espelho depois, mesmo editando
+// -- é exatamente esse o caso que a Raquel bateu de novo (print do
+// "Editar agendamento" sem nenhuma faixa de espelhamento, confirmando
+// que esse post específico não tem `mirroredToPostId`). Em vez de
+// reescrever a arquitetura (post só aceita 1 rede por registro, decisão
+// consciente da 79ª rodada pra não mexer em aprovação/publicação/
+// Cronograma inteiros outra vez), esta rodada dá uma SAÍDA MANUAL pra
+// nunca mais "perder" um Facebook que devia existir: endpoint novo que
+// cria o espelho SOB DEMANDA pra um post de Instagram já existente que
+// ainda não tem um -- reaproveita createFacebookMirror/copyFileToMirror
+// (mesmas funções da criação automática, nenhuma lógica duplicada) e
+// copia qualquer criativo que já tenha sido enviado (na criação
+// automática o espelho sempre nasce sem arquivo nenhum, porque o post
+// de origem também nasce sem arquivo -- aqui pode já existir um
+// enviado antes da Raquel notar que faltava o espelho). O botão que
+// chama isso ("🔗 Espelhar no Facebook") e o aviso de "sem espelho" na
+// lista do Agendamento ficam em public/app.js.
+router.post('/:id/espelhar-facebook', requireAuth, (req, res) => {
+  const post = findOr404(req, res);
+  if (!post) return;
+  if (post.platform !== 'instagram') {
+    return res.status(400).json({ error: 'Só dá pra espelhar automaticamente um post de Instagram pro Facebook.' });
+  }
+  if (!MIRROR_BRANDS.includes(post.brand)) {
+    const brandLabel = BRAND_LABEL_PT[post.brand] || post.brand;
+    return res.status(400).json({ error: `${brandLabel} não tem Facebook conectado junto com o Instagram -- não dá pra espelhar.` });
+  }
+  if (post.mirroredToPostId) {
+    return res.status(400).json({ error: 'Este post já tem um espelho no Facebook.' });
+  }
+  const mirror = createFacebookMirror(post, req);
+  // Copia qualquer criativo que o post de Instagram já tenha (o espelho
+  // nasce sempre sem arquivo nenhum em createFacebookMirror) -- mesmo
+  // princípio de copyFileToMirror usado quando um arquivo NOVO é
+  // enviado depois do espelhamento automático (ver POST /:id/files).
+  const existingFiles = post.files || [];
+  if (existingFiles.length > 0) {
+    const copiedFiles = existingFiles.map((f) => copyFileToMirror(post.id, mirror.id, f)).filter(Boolean);
+    if (copiedFiles.length > 0) {
+      db.get('socialPosts').find({ id: mirror.id }).assign({ files: copiedFiles, updatedAt: new Date().toISOString() }).write();
+      notifyReadyForApproval(db.get('socialPosts').find({ id: mirror.id }).value());
+    }
+  }
+  const freshMirror = db.get('socialPosts').find({ id: mirror.id }).value();
+  res.json({ mirrorPost: serialize(freshMirror) });
+});
+
 router.put('/:id', requireAuth, async (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;

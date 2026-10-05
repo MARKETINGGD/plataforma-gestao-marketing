@@ -658,6 +658,11 @@
     { key: 'concluida', label: 'Concluída' }
   ];
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter', influencer: 'Influencer', blog: 'Blog' };
+  // 86ª rodada: precisa bater com MIRROR_BRANDS em routes/socialPosts.js
+  // -- as únicas 2 marcas com Facebook de verdade conectado junto com o
+  // Instagram, então as únicas onde o botão "Espelhar no Facebook" (e o
+  // aviso de "sem espelho" na lista) fazem sentido.
+  const SOCIAL_MIRROR_BRANDS = ['debacco', 'ghelplus'];
   // Ícones reais das redes (37ª rodada, pedido da Raquel: "use os icones
   // reais das redes sociais" no lugar dos emoji da 36ª rodada) -- SVG
   // inline pequeno e leve, um por rede, nas cores reais de cada marca.
@@ -5975,8 +5980,23 @@
       : 'Nenhum agendamento ainda.';
     rows.forEach((p) => {
       const tr = document.createElement('tr');
+      // 86ª rodada, pedido da Raquel: "ainda esta sendo postado apenas
+      // no insta, o facebook n se marca automaticamente... assim n se
+      // perde" -- mostra na PRÓPRIA LISTA (sem precisar abrir cada post
+      // pra conferir) se um post de Instagram tem o par no Facebook ou
+      // não, pra nunca mais passar batido. `mirrorBadgeHtml` cobre os 3
+      // casos: já tem espelho (pra qualquer um dos 2 lados) ou, só pra
+      // Instagram nas marcas com Facebook conectado, ainda sem par.
+      let mirrorBadgeHtml = '';
+      if (p.mirroredToPostId) {
+        mirrorBadgeHtml = ' <span class="badge" title="Também agendado no Facebook (mesma marca/data)">🔗 Facebook</span>';
+      } else if (p.mirroredFromPostId) {
+        mirrorBadgeHtml = ' <span class="badge" title="Nasceu do espelhamento automático do Instagram">🔗 Instagram</span>';
+      } else if (p.platform === 'instagram' && SOCIAL_MIRROR_BRANDS.includes(p.brand)) {
+        mirrorBadgeHtml = ' <span class="badge badge-danger" title="Ainda não tem uma cópia no Facebook -- clique em Editar pra espelhar agora" style="cursor:pointer;">⚠ sem espelho</span>';
+      }
       tr.innerHTML = `
-        <td>${networkIconHtml(p.platform)} ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}</td>
+        <td>${networkIconHtml(p.platform)} ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform}${mirrorBadgeHtml}</td>
         <td>${SOCIAL_POST_TYPE_LABEL[p.postType] || p.postType || ''}</td>
         <td>${(p.subject || '').slice(0, 40)}${(p.subject || '').length > 40 ? '…' : ''}</td>
         <td>${fmtDate(p.scheduledDate)}</td>
@@ -5989,6 +6009,13 @@
       const editBtn = document.createElement('button');
       editBtn.textContent = 'Editar';
       editBtn.onclick = () => openSocialPostForm(p);
+      // O badge "⚠ sem espelho" abre direto o Editar (mesmo destino do
+      // botão) -- é só um atalho visual, a ação de espelhar de verdade
+      // fica dentro do formulário (botão "🔗 Espelhar no Facebook
+      // também"), nunca direto na lista, pra sempre passar por uma
+      // conferência antes de criar o post novo.
+      const semEspelhoBadge = tr.querySelector('.badge-danger');
+      if (semEspelhoBadge) semEspelhoBadge.onclick = () => openSocialPostForm(p);
       const delBtn = document.createElement('button');
       delBtn.textContent = 'Excluir';
       delBtn.className = 'danger';
@@ -6180,6 +6207,13 @@
     } else {
       $('#socialPostFormMirrorInfo').hidden = true;
     }
+    // 86ª rodada: mostra o botão de espelhar na hora só quando faz
+    // sentido -- post de Instagram, numa marca com Facebook conectado
+    // (mesma lista MIRROR_BRANDS do backend), que ainda não tem
+    // NENHUM dos dois lados do espelho (nem mirroredToPostId nem
+    // mirroredFromPostId -- um espelho nunca é espelhado de novo).
+    const podeEspelharAgora = post && post.platform === 'instagram' && SOCIAL_MIRROR_BRANDS.includes(post.brand) && !post.mirroredToPostId && !post.mirroredFromPostId;
+    $('#socialPostFormMirrorMissingWrap').hidden = !podeEspelharAgora;
     $('#socialPostFormBrand').value = post ? (post.brand || 'debacco') : socialTab;
     renderSocialPlatformOptions(post ? post.platform : null);
     updateSocialTypeOptions(post ? (post.postType || 'estatico') : 'estatico');
@@ -6234,6 +6268,25 @@
   }
   $('#socialPostNewBtn').onclick = () => openSocialPostForm(null);
   $('#socialPostFormCancel').onclick = () => { $('#socialPostFormWrap').hidden = true; };
+  // 86ª rodada, pedido da Raquel: "ainda esta sendo postado apenas no
+  // insta, o facebook n se marca automaticamente... assim n se perde" --
+  // saída manual pra um post de Instagram criado ANTES do espelhamento
+  // automático existir (ou que por algum motivo não ganhou o espelho
+  // sozinho): cria o espelho no Facebook agora, com o que já está
+  // preenchido/enviado (ver POST /:id/espelhar-facebook).
+  $('#socialPostFormMirrorMissingBtn').onclick = async () => {
+    if (!editingSocialPostId) return;
+    try {
+      const resp = await api(`/api/social-posts/${editingSocialPostId}/espelhar-facebook`, { method: 'POST' });
+      alert('Pronto! Este post agora também tem uma cópia no Facebook (mesma marca/data) -- ela já aparece junto na Prévia do Feed e no Agendamento.');
+      await loadSocialPosts();
+      const freshPost = socialPosts.find((p) => p.id === editingSocialPostId);
+      if (freshPost) openSocialPostForm(freshPost);
+    } catch (e) {
+      $('#socialPostFormError').textContent = e.message || 'Não consegui espelhar este post no Facebook agora -- tente de novo em instantes.';
+      $('#socialPostFormError').hidden = false;
+    }
+  };
 
   $('#socialPostFormSave').onclick = async () => {
     const payload = {
@@ -7054,13 +7107,31 @@
       // como referência pra quem está montando o criativo, além de já
       // bater com a proporção do preview (ver .feed-preview-media no CSS).
       const formatLabel = netConf.formatLabel(p);
+      // 86ª rodada, pedido da Raquel: "ainda esta sendo postado apenas
+      // no insta, o facebook n se marca automaticamente... assim n se
+      // perde" -- mesmo aviso da lista do Agendamento (ver
+      // renderSocialPosts), só que aqui na Prévia do Feed, que é onde
+      // ela de fato olha o calendário/preview do mês. Clicar no aviso de
+      // "sem espelho" leva direto pro formulário de edição, onde fica o
+      // botão de espelhar de verdade.
+      let mirrorNoteHtml = '';
+      if (p.mirroredToPostId) {
+        mirrorNoteHtml = ' <span class="badge" title="Também agendado no Facebook (mesma marca/data)">🔗 Facebook</span>';
+      } else if (p.mirroredFromPostId) {
+        mirrorNoteHtml = ' <span class="badge" title="Nasceu do espelhamento automático do Instagram">🔗 Instagram</span>';
+      } else if (p.platform === 'instagram' && SOCIAL_MIRROR_BRANDS.includes(p.brand)) {
+        // O card inteiro já abre o formulário de edição ao clicar
+        // (card.onclick = openPostFromCronograma, mais abaixo) -- o
+        // aviso não precisa de clique próprio, só avisa visualmente.
+        mirrorNoteHtml = ' <span class="badge badge-danger" title="Ainda não tem uma cópia no Facebook -- clique no card pra espelhar">⚠ sem espelho</span>';
+      }
       const header = `
         <div class="feed-preview-header">
           ${avatarHtml(avatarPerson, 32, 'feed-preview-avatar')}
           <div class="feed-preview-headtext">
             <span class="feed-preview-account">${headerPersonName || accountLabel}</span>
             <span class="feed-preview-meta">${fmtDate(p.scheduledDate)}${p.scheduledTime ? ' · ' + p.scheduledTime : ''} · ${SOCIAL_POST_TYPE_LABEL[p.postType] || ''}</span>
-            <span class="feed-preview-format">${networkIconHtml(p.platform)} ${formatLabel}</span>
+            <span class="feed-preview-format">${networkIconHtml(p.platform)} ${formatLabel}</span>${mirrorNoteHtml}
           </div>
         </div>`;
       // Pedido da Raquel (19ª rodada): quem criou o agendamento só aparece

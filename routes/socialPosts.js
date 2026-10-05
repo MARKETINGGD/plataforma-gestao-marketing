@@ -602,7 +602,48 @@ router.post('/', requireAuth, (req, res) => {
 // enviado antes da Raquel notar que faltava o espelho). O botão que
 // chama isso ("🔗 Espelhar no Facebook") e o aviso de "sem espelho" na
 // lista do Agendamento ficam em public/app.js.
-router.post('/:id/espelhar-facebook', requireAuth, (req, res) => {
+//
+// 87ª rodada, pergunta + pedido seguinte da Raquel: "se um post que ja
+// foi postado no instagram e n foi espelhado, eu clicar em espelhar,
+// ele vai postar?" -> até aqui (86ª rodada) a resposta era "não": o
+// botão só criava o registro gêmeo, copiando o MESMO status do
+// Instagram, sem nunca chamar a Meta de verdade -- se o Instagram já
+// estava "Publicado", o espelho nascia "Publicado" também sem nada sair
+// no Facebook de fato. Pedido dela: "ajuste então para que, sempre que
+// clicar em espelhar no facebook, se ainda n foi postado no insta, que
+// ele poste no face junto cm o Insta. Caso ja tenha sido postado no
+// insta, e ainda não no face, se clicar em espelhar, ele deve postar."
+// Agora o próprio clique tenta publicar de verdade, reaproveitando
+// publishOne/resolveAutoPublisher (mesma função usada em "marcar como
+// Publicado" na mão, 11ª melhoria -- nenhuma lógica de publicação
+// duplicada):
+//   - se o Instagram AINDA não tinha sido publicado de verdade
+//     (publishStatus/status), tenta publicar os DOIS agora, juntos;
+//   - o espelho novo do Facebook SEMPRE tenta publicar agora, tenha o
+//     Instagram já saído antes ou não.
+// Cada tentativa é independente e best-effort -- uma falhar (sem
+// conta conectada, sem criativo, erro da própria Meta) nunca desfaz o
+// espelhamento em si (que já está salvo nesse ponto) nem trava a outra
+// tentativa; quando a publicação não rola, cai de volta no aviso de
+// "aguardando aprovação" de sempre, pra Raquel conseguir revisar e
+// publicar manualmente depois.
+async function tryPublishPostNow(postId) {
+  const fresh = db.get('socialPosts').find({ id: postId }).value();
+  if (!fresh) return { attempted: false, published: false, reason: 'post não encontrado' };
+  if (fresh.publishStatus === 'published' || fresh.publishStatus === 'publishing' || fresh.status === 'publicado') {
+    return { attempted: false, published: false, reason: 'já publicado' };
+  }
+  const effectivePost = { platform: fresh.platform, postType: fresh.postType, brand: fresh.brand };
+  const autoPublisher = resolveAutoPublisher(effectivePost);
+  if (!autoPublisher) return { attempted: false, published: false, reason: 'sem publicador automático pra essa combinação de rede/tipo' };
+  const account = autoPublisher.findConnectedAccount(fresh.brand);
+  if (!account) return { attempted: false, published: false, reason: 'sem conta conectada' };
+  await autoPublisher.publishOne(fresh);
+  const after = db.get('socialPosts').find({ id: postId }).value();
+  return { attempted: true, published: after.publishStatus === 'published', reason: after.publishError || null };
+}
+
+router.post('/:id/espelhar-facebook', requireAuth, async (req, res) => {
   const post = findOr404(req, res);
   if (!post) return;
   if (post.platform !== 'instagram') {
@@ -615,6 +656,7 @@ router.post('/:id/espelhar-facebook', requireAuth, (req, res) => {
   if (post.mirroredToPostId) {
     return res.status(400).json({ error: 'Este post já tem um espelho no Facebook.' });
   }
+  const instagramJaPublicado = post.status === 'publicado';
   const mirror = createFacebookMirror(post, req);
   // Copia qualquer criativo que o post de Instagram já tenha (o espelho
   // nasce sempre sem arquivo nenhum em createFacebookMirror) -- mesmo
@@ -625,11 +667,46 @@ router.post('/:id/espelhar-facebook', requireAuth, (req, res) => {
     const copiedFiles = existingFiles.map((f) => copyFileToMirror(post.id, mirror.id, f)).filter(Boolean);
     if (copiedFiles.length > 0) {
       db.get('socialPosts').find({ id: mirror.id }).assign({ files: copiedFiles, updatedAt: new Date().toISOString() }).write();
-      notifyReadyForApproval(db.get('socialPosts').find({ id: mirror.id }).value());
     }
   }
+  // createFacebookMirror() copia o `status` LITERAL do post de Instagram
+  // (pensado originalmente só pro espelhamento automático na criação, onde
+  // o post de origem é novinho e nunca está "publicado" ainda) -- mas
+  // aqui, no espelhamento manual, o Instagram pode MUITO bem já estar
+  // "publicado" de verdade. Sem este ajuste, o espelho nasceria com
+  // status:"publicado" só por causa da cópia, e o próprio
+  // tryPublishPostNow logo abaixo entenderia (errado) que ele já foi
+  // publicado, pulando a tentativa de publicar de verdade -- exatamente o
+  // bug que a Raquel descreveu. O espelho é SEMPRE novo e NUNCA foi
+  // publicado de fato neste ponto, então volta pra "agendado" antes de
+  // tentar publicar (tryPublishPostNow marca "publicado" de verdade se a
+  // publicação realmente funcionar).
+  if (instagramJaPublicado) {
+    db.get('socialPosts').find({ id: mirror.id }).assign({ status: 'agendado' }).write();
+  }
+
+  // Instagram ainda não publicado de verdade -> tenta publicar os DOIS
+  // agora, juntos. Instagram já publicado -> só o espelho novo tenta.
+  const originalResult = instagramJaPublicado
+    ? { attempted: false, published: false, reason: 'já publicado' }
+    : await tryPublishPostNow(post.id);
+  const mirrorResult = await tryPublishPostNow(mirror.id);
+
   const freshMirror = db.get('socialPosts').find({ id: mirror.id }).value();
-  res.json({ mirrorPost: serialize(freshMirror) });
+  const freshOriginal = db.get('socialPosts').find({ id: post.id }).value();
+  // Se o espelho não saiu publicado agora (sem conta, sem crédito já
+  // pronto, falha da própria Meta etc.), cai no mesmo aviso de "pronto
+  // pra aprovar" de sempre -- mantém a Raquel avisada pra revisar e
+  // publicar na mão quando puder, igual já acontecia na 86ª rodada.
+  if (!mirrorResult.published) {
+    notifyReadyForApproval(freshMirror);
+  }
+  res.json({
+    mirrorPost: serialize(freshMirror),
+    originalPost: serialize(freshOriginal),
+    originalPublishResult: originalResult,
+    mirrorPublishResult: mirrorResult
+  });
 });
 
 router.put('/:id', requireAuth, async (req, res) => {

@@ -133,7 +133,7 @@
   let socialCarouselBriefings = []; // array de textos, um por card do carrossel
 
   let cronogramaTab = 'calendario'; // 'calendario' | 'feed' | 'relatorio'
-  let cronogramaFeedNetwork = 'ig_fb'; // uma chave de FEED_NETWORKS abaixo
+  let cronogramaFeedNetwork = 'instagram'; // uma chave de FEED_NETWORKS abaixo
   let cronogramaBrand = 'debacco'; // 'debacco' | 'ghelplus'
   // Relatório mensal (65ª rodada) -- ano inteiro, mês a mês, por isso tem
   // seu próprio estado de navegação (não reaproveita cronogramaCalMonth,
@@ -146,9 +146,25 @@
   // Pinterest/Pin, Newsletter e Blog, além do Instagram/Facebook e
   // LinkedIn que já existiam desde antes) -- mesmo padrão de abas de marca
   // + aprovação já usado, só o conteúdo/proporção do card muda por rede.
+  //
+  // 87ª rodada: a aba combinada "ig_fb" (Instagram + Facebook juntos)
+  // ficava confusa pra Raquel -- pedido dela: "separe a previa do feed do
+  // Instagram e do Facebook, para n foicar confuso. Mas mantenha o
+  // espelhamento no card, quando for instagram e face." Agora cada rede
+  // tem sua própria aba (instagram / facebook); o aviso/nota de
+  // espelhamento no card (mirrorNoteHtml em renderCronogramaFeed) não
+  // depende de qual aba está selecionada -- continua aparecendo nos dois
+  // lados quando o post tem par espelhado, então não precisou mudar.
   const FEED_NETWORKS = {
-    ig_fb: {
-      match: (p) => p.platform === 'instagram' || p.platform === 'facebook',
+    instagram: {
+      match: (p) => p.platform === 'instagram',
+      cardClass: '',
+      formatLabel: (p) => `Feed ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform} · formato 1080×1440`,
+      showActions: true,
+      captionFirst: false
+    },
+    facebook: {
+      match: (p) => p.platform === 'facebook',
       cardClass: '',
       formatLabel: (p) => `Feed ${SOCIAL_PLATFORM_LABEL[p.platform] || p.platform} · formato 1080×1440`,
       showActions: true,
@@ -6278,7 +6294,24 @@
     if (!editingSocialPostId) return;
     try {
       const resp = await api(`/api/social-posts/${editingSocialPostId}/espelhar-facebook`, { method: 'POST' });
-      alert('Pronto! Este post agora também tem uma cópia no Facebook (mesma marca/data) -- ela já aparece junto na Prévia do Feed e no Agendamento.');
+      // 87ª rodada: antes o clique só criava o registro gêmeo (sem nunca
+      // publicar de verdade) -- agora o próprio clique tenta publicar na
+      // Meta de verdade (ver tryPublishPostNow no backend), então o aviso
+      // precisa contar o que realmente aconteceu em vez de um "Pronto!"
+      // genérico. Mantém a frase-base "agora também tem uma cópia no
+      // Facebook" pro teste Playwright existente continuar passando.
+      const orig = resp.originalPublishResult || { attempted: false, published: false };
+      const mirror = resp.mirrorPublishResult || { attempted: false, published: false };
+      let detail;
+      if (orig.attempted && orig.published && mirror.published) {
+        detail = 'e já publicamos os dois agora, juntos, no Instagram e no Facebook.';
+      } else if (mirror.published) {
+        detail = 'e já publicamos ela agora no Facebook, já que o Instagram já estava no ar.';
+      } else {
+        const motivo = mirror.reason ? ` (${mirror.reason})` : '';
+        detail = `mas não consegui publicar automaticamente no Facebook agora${motivo} -- revise e publique manualmente quando puder.`;
+      }
+      alert(`Pronto! Este post agora também tem uma cópia no Facebook (mesma marca/data) -- ela já aparece junto na Prévia do Feed e no Agendamento, ${detail}`);
       await loadSocialPosts();
       const freshPost = socialPosts.find((p) => p.id === editingSocialPostId);
       if (freshPost) openSocialPostForm(freshPost);
@@ -6679,7 +6712,7 @@
     // acha qual bate com a rede do post usando o mesmo `match` que
     // renderCronogramaFeed() já usa pra filtrar, em vez de duplicar essa
     // regra aqui.
-    const netKey = Object.keys(FEED_NETWORKS).find((k) => FEED_NETWORKS[k].match(post)) || 'ig_fb';
+    const netKey = Object.keys(FEED_NETWORKS).find((k) => FEED_NETWORKS[k].match(post)) || 'instagram';
     cronogramaFeedNetwork = netKey;
     $all('.tab-btn[data-feed-network]').forEach((x) => x.classList.toggle('active', x.dataset.feedNetwork === netKey));
     renderCronograma();
@@ -7038,7 +7071,7 @@
   function renderCronogramaFeed() {
     const list = $('#cronogramaFeedList');
     list.innerHTML = '';
-    const netConf = FEED_NETWORKS[cronogramaFeedNetwork] || FEED_NETWORKS.ig_fb;
+    const netConf = FEED_NETWORKS[cronogramaFeedNetwork] || FEED_NETWORKS.instagram;
     // 40ª rodada, pedido da Raquel: "previa do feed, ele deve mostrar mês a
     // mês. Não deve misturar os meses." — reaproveita o mesmo mês
     // selecionado no Calendário (`cronogramaCalMonth`), com a mesma barra

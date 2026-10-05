@@ -144,7 +144,7 @@ async function run() {
     feedWrapVisible: !document.getElementById('cronogramaFeedWrap').hidden,
     calendarioWrapVisible: !document.getElementById('cronogramaCalendarioWrap').hidden,
     brandTabActive: document.querySelector('.tab-btn[data-cronograma-brand="ghelplus"]').classList.contains('active'),
-    networkTabActive: document.querySelector('.tab-btn[data-feed-network="ig_fb"]').classList.contains('active'),
+    networkTabActive: document.querySelector('.tab-btn[data-feed-network="instagram"]').classList.contains('active'),
     monthLabel: document.getElementById('cronogramaMonthLabel').textContent,
     highlightedCardPostId: (() => {
       const el = document.querySelector('.feed-preview-card.feed-preview-card-highlight');
@@ -155,7 +155,7 @@ async function run() {
   check('foi direcionado pra tela Cronograma (não Agendamento)', state.viewCronogramaVisible && !state.viewAgendamentoVisible);
   check('a aba ativa é "Prévia do Feed" (não Calendário)', state.feedTabActive && state.feedWrapVisible && !state.calendarioWrapVisible);
   check('a marca certa (GhelPlus) ficou selecionada', state.brandTabActive);
-  check('a sub-aba de rede certa (Instagram/Facebook) ficou selecionada', state.networkTabActive);
+  check('a sub-aba de rede certa (Instagram) ficou selecionada', state.networkTabActive);
   check('o mês certo (março de 2027) ficou selecionado', state.monthLabel.includes('2027') && /[Mm]arço/.test(state.monthLabel));
   check('o card destacado é mesmo o post do recado (fácil de achar entre outros)', state.highlightedCardPostId === postId);
 

@@ -505,7 +505,25 @@ button{font-weight:700;}
    junto. */
 .home-top-row{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:start;margin-top:40px;}
 @media (max-width:900px){ .home-top-row{grid-template-columns:1fr;} }
-.reis-marketing-chart{display:flex;align-items:flex-end;gap:22px;overflow-x:auto;padding:12px 4px 4px;min-height:190px;}
+/* 84ª rodada, pedido da Raquel: "na versão do papoi p PC, o grafico deve
+   aparecer inteiro, sem a barrinha de rolar, só na versão p cel q deve
+   ter a barrinha p se ajustar." Antes, `overflow-x:auto` valia pra
+   qualquer tamanho de tela -- então, com time grande (vários colegas
+   com barra própria, cada uma com largura fixa, ver .reis-bar-col
+   abaixo), o PC também ganhava a barrinha de rolar horizontal mesmo
+   tendo bastante espaço de sobra, só não o suficiente numa ÚNICA linha.
+   Agora o padrão (PC) é `flex-wrap:wrap` sem `overflow-x`: as colunas
+   que não cabem numa linha só caem pra próxima linha, dentro do próprio
+   card, e o gráfico sempre aparece inteiro sem precisar rolar nada. Só
+   no celular (@media abaixo, mesmo corte de 900px já usado pro
+   .home-top-row virar 1 coluna) volta o comportamento de uma linha só
+   com rolagem própria (overflow-x:auto) que foi corrigido na 81ª
+   rodada -- é o celular que tem pouco espaço de verdade, então ali a
+   barrinha de rolar continua sendo o jeito certo de caber todo mundo. */
+.reis-marketing-chart{display:flex;flex-wrap:wrap;align-items:flex-end;gap:22px;padding:12px 4px 4px;min-height:190px;}
+@media (max-width:900px){
+  .reis-marketing-chart{flex-wrap:nowrap;overflow-x:auto;}
+}
 .reis-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:0 0 auto;width:76px;height:190px;}
 .reis-bar-photo{position:relative;width:52px;height:52px;border-radius:50%;background:var(--primary) center/cover no-repeat;border:3px solid #fff;box-shadow:0 2px 6px rgba(20,10,40,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:18px;flex:0 0 auto;}
 .reis-bar-photo-fallback{background-image:none !important;}

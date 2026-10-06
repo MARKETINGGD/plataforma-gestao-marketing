@@ -46,12 +46,17 @@ const uploadAvatar = multer({
 // quem pode EDITAR em cada uma. Produtos e Expositores ainda são só
 // placeholders na tela, mas o campo já fica pronto no cadastro de usuário
 // pra quando ganharem conteúdo de verdade.
-const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', produtos: 'none', expositores: 'none', campanhaCooperada: 'none' };
-const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', produtos: 'admin', expositores: 'admin', campanhaCooperada: 'admin' };
+const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', retiradasInternas: 'none', produtos: 'none', expositores: 'none', campanhaCooperada: 'none' };
+const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', retiradasInternas: 'admin', produtos: 'admin', expositores: 'admin', campanhaCooperada: 'admin' };
 // 43ª rodada, pedido da Raquel: nova chave 'campanhaCooperada' — mesmo
 // padrão de Brindes/Produtos/Expositores (view aberta a todo mundo, só
 // controla quem pode EDITAR).
-const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'produtos', 'expositores', 'campanhaCooperada'];
+// 88ª rodada, pedido da Raquel: "as retiradas internas podem aparecer p
+// todos, mas só podem ser editadas por quem p admin autorizar" — até
+// aqui, Retiradas Internas usava a mesma chave 'brindes' do Catálogo/
+// Registro de Saídas (quem editava um, editava o outro). Agora vira uma
+// chave independente, pra dar pra autorizar uma edição sem a outra.
+const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'retiradasInternas', 'produtos', 'expositores', 'campanhaCooperada'];
 
 // Cargo (função) da pessoa na equipe — usado pro Cronograma de Marketing:
 // a aba Calendário fica restrita a todo mundo, exceto quem tem cargo
@@ -142,6 +147,29 @@ function sanitizePermissions(input) {
   });
   return out;
 }
+
+// 88ª rodada: migração única (idempotente) pra separar a permissão de
+// Retiradas Internas da de Brindes. Como publicUser() usa
+// `u.permissions || EMPTY_PERMISSIONS` (sem mesclar chaves novas num
+// objeto que já existe), só adicionar 'retiradasInternas' no
+// EMPTY_PERMISSIONS/PERMISSION_KEYS não dava acesso nenhum pra quem já
+// tinha usuário cadastrado. Pra não tirar de ninguém o acesso que já
+// tinha (quem editava Brindes, editava também as retiradas até agora),
+// todo usuário que já tem `permissions` salvo mas ainda não tem a chave
+// 'retiradasInternas' definida ganha, uma única vez, o mesmo nível de
+// acesso que já tinha em 'brindes'. Roda em todo boot, mas só mexe em
+// quem realmente ainda não tem a chave (idempotente).
+function migrateRetiradasInternasPermission() {
+  const users = db.get('users').value();
+  users.forEach((u) => {
+    if (!u.permissions || u.permissions.retiradasInternas !== undefined) return;
+    const brindesAccess = u.permissions.brindes || 'none';
+    db.get('users').find({ id: u.id }).assign({
+      permissions: Object.assign({}, u.permissions, { retiradasInternas: brindesAccess })
+    }).write();
+  });
+}
+migrateRetiradasInternasPermission();
 
 // Diz ao frontend se ainda não existe nenhum usuário (primeiro acesso)
 router.get('/status', (req, res) => {

@@ -15,6 +15,8 @@ const RESOURCE_LABEL_PT = {
   budget: 'Budget',
   feiras: 'Feiras',
   brindes: 'Brindes',
+  // 88ª rodada
+  brindesSaidas: 'Registro de Saídas',
   campanhaCooperada: 'Campanha Cooperada',
   // 68ª rodada
   expositoresEstoque: 'Controle de Expositores',

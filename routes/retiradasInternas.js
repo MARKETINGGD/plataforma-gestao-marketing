@@ -54,14 +54,23 @@ const router = express.Router();
 // log/histórico — NÃO desconta do estoque do catálogo (mesmo
 // comportamento já usado lá, decisão consistente com o que já existe).
 //
-// Acesso: qualquer pessoa logada pode ver; só quem tem permissão "brindes"
-// (editor/admin, ou é admin da plataforma) pode criar/editar/excluir —
-// mesma permissão já usada em todo o resto do módulo de Brindes.
+// Acesso: qualquer pessoa logada pode ver; só quem tem permissão
+// "retiradasInternas" (editor/admin, ou é admin da plataforma) pode
+// criar/editar/excluir.
+//
+// 88ª rodada, pedido da Raquel: "as retiradas internas podem aparecer p
+// todos, mas só podem ser editadas por quem p admin autorizar" — até
+// aqui usava a mesma chave 'brindes' do Catálogo/Registro de Saídas (quem
+// editava um, editava o outro); agora é uma chave própria
+// ('retiradasInternas'), pra dar pra autorizar uma edição sem a outra.
+// Usuários que já tinham acesso de editar Brindes mantiveram o mesmo
+// nível de acesso aqui também (migração única em routes/auth.js), mas daqui
+// pra frente as duas são independentes.
 function canEdit(req) {
   const user = db.get('users').find({ id: req.user.id }).value();
   if (!user) return false;
   if (user.isSuperAdmin) return true;
-  const access = (user.permissions || {}).brindes || 'none';
+  const access = (user.permissions || {}).retiradasInternas || 'none';
   return access === 'editor' || access === 'admin';
 }
 function requireEdit(req, res, next) {

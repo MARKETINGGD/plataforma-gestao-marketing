@@ -988,6 +988,57 @@
   }
   setupBrindesPublicLinkPanel();
 
+  // 88ª rodada, pedido da Raquel: "o registro de saidas deve ter link
+  // externo de visualização e de ediçao" -- painel dedicado (mesmo
+  // motivo do painel do Catálogo acima: precisa do seletor de modo
+  // leitura/edição, que o painel genérico `setupPublicLinkPanel` não
+  // cobre). Diferença: a aba "Registro de Saídas" não tem uma marca
+  // "atual" (mostra as duas juntas), então este painel tem o próprio
+  // seletor de marca.
+  function setupBrindesSaidasPublicLinkPanel() {
+    function getBrand() { return $('#brindesSaidasPublicLinkBrand').value || 'debacco'; }
+    function setUI(pubToken, mode) {
+      const active = !!pubToken;
+      $('#brindesSaidasPublicLinkActive').hidden = !active;
+      if (active) {
+        $('#brindesSaidasPublicLinkField').value = `${window.location.origin}/?sharePublic=${pubToken}`;
+        $('#brindesSaidasPublicLinkModeLabel').textContent = mode === 'edicao' ? '🔓 Modo: leitura e edição' : '👁️ Modo: somente leitura';
+      }
+    }
+    async function refresh() {
+      try {
+        const data = await api('/api/brindes/log/public-link?brand=' + encodeURIComponent(getBrand()));
+        setUI(data.publicToken, data.mode);
+      } catch (e) { /* ignora falha pontual */ }
+    }
+    $('#brindesSaidasPublicLinkBtn').onclick = async () => {
+      const panel = $('#brindesSaidasPublicLinkPanel');
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) await refresh();
+    };
+    $('#brindesSaidasPublicLinkBrand').onchange = refresh;
+    $('#brindesSaidasGenLinkBtn').onclick = async () => {
+      try {
+        const mode = (document.querySelector('input[name="brindesSaidasPublicLinkMode"]:checked') || {}).value || 'leitura';
+        const data = await api('/api/brindes/log/public-link/generate', { method: 'POST', body: JSON.stringify({ brand: getBrand(), mode }) });
+        setUI(data.publicToken, mode);
+      } catch (e) { alert(e.message); }
+    };
+    $('#brindesSaidasRevokeLinkBtn').onclick = async () => {
+      if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir ver (ou registrar) saídas desta marca.')) return;
+      try {
+        await api('/api/brindes/log/public-link?brand=' + encodeURIComponent(getBrand()), { method: 'DELETE' });
+        setUI(null);
+      } catch (e) { alert(e.message); }
+    };
+    $('#brindesSaidasCopyLinkBtn').onclick = () => {
+      const field = $('#brindesSaidasPublicLinkField');
+      field.select();
+      navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+    };
+  }
+  setupBrindesSaidasPublicLinkPanel();
+
   async function api(path, opts = {}) {
     const headers = Object.assign({}, opts.headers || {});
     let body = opts.body;
@@ -1262,7 +1313,7 @@
   // endpoint público daquele recurso específico (cada um serializa do seu
   // jeito). A tabela é montada na hora, já que cada recurso tem colunas
   // diferentes.
-  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item' };
+  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item' };
   function publicTableHtml(headers, rows) {
     return `<table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '' : c}</td>`).join('')}</tr>`).join('')
@@ -1328,6 +1379,122 @@
       };
     });
   }
+  // 88ª rodada, pedido da Raquel: "o registro de saidas deve ter link
+  // externo de visualização e de ediçao" -- mesmo espírito do link
+  // editável do Catálogo acima, só que aqui o modo "edição" registra uma
+  // saída NOVA (lista de itens + quantidade, igual ao formulário de
+  // dentro da Papoi), em vez de editar um número já existente.
+  function brindesSaidasShareItemsLabel(r) {
+    return (r.items || []).map((it) => `${it.item} (x${it.quantidade})`).join(', ');
+  }
+  function renderBrindesSaidasShareContent(data, shareToken) {
+    const rows = (data.items || []).map((r) => [fmtDate(r.date), r.representante || '', r.cliente || '', escapeHtml(brindesSaidasShareItemsLabel(r)), r.motivo || '']);
+    const tableHtml = publicTableHtml(['Data', 'Representante', 'Cliente', 'Itens', 'Motivo'], rows);
+    if (data.mode !== 'edicao') return tableHtml;
+    const catalogItems = (data.catalogItems || []).slice().sort((a, b) => (a.item || '').localeCompare(b.item || ''));
+    const itemOptions = catalogItems.length
+      ? catalogItems.map((it) => `<option value="${it.id}">${escapeHtml(it.item)}${it.group ? ' — ' + escapeHtml(it.group) : ''}</option>`).join('')
+      : '<option value="">Nenhum item cadastrado nessa marca ainda</option>';
+    setTimeout(() => wireBrindesSaidasShareForm(data, shareToken), 0);
+    return `
+      <div class="form-card" style="margin-bottom:16px;">
+        <h3 style="margin-top:0;">Registrar saída</h3>
+        <div class="form-row">
+          <div><label>Seu nome <span class="muted" style="font-weight:400;">(obrigatório -- fica registrado quem lançou)</span></label><input type="text" id="sharePublicSaidasNome"></div>
+          <div><label>Data</label><input type="date" id="sharePublicSaidasDate" value="${new Date().toISOString().slice(0, 10)}"></div>
+        </div>
+        <div class="form-row">
+          <div><label>Representante</label><input type="text" id="sharePublicSaidasRepresentante"></div>
+          <div><label>Estado</label><input type="text" id="sharePublicSaidasEstado"></div>
+        </div>
+        <div><label>Cliente</label><input type="text" id="sharePublicSaidasCliente"></div>
+        <label>Itens da saída</label>
+        <div id="sharePublicSaidasItemsList"></div>
+        <p class="muted" id="sharePublicSaidasItemsEmpty" style="margin:2px 0 10px;">Nenhum item adicionado ainda.</p>
+        <div class="form-row">
+          <div><label>Item</label><select id="sharePublicSaidasItemSelect">${itemOptions}</select></div>
+          <div><label>Quantidade</label><input type="number" min="1" step="1" id="sharePublicSaidasQuantidade" value="1"></div>
+        </div>
+        <button type="button" class="btn-secondary" id="sharePublicSaidasAddItemBtn">+ Adicionar item à lista</button>
+        <div style="margin-top:12px;"><label>Motivo</label><input type="text" id="sharePublicSaidasMotivo"></div>
+        <div id="sharePublicSaidasError" class="error" hidden></div>
+        <div class="form-actions"><button class="btn-primary" id="sharePublicSaidasSaveBtn" type="button">Salvar saída</button></div>
+        <p class="muted share-brinde-save-msg" id="sharePublicSaidasMsg" style="font-size:12px;"></p>
+      </div>
+      <h3>Saídas já registradas</h3>
+      ${tableHtml}
+    `;
+  }
+  function wireBrindesSaidasShareForm(data, shareToken) {
+    let pendingItems = [];
+    const catalogItems = data.catalogItems || [];
+    function renderPending() {
+      const wrap = $('#sharePublicSaidasItemsList');
+      wrap.innerHTML = '';
+      $('#sharePublicSaidasItemsEmpty').hidden = pendingItems.length > 0;
+      pendingItems.forEach((it, idx) => {
+        const row = document.createElement('div');
+        row.className = 'retirada-item-row';
+        row.innerHTML = `<span>${escapeHtml(it.item)} — quantidade: ${it.quantidade}</span>`;
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'retirada-item-row-remove';
+        removeBtn.textContent = '✕ Remover';
+        removeBtn.onclick = () => { pendingItems.splice(idx, 1); renderPending(); };
+        row.appendChild(removeBtn);
+        wrap.appendChild(row);
+      });
+    }
+    renderPending();
+    $('#sharePublicSaidasAddItemBtn').onclick = () => {
+      const catalogItemId = $('#sharePublicSaidasItemSelect').value;
+      const catalogItem = catalogItems.find((it) => it.id === catalogItemId);
+      const quantidade = Number($('#sharePublicSaidasQuantidade').value);
+      const errEl = $('#sharePublicSaidasError');
+      if (!catalogItem) { errEl.textContent = 'Escolha o item da saída.'; errEl.hidden = false; return; }
+      if (!quantidade || quantidade < 1) { errEl.textContent = 'Informe a quantidade do item (mínimo 1).'; errEl.hidden = false; return; }
+      errEl.hidden = true;
+      pendingItems.push({ catalogItemId, item: catalogItem.item, quantidade });
+      renderPending();
+      $('#sharePublicSaidasQuantidade').value = '1';
+    };
+    $('#sharePublicSaidasSaveBtn').onclick = async () => {
+      const errEl = $('#sharePublicSaidasError');
+      const msgEl = $('#sharePublicSaidasMsg');
+      const nome = $('#sharePublicSaidasNome').value.trim();
+      if (!nome) { errEl.textContent = 'Informe seu nome antes de salvar.'; errEl.hidden = false; return; }
+      if (pendingItems.length === 0) { errEl.textContent = 'Adicione pelo menos um item à saída.'; errEl.hidden = false; return; }
+      errEl.hidden = true;
+      const payload = {
+        nome,
+        date: $('#sharePublicSaidasDate').value,
+        representante: $('#sharePublicSaidasRepresentante').value.trim(),
+        estado: $('#sharePublicSaidasEstado').value.trim(),
+        cliente: $('#sharePublicSaidasCliente').value.trim(),
+        motivo: $('#sharePublicSaidasMotivo').value.trim(),
+        items: pendingItems
+      };
+      msgEl.textContent = 'Salvando...';
+      try {
+        const res = await fetch(`/api/brindes/log/public/${encodeURIComponent(shareToken)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Não foi possível salvar.');
+        msgEl.textContent = 'Saída registrada!';
+        setTimeout(() => { msgEl.textContent = ''; }, 4000);
+        // Atualiza a lista (e limpa o formulário), sem recarregar a
+        // página inteira -- mesmo espírito do resto dos links externos.
+        loadSharePublicPage(shareToken);
+      } catch (e) {
+        msgEl.textContent = '';
+        errEl.textContent = e.message;
+        errEl.hidden = false;
+      }
+    };
+  }
   function renderSharePublicContent(resource, label, data, shareToken) {
     const scopeLabel = data.brand ? (BRAND_LABEL[data.brand] || data.brand)
       : (data.scope && data.scope !== 'todos' ? (BRAND_LABEL[data.scope] || data.scope) : (data.scope === 'todos' ? 'Todas as marcas' : ''));
@@ -1358,6 +1525,10 @@
         const rows = items.map((r) => [r.code || '', r.item, r.multiplo || '', fmtMoney(r.valor), r.estoquePR, r.estoqueSP, r.estoquePE, r.estoqueTotal, r.status || '']);
         html = publicTableHtml(['Código', 'Item', 'Múltiplo', 'Valor', 'Estoque PR', 'Estoque SP', 'Estoque PE', 'Total', 'Status'], rows);
       }
+    } else if (resource === 'brindesSaidas') {
+      const items = data.items || [];
+      empty = items.length === 0 && data.mode !== 'edicao';
+      html = renderBrindesSaidasShareContent(data, shareToken);
     } else if (resource === 'campanhaCooperada') {
       const rows = (data.items || []).map((it) => [
         BRAND_LABEL[it.brand] || it.brand, it.cliente, it.representante || '', it.produto || '', it.responsavelNome || '',
@@ -7281,6 +7452,18 @@
     return access === 'editor' || access === 'admin';
   }
 
+  // 88ª rodada, pedido da Raquel: "as retiradas internas podem aparecer p
+  // todos, mas só podem ser editadas por quem p admin autorizar" — chave
+  // de permissão própria, independente de "brindes" (quem edita o
+  // Catálogo/Registro de Saídas não necessariamente edita as retiradas, e
+  // vice-versa).
+  function canEditRetiradasInternas() {
+    if (!currentUser) return false;
+    if (currentUser.isSuperAdmin) return true;
+    const access = (currentUser.permissions || {}).retiradasInternas || 'none';
+    return access === 'editor' || access === 'admin';
+  }
+
   $all('.tab-btn[data-brindes-tab]').forEach((b) => {
     b.onclick = () => {
       brindesTab = b.dataset.brindesTab;
@@ -7364,6 +7547,12 @@
     });
   }
 
+  // Texto com todos os itens de uma saída, pra mostrar na tabela (mesma
+  // ideia de retiradaItemsLabel, usada em Retiradas Internas).
+  function logItemsLabel(r) {
+    return (r.items || []).map((it) => `${it.item} (x${it.quantidade})`).join(', ');
+  }
+
   function renderBrindesLog() {
     const body = $('#brindesLogBody');
     body.innerHTML = '';
@@ -7375,8 +7564,7 @@
         <td>${fmtDate(r.date)}</td>
         <td>${r.representante || ''}</td>
         <td>${r.cliente || ''}</td>
-        <td class="num">${r.quantidade}</td>
-        <td>${r.item}</td>
+        <td>${escapeHtml(logItemsLabel(r))}</td>
         <td>${r.motivo || ''}</td>
         <td></td>
       `;
@@ -7472,6 +7660,34 @@
     if (items.length === 0) return '<option value="">Nenhum item cadastrado nessa marca ainda</option>';
     return items.map((it) => `<option value="${it.id}">${it.item}${it.group ? ' — ' + it.group : ''} (estoque: ${it.estoqueTotal})</option>`).join('');
   }
+
+  // 88ª rodada, pedido da Raquel: "em registro de saida coloque a opção
+  // de adicionar mais itens em um mesmo registro" -- lista de itens
+  // montada NA TELA enquanto o formulário está aberto, mesmo espírito do
+  // `retiradaPendingItems` de Retiradas Internas (79ª rodada).
+  let logPendingItems = [];
+
+  function renderLogPendingItems() {
+    const wrap = $('#brindeLogFormItemsList');
+    wrap.innerHTML = '';
+    $('#brindeLogFormItemsEmpty').hidden = logPendingItems.length > 0;
+    logPendingItems.forEach((it, idx) => {
+      const row = document.createElement('div');
+      row.className = 'retirada-item-row';
+      row.innerHTML = `<span>${escapeHtml(it.item)} — quantidade: ${it.quantidade}</span>`;
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'retirada-item-row-remove';
+      removeBtn.textContent = '✕ Remover';
+      removeBtn.onclick = () => {
+        logPendingItems.splice(idx, 1);
+        renderLogPendingItems();
+      };
+      row.appendChild(removeBtn);
+      wrap.appendChild(row);
+    });
+  }
+
   function openBrindeLogForm() {
     $('#brindeLogFormBrand').value = 'debacco';
     $('#brindeLogFormDate').value = new Date().toISOString().slice(0, 10);
@@ -7479,32 +7695,55 @@
     $('#brindeLogFormEstado').value = '';
     $('#brindeLogFormCliente').value = '';
     $('#brindeLogFormQuantidade').value = '1';
-    $('#brindeLogFormItem').innerHTML = brindeLogItemOptionsHTML('debacco');
+    $('#brindeLogFormItemSelect').innerHTML = brindeLogItemOptionsHTML('debacco');
     $('#brindeLogFormMotivo').value = '';
     $('#brindeLogFormError').hidden = true;
+    logPendingItems = [];
+    renderLogPendingItems();
     $('#brindeLogFormWrap').hidden = false;
   }
   $('#brindesLogNewBtn').onclick = openBrindeLogForm;
   $('#brindeLogFormCancel').onclick = () => { $('#brindeLogFormWrap').hidden = true; };
   $('#brindeLogFormBrand').onchange = () => {
-    $('#brindeLogFormItem').innerHTML = brindeLogItemOptionsHTML($('#brindeLogFormBrand').value);
+    $('#brindeLogFormItemSelect').innerHTML = brindeLogItemOptionsHTML($('#brindeLogFormBrand').value);
   };
-  $('#brindeLogFormSave').onclick = async () => {
-    const catalogItemId = $('#brindeLogFormItem').value;
+
+  // "+ Adicionar item à lista" -- valida só o item atual (item do
+  // catálogo + quantidade) e empilha no rascunho, limpando os campos pra
+  // já poder adicionar o próximo sem reabrir nada (mesmo padrão de
+  // Retiradas Internas).
+  $('#brindeLogFormAddItemBtn').onclick = () => {
+    const catalogItemId = $('#brindeLogFormItemSelect').value;
     const catalogItem = brindesCatalog.find((it) => it.id === catalogItemId);
+    const quantidade = Number($('#brindeLogFormQuantidade').value);
+    if (!catalogItem) {
+      $('#brindeLogFormError').textContent = 'Escolha o item da saída.';
+      $('#brindeLogFormError').hidden = false;
+      return;
+    }
+    if (!quantidade || quantidade < 1) {
+      $('#brindeLogFormError').textContent = 'Informe a quantidade do item (mínimo 1).';
+      $('#brindeLogFormError').hidden = false;
+      return;
+    }
+    $('#brindeLogFormError').hidden = true;
+    logPendingItems.push({ catalogItemId, item: catalogItem.item, quantidade });
+    renderLogPendingItems();
+    $('#brindeLogFormQuantidade').value = '1';
+  };
+
+  $('#brindeLogFormSave').onclick = async () => {
     const payload = {
       brand: $('#brindeLogFormBrand').value,
       date: $('#brindeLogFormDate').value,
       representante: $('#brindeLogFormRepresentante').value.trim(),
       estado: $('#brindeLogFormEstado').value.trim(),
       cliente: $('#brindeLogFormCliente').value.trim(),
-      quantidade: $('#brindeLogFormQuantidade').value,
-      catalogItemId: catalogItemId || null,
-      item: catalogItem ? catalogItem.item : '',
-      motivo: $('#brindeLogFormMotivo').value.trim()
+      motivo: $('#brindeLogFormMotivo').value.trim(),
+      items: logPendingItems
     };
-    if (!payload.item) {
-      $('#brindeLogFormError').textContent = 'Escolha o item retirado.';
+    if (logPendingItems.length === 0) {
+      $('#brindeLogFormError').textContent = 'Adicione pelo menos um item à saída.';
       $('#brindeLogFormError').hidden = false;
       return;
     }
@@ -7550,7 +7789,7 @@
   }
 
   async function loadRetiradas() {
-    $('#retiradasNewBtn').hidden = !canEditBrindes();
+    $('#retiradasNewBtn').hidden = !canEditRetiradasInternas();
     $all('.tab-btn[data-retiradas-brand]').forEach((b) => b.classList.toggle('active', b.dataset.retiradasBrand === retiradasBrand));
     const [retiradasRes, catalogRes] = await Promise.all([
       api('/api/retiradas-internas?brand=' + retiradasBrand),
@@ -7586,7 +7825,7 @@
   function renderRetiradas() {
     const body = $('#retiradasBody');
     body.innerHTML = '';
-    const editable = canEditBrindes();
+    const editable = canEditRetiradasInternas();
     const rows = getFilteredRetiradas();
     $('#retiradasEmpty').hidden = rows.length > 0;
     rows.forEach((r) => {
@@ -10010,7 +10249,7 @@
   function labelForKey(key) {
     return {
       trafegoPago: 'Tráfego Pago', acoesSazonais: 'Ações Sazonais', redesSociais: 'Redes Sociais', budget: 'Orçamento',
-      brindes: 'Brindes (editar)', produtos: 'Produtos (editar)', expositores: 'Expositores (editar)', campanhaCooperada: 'Campanha Cooperada (editar)'
+      brindes: 'Brindes (editar)', retiradasInternas: 'Retiradas Internas (editar)', produtos: 'Produtos (editar)', expositores: 'Expositores (editar)', campanhaCooperada: 'Campanha Cooperada (editar)'
     }[key] || key;
   }
 

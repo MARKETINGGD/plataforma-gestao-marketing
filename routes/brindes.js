@@ -246,29 +246,96 @@ router.delete('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {
 });
 
 // ---------- registro de saídas (controle por representante) ----------
+//
+// 88ª rodada, pedido da Raquel: "em registro de saida coloque a opção de
+// adicionar mais itens em um mesmo registro" -- um registro de saída
+// passou a guardar uma LISTA de itens (`items: [{catalogItemId, item,
+// quantidade, estoqueDeduzido}]`) em vez de um item só, mesmo espírito já
+// usado em Retiradas Internas (79ª rodada, ver routes/retiradasInternas.js
+// -- `withItemsArray`/`validateItems` são o precedente direto destas duas
+// funções abaixo). Diferença importante: aqui o item sempre vem do
+// catálogo (o formulário nunca deixou cadastrar item "avulso" como
+// Retiradas Internas deixa), então cada item da lista guarda o próprio
+// `estoqueDeduzido` (a baixa em cascata PR/SP/PE é por item, não mais uma
+// só pro registro inteiro).
+//
+// Compatibilidade com registros antigos (de antes desta rodada, com
+// `catalogItemId`/`item`/`quantidade`/`estoqueDeduzido` direto no
+// registro, sem `items`): `withLogItemsArray()` converte na leitura, sem
+// precisar migrar nada no arquivo (mesmo padrão "on read" de sempre).
+function withLogItemsArray(r) {
+  if (Array.isArray(r.items)) return r;
+  return Object.assign({}, r, {
+    items: [{
+      catalogItemId: r.catalogItemId || null,
+      item: r.item || '',
+      quantidade: r.quantidade || null,
+      estoqueDeduzido: r.estoqueDeduzido || null
+    }]
+  });
+}
+
+function toQuantidadeLog(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.round(n);
+}
+
+// Valida a lista de itens da saída -- pelo menos 1, cada um vinculado a
+// um item de verdade do catálogo (sem opção de "avulso" aqui, diferente
+// de Retiradas Internas) e com quantidade válida (mínimo 1).
+function validateLogItems(rawItems) {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    return { error: 'Adicione pelo menos um item na saída.' };
+  }
+  const items = [];
+  for (const raw of rawItems) {
+    const catalogItemId = (raw && raw.catalogItemId) || null;
+    const catalogRow = catalogItemId ? db.get('brindesCatalog').find({ id: catalogItemId }).value() : null;
+    if (!catalogRow) return { error: 'Escolha o item de cada saída (item do catálogo não encontrado).' };
+    const quantidade = toQuantidadeLog(raw && raw.quantidade);
+    if (!quantidade) return { error: `Informe a quantidade de "${catalogRow.item}" (mínimo 1).` };
+    items.push({ catalogItemId, item: catalogRow.item, quantidade });
+  }
+  return { items };
+}
+
+// Desconta do estoque, item por item, carimbando a dedução de cada um
+// (pra dar pra desfazer certinho depois, mesmo espírito de sempre).
+function applyLogItemsDeduction(items) {
+  return items.map((it) => Object.assign({}, it, {
+    estoqueDeduzido: it.catalogItemId ? decrementCatalogStock(it.catalogItemId, it.quantidade) : null
+  }));
+}
+
+function restoreLogItemsDeduction(items) {
+  (items || []).forEach((it) => {
+    if (it.catalogItemId && it.estoqueDeduzido) restoreCatalogStock(it.catalogItemId, it.estoqueDeduzido);
+  });
+}
+
+function logItemsLabel(items) {
+  return items.length > 2
+    ? `${items.slice(0, 2).map((it) => it.item).join(', ')} +${items.length - 2}`
+    : items.map((it) => it.item).join(', ');
+}
+
 router.get('/log', requireAuth, (req, res) => {
   const { brand } = req.query;
   let rows = db.get('brindesLog').value();
   if (brand) rows = rows.filter((r) => r.brand === brand);
   rows = rows.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   // Nome resolvido ao vivo (20ª rodada) — ver utils/names.js.
-  rows = rows.map((r) => Object.assign({}, r, { createdByName: resolveUserName(r.createdBy, r.createdByName) }));
+  rows = rows.map((r) => Object.assign({}, withLogItemsArray(r), { createdByName: resolveUserName(r.createdBy, r.createdByName) }));
   res.json({ items: rows });
 });
 
 router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
-  const { brand, date, gerente, representante, estado, cliente, quantidade, item, motivo, obs, catalogItemId } = req.body || {};
-  if (!brand || !item) return res.status(400).json({ error: 'Preencha marca e item.' });
-  const finalQuantidade = Number(quantidade) || 0;
-  // catalogItemId é como a Plataforma sabe de qual item do catálogo
-  // descontar — sem ele (ex.: registro antigo/vindo de outro fluxo), o
-  // registro é salvo normalmente, só que sem desconto (não tem de onde
-  // descontar).
-  let finalCatalogItemId = catalogItemId || null;
-  if (finalCatalogItemId && !db.get('brindesCatalog').find({ id: finalCatalogItemId }).value()) {
-    finalCatalogItemId = null;
-  }
-  const estoqueDeduzido = finalCatalogItemId ? decrementCatalogStock(finalCatalogItemId, finalQuantidade) : null;
+  const { brand, date, gerente, representante, estado, cliente, motivo, obs, items } = req.body || {};
+  if (!brand) return res.status(400).json({ error: 'Escolha a marca.' });
+  const validated = validateLogItems(items);
+  if (validated.error) return res.status(400).json({ error: validated.error });
+  const finalItems = applyLogItemsDeduction(validated.items);
   const row = {
     id: nanoid(),
     brand,
@@ -277,10 +344,7 @@ router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
     representante: representante || '',
     estado: estado || '',
     cliente: cliente || '',
-    quantidade: finalQuantidade,
-    item,
-    catalogItemId: finalCatalogItemId,
-    estoqueDeduzido,
+    items: finalItems,
     motivo: motivo || '',
     obs: obs || '',
     createdAt: new Date().toISOString(),
@@ -288,40 +352,131 @@ router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
     createdByName: req.user.name
   };
   db.get('brindesLog').push(row).write();
-  logAudit({ user: req.user, entityType: 'brindeSaida', entityId: row.id, entityLabel: `${row.item} · ${row.quantidade}`, action: 'create' });
+  logAudit({ user: req.user, entityType: 'brindeSaida', entityId: row.id, entityLabel: logItemsLabel(finalItems), action: 'create' });
   res.json({ item: row });
 });
 
+// ---------- link externo do Registro de Saídas (88ª rodada, pedido da
+// Raquel: "o registro de saidas deve ter link externo de visualização e
+// de ediçao") ----------
+// Mesmo padrão do link externo do Catálogo acima (resource diferente,
+// 'brindesSaidas', pra não colidir): um link por marca, podendo ser
+// 'leitura' (só ver a lista de saídas) ou 'edicao'. No modo 'edicao',
+// diferente do Catálogo (que deixa atualizar um número já existente),
+// aqui quem abre o link pode REGISTRAR uma saída nova (igual ao
+// formulário "Registrar saída" de dentro da Papoi) -- não edita nem
+// exclui registros já existentes, pra manter o escopo exposto por esse
+// link sem login o mais restrito possível (mesmo cuidado documentado em
+// utils/shareLinks.js). Sem login, quem registra precisa informar o
+// próprio nome, gravado como "(nome) via link externo" em createdByName.
+//
+// IMPORTANTE: estas rotas (todas com um segmento fixo depois de "/log/",
+// nunca um :id de verdade) precisam vir ANTES de `PUT /log/:id` e
+// `DELETE /log/:id` logo abaixo -- senão o Express trataria, por
+// exemplo, "/log/public-link" como se ":id" fosse a string literal
+// "public-link" (o handler de :id é registrado primeiro e "ganharia" da
+// rota mais específica).
+router.get('/log/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'brindesSaidas') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const catalogItems = db.get('brindesCatalog').value().filter((r) => r.brand === link.scopeKey).map(serializeCatalogItem);
+  const rows = db.get('brindesLog').value()
+    .filter((r) => r.brand === link.scopeKey)
+    .slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    .map((r) => withLogItemsArray(r));
+  res.json({ brand: link.scopeKey, mode: link.mode || 'leitura', items: rows, catalogItems });
+});
+
+router.post('/log/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'brindesSaidas') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  if (link.mode !== 'edicao') return res.status(403).json({ error: 'Este link é só de leitura -- peça um link de edição pra quem administra o Brindes na Papoi.' });
+  const { nome, date, representante, estado, cliente, motivo, items } = req.body || {};
+  const nomeTrim = (nome || '').trim();
+  if (!nomeTrim) return res.status(400).json({ error: 'Informe seu nome antes de salvar -- fica registrado quem lançou essa saída.' });
+  const validated = validateLogItems(items);
+  if (validated.error) return res.status(400).json({ error: validated.error });
+  // Só aceita item do catálogo da MESMA marca do link (mesmo cuidado já
+  // tomado no PUT /public/:token/catalog/:id do Catálogo).
+  for (const it of validated.items) {
+    const catalogRow = db.get('brindesCatalog').find({ id: it.catalogItemId }).value();
+    if (!catalogRow || catalogRow.brand !== link.scopeKey) {
+      return res.status(400).json({ error: 'Um dos itens não pertence a esta marca.' });
+    }
+  }
+  const finalItems = applyLogItemsDeduction(validated.items);
+  const row = {
+    id: nanoid(),
+    brand: link.scopeKey,
+    date: date || new Date().toISOString().slice(0, 10),
+    gerente: '',
+    representante: representante || '',
+    estado: estado || '',
+    cliente: cliente || '',
+    items: finalItems,
+    motivo: motivo || '',
+    obs: '',
+    createdAt: new Date().toISOString(),
+    createdBy: null,
+    createdByName: `${nomeTrim} (via link externo)`
+  };
+  db.get('brindesLog').push(row).write();
+  logAudit({ user: { id: null, name: `${nomeTrim} (via link externo)` }, entityType: 'brindeSaida', entityId: row.id, entityLabel: logItemsLabel(finalItems), action: 'create', details: 'Saída registrada por visitante via link externo (modo edição)' });
+  res.json({ item: row });
+});
+
+router.get('/log/public-link', requireAuth, requireBrindesEdit, (req, res) => {
+  const { brand } = req.query;
+  const link = shareLinks.getLink('brindesSaidas', brand);
+  res.json({ publicToken: link ? link.token : null, mode: link ? link.mode : null });
+});
+router.post('/log/public-link/generate', requireAuth, requireBrindesEdit, (req, res) => {
+  const { brand, mode } = req.body || {};
+  if (!brand) return res.status(400).json({ error: 'Escolha a marca.' });
+  const token = shareLinks.generateLink('brindesSaidas', brand, req, mode);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindesSaidas:' + brand, entityLabel: 'Registro de Saídas · ' + brand, action: 'generate_public_link', details: `Modo: ${mode === 'edicao' ? 'edição' : 'leitura'}` });
+  res.json({ publicToken: token });
+});
+router.delete('/log/public-link', requireAuth, requireBrindesEdit, (req, res) => {
+  const { brand } = req.query;
+  shareLinks.revokeLink('brindesSaidas', brand);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindesSaidas:' + brand, entityLabel: 'Registro de Saídas · ' + brand, action: 'revoke_public_link' });
+  res.json({ ok: true });
+});
+
 router.put('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
-  const existing = db.get('brindesLog').find({ id: req.params.id }).value();
-  if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
+  const existingRaw = db.get('brindesLog').find({ id: req.params.id }).value();
+  if (!existingRaw) return res.status(404).json({ error: 'Registro não encontrado.' });
+  const existing = withLogItemsArray(existingRaw);
   const b = req.body || {};
   const updates = {};
-  ['brand', 'date', 'gerente', 'representante', 'estado', 'cliente', 'item', 'motivo', 'obs'].forEach((k) => {
+  ['brand', 'date', 'gerente', 'representante', 'estado', 'cliente', 'motivo', 'obs'].forEach((k) => {
     if (b[k] !== undefined) updates[k] = b[k];
   });
-  if (b.quantidade !== undefined) updates.quantidade = Number(b.quantidade) || 0;
-  if (b.catalogItemId !== undefined) {
-    updates.catalogItemId = (b.catalogItemId && db.get('brindesCatalog').find({ id: b.catalogItemId }).value()) ? b.catalogItemId : null;
-  }
-  // Se o item vinculado ou a quantidade mudou, desfaz o desconto antigo
-  // por inteiro e aplica o novo do zero — mesmo espírito "uma edição
+  // Se a lista de itens mudou, desfaz todas as deduções antigas por
+  // inteiro e aplica as novas do zero -- mesmo espírito "uma edição
   // sempre apaga e recria" já usado na sincronia Feiras→Budget (41ª
-  // rodada): mais simples e seguro do que calcular só a diferença.
-  if (updates.catalogItemId !== undefined || updates.quantidade !== undefined) {
-    restoreCatalogStock(existing.catalogItemId, existing.estoqueDeduzido);
-    const newCatalogItemId = updates.catalogItemId !== undefined ? updates.catalogItemId : (existing.catalogItemId || null);
-    const newQuantidade = updates.quantidade !== undefined ? updates.quantidade : existing.quantidade;
-    updates.estoqueDeduzido = newCatalogItemId ? decrementCatalogStock(newCatalogItemId, newQuantidade) : null;
+  // rodada) e no próprio Catálogo de Brindes acima.
+  if (b.items !== undefined) {
+    const validated = validateLogItems(b.items);
+    if (validated.error) return res.status(400).json({ error: validated.error });
+    restoreLogItemsDeduction(existing.items);
+    updates.items = applyLogItemsDeduction(validated.items);
+  }
+  // Registro antigo (sem `items` salvo ainda) que está sendo editado pela
+  // primeira vez desde esta rodada: garante que o que fica salvo já é a
+  // forma nova, mesmo que só outros campos (ex.: motivo) tenham mudado.
+  if (b.items === undefined && !Array.isArray(existingRaw.items)) {
+    updates.items = existing.items;
   }
   db.get('brindesLog').find({ id: req.params.id }).assign(updates).write();
-  res.json({ item: db.get('brindesLog').find({ id: req.params.id }).value() });
+  res.json({ item: withLogItemsArray(db.get('brindesLog').find({ id: req.params.id }).value()) });
 });
 
 router.delete('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
-  const existing = db.get('brindesLog').find({ id: req.params.id }).value();
-  if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
-  restoreCatalogStock(existing.catalogItemId, existing.estoqueDeduzido);
+  const existingRaw = db.get('brindesLog').find({ id: req.params.id }).value();
+  if (!existingRaw) return res.status(404).json({ error: 'Registro não encontrado.' });
+  restoreLogItemsDeduction(withLogItemsArray(existingRaw).items);
   db.get('brindesLog').remove({ id: req.params.id }).write();
   res.json({ ok: true });
 });

@@ -1453,8 +1453,8 @@
       <section id="view-brindes" class="view" hidden>
         <h2>Brindes</h2>
         <div class="tabs">
-          <button class="tab-btn active" data-brindes-tab="debacco">Catálogo De Bacco</button>
-          <button class="tab-btn" data-brindes-tab="ghelplus">Catálogo GhelPlus</button>
+          <button class="tab-btn active" data-brindes-tab="debacco">Estoque De Bacco</button>
+          <button class="tab-btn" data-brindes-tab="ghelplus">Estoque GhelPlus</button>
           <button class="tab-btn" data-brindes-tab="log">Registro de Saídas</button>
         </div>
 
@@ -1531,6 +1531,35 @@
         <div id="brindesLogWrap" hidden>
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="brindesLogNewBtn">+ Registrar saída</button>
+            <button class="btn-secondary no-print" id="brindesSaidasPublicLinkBtn" type="button">🔗 Link externo</button>
+          </div>
+
+          <!-- 88ª rodada, pedido da Raquel: "o registro de saidas deve
+               ter link externo de visualização e de ediçao" -- mesmo
+               espírito do link do Catálogo acima, só que no modo
+               "edição" aqui quem abre o link REGISTRA uma saída nova
+               (não edita/exclui as que já existem). -->
+          <div id="brindesSaidasPublicLinkPanel" class="form-card no-print" hidden>
+            <p class="muted" style="margin-top:0;">Gere um link pra quem não tem conta na Papoi acompanhar o Registro de Saídas de uma marca -- escolha "Somente leitura" pra só visualizar, ou "Leitura e edição" pra também deixar registrar uma saída nova, com o nome de quem lançou registrado. O link vale pra uma marca por vez.</p>
+            <div style="margin-bottom:10px;"><label>Marca</label>
+              <select id="brindesSaidasPublicLinkBrand">
+                <option value="debacco">De Bacco</option>
+                <option value="ghelplus">GhelPlus</option>
+              </select>
+            </div>
+            <div id="brindesSaidasPublicLinkActive" hidden>
+              <p class="muted" id="brindesSaidasPublicLinkModeLabel" style="margin:0 0 6px;font-weight:600;"></p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="brindesSaidasPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                <button class="btn-secondary" id="brindesSaidasCopyLinkBtn" type="button">Copiar link</button>
+                <button class="btn-secondary danger" id="brindesSaidasRevokeLinkBtn" type="button">Desativar</button>
+              </div>
+            </div>
+            <div id="brindesSaidasPublicLinkGenChoice">
+              <label class="checkbox-row" style="display:inline-flex;"><input type="radio" name="brindesSaidasPublicLinkMode" value="leitura" checked> Somente leitura</label>
+              <label class="checkbox-row" style="display:inline-flex;margin-left:16px;"><input type="radio" name="brindesSaidasPublicLinkMode" value="edicao"> Leitura e edição (registrar saída pelo link)</label>
+              <div><button class="btn-primary" id="brindesSaidasGenLinkBtn" type="button" style="margin-top:8px;">Gerar link externo</button></div>
+            </div>
           </div>
 
           <div id="brindeLogFormWrap" class="form-card" hidden>
@@ -1548,14 +1577,22 @@
               <div><label>Representante</label><input id="brindeLogFormRepresentante" type="text"></div>
               <div><label>Estado</label><input id="brindeLogFormEstado" type="text"></div>
             </div>
+            <div><label>Cliente</label><input id="brindeLogFormCliente" type="text"></div>
+
+            <!-- 88ª rodada, pedido da Raquel: "em registro de saida
+                 coloque a opção de adicionar mais itens em um mesmo
+                 registro" -- mesmo padrão de lista de itens já usado em
+                 Retiradas Internas (79ª rodada). -->
+            <label>Itens da saída <span class="muted" style="font-weight:400;">(desconta do estoque automaticamente)</span></label>
+            <div id="brindeLogFormItemsList" class="retirada-items-list"></div>
+            <p class="muted" id="brindeLogFormItemsEmpty" style="margin:2px 0 10px;">Nenhum item adicionado ainda — escolha um item e a quantidade abaixo, depois clique em "Adicionar item".</p>
             <div class="form-row">
-              <div><label>Cliente</label><input id="brindeLogFormCliente" type="text"></div>
-              <div><label>Quantidade</label><input id="brindeLogFormQuantidade" type="number" step="1" min="0"></div>
+              <div><label>Item</label><select id="brindeLogFormItemSelect"></select></div>
+              <div><label>Quantidade</label><input id="brindeLogFormQuantidade" type="number" min="1" step="1" placeholder="1"></div>
             </div>
-            <label>Item <span class="muted" style="font-weight:400;">(desconta do estoque automaticamente)</span></label>
-            <select id="brindeLogFormItem"></select>
-            <label>Motivo</label>
-            <input id="brindeLogFormMotivo" type="text">
+            <button type="button" class="btn-secondary" id="brindeLogFormAddItemBtn">+ Adicionar item à lista</button>
+
+            <div style="margin-top:16px;"><label>Motivo</label><input id="brindeLogFormMotivo" type="text"></div>
             <div id="brindeLogFormError" class="error" hidden></div>
             <div class="form-actions">
               <button id="brindeLogFormSave" class="btn-primary">Salvar</button>
@@ -1565,7 +1602,7 @@
 
           <table class="data-table">
             <thead>
-              <tr><th>Marca</th><th>Data</th><th>Representante</th><th>Cliente</th><th>Qtd</th><th>Item</th><th>Motivo</th><th></th></tr>
+              <tr><th>Marca</th><th>Data</th><th>Representante</th><th>Cliente</th><th>Itens</th><th>Motivo</th><th></th></tr>
             </thead>
             <tbody id="brindesLogBody"></tbody>
           </table>
@@ -2321,6 +2358,7 @@
             <div class="perm-row"><span>Orçamento</span><select data-perm="budget"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <p class="muted" style="margin:10px 0 4px;font-size:12px;">Brindes, Produtos e Expositores: todo mundo pode ver — as opções abaixo controlam só quem pode editar.</p>
             <div class="perm-row"><span>Brindes</span><select data-perm="brindes"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+            <div class="perm-row"><span>Retiradas Internas</span><select data-perm="retiradasInternas"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Produtos</span><select data-perm="produtos"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Expositores</span><select data-perm="expositores"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Campanha Cooperada</span><select data-perm="campanhaCooperada"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>

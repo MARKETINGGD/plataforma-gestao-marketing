@@ -238,6 +238,37 @@
   let editingInfluencerPostId = null;
   let influencerRedes = [];
 
+  // ---------- Análise de Influencer (89ª rodada) ----------
+  let analisesTab = 'debacco'; // 'debacco' | 'ghelplus'
+  let analisesList = [];
+  let editingAnaliseId = null;
+  // Campos do formulário, na mesma ordem/nome da planilha "MAPEAMENTO DE
+  // INFLUENCIADORES" (abas "Mapeamento" e "Informações importantes") que a
+  // Raquel compartilhou -- usado tanto pra ler quanto pra montar o payload
+  // de salvar, sem repetir a lista em vários lugares.
+  const ANALISE_FIELDS = [
+    'nome', 'genero', 'estado', 'seguidores', 'mediaLikes', 'mediaViews', 'mediaComentarios', 'alcance',
+    'faixaEtaria1317', 'faixaEtaria1824', 'faixaEtaria25Mais',
+    'generoAudienciaMulheres', 'generoAudienciaHomens',
+    'principaisTemas', 'cidades',
+    'valorPostFotoStories', 'valorPostVideoStories', 'valorPostAvulsoFoto', 'valorPostAvulsoVideoReels',
+    'valorQuatroStories', 'valorPresencaPostStories', 'valorYoutube', 'valorTiktok',
+    'instagramHandle', 'tiktokHandle', 'youtubeHandle', 'aniversario', 'idade', 'statusCivil',
+    'reforma', 'filhos', 'moraSozinho', 'local', 'tipoCabelo', 'intoleranciasAlimentares',
+    'habitosAlimentares', 'alergias', 'oculosGrau', 'animalEstimacao'
+  ];
+  const ANALISE_FORM_ID = {
+    faixaEtaria1317: 'analiseFormFaixaEtaria1317', faixaEtaria1824: 'analiseFormFaixaEtaria1824', faixaEtaria25Mais: 'analiseFormFaixaEtaria25Mais',
+    generoAudienciaMulheres: 'analiseFormGeneroAudienciaMulheres', generoAudienciaHomens: 'analiseFormGeneroAudienciaHomens'
+  };
+  function analiseFieldInputId(key) {
+    return ANALISE_FORM_ID[key] || ('analiseForm' + key.charAt(0).toUpperCase() + key.slice(1));
+  }
+  const ANALISE_STATUS_LABEL = { em_analise: 'Em análise', aprovada: 'Aprovada', reprovada: 'Reprovada' };
+  // Mesmo "farol" amarelo/verde/vermelho já usado no status das ações de
+  // influencer (INFLUENCER_STATUS_COLOR) -- em análise/aprovada/reprovada.
+  const ANALISE_STATUS_COLOR = { em_analise: { bg: '#F5C518', text: '#4a3b00' }, aprovada: { bg: '#2F9E44', text: '#fff' }, reprovada: { bg: '#E03131', text: '#fff' } };
+
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
@@ -1151,6 +1182,13 @@
       $('#navProdutosParent').classList.add('active');
       $('#navProdutosSubmenu').hidden = false;
     }
+    // Influencers (89ª rodada: virou submenu com Gerenciamento de
+    // Influencers + Análise de Influencer) -- mesmo padrão do Budget/
+    // Produtos acima.
+    if (id === 'navInfluencersGerenciamento' || id === 'navInfluencersAnalise') {
+      $('#navInfluencersParent').classList.add('active');
+      $('#navInfluencersSubmenu').hidden = false;
+    }
     // Brindes (38ª rodada; Campanha Cooperada entrou como 3º item na 50ª) --
     // mesmo padrão do Budget/Produtos acima.
     if (id === 'navBrindesControleGeral' || id === 'navBrindesRetiradas' || id === 'navCampanhaCooperada') {
@@ -1925,6 +1963,12 @@
     sub.hidden = !sub.hidden;
     markNavParentActive('navProdutosParent');
   };
+  // Influencers (89ª rodada) -- mesmo padrão do Budget/Produtos acima.
+  $('#navInfluencersParent').onclick = () => {
+    const sub = $('#navInfluencersSubmenu');
+    sub.hidden = !sub.hidden;
+    markNavParentActive('navInfluencersParent');
+  };
   $('#navBrindesParent').onclick = () => {
     const sub = $('#navBrindesSubmenu');
     sub.hidden = !sub.hidden;
@@ -1991,7 +2035,7 @@
     // views -- o onclick de verdade deles já foi montado antes (ver
     // applyTheme()/updateOsNotifBtn() acima), não pode ser sobrescrito
     // aqui com setActiveNav(), mesmo motivo do navPonto/navGestor/navPowerBI.
-    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI' || b.id === 'navAppExternosParent' || b.id === 'navConfiguracoesParent' || b.id === 'navRelatoriosParent' || b.id === 'themeToggleBtn' || b.id === 'osNotifToggleBtn') return;
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI' || b.id === 'navAppExternosParent' || b.id === 'navConfiguracoesParent' || b.id === 'navRelatoriosParent' || b.id === 'themeToggleBtn' || b.id === 'osNotifToggleBtn' || b.id === 'navInfluencersParent') return;
     b.onclick = () => {
       // Acompanhamento Equipe (77ª rodada): botão sempre visível, mas o
       // clique só funciona pra quem pode ver esse relatório -- ver
@@ -2030,6 +2074,7 @@
         if (b.dataset.view === 'agendamento') loadSocialPosts();
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
+        if (b.dataset.view === 'influencer-analises') loadInfluencerAnalises();
         if (b.dataset.view === 'chat') { loadChatConversations(); loadChat(); }
         if (b.dataset.view === 'feiras') loadFeiras();
         if (b.dataset.view === 'campanha-cooperada') loadCampanhasCooperadas();
@@ -10851,6 +10896,140 @@
     const field = $('#influencerAllPublicLinkField');
     field.select();
     navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+  };
+
+  // ---------- Análise de Influencer (89ª rodada) ----------
+  // Pedido da Raquel: "aidicione um sub menu em influencers, com o nome
+  // Análise de influencer" + planilha "MAPEAMENTO DE INFLUENCIADORES" que
+  // ela compartilhou (campos em ANALISE_FIELDS acima, nomes exatos das abas
+  // "Mapeamento"/"Informações importantes"). Etapa de prospecção/avaliação,
+  // separada do cadastro definitivo (view-influencers) -- "Aprovar" aqui
+  // cria automaticamente o cadastro lá (ver POST .../aprovar em
+  // routes/influencerAnalises.js), com a planilha de ações dele já
+  // nascendo vazia, igual qualquer influencer novo.
+  async function loadInfluencerAnalises() {
+    $('#analiseFormWrap').hidden = true;
+    try {
+      const data = await api('/api/influencer-analises');
+      analisesList = data.analises;
+      renderAnaliseList();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  function renderAnaliseList() {
+    const wrap = $('#analiseList');
+    wrap.innerHTML = '';
+    const statusFilter = $('#analiseStatusFilter').value;
+    let list = analisesList.filter((a) => a.brand === analisesTab);
+    if (statusFilter) list = list.filter((a) => a.status === statusFilter);
+    $('#analiseEmpty').hidden = list.length > 0;
+    list.forEach((a) => {
+      const card = document.createElement('div');
+      card.className = 'dash-card';
+      const statusColor = ANALISE_STATUS_COLOR[a.status] || { bg: '#ccc', text: '#333' };
+      const statusStyle = `background:${statusColor.bg};color:${statusColor.text};border:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;font-family:inherit;`;
+      card.innerHTML = `
+        <h3>${escapeHtml(a.nome || '(sem nome)')}</h3>
+        <p><span style="${statusStyle}">${ANALISE_STATUS_LABEL[a.status] || a.status}</span></p>
+        <p class="muted" style="font-size:12px;margin-top:-4px;">${a.seguidores ? Number(a.seguidores).toLocaleString('pt-BR') + ' seguidores' : 'Sem seguidores informado'}${a.estado ? ' · ' + escapeHtml(a.estado) : ''}</p>
+        ${a.status === 'reprovada' && a.motivoReprovacao ? `<p class="muted" style="font-size:12px;margin-top:-4px;">Motivo: ${escapeHtml(a.motivoReprovacao)}</p>` : ''}
+      `;
+      const actionsRow = document.createElement('div');
+      actionsRow.style.cssText = 'display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;';
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Editar';
+      editBtn.className = 'btn-link';
+      editBtn.onclick = () => openAnaliseForm(a);
+      actionsRow.appendChild(editBtn);
+      if (a.status === 'em_analise') {
+        const approveBtn = document.createElement('button');
+        approveBtn.textContent = '✔ Aprovar';
+        approveBtn.className = 'btn-link';
+        approveBtn.onclick = async () => {
+          if (!confirm(`Aprovar "${a.nome}"? Isso cria automaticamente o cadastro dela em Gerenciamento de Influencers, com a planilha de ações vazia.`)) return;
+          try {
+            await api(`/api/influencer-analises/${a.id}/aprovar`, { method: 'POST' });
+            await loadInfluencerAnalises();
+          } catch (err) { alert(err.message); }
+        };
+        const rejectBtn = document.createElement('button');
+        rejectBtn.textContent = '✖ Reprovar';
+        rejectBtn.className = 'btn-link';
+        rejectBtn.style.color = 'var(--danger)';
+        rejectBtn.onclick = async () => {
+          const motivo = prompt('Motivo da reprovação (opcional):') || '';
+          try {
+            await api(`/api/influencer-analises/${a.id}/reprovar`, { method: 'POST', body: JSON.stringify({ motivo }) });
+            await loadInfluencerAnalises();
+          } catch (err) { alert(err.message); }
+        };
+        actionsRow.appendChild(approveBtn);
+        actionsRow.appendChild(rejectBtn);
+      }
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Excluir';
+      delBtn.className = 'btn-link';
+      delBtn.style.color = 'var(--danger)';
+      delBtn.onclick = async () => {
+        if (!confirm(`Excluir a análise de "${a.nome}"? Essa ação não pode ser desfeita (o cadastro em Gerenciamento de Influencers, se já tiver sido criado, não é afetado).`)) return;
+        try {
+          await api('/api/influencer-analises/' + a.id, { method: 'DELETE' });
+          await loadInfluencerAnalises();
+        } catch (err) { alert(err.message); }
+      };
+      actionsRow.appendChild(delBtn);
+      card.appendChild(actionsRow);
+      wrap.appendChild(card);
+    });
+  }
+
+  $all('[data-analise-brand]').forEach((b) => {
+    b.onclick = () => {
+      analisesTab = b.dataset.analiseBrand;
+      $all('[data-analise-brand]').forEach((x) => x.classList.toggle('active', x.dataset.analiseBrand === analisesTab));
+      $('#analiseFormWrap').hidden = true;
+      renderAnaliseList();
+    };
+  });
+  $('#analiseStatusFilter').onchange = renderAnaliseList;
+
+  function openAnaliseForm(a) {
+    editingAnaliseId = a ? a.id : null;
+    $('#analiseFormTitle').textContent = a ? 'Editar análise' : 'Nova análise';
+    ANALISE_FIELDS.forEach((key) => {
+      const el = $('#' + analiseFieldInputId(key));
+      if (el) el.value = a ? (a[key] === null || a[key] === undefined ? '' : a[key]) : '';
+    });
+    $('#analiseFormError').hidden = true;
+    $('#analiseFormWrap').hidden = false;
+  }
+  $('#analiseNewBtn').onclick = () => openAnaliseForm(null);
+  $('#analiseFormCancel').onclick = () => { $('#analiseFormWrap').hidden = true; };
+  $('#analiseFormSave').onclick = async () => {
+    const payload = { brand: analisesTab };
+    ANALISE_FIELDS.forEach((key) => {
+      const el = $('#' + analiseFieldInputId(key));
+      if (el) payload[key] = el.value;
+    });
+    if (!payload.nome || !payload.nome.trim()) {
+      $('#analiseFormError').textContent = 'Informe o nome da influencer.';
+      $('#analiseFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingAnaliseId) {
+        await api('/api/influencer-analises/' + editingAnaliseId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/influencer-analises', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#analiseFormWrap').hidden = true;
+      await loadInfluencerAnalises();
+    } catch (e) {
+      $('#analiseFormError').textContent = e.message;
+      $('#analiseFormError').hidden = false;
+    }
   };
 
   // ---------- link externo por dashboard (28ª rodada) ----------

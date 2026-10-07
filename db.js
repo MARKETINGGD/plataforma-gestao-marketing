@@ -200,7 +200,25 @@ db.defaults({
   // `endpoint` (o mesmo navegador pode reconceder a permissão sem virar
   // registro duplicado). Uma pessoa pode ter várias (celular +
   // computador, por exemplo) -- todas recebem.
-  pushSubscriptions: []
+  pushSubscriptions: [],
+  // Análise de Influencer (89ª rodada, pedido da Raquel: "aidicione um sub
+  // menu em influencers, com o nome Análise de influencer" + planilha
+  // "MAPEAMENTO DE INFLUENCIADORES" que ela compartilhou, com os campos
+  // exatos das abas "Mapeamento" e "Informações importantes") — é a etapa
+  // ANTERIOR ao Gerenciamento de Influencers (`influencers` acima): aqui
+  // entram candidatas/os em avaliação (métricas de audiência, valores
+  // cobrados por formato, dados pessoais informais) ainda sem virar um
+  // cadastro de verdade. Pedido explícito da Raquel: "deixe conectado com
+  // a outra aba das influencers, pq quando aprovada uma influencer da aba
+  // analise, ja deve criar automaticamnete um cadastro e uma planilha p
+  // ela no outra aba que ja existe" — aprovar uma análise
+  // (POST /:id/aprovar em routes/influencerAnalises.js) cria direto um
+  // registro em `influencers` (sem exigir os dados pessoais formais —
+  // CPF/RG/etc. — que só são obrigatórios no cadastro manual normal desde
+  // a 78ª rodada; dá pra completar depois editando o influencer já
+  // criado) com a "planilha" (tabela de ações, `influencerPosts`) nascendo
+  // vazia do jeito que já acontece hoje pra qualquer influencer novo.
+  influencerAnalises: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

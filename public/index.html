@@ -220,7 +220,22 @@
         <button class="navlink" id="navDemandas" data-view="demandas">Demandas</button>
         <button class="navlink" id="navAgendamento" data-view="agendamento">Agendamento</button>
         <button class="navlink" id="navCronograma" data-view="cronograma">Cronograma</button>
-        <button class="navlink" id="navInfluencers" data-view="influencers">Influencers</button>
+        <!-- 89ª rodada, pedido da Raquel: "aidicione um sub menu em
+             influencers, com o nome Análise de influencer" -- Influencers
+             vira submenu (mesmo padrão de Budget/Produtos/Brindes/
+             Expositores): "Gerenciamento de Influencers" é a tela de
+             sempre (cadastro definitivo, aba antiga `navInfluencers`);
+             "Análise de Influencer" é a tela nova de prospecção/avaliação
+             (planilha "MAPEAMENTO DE INFLUENCIADORES" que ela compartilhou),
+             ligada à de Gerenciamento: aprovar uma análise cria o cadastro
+             definitivo automaticamente (ver routes/influencerAnalises.js). -->
+        <div class="navlink-group" id="navInfluencersGroup">
+          <button class="navlink navlink-parent" id="navInfluencersParent" type="button">Influencers</button>
+          <div class="navlink-submenu" id="navInfluencersSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navInfluencersGerenciamento" data-view="influencers">Gerenciamento de Influencers</button>
+            <button class="navlink navlink-sub" id="navInfluencersAnalise" data-view="influencer-analises">Análise de Influencer</button>
+          </div>
+        </div>
         <!-- 33ª rodada, pedido da Raquel: "no botão produtos deve ter um sub
              menu com: análise de concorrência, lançamentos de produtos" --
              mesmo padrão de submenu já usado no Budget (25ª rodada). -->
@@ -1217,6 +1232,138 @@
           <div class="form-actions">
             <button class="btn-primary" id="influencerPostFormSave">Salvar</button>
             <button class="btn-secondary" id="influencerPostFormCancel">Cancelar</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Análise de Influencer (89ª rodada, pedido da Raquel: submenu novo
+           dentro de Influencers, com os campos exatos da planilha "MAPEAMENTO
+           DE INFLUENCIADORES" que ela compartilhou -- abas "Mapeamento" e
+           "Informações importantes"). Etapa de prospecção/avaliação, ANTES
+           do cadastro definitivo -- aprovar uma análise cria automaticamente
+           um influencer em Gerenciamento de Influencers (planilha/tabela de
+           ações dele nasce vazia, igual qualquer influencer novo). -->
+      <section id="view-influencer-analises" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Análise de Influencer</h2>
+          <div class="view-toolbar-actions">
+            <button class="btn-primary" id="analiseNewBtn">+ Nova análise</button>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-analise-brand="debacco">De Bacco</button>
+          <button class="tab-btn" data-analise-brand="ghelplus">GhelPlus</button>
+        </div>
+
+        <div class="toolbar">
+          <select id="analiseStatusFilter">
+            <option value="">Todos os status</option>
+            <option value="em_analise">Em análise</option>
+            <option value="aprovada">Aprovada</option>
+            <option value="reprovada">Reprovada</option>
+          </select>
+        </div>
+
+        <div id="analiseList" class="card-grid"></div>
+        <p id="analiseEmpty" class="muted" hidden>Nenhuma análise cadastrada ainda nessa marca.</p>
+
+        <div id="analiseFormWrap" class="form-card" hidden>
+          <h3 id="analiseFormTitle">Nova análise</h3>
+          <input type="hidden" id="analiseFormId">
+
+          <p class="muted" style="margin:4px 0;font-size:12px;">Mapeamento</p>
+          <div class="form-row">
+            <div><label>Nome</label><input id="analiseFormNome" type="text" placeholder="Ex: @fulana.beauty"></div>
+            <div><label>Gênero</label><input id="analiseFormGenero" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Estado</label><input id="analiseFormEstado" type="text"></div>
+            <div><label>Seguidores</label><input id="analiseFormSeguidores" type="number" step="1"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Média de Likes</label><input id="analiseFormMediaLikes" type="number" step="1"></div>
+            <div><label>Média de Views</label><input id="analiseFormMediaViews" type="number" step="1"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Média de Comentários</label><input id="analiseFormMediaComentarios" type="number" step="1"></div>
+            <div><label>Alcance</label><input id="analiseFormAlcance" type="number" step="1"></div>
+          </div>
+
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Faixa etária (% da audiência)</p>
+          <div class="form-row">
+            <div><label>13-17</label><input id="analiseFormFaixaEtaria1317" type="number" step="1"></div>
+            <div><label>18-24</label><input id="analiseFormFaixaEtaria1824" type="number" step="1"></div>
+            <div><label>25+</label><input id="analiseFormFaixaEtaria25Mais" type="number" step="1"></div>
+          </div>
+
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Gênero da audiência (%)</p>
+          <div class="form-row">
+            <div><label>Mulheres</label><input id="analiseFormGeneroAudienciaMulheres" type="number" step="1"></div>
+            <div><label>Homens</label><input id="analiseFormGeneroAudienciaHomens" type="number" step="1"></div>
+          </div>
+
+          <div class="form-row">
+            <div><label>Principais temas</label><input id="analiseFormPrincipaisTemas" type="text"></div>
+            <div><label>Cidades</label><input id="analiseFormCidades" type="text"></div>
+          </div>
+
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Valores e Formatos (R$)</p>
+          <div class="form-row">
+            <div><label>Post foto + 3 stories</label><input id="analiseFormValorPostFotoStories" type="number" step="0.01"></div>
+            <div><label>Post vídeo + 3 stories</label><input id="analiseFormValorPostVideoStories" type="number" step="0.01"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Post avulso foto</label><input id="analiseFormValorPostAvulsoFoto" type="number" step="0.01"></div>
+            <div><label>Post avulso vídeo ou reels</label><input id="analiseFormValorPostAvulsoVideoReels" type="number" step="0.01"></div>
+          </div>
+          <div class="form-row">
+            <div><label>4 stories</label><input id="analiseFormValorQuatroStories" type="number" step="0.01"></div>
+            <div><label>Presença + post + stories</label><input id="analiseFormValorPresencaPostStories" type="number" step="0.01"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Youtube</label><input id="analiseFormValorYoutube" type="number" step="0.01"></div>
+            <div><label>Tiktok</label><input id="analiseFormValorTiktok" type="number" step="0.01"></div>
+          </div>
+
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Informações importantes</p>
+          <div class="form-row">
+            <div><label>@Instagram</label><input id="analiseFormInstagramHandle" type="text"></div>
+            <div><label>@TikTok</label><input id="analiseFormTiktokHandle" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Youtube</label><input id="analiseFormYoutubeHandle" type="text"></div>
+            <div><label>Aniversário</label><input id="analiseFormAniversario" type="text" placeholder="DD/MM"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Idade</label><input id="analiseFormIdade" type="number" step="1"></div>
+            <div><label>Status Civil</label><input id="analiseFormStatusCivil" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Reforma?</label><input id="analiseFormReforma" type="text"></div>
+            <div><label>Filhos</label><input id="analiseFormFilhos" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Mora sozinho?</label><input id="analiseFormMoraSozinho" type="text"></div>
+            <div><label>Local</label><input id="analiseFormLocal" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Tipo de Cabelo</label><input id="analiseFormTipoCabelo" type="text"></div>
+            <div><label>Intolerâncias Alimentares</label><input id="analiseFormIntoleranciasAlimentares" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Hábitos Alimentares</label><input id="analiseFormHabitosAlimentares" type="text"></div>
+            <div><label>Alergias</label><input id="analiseFormAlergias" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Óculos de Grau (qual o grau)</label><input id="analiseFormOculosGrau" type="text"></div>
+            <div><label>Animal de estimação</label><input id="analiseFormAnimalEstimacao" type="text"></div>
+          </div>
+
+          <div id="analiseFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button class="btn-primary" id="analiseFormSave">Salvar</button>
+            <button class="btn-secondary" id="analiseFormCancel">Cancelar</button>
           </div>
         </div>
       </section>

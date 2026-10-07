@@ -27,7 +27,11 @@ async function main() {
   await page.click('#loginSubmit');
   await page.waitForSelector('#screen-app:not([hidden])', { timeout: 10000 });
 
-  await page.click('#navInfluencers');
+  // 89ª rodada: Influencers virou submenu (Gerenciamento de Influencers /
+  // Análise de Influencer) -- mesmo padrão de 2 cliques já usado em
+  // Budget/Produtos/Brindes/Expositores.
+  await page.click('#navInfluencersParent');
+  await page.click('#navInfluencersGerenciamento');
   await page.waitForSelector('#view-influencers:not([hidden])');
   await page.waitForTimeout(300);
 

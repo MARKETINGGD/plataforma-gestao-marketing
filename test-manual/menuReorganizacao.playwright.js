@@ -54,7 +54,7 @@ async function main() {
 
   const navIds = await page.$$eval('.sidebar-nav > *', (els) => els.map((el) => el.id));
   const expectedTopLevelOrder = [
-    'navHome', 'navChat', 'navDemandas', 'navAgendamento', 'navCronograma', 'navInfluencers',
+    'navHome', 'navChat', 'navDemandas', 'navAgendamento', 'navCronograma', 'navInfluencersGroup',
     'navProdutosGroup', 'navExpositoresGroup', 'navBrindesGroup', 'navBudgetGroup',
     'navAppExternosGroup', 'navRelatoriosGroup', 'navConfiguracoesGroup'
   ];

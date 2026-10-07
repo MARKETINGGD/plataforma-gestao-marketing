@@ -28,6 +28,8 @@ app.use('/api/social-accounts', require('./routes/socialAccounts'));
 app.use('/api/brindes', require('./routes/brindes'));
 app.use('/api/retiradas-internas', require('./routes/retiradasInternas'));
 app.use('/api/influencers', require('./routes/influencers'));
+// Análise de Influencer (89ª rodada) — ver routes/influencerAnalises.js.
+app.use('/api/influencer-analises', require('./routes/influencerAnalises'));
 app.use('/api/produtos', require('./routes/produtos'));
 app.use('/api/expositores', require('./routes/expositores'));
 app.use('/api/feiras', require('./routes/feiras'));

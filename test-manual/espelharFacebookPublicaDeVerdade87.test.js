@@ -18,12 +18,39 @@
 // Instagram original (se ainda não tinha sido publicado) quanto pro
 // espelho novo do Facebook (sempre).
 //
+// 90ª rodada, BUG REAL reportado pela Raquel ao vivo: um post de
+// Instagram agendado pro dia 15 (ela tinha acabado de mudar de dia 30 pro
+// dia 15, ou seja, uma data no FUTURO de qualquer jeito) foi publicado de
+// verdade na hora em que ela clicou em "Espelhar no Facebook também" --
+// mesmo faltando uma semana pra data agendada. Causa raiz: o código desta
+// rodada (87ª) só checava se o Instagram JÁ tinha sido publicado
+// (`instagramJaPublicado`) antes de decidir se tentava publicar os dois
+// agora -- nunca checava se a data/hora agendada **já tinha chegado**.
+// Resultado: clicar em espelhar virava "publicar agora" pra QUALQUER post
+// ainda não publicado, mesmo um agendado pra semanas no futuro -- o
+// oposto do que "agendado" quer dizer. Corrigido em
+// routes/socialPosts.js (POST /:id/espelhar-facebook): agora só tenta
+// publicar de verdade na hora do clique quando o post JÁ está "na hora"
+// (`metaPublisher.isDue`, a MESMA checagem que o ciclo automático de 2 em
+// 2 minutos usa) OU já tinha sido publicado antes -- pra post agendado
+// pro futuro, o clique só cria o espelho (como sempre fez) e deixa os
+// dois esperando o ciclo automático publicar na hora certa.
+//
+// Por causa dessa correção, os casos 1/3/4 abaixo (que antes usavam uma
+// data no futuro de propósito, sem perceber que isso mascarava o bug)
+// foram ajustados pra usar uma data/hora JÁ VENCIDA -- é assim que se
+// testa o caminho "publica de verdade na hora do clique" sem depender do
+// bug. O caso 5, novo nesta rodada, testa exatamente o cenário que a
+// Raquel bateu: post agendado pro FUTURO, ainda não publicado -> espelhar
+// NÃO publica nenhum dos dois agora, só cria o espelho.
+//
 // Roda o server.js de verdade numa porta própria, com backup/restauração
 // do data/db.json real, e monkeypatcha utils/metaGraphClient ANTES de
 // subir o servidor pra não precisar de rede/credenciais reais (mesmo
 // padrão de publicarAgora.test.js).
 const path = require('path');
 const fs = require('fs');
+const { nowSaoPaulo } = require('../utils/pontoReminders');
 
 process.env.JWT_SECRET = 'teste-espelhar-facebook-publica-87';
 process.env.PORT = '4347';
@@ -38,6 +65,14 @@ if (fs.existsSync(realDbPath)) {
   fs.copyFileSync(realDbPath, backupPath);
   hadOriginal = true;
 }
+
+// Data/hora JÁ VENCIDA (hoje, 00:00 no horário de São Paulo) -- garante
+// `isDue()` = true em qualquer hora do dia em que este teste rodar, pros
+// casos que precisam simular um post "já devia ter publicado sozinho".
+const HOJE = nowSaoPaulo().dateStr;
+// Data no FUTURO, bem longe (ano seguinte) -- garante `isDue()` = false
+// de propósito, pro caso novo (5) que reproduz o bug relatado pela Raquel.
+const FUTURO = '2027-06-15';
 
 async function run() {
   let failures = 0;
@@ -121,7 +156,9 @@ async function run() {
   // espelho, só o POST de criação faz isso (mesmo truque usado em
   // espelharFacebookManual86.test.js). Sem isso, o post já nasceria com
   // mirroredToPostId preenchido e o endpoint /espelhar-facebook do teste
-  // falharia com "já tem espelho".
+  // falharia com "já tem espelho". `scheduledDate`/`scheduledTime` default
+  // pra uma data JÁ VENCIDA (HOJE, 00:00) -- quem precisa testar o
+  // caminho "agendado pro futuro" (caso 5) passa a data explicitamente.
   async function createIgPost(body) {
     const extra = Object.assign({}, body);
     const brand = extra.brand || 'ghelplus';
@@ -130,7 +167,7 @@ async function run() {
       method: 'POST', headers: hj(adminToken),
       body: JSON.stringify(Object.assign({
         brand, platform: 'facebook', postType: 'estatico', status: 'agendado',
-        scheduledDate: '2026-11-05', scheduledTime: '09:00', caption: 'Legenda de teste 87',
+        scheduledDate: HOJE, scheduledTime: '00:00', caption: 'Legenda de teste 87',
         involvedUserIds: [adminId], responsibleId: adminId
       }, extra))
     }).then((r) => r.json());
@@ -140,17 +177,17 @@ async function run() {
     return putRes.post;
   }
 
-  // ---------- 1. Instagram AINDA não publicado -> espelhar deve publicar
-  // os DOIS, juntos, de verdade. ----------
+  // ---------- 1. Instagram AINDA não publicado, mas data/hora JÁ VENCIDA
+  // (HOJE) -> espelhar deve publicar os DOIS, juntos, de verdade. ----------
   calls = [];
   shouldFailInstagram = false;
   shouldFailFacebook = false;
-  const post1 = await createIgPost({ subject: 'Caso 1 -- ainda não publicado' });
+  const post1 = await createIgPost({ subject: 'Caso 1 -- ainda não publicado, já na hora' });
   setFiles(post1.id, [{ id: 'f1', url: '/uploads/social/x/creative/foto1.jpg', name: 'foto1.jpg' }]);
   const esp1Res = await fetch(`${BASE}/api/social-posts/${post1.id}/espelhar-facebook`, { method: 'POST', headers: hj(adminToken) });
   const esp1Body = await esp1Res.json();
   check('caso 1: responde 200', esp1Res.status === 200);
-  check('caso 1: originalPublishResult.attempted = true (Instagram ainda não tinha sido publicado)', esp1Body.originalPublishResult && esp1Body.originalPublishResult.attempted === true);
+  check('caso 1: originalPublishResult.attempted = true (Instagram ainda não tinha sido publicado, mas já tá na hora)', esp1Body.originalPublishResult && esp1Body.originalPublishResult.attempted === true);
   check('caso 1: originalPublishResult.published = true (publicou de verdade)', esp1Body.originalPublishResult && esp1Body.originalPublishResult.published === true);
   check('caso 1: mirrorPublishResult.published = true (o espelho também publicou de verdade)', esp1Body.mirrorPublishResult && esp1Body.mirrorPublishResult.published === true);
   check('caso 1: post original volta com status "publicado" de verdade', esp1Body.originalPost && esp1Body.originalPost.status === 'publicado');
@@ -159,7 +196,8 @@ async function run() {
   check('caso 1: chamou publishFacebookPagePost de verdade (Facebook realmente publicado)', calls.some((c) => c.fn === 'publishFacebookPagePost'));
 
   // ---------- 2. Instagram JÁ publicado antes, sem espelho -> espelhar
-  // deve publicar SÓ o Facebook, sem tentar republicar o Instagram. ----------
+  // deve publicar SÓ o Facebook, sem tentar republicar o Instagram (não
+  // depende da data agendada -- já publicado é já publicado). ----------
   calls = [];
   shouldFailInstagram = false;
   shouldFailFacebook = false;
@@ -179,9 +217,10 @@ async function run() {
   check('caso 2: chamou publishFacebookPagePost de verdade', calls.some((c) => c.fn === 'publishFacebookPagePost'));
   check('caso 2: post original continua com o externalPostId de antes (não foi tocado)', esp2Body.originalPost && esp2Body.originalPost.externalPostId === 'ig-post-ja-publicado');
 
-  // ---------- 3. Falha de verdade na Meta ao publicar o Facebook -> o
-  // espelho continua existindo (não desfaz o espelhamento), mas fica sem
-  // publicar, com o motivo do erro disponível pro aviso da tela. ----------
+  // ---------- 3. Data/hora já vencida (HOJE), falha de verdade na Meta ao
+  // publicar o Facebook -> o espelho continua existindo (não desfaz o
+  // espelhamento), mas fica sem publicar, com o motivo do erro disponível
+  // pro aviso da tela. ----------
   calls = [];
   shouldFailInstagram = false;
   shouldFailFacebook = true;
@@ -198,9 +237,10 @@ async function run() {
   check('caso 3: espelho fica com publishStatus "failed" (não trava em "publishing")', mirror3InDb.publishStatus === 'failed');
   shouldFailFacebook = false;
 
-  // ---------- 4. Marca sem conta Meta conectada (De Bacco, não conectado
-  // neste teste) -> espelho criado, mas sem publicar (sem conta); cai no
-  // aviso de "aguardando aprovação" de sempre. ----------
+  // ---------- 4. Data/hora já vencida (HOJE), marca sem conta Meta
+  // conectada (De Bacco, não conectado neste teste) -> espelho criado,
+  // mas sem publicar (sem conta); cai no aviso de "aguardando aprovação"
+  // de sempre. ----------
   calls = [];
   const post4 = await createIgPost({ subject: 'Caso 4 -- marca sem conta conectada', brand: 'debacco' });
   setFiles(post4.id, [{ id: 'f1', url: '/uploads/social/x/creative/foto4.jpg', name: 'foto4.jpg' }]);
@@ -211,16 +251,41 @@ async function run() {
   check('caso 4: mirrorPublishResult.published = false', esp4Body.mirrorPublishResult && esp4Body.mirrorPublishResult.published === false);
   check('caso 4: nenhuma chamada de verdade à Graph API (falhou antes, na checagem da conta)', calls.length === 0);
 
+  // ---------- 5. NOVO (90ª rodada) -- post agendado pro FUTURO, ainda não
+  // publicado -> espelhar NÃO pode publicar nenhum dos dois agora, só cria
+  // o espelho e deixa os dois esperando o ciclo automático. Reproduz
+  // exatamente o bug relatado pela Raquel (post do dia 15 publicado no dia
+  // 8, só por clicar em espelhar). ----------
+  calls = [];
+  shouldFailInstagram = false;
+  shouldFailFacebook = false;
+  const post5 = await createIgPost({ subject: 'Caso 5 -- agendado pro futuro, não pode publicar agora', scheduledDate: FUTURO, scheduledTime: '09:00' });
+  setFiles(post5.id, [{ id: 'f1', url: '/uploads/social/x/creative/foto5.jpg', name: 'foto5.jpg' }]);
+  const esp5Res = await fetch(`${BASE}/api/social-posts/${post5.id}/espelhar-facebook`, { method: 'POST', headers: hj(adminToken) });
+  const esp5Body = await esp5Res.json();
+  check('caso 5: responde 200', esp5Res.status === 200);
+  check('caso 5: devolveu o mirrorPost mesmo sem publicar nada agora', !!(esp5Body.mirrorPost && esp5Body.mirrorPost.id));
+  check('caso 5: originalPublishResult.attempted = false (ainda não chegou a data agendada)', esp5Body.originalPublishResult && esp5Body.originalPublishResult.attempted === false);
+  check('caso 5: originalPublishResult.published = false', esp5Body.originalPublishResult && esp5Body.originalPublishResult.published === false);
+  check('caso 5: mirrorPublishResult.attempted = false (idem, pro espelho novo)', esp5Body.mirrorPublishResult && esp5Body.mirrorPublishResult.attempted === false);
+  check('caso 5: mirrorPublishResult.published = false', esp5Body.mirrorPublishResult && esp5Body.mirrorPublishResult.published === false);
+  check('caso 5: NENHUMA chamada de verdade à Graph API (nem Instagram, nem Facebook)', calls.length === 0);
+  check('caso 5: post original NÃO virou "publicado" só por causa do clique em espelhar', esp5Body.originalPost && esp5Body.originalPost.status !== 'publicado');
+  check('caso 5: espelho NÃO nasceu "publicado" também', esp5Body.mirrorPost && esp5Body.mirrorPost.status !== 'publicado');
+  check('caso 5: espelho aponta pro post original mesmo sem ter publicado nada ainda', esp5Body.mirrorPost && esp5Body.mirrorPost.mirroredFromPostId === post5.id);
+  check('caso 5: post original ganhou mirroredToPostId (o espelhamento em si aconteceu normalmente)', esp5Body.originalPost && esp5Body.originalPost.mirroredToPostId === esp5Body.mirrorPost.id);
+
   console.log(failures === 0 ? '\nTODOS OS CHECKS PASSARAM' : `\n${failures} CHECK(S) FALHARAM`);
   process.exitCode = failures === 0 ? 0 : 1;
 
   // Limpa os uploads criados neste teste antes de restaurar o banco (mesmo
   // padrão de espelharFacebookManual86.test.js).
-  [post1.id, post2.id, post3.id, post4.id,
+  [post1.id, post2.id, post3.id, post4.id, post5.id,
     esp1Body.mirrorPost && esp1Body.mirrorPost.id,
     esp2Body.mirrorPost && esp2Body.mirrorPost.id,
     esp3Body.mirrorPost && esp3Body.mirrorPost.id,
-    esp4Body.mirrorPost && esp4Body.mirrorPost.id
+    esp4Body.mirrorPost && esp4Body.mirrorPost.id,
+    esp5Body.mirrorPost && esp5Body.mirrorPost.id
   ].filter(Boolean).forEach((id) => {
     const dir = path.join(__dirname, '..', 'data', 'uploads', 'social', id);
     if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });

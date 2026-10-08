@@ -657,6 +657,24 @@ router.post('/:id/espelhar-facebook', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Este post já tem um espelho no Facebook.' });
   }
   const instagramJaPublicado = post.status === 'publicado';
+  // 90ª rodada, bug real reportado pela Raquel: um post de Instagram
+  // AGENDADO PRA UMA DATA FUTURA (ex.: dia 15, hoje sendo dia 8) foi
+  // publicado de verdade na hora em que ela clicou em "Espelhar no
+  // Facebook também" -- o botão nunca checava se a data/hora agendada já
+  // tinha chegado, só se o Instagram já estava "publicado" (ver
+  // `instagramJaPublicado` acima). Sem essa checagem, QUALQUER post de
+  // Instagram ainda não publicado (mesmo agendado pra daqui a semanas)
+  // virava publicação imediata só por clicar em espelhar -- o oposto do
+  // que "agendado" quer dizer. `postJaEstaNaHora` reaproveita a MESMA
+  // função (`isDue`) que o ciclo automático de 2 em 2 minutos usa pra
+  // decidir isso, então o comportamento fica consistente: só tenta
+  // publicar de verdade na hora do clique quando o post JÁ publicaria
+  // sozinho de qualquer jeito (seja porque já é hoje/já passou da hora,
+  // seja porque ficou pendente por algum motivo -- sem conta conectada
+  // antes, por exemplo). Pra post agendado pro futuro, o clique só cria o
+  // espelho (igual sempre fez) e deixa os dois esperando o ciclo
+  // automático publicar na hora certa, como o nome "agendado" promete.
+  const postJaEstaNaHora = metaPublisher.isDue(post);
   const mirror = createFacebookMirror(post, req);
   // Copia qualquer criativo que o post de Instagram já tenha (o espelho
   // nasce sempre sem arquivo nenhum em createFacebookMirror) -- mesmo
@@ -685,12 +703,19 @@ router.post('/:id/espelhar-facebook', requireAuth, async (req, res) => {
     db.get('socialPosts').find({ id: mirror.id }).assign({ status: 'agendado' }).write();
   }
 
-  // Instagram ainda não publicado de verdade -> tenta publicar os DOIS
-  // agora, juntos. Instagram já publicado -> só o espelho novo tenta.
+  // Instagram ainda não publicado de verdade E já tá na hora (ou passou
+  // dela) -> tenta publicar os DOIS agora, juntos. Instagram já publicado
+  // -> só o espelho novo tenta. Agendado pro futuro (nem publicado, nem
+  // na hora ainda) -> NENHUM dos dois tenta publicar agora -- só cria o
+  // espelho e espera o ciclo automático de sempre.
   const originalResult = instagramJaPublicado
     ? { attempted: false, published: false, reason: 'já publicado' }
-    : await tryPublishPostNow(post.id);
-  const mirrorResult = await tryPublishPostNow(mirror.id);
+    : postJaEstaNaHora
+      ? await tryPublishPostNow(post.id)
+      : { attempted: false, published: false, reason: 'ainda não chegou a data/hora agendada -- vai publicar sozinho no horário certo' };
+  const mirrorResult = (instagramJaPublicado || postJaEstaNaHora)
+    ? await tryPublishPostNow(mirror.id)
+    : { attempted: false, published: false, reason: 'ainda não chegou a data/hora agendada -- vai publicar sozinho no horário certo' };
 
   const freshMirror = db.get('socialPosts').find({ id: mirror.id }).value();
   const freshOriginal = db.get('socialPosts').find({ id: post.id }).value();

@@ -238,16 +238,19 @@
   let editingInfluencerPostId = null;
   let influencerRedes = [];
 
-  // ---------- Análise de Influencer (89ª rodada) ----------
+  // ---------- Análise de Influencer (89ª rodada; refeita na 91ª com a
+  // planilha atualizada da Raquel + mídia kit) ----------
   let analisesTab = 'debacco'; // 'debacco' | 'ghelplus'
   let analisesList = [];
   let editingAnaliseId = null;
   // Campos do formulário, na mesma ordem/nome da planilha "MAPEAMENTO DE
   // INFLUENCIADORES" (abas "Mapeamento" e "Informações importantes") que a
   // Raquel compartilhou -- usado tanto pra ler quanto pra montar o payload
-  // de salvar, sem repetir a lista em vários lugares.
+  // de salvar, sem repetir a lista em vários lugares. "email"/"tipoConteudo"
+  // são novos na 91ª rodada (planilha atualizada), na posição exata de
+  // onde entraram na planilha de verdade (logo depois de "genero").
   const ANALISE_FIELDS = [
-    'nome', 'genero', 'estado', 'seguidores', 'mediaLikes', 'mediaViews', 'mediaComentarios', 'alcance',
+    'nome', 'genero', 'email', 'tipoConteudo', 'estado', 'seguidores', 'mediaLikes', 'mediaViews', 'mediaComentarios', 'alcance',
     'faixaEtaria1317', 'faixaEtaria1824', 'faixaEtaria25Mais',
     'generoAudienciaMulheres', 'generoAudienciaHomens',
     'principaisTemas', 'cidades',
@@ -2074,7 +2077,7 @@
         if (b.dataset.view === 'agendamento') loadSocialPosts();
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
-        if (b.dataset.view === 'influencer-analises') loadInfluencerAnalises();
+        if (b.dataset.view === 'influencer-analises') { $('#analiseFormWrap').hidden = true; loadInfluencerAnalises(); }
         if (b.dataset.view === 'chat') { loadChatConversations(); loadChat(); }
         if (b.dataset.view === 'feiras') loadFeiras();
         if (b.dataset.view === 'campanha-cooperada') loadCampanhasCooperadas();
@@ -10908,7 +10911,6 @@
   // routes/influencerAnalises.js), com a planilha de ações dele já
   // nascendo vazia, igual qualquer influencer novo.
   async function loadInfluencerAnalises() {
-    $('#analiseFormWrap').hidden = true;
     try {
       const data = await api('/api/influencer-analises');
       analisesList = data.analises;
@@ -10951,6 +10953,7 @@
           if (!confirm(`Aprovar "${a.nome}"? Isso cria automaticamente o cadastro dela em Gerenciamento de Influencers, com a planilha de ações vazia.`)) return;
           try {
             await api(`/api/influencer-analises/${a.id}/aprovar`, { method: 'POST' });
+            $('#analiseFormWrap').hidden = true;
             await loadInfluencerAnalises();
           } catch (err) { alert(err.message); }
         };
@@ -10962,6 +10965,7 @@
           const motivo = prompt('Motivo da reprovação (opcional):') || '';
           try {
             await api(`/api/influencer-analises/${a.id}/reprovar`, { method: 'POST', body: JSON.stringify({ motivo }) });
+            $('#analiseFormWrap').hidden = true;
             await loadInfluencerAnalises();
           } catch (err) { alert(err.message); }
         };
@@ -10976,6 +10980,7 @@
         if (!confirm(`Excluir a análise de "${a.nome}"? Essa ação não pode ser desfeita (o cadastro em Gerenciamento de Influencers, se já tiver sido criado, não é afetado).`)) return;
         try {
           await api('/api/influencer-analises/' + a.id, { method: 'DELETE' });
+          $('#analiseFormWrap').hidden = true;
           await loadInfluencerAnalises();
         } catch (err) { alert(err.message); }
       };
@@ -10995,6 +11000,31 @@
   });
   $('#analiseStatusFilter').onchange = renderAnaliseList;
 
+  // Mídia kit (91ª rodada) — mesmo padrão exato já usado nos arquivos de
+  // Lançamento de Produtos (renderLancamentoFiles): upload só depois de a
+  // análise existir (precisa do id na URL).
+  function renderAnaliseMidiaKit(a) {
+    const wrap = $('#analiseMidiaKit');
+    wrap.innerHTML = '';
+    (a && a.arquivosMidiaKit || []).forEach((f) => {
+      const row = document.createElement('div');
+      row.className = 'file-item';
+      row.innerHTML = `<a href="${f.url}" target="_blank" rel="noopener">${escapeHtml(f.name)}</a> <span class="muted">(${fmtBytes(f.size)})</span>`;
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '✕';
+      delBtn.className = 'btn-link';
+      delBtn.onclick = async () => {
+        try {
+          await api(`/api/influencer-analises/${a.id}/midia-kit/${f.id}`, { method: 'DELETE' });
+          await loadInfluencerAnalises();
+          renderAnaliseMidiaKit((analisesList.find((it) => it.id === a.id)) || a);
+        } catch (err) { alert(err.message); }
+      };
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+
   function openAnaliseForm(a) {
     editingAnaliseId = a ? a.id : null;
     $('#analiseFormTitle').textContent = a ? 'Editar análise' : 'Nova análise';
@@ -11003,10 +11033,29 @@
       if (el) el.value = a ? (a[key] === null || a[key] === undefined ? '' : a[key]) : '';
     });
     $('#analiseFormError').hidden = true;
+    // Upload de mídia kit só depois de a análise existir (precisa do id na
+    // URL) -- mesmo comportamento já usado em Lançamento de Produtos.
+    $('#analiseMidiaKitInput').value = '';
+    $('#analiseMidiaKitInput').style.display = a ? '' : 'none';
+    renderAnaliseMidiaKit(a);
     $('#analiseFormWrap').hidden = false;
   }
   $('#analiseNewBtn').onclick = () => openAnaliseForm(null);
   $('#analiseFormCancel').onclick = () => { $('#analiseFormWrap').hidden = true; };
+  $('#analiseMidiaKitInput').onchange = async () => {
+    const file = $('#analiseMidiaKitInput').files[0];
+    if (!file || !editingAnaliseId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/influencer-analises/${editingAnaliseId}/midia-kit`, { method: 'POST', body: fd });
+      $('#analiseMidiaKitInput').value = '';
+      await loadInfluencerAnalises();
+      renderAnaliseMidiaKit(analisesList.find((it) => it.id === editingAnaliseId));
+    } catch (e) {
+      alert(e.message);
+    }
+  };
   $('#analiseFormSave').onclick = async () => {
     const payload = { brand: analisesTab };
     ANALISE_FIELDS.forEach((key) => {
@@ -11019,13 +11068,23 @@
       return;
     }
     try {
+      let savedId = editingAnaliseId;
       if (editingAnaliseId) {
         await api('/api/influencer-analises/' + editingAnaliseId, { method: 'PUT', body: JSON.stringify(payload) });
       } else {
-        await api('/api/influencer-analises', { method: 'POST', body: JSON.stringify(payload) });
+        const created = await api('/api/influencer-analises', { method: 'POST', body: JSON.stringify(payload) });
+        savedId = created.analise.id;
       }
-      $('#analiseFormWrap').hidden = true;
       await loadInfluencerAnalises();
+      // Se acabou de criar (não estava editando), reabre já em modo edição
+      // pra liberar o upload do mídia kit -- mesmo cuidado já tomado em
+      // Lançamento de Produtos, senão quem cria e quer anexar um arquivo
+      // teria que salvar, fechar e abrir de novo.
+      if (!editingAnaliseId && savedId) {
+        openAnaliseForm(analisesList.find((it) => it.id === savedId));
+      } else {
+        $('#analiseFormWrap').hidden = true;
+      }
     } catch (e) {
       $('#analiseFormError').textContent = e.message;
       $('#analiseFormError').hidden = false;

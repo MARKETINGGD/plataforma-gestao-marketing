@@ -67,7 +67,15 @@ async function main() {
   await page.fill('#analiseFormValorPostFotoStories', '1200.00');
   await page.click('#analiseFormSave');
   await page.waitForTimeout(400);
-  check('depois de salvar, o formulário fecha e volta pra lista', await page.isHidden('#analiseFormWrap'));
+  // Nota (91ª rodada): criar uma análise NOVA agora reabre o formulário em
+  // modo edição, pra liberar o upload do mídia kit -- mesmo cuidado já
+  // tomado em Lançamento de Produtos (senão quem cria e quer anexar um
+  // arquivo teria que salvar, fechar e abrir de novo). Fecha manualmente
+  // aqui pra continuar testando o fluxo de fora do formulário, igual antes.
+  check('depois de criar, o formulário reabre em modo edição (91ª rodada)', !(await page.isHidden('#analiseFormWrap')) && (await page.textContent('#analiseFormTitle')).trim() === 'Editar análise');
+  await page.click('#analiseFormCancel');
+  await page.waitForTimeout(200);
+  check('fechar o formulário volta pra lista', await page.isHidden('#analiseFormWrap'));
 
   const card = page.locator('.card-grid > *', { hasText: nomeCandidata }).first();
   check('a candidata aparece na lista da aba GhelPlus, com status "Em análise"', await card.getByText('Em análise').isVisible());

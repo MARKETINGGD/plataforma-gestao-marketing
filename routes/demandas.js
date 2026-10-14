@@ -31,7 +31,15 @@ const router = express.Router();
 //   é a área pessoal de cada um, pra organizar as próprias demandas sem
 //   aparecer pra quem não foi marcado.
 
-const STATUSES = ['a_fazer', 'andamento', 'aprovacao', 'concluida'];
+// 92ª rodada, pedido da Raquel: "nos status das demandas adicione tbm: Em
+// refação, em revisão" -- 2 status novos, puramente aditivos (não tiram nem
+// renomeiam nenhum dos 4 que já existiam). Posição escolhida pra refletir o
+// fluxo mais comum (sai de "Em Andamento", passa por revisão, pode voltar
+// pra refação, só então vai pra aprovação) -- mas como "Status" é só um
+// campo do card (não é mais o eixo do quadro, ver comentário acima), dá pra
+// qualquer card pular direto pra qualquer status a qualquer momento, sem
+// trava nenhuma de ordem.
+const STATUSES = ['a_fazer', 'andamento', 'em_revisao', 'em_refacao', 'aprovacao', 'concluida'];
 const VISIBILITIES = ['geral', 'pessoal'];
 // Marca (37ª rodada, pedido da Raquel): opcional -- mostra o ícone da marca
 // no início do título do card. Demanda criada automaticamente a partir de
@@ -303,7 +311,7 @@ function cardOrder(d) {
 
 // Rótulos em PT do status, usados só pra montar frases legíveis no
 // histórico (22ª rodada) — mesmos valores de STATUSES acima.
-const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', aprovacao: 'Em Aprovação', concluida: 'Concluída' };
+const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', concluida: 'Concluída' };
 
 function serialize(d, viewerId) {
   // Quando a demanda veio de um agendamento de redes sociais (uma por
@@ -491,8 +499,13 @@ router.get('/history', requireAuth, (req, res) => {
 // card certo (usa o mesmo `id` que o quadro geral já usa).
 router.get('/summary', requireAuth, (req, res) => {
   const all = db.get('demandas').value().filter((d) => !d.archived && d.visibility !== 'pessoal');
-  const summary = { a_fazer: 0, andamento: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
-  const lists = { a_fazer: [], andamento: [], aprovacao: [], concluida: [], atrasada: [] };
+  // 92ª rodada: precisa inicializar as chaves dos 2 status novos aqui --
+  // sem isso, `summary[d.status] += 1` logo abaixo viraria NaN pra card
+  // em "Em Revisão"/"Em Refação" (a tela Início continua só mostrando as
+  // 4 barras de sempre, ver loadHome() no app.js, mas o número por trás
+  // não pode quebrar por causa disso).
+  const summary = { a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
+  const lists = { a_fazer: [], andamento: [], em_revisao: [], em_refacao: [], aprovacao: [], concluida: [], atrasada: [] };
   const toLite = (d) => ({
     id: d.id,
     title: d.title,
@@ -718,7 +731,7 @@ router.get('/team-report', requireAuth, (req, res) => {
 
   const team = teamUsers.map((u) => {
     const mine = allDemandas.filter((d) => (d.assigneeIds || []).includes(u.id) && matchesPeriodAndBrand(d));
-    const totals = { total: mine.length, a_fazer: 0, andamento: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
+    const totals = { total: mine.length, a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
     mine.forEach((d) => { const k = teamReportStatusKey(d); totals[k] = (totals[k] || 0) + 1; });
     return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals };
   });

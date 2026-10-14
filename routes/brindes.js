@@ -425,22 +425,33 @@ router.post('/log/public/:token', (req, res) => {
   res.json({ item: row });
 });
 
+// 91ª rodada (correção de bug reportado pela Raquel: "o link externo...
+// não está funcionando a parte de somente leitura"): leitura e edição
+// agora são 2 links INDEPENDENTES por marca (ver utils/shareLinks.js) --
+// o GET devolve os dois de uma vez, e gerar/revogar um nunca mexe no
+// outro.
 router.get('/log/public-link', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand } = req.query;
-  const link = shareLinks.getLink('brindesSaidas', brand);
-  res.json({ publicToken: link ? link.token : null, mode: link ? link.mode : null });
+  const leitura = shareLinks.getLink('brindesSaidas', brand, 'leitura');
+  const edicao = shareLinks.getLink('brindesSaidas', brand, 'edicao');
+  res.json({
+    leitura: { publicToken: leitura ? leitura.token : null },
+    edicao: { publicToken: edicao ? edicao.token : null }
+  });
 });
 router.post('/log/public-link/generate', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand, mode } = req.body || {};
   if (!brand) return res.status(400).json({ error: 'Escolha a marca.' });
-  const token = shareLinks.generateLink('brindesSaidas', brand, req, mode);
-  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindesSaidas:' + brand, entityLabel: 'Registro de Saídas · ' + brand, action: 'generate_public_link', details: `Modo: ${mode === 'edicao' ? 'edição' : 'leitura'}` });
-  res.json({ publicToken: token });
+  const resolvedMode = mode === 'edicao' ? 'edicao' : 'leitura';
+  const token = shareLinks.generateLink('brindesSaidas', brand, req, resolvedMode);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindesSaidas:' + brand, entityLabel: 'Registro de Saídas · ' + brand, action: 'generate_public_link', details: `Modo: ${resolvedMode === 'edicao' ? 'edição' : 'leitura'}` });
+  res.json({ publicToken: token, mode: resolvedMode });
 });
 router.delete('/log/public-link', requireAuth, requireBrindesEdit, (req, res) => {
-  const { brand } = req.query;
-  shareLinks.revokeLink('brindesSaidas', brand);
-  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindesSaidas:' + brand, entityLabel: 'Registro de Saídas · ' + brand, action: 'revoke_public_link' });
+  const { brand, mode } = req.query;
+  const resolvedMode = mode === 'edicao' ? 'edicao' : 'leitura';
+  shareLinks.revokeLink('brindesSaidas', brand, resolvedMode);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindesSaidas:' + brand, entityLabel: 'Registro de Saídas · ' + brand, action: 'revoke_public_link', details: `Modo: ${resolvedMode === 'edicao' ? 'edição' : 'leitura'}` });
   res.json({ ok: true });
 });
 
@@ -539,22 +550,33 @@ router.put('/public/:token/catalog/:id', (req, res) => {
   res.json({ item: serializeCatalogItem(db.get('brindesCatalog').find({ id: req.params.id }).value()) });
 });
 
+// 91ª rodada (correção de bug reportado pela Raquel: "o link externo...
+// não está funcionando a parte de somente leitura"): leitura e edição
+// agora são 2 links INDEPENDENTES por marca (ver utils/shareLinks.js) --
+// o GET devolve os dois de uma vez, e gerar/revogar um nunca mexe no
+// outro.
 router.get('/public-link', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand } = req.query;
-  const link = shareLinks.getLink('brindes', brand);
-  res.json({ publicToken: link ? link.token : null, mode: link ? link.mode : null });
+  const leitura = shareLinks.getLink('brindes', brand, 'leitura');
+  const edicao = shareLinks.getLink('brindes', brand, 'edicao');
+  res.json({
+    leitura: { publicToken: leitura ? leitura.token : null },
+    edicao: { publicToken: edicao ? edicao.token : null }
+  });
 });
 router.post('/public-link/generate', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand, mode } = req.body || {};
   if (!brand) return res.status(400).json({ error: 'Escolha a marca.' });
-  const token = shareLinks.generateLink('brindes', brand, req, mode);
-  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'generate_public_link', details: `Modo: ${mode === 'edicao' ? 'edição' : 'leitura'}` });
-  res.json({ publicToken: token });
+  const resolvedMode = mode === 'edicao' ? 'edicao' : 'leitura';
+  const token = shareLinks.generateLink('brindes', brand, req, resolvedMode);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'generate_public_link', details: `Modo: ${resolvedMode === 'edicao' ? 'edição' : 'leitura'}` });
+  res.json({ publicToken: token, mode: resolvedMode });
 });
 router.delete('/public-link', requireAuth, requireBrindesEdit, (req, res) => {
-  const { brand } = req.query;
-  shareLinks.revokeLink('brindes', brand);
-  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'revoke_public_link' });
+  const { brand, mode } = req.query;
+  const resolvedMode = mode === 'edicao' ? 'edicao' : 'leitura';
+  shareLinks.revokeLink('brindes', brand, resolvedMode);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'revoke_public_link', details: `Modo: ${resolvedMode === 'edicao' ? 'edição' : 'leitura'}` });
   res.json({ ok: true });
 });
 

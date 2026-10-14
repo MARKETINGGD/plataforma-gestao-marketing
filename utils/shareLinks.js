@@ -22,8 +22,29 @@ const crypto = require('crypto');
 // `scopeKey` desambigua dentro do mesmo `resource` -- ex.: a marca
 // ('debacco'/'ghelplus') pra Budget/Brindes/Campanha Cooperada, ou
 // 'geral' pra um recurso que não separa por marca.
-function getLink(resource, scopeKey) {
-  return db.get('shareLinks').find({ resource, scopeKey }).value() || null;
+//
+// **91ª rodada (correção de bug reportado pela Raquel)**: até aqui,
+// `getLink`/`generateLink`/`revokeLink` só enxergavam a dupla
+// (resource, scopeKey) -- ou seja, só existia 1 link ativo por marca,
+// NÃO IMPORTA o modo. Pros recursos que só têm o modo "leitura" (Budget,
+// Feiras, Campanha Cooperada, Expositores, Concorrência) isso nunca foi
+// problema, mas pros 2 recursos com os DOIS modos (Brindes -- Catálogo
+// -- e Registro de Saídas, desde a 68ª/88ª rodada), gerar um link num
+// modo **sobrescrevia e invalidava** o link do OUTRO modo já ativo pra
+// mesma marca, sem nenhum aviso -- exatamente o bug que a Raquel
+// reportou ("o link externo... não está funcionando a parte de somente
+// leitura": o link de leitura tinha parado de funcionar depois que
+// alguém gerou um link de edição pra mesma marca, ou vice-versa).
+// Corrigido tornando as 3 funções cientes do MODO: quando `mode` é
+// informado, cada modo vira a própria chave (`resource`+`scopeKey`+
+// `mode`), então um link de leitura e um de edição da MESMA marca agora
+// coexistem, cada um com o próprio token -- gerar/revogar um nunca mexe
+// no outro. Quando `mode` não é informado (todos os outros recursos,
+// que nunca tiveram 2 modos), o comportamento continua EXATAMENTE
+// igual a antes (1 link só por resource+scopeKey).
+function getLink(resource, scopeKey, mode) {
+  const query = mode ? { resource, scopeKey, mode } : { resource, scopeKey };
+  return db.get('shareLinks').find(query).value() || null;
 }
 
 function findByToken(token) {
@@ -31,19 +52,27 @@ function findByToken(token) {
 }
 
 function generateLink(resource, scopeKey, req, mode) {
+  const resolvedMode = mode === 'edicao' ? 'edicao' : 'leitura';
   const token = crypto.randomBytes(20).toString('hex');
-  const existing = getLink(resource, scopeKey);
-  const patch = { token, mode: mode === 'edicao' ? 'edicao' : 'leitura', createdAt: new Date().toISOString(), createdBy: req.user.id, createdByName: req.user.name };
+  // Recursos com 1 modo só (mode nunca é passado nessas chamadas) seguem
+  // achando pelo par antigo (resource, scopeKey) -- continuam com 1 link
+  // só, como sempre. Recursos com os 2 modos (chamam sempre passando
+  // `mode` de verdade) acham pela TRIPLA (resource, scopeKey, mode), pra
+  // um modo nunca sobrescrever o outro.
+  const existing = mode ? getLink(resource, scopeKey, resolvedMode) : getLink(resource, scopeKey);
+  const patch = { token, mode: resolvedMode, createdAt: new Date().toISOString(), createdBy: req.user.id, createdByName: req.user.name };
   if (existing) {
-    db.get('shareLinks').find({ resource, scopeKey }).assign(patch).write();
+    const findQuery = mode ? { resource, scopeKey, mode: resolvedMode } : { resource, scopeKey };
+    db.get('shareLinks').find(findQuery).assign(patch).write();
   } else {
     db.get('shareLinks').push(Object.assign({ resource, scopeKey }, patch)).write();
   }
   return token;
 }
 
-function revokeLink(resource, scopeKey) {
-  db.get('shareLinks').remove({ resource, scopeKey }).write();
+function revokeLink(resource, scopeKey, mode) {
+  const query = mode ? { resource, scopeKey, mode: mode === 'edicao' ? 'edicao' : 'leitura' } : { resource, scopeKey };
+  db.get('shareLinks').remove(query).write();
 }
 
 module.exports = { getLink, findByToken, generateLink, revokeLink };

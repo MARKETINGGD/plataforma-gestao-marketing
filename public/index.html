@@ -905,6 +905,8 @@
             <option value="">Todos os status</option>
             <option value="a_fazer">A Fazer</option>
             <option value="andamento">Em Andamento</option>
+            <option value="em_revisao">Em Revisão</option>
+            <option value="em_refacao">Em Refação</option>
             <option value="aprovacao">Em Aprovação</option>
             <option value="concluida">Concluída</option>
             <option value="atrasada">Atrasada</option>
@@ -1630,19 +1632,30 @@
                abre o link consegue atualizar o estoque (PR/SP/PE) de
                cada item, sem precisar de conta na Papoi. -->
           <div id="brindesPublicLinkPanel" class="form-card no-print" hidden>
-            <p class="muted" style="margin-top:0;">Gere um link pra quem não tem conta na Papoi acompanhar o catálogo desta marca -- escolha "Somente leitura" pra só visualizar, ou "Leitura e edição" pra também deixar atualizar o estoque (PR/SP/PE) de cada item, com o nome de quem editou registrado.</p>
-            <div id="brindesPublicLinkActive" hidden>
-              <p class="muted" id="brindesPublicLinkModeLabel" style="margin:0 0 6px;font-weight:600;"></p>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <input type="text" id="brindesPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
-                <button class="btn-secondary" id="brindesCopyLinkBtn" type="button">Copiar link</button>
-                <button class="btn-secondary danger" id="brindesRevokeLinkBtn" type="button">Desativar</button>
+            <p class="muted" style="margin-top:0;">Gere um link pra quem não tem conta na Papoi acompanhar o catálogo desta marca. <strong>Os dois links abaixo são independentes</strong> -- gerar ou desativar um nunca desativa o outro, então dá pra manter os dois ativos ao mesmo tempo (um só de visualização pra quem acompanha, outro de edição pra quem atualiza o estoque PR/SP/PE, com o nome de quem editou registrado).</p>
+            <div class="form-card" style="margin-bottom:10px;">
+              <p class="muted" style="margin:0 0 8px;font-weight:600;">👁️ Somente leitura</p>
+              <div id="brindesPublicLinkLeituraActive" hidden>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  <input type="text" id="brindesPublicLinkLeituraField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                  <button class="btn-secondary" id="brindesCopyLeituraLinkBtn" type="button">Copiar link</button>
+                  <button class="btn-secondary" id="brindesRegenLeituraLinkBtn" type="button">Gerar novo link</button>
+                  <button class="btn-secondary danger" id="brindesRevokeLeituraLinkBtn" type="button">Desativar</button>
+                </div>
               </div>
+              <button class="btn-primary" id="brindesGenLeituraLinkBtn" type="button">Gerar link de leitura</button>
             </div>
-            <div id="brindesPublicLinkGenChoice">
-              <label class="checkbox-row" style="display:inline-flex;"><input type="radio" name="brindesPublicLinkMode" value="leitura" checked> Somente leitura</label>
-              <label class="checkbox-row" style="display:inline-flex;margin-left:16px;"><input type="radio" name="brindesPublicLinkMode" value="edicao"> Leitura e edição (controle de estoque externo)</label>
-              <div><button class="btn-primary" id="brindesGenLinkBtn" type="button" style="margin-top:8px;">Gerar link externo</button></div>
+            <div class="form-card">
+              <p class="muted" style="margin:0 0 8px;font-weight:600;">🔓 Leitura e edição (controle de estoque externo)</p>
+              <div id="brindesPublicLinkEdicaoActive" hidden>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  <input type="text" id="brindesPublicLinkEdicaoField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                  <button class="btn-secondary" id="brindesCopyEdicaoLinkBtn" type="button">Copiar link</button>
+                  <button class="btn-secondary" id="brindesRegenEdicaoLinkBtn" type="button">Gerar novo link</button>
+                  <button class="btn-secondary danger" id="brindesRevokeEdicaoLinkBtn" type="button">Desativar</button>
+                </div>
+              </div>
+              <button class="btn-primary" id="brindesGenEdicaoLinkBtn" type="button">Gerar link de edição</button>
             </div>
           </div>
 
@@ -1695,25 +1708,36 @@
                "edição" aqui quem abre o link REGISTRA uma saída nova
                (não edita/exclui as que já existem). -->
           <div id="brindesSaidasPublicLinkPanel" class="form-card no-print" hidden>
-            <p class="muted" style="margin-top:0;">Gere um link pra quem não tem conta na Papoi acompanhar o Registro de Saídas de uma marca -- escolha "Somente leitura" pra só visualizar, ou "Leitura e edição" pra também deixar registrar uma saída nova, com o nome de quem lançou registrado. O link vale pra uma marca por vez.</p>
+            <p class="muted" style="margin-top:0;">Gere um link pra quem não tem conta na Papoi acompanhar o Registro de Saídas de uma marca. <strong>Os dois links abaixo são independentes</strong> -- gerar ou desativar um nunca desativa o outro, então dá pra manter os dois ativos ao mesmo tempo (um só de visualização, outro pra registrar uma saída nova, com o nome de quem lançou registrado). O link vale pra uma marca por vez.</p>
             <div style="margin-bottom:10px;"><label>Marca</label>
               <select id="brindesSaidasPublicLinkBrand">
                 <option value="debacco">De Bacco</option>
                 <option value="ghelplus">GhelPlus</option>
               </select>
             </div>
-            <div id="brindesSaidasPublicLinkActive" hidden>
-              <p class="muted" id="brindesSaidasPublicLinkModeLabel" style="margin:0 0 6px;font-weight:600;"></p>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <input type="text" id="brindesSaidasPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
-                <button class="btn-secondary" id="brindesSaidasCopyLinkBtn" type="button">Copiar link</button>
-                <button class="btn-secondary danger" id="brindesSaidasRevokeLinkBtn" type="button">Desativar</button>
+            <div class="form-card" style="margin-bottom:10px;">
+              <p class="muted" style="margin:0 0 8px;font-weight:600;">👁️ Somente leitura</p>
+              <div id="brindesSaidasPublicLinkLeituraActive" hidden>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  <input type="text" id="brindesSaidasPublicLinkLeituraField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                  <button class="btn-secondary" id="brindesSaidasCopyLeituraLinkBtn" type="button">Copiar link</button>
+                  <button class="btn-secondary" id="brindesSaidasRegenLeituraLinkBtn" type="button">Gerar novo link</button>
+                  <button class="btn-secondary danger" id="brindesSaidasRevokeLeituraLinkBtn" type="button">Desativar</button>
+                </div>
               </div>
+              <button class="btn-primary" id="brindesSaidasGenLeituraLinkBtn" type="button">Gerar link de leitura</button>
             </div>
-            <div id="brindesSaidasPublicLinkGenChoice">
-              <label class="checkbox-row" style="display:inline-flex;"><input type="radio" name="brindesSaidasPublicLinkMode" value="leitura" checked> Somente leitura</label>
-              <label class="checkbox-row" style="display:inline-flex;margin-left:16px;"><input type="radio" name="brindesSaidasPublicLinkMode" value="edicao"> Leitura e edição (registrar saída pelo link)</label>
-              <div><button class="btn-primary" id="brindesSaidasGenLinkBtn" type="button" style="margin-top:8px;">Gerar link externo</button></div>
+            <div class="form-card">
+              <p class="muted" style="margin:0 0 8px;font-weight:600;">🔓 Leitura e edição (registrar saída pelo link)</p>
+              <div id="brindesSaidasPublicLinkEdicaoActive" hidden>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                  <input type="text" id="brindesSaidasPublicLinkEdicaoField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                  <button class="btn-secondary" id="brindesSaidasCopyEdicaoLinkBtn" type="button">Copiar link</button>
+                  <button class="btn-secondary" id="brindesSaidasRegenEdicaoLinkBtn" type="button">Gerar novo link</button>
+                  <button class="btn-secondary danger" id="brindesSaidasRevokeEdicaoLinkBtn" type="button">Desativar</button>
+                </div>
+              </div>
+              <button class="btn-primary" id="brindesSaidasGenEdicaoLinkBtn" type="button">Gerar link de edição</button>
             </div>
           </div>
 
@@ -2718,6 +2742,8 @@
           <select id="demCardStatus">
             <option value="a_fazer">A Fazer</option>
             <option value="andamento">Em Andamento</option>
+            <option value="em_revisao">Em Revisão</option>
+            <option value="em_refacao">Em Refação</option>
             <option value="aprovacao">Em Aprovação</option>
             <option value="concluida">Concluída</option>
           </select>

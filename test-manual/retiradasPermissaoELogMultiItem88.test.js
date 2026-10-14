@@ -235,6 +235,13 @@ async function run() {
   }).then((r) => r.json());
   check('gerou link de edição pro Registro de Saídas (De Bacco)', !!linkEdicao.publicToken);
 
+  // 91ª rodada: antes da correção, gerar o link de edição acima
+  // INVALIDAVA silenciosamente o de leitura gerado logo ali em cima (ver
+  // brindesLinkExternoDoisModos91.test.js) -- confere aqui também, nesta
+  // mesma sequência que originalmente deixou o bug passar despercebido.
+  const linkLeituraAindaFunciona = await fetch(`${BASE}/api/brindes/log/public/${linkLeitura.publicToken}`);
+  check('[91ª rodada] link de leitura gerado antes continua funcionando depois do de edição', linkLeituraAindaFunciona.status === 200);
+
   const semNome = await fetch(`${BASE}/api/brindes/log/public/${linkEdicao.publicToken}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ items: [{ catalogItemId: catalogItem.id, quantidade: 1 }] })

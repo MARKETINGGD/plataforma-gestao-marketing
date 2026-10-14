@@ -701,9 +701,14 @@
   const MONTHS_FULL = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   const BRAND_LABEL = { ghelplus: 'GhelPlus', debacco: 'De Bacco', duranox: 'Duranox', boutiqueinox: 'Boutique Inox' };
+  // 92ª rodada, pedido da Raquel: "nos status das demandas adicione tbm: Em
+  // refação, em revisão" -- precisa bater com STATUSES/STATUS_LABEL_PT em
+  // routes/demandas.js.
   const STATUS_COLUMNS = [
     { key: 'a_fazer', label: 'A Fazer' },
     { key: 'andamento', label: 'Em Andamento' },
+    { key: 'em_revisao', label: 'Em Revisão' },
+    { key: 'em_refacao', label: 'Em Refação' },
     { key: 'aprovacao', label: 'Em Aprovação' },
     { key: 'concluida', label: 'Concluída' }
   ];
@@ -975,49 +980,90 @@
   setupPublicLinkPanel({ prefix: 'feiras', apiBase: '/api/feiras', getKey: () => feirasBrandFilter, keyParamName: 'key' });
   setupPublicLinkPanel({ prefix: 'campanhaCooperada', apiBase: '/api/campanha-cooperada', getKey: () => campanhaCooperadaBrandFilter, keyParamName: 'key' });
 
-  // Brindes (68ª rodada): painel próprio (não o genérico acima) -- é o
-  // único recurso com o modo "edição" até agora, então a UI precisa de um
-  // seletor de modo que os outros 3 recursos não têm. Mantido separado de
-  // propósito, pra não arriscar mexer no fluxo já confirmado dos outros.
-  function setupBrindesPublicLinkPanel() {
-    function getKey() { return brindesTab === 'log' ? 'debacco' : brindesTab; }
-    function setUI(pubToken, mode) {
+  // Brindes (68ª rodada): painel próprio (não o genérico acima) -- é um
+  // dos 2 recursos (junto com Registro de Saídas) com o modo "edição",
+  // então a UI precisa de leitura e edição como 2 links PRÓPRIOS, não só
+  // um seletor de modo pra um link só.
+  //
+  // **91ª rodada (correção de bug reportado pela Raquel: "o link
+  // externo... não está funcionando a parte de somente leitura")**: até
+  // aqui, Catálogo e Registro de Saídas tinham só 1 link por marca,
+  // então gerar um link num modo SOBRESCREVIA (e invalidava, sem
+  // nenhum aviso) o link do OUTRO modo já ativo pra mesma marca -- quem
+  // já tinha o link de leitura em mãos via ele parar de funcionar assim
+  // que alguém gerasse um link de edição depois (ou vice-versa). Função
+  // genérica nova, `setupDualModePublicLinkPanel`, reaproveitada pelos 2
+  // recursos: cada modo (leitura/edição) agora tem o próprio bloco na
+  // tela, com os próprios botões Gerar/Copiar/Gerar novo/Desativar --
+  // gerar ou desativar um nunca mexe no outro, então os dois ficam
+  // ativos ao mesmo tempo se for o caso.
+  function setupDualModePublicLinkPanel({ idPrefix, apiBase, getKey, keyParamName, revokeConfirmMsg }) {
+    function idsFor(mode) {
+      const cap = mode === 'edicao' ? 'Edicao' : 'Leitura';
+      return {
+        active: idPrefix + 'PublicLink' + cap + 'Active',
+        field: idPrefix + 'PublicLink' + cap + 'Field',
+        gen: idPrefix + 'Gen' + cap + 'LinkBtn',
+        regen: idPrefix + 'Regen' + cap + 'LinkBtn',
+        revoke: idPrefix + 'Revoke' + cap + 'LinkBtn',
+        copy: idPrefix + 'Copy' + cap + 'LinkBtn'
+      };
+    }
+    function setUI(mode, pubToken) {
+      const ids = idsFor(mode);
       const active = !!pubToken;
-      $('#brindesPublicLinkActive').hidden = !active;
-      if (active) {
-        $('#brindesPublicLinkField').value = `${window.location.origin}/?sharePublic=${pubToken}`;
-        $('#brindesPublicLinkModeLabel').textContent = mode === 'edicao' ? '🔓 Modo: leitura e edição' : '👁️ Modo: somente leitura';
-      }
+      $('#' + ids.active).hidden = !active;
+      $('#' + ids.gen).hidden = active;
+      if (active) $('#' + ids.field).value = `${window.location.origin}/?sharePublic=${pubToken}`;
     }
     async function refresh() {
       try {
-        const data = await api('/api/brindes/public-link?brand=' + encodeURIComponent(getKey()));
-        setUI(data.publicToken, data.mode);
+        const key = getKey();
+        const qs = key ? `?${keyParamName}=${encodeURIComponent(key)}` : '';
+        const data = await api(apiBase + qs);
+        setUI('leitura', data.leitura && data.leitura.publicToken);
+        setUI('edicao', data.edicao && data.edicao.publicToken);
       } catch (e) { /* ignora falha pontual */ }
     }
+    ['leitura', 'edicao'].forEach((mode) => {
+      const ids = idsFor(mode);
+      $('#' + ids.gen).onclick = $('#' + ids.regen).onclick = async () => {
+        try {
+          const key = getKey();
+          const data = await api(apiBase + '/generate', { method: 'POST', body: JSON.stringify({ [keyParamName]: key, mode }) });
+          setUI(mode, data.publicToken);
+        } catch (e) { alert(e.message); }
+      };
+      $('#' + ids.revoke).onclick = async () => {
+        if (!confirm(revokeConfirmMsg)) return;
+        try {
+          const key = getKey();
+          const qs = `?${keyParamName}=${encodeURIComponent(key)}&mode=${mode}`;
+          await api(apiBase + qs, { method: 'DELETE' });
+          setUI(mode, null);
+        } catch (e) { alert(e.message); }
+      };
+      $('#' + ids.copy).onclick = () => {
+        const field = $('#' + ids.field);
+        field.select();
+        navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+      };
+    });
+    return { refresh };
+  }
+  function setupBrindesPublicLinkPanel() {
+    function getKey() { return brindesTab === 'log' ? 'debacco' : brindesTab; }
+    const panel = setupDualModePublicLinkPanel({
+      idPrefix: 'brindes',
+      apiBase: '/api/brindes/public-link',
+      getKey,
+      keyParamName: 'brand',
+      revokeConfirmMsg: 'Desativar este link externo? Quem tiver o link atual deixa de conseguir acessá-lo (o outro link, se existir, continua funcionando normalmente).'
+    });
     $('#brindesPublicLinkBtn').onclick = async () => {
-      const panel = $('#brindesPublicLinkPanel');
-      panel.hidden = !panel.hidden;
-      if (!panel.hidden) await refresh();
-    };
-    $('#brindesGenLinkBtn').onclick = async () => {
-      try {
-        const mode = (document.querySelector('input[name="brindesPublicLinkMode"]:checked') || {}).value || 'leitura';
-        const data = await api('/api/brindes/public-link/generate', { method: 'POST', body: JSON.stringify({ brand: getKey(), mode }) });
-        setUI(data.publicToken, mode);
-      } catch (e) { alert(e.message); }
-    };
-    $('#brindesRevokeLinkBtn').onclick = async () => {
-      if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir ver (ou editar) os dados.')) return;
-      try {
-        await api('/api/brindes/public-link?brand=' + encodeURIComponent(getKey()), { method: 'DELETE' });
-        setUI(null);
-      } catch (e) { alert(e.message); }
-    };
-    $('#brindesCopyLinkBtn').onclick = () => {
-      const field = $('#brindesPublicLinkField');
-      field.select();
-      navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+      const panelEl = $('#brindesPublicLinkPanel');
+      panelEl.hidden = !panelEl.hidden;
+      if (!panelEl.hidden) await panel.refresh();
     };
   }
   setupBrindesPublicLinkPanel();
@@ -1029,47 +1075,23 @@
   // cobre). Diferença: a aba "Registro de Saídas" não tem uma marca
   // "atual" (mostra as duas juntas), então este painel tem o próprio
   // seletor de marca.
+  // 91ª rodada: mesma correção acima (2 links independentes por marca,
+  // em vez de 1 link só que troca de modo).
   function setupBrindesSaidasPublicLinkPanel() {
     function getBrand() { return $('#brindesSaidasPublicLinkBrand').value || 'debacco'; }
-    function setUI(pubToken, mode) {
-      const active = !!pubToken;
-      $('#brindesSaidasPublicLinkActive').hidden = !active;
-      if (active) {
-        $('#brindesSaidasPublicLinkField').value = `${window.location.origin}/?sharePublic=${pubToken}`;
-        $('#brindesSaidasPublicLinkModeLabel').textContent = mode === 'edicao' ? '🔓 Modo: leitura e edição' : '👁️ Modo: somente leitura';
-      }
-    }
-    async function refresh() {
-      try {
-        const data = await api('/api/brindes/log/public-link?brand=' + encodeURIComponent(getBrand()));
-        setUI(data.publicToken, data.mode);
-      } catch (e) { /* ignora falha pontual */ }
-    }
+    const panel = setupDualModePublicLinkPanel({
+      idPrefix: 'brindesSaidas',
+      apiBase: '/api/brindes/log/public-link',
+      getKey: getBrand,
+      keyParamName: 'brand',
+      revokeConfirmMsg: 'Desativar este link externo? Quem tiver o link atual deixa de conseguir acessá-lo (o outro link, se existir, continua funcionando normalmente).'
+    });
     $('#brindesSaidasPublicLinkBtn').onclick = async () => {
-      const panel = $('#brindesSaidasPublicLinkPanel');
-      panel.hidden = !panel.hidden;
-      if (!panel.hidden) await refresh();
+      const panelEl = $('#brindesSaidasPublicLinkPanel');
+      panelEl.hidden = !panelEl.hidden;
+      if (!panelEl.hidden) await panel.refresh();
     };
-    $('#brindesSaidasPublicLinkBrand').onchange = refresh;
-    $('#brindesSaidasGenLinkBtn').onclick = async () => {
-      try {
-        const mode = (document.querySelector('input[name="brindesSaidasPublicLinkMode"]:checked') || {}).value || 'leitura';
-        const data = await api('/api/brindes/log/public-link/generate', { method: 'POST', body: JSON.stringify({ brand: getBrand(), mode }) });
-        setUI(data.publicToken, mode);
-      } catch (e) { alert(e.message); }
-    };
-    $('#brindesSaidasRevokeLinkBtn').onclick = async () => {
-      if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir ver (ou registrar) saídas desta marca.')) return;
-      try {
-        await api('/api/brindes/log/public-link?brand=' + encodeURIComponent(getBrand()), { method: 'DELETE' });
-        setUI(null);
-      } catch (e) { alert(e.message); }
-    };
-    $('#brindesSaidasCopyLinkBtn').onclick = () => {
-      const field = $('#brindesSaidasPublicLinkField');
-      field.select();
-      navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
-    };
+    $('#brindesSaidasPublicLinkBrand').onchange = panel.refresh;
   }
   setupBrindesSaidasPublicLinkPanel();
 
@@ -7069,7 +7091,7 @@
   // (pessoa/status/marca/período — ver rota em routes/demandas.js). Cada
   // troca de filtro dispara uma nova chamada (dataset pequeno, sem
   // paginação por enquanto, mesmo espírito do loadBudget acima).
-  const ACOMPANHAMENTO_STATUS_LABEL = { a_fazer: 'A Fazer', andamento: 'Em Andamento', aprovacao: 'Em Aprovação', concluida: 'Concluída', atrasada: 'Atrasada' };
+  const ACOMPANHAMENTO_STATUS_LABEL = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', concluida: 'Concluída', atrasada: 'Atrasada' };
   async function loadAcompanhamentoEquipe() {
     const pessoaSel = $('#acompanhamentoFilterPessoa');
     const resumoBody = $('#acompanhamentoResumoBody');

@@ -2459,6 +2459,21 @@
       <section id="view-users" class="view" hidden>
         <h2>Usuários da plataforma</h2>
         <p class="muted">Todo mundo logado pode ver os dashboards e as demais áreas da Plataforma — as permissões abaixo controlam apenas quem pode EDITAR em cada dashboard e o acesso à aba de Orçamento (a única que também é restrita pra visualizar).</p>
+
+        <!-- Backup completo (rodada de segurança, 15/10/2026, pedido da
+             Raquel: "o que falta para deixar 100% segura a plataforma
+             papoi? e se der algum problema, tem chance de perdermos o
+             conteúdo?"). Só visível pro super admin (mesmo padrão de
+             #userNewBtn, ver loadUsers() em app.js) -- baixa um .zip com o
+             banco inteiro + todos os arquivos anexados, direto do
+             navegador, sem precisar de terminal nem acesso ao Railway. -->
+        <div id="backupSection" class="form-card" hidden style="margin-bottom:16px;">
+          <h3>🔒 Segurança e backup</h3>
+          <p class="muted">A Papoi guarda tudo — cadastros e arquivos anexados — num único lugar, sem nenhuma cópia automática fora do Railway hoje. Baixe esse backup de tempos em tempos e guarde num lugar seguro (seu computador, Google Drive, e-mail para você mesma) — é a forma mais simples de não perder o conteúdo se algo der errado.</p>
+          <button id="backupExportBtn" class="btn-primary" type="button">⬇️ Baixar backup completo (.zip)</button>
+          <span id="backupExportStatus" class="muted" style="margin-left:8px;"></span>
+        </div>
+
         <button id="userNewBtn" class="btn-primary">+ Novo usuário</button>
 
         <div id="userFormWrap" class="form-card" hidden>

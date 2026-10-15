@@ -45,6 +45,8 @@ app.use('/api/campanha-cooperada', require('./routes/campanhaCooperada'));
 // com os dados de verdade (ver routes/budget.js, feiras.js, brindes.js,
 // campanhaCooperada.js).
 app.use('/api/share-links', require('./routes/shareLinksPublic'));
+// Backup completo (rodada de segurança, 15/10/2026) — ver routes/backup.js.
+app.use('/api/backup', require('./routes/backup'));
 
 // Importação automática (só roda uma vez) do orçamento 2026 real da
 // GhelPlus e da De Bacco, vindo das planilhas oficiais — agora linha a

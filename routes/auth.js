@@ -8,6 +8,7 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth, requireSuperAdmin, JWT_SECRET } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+const { msLockedFor, registerFailedAttempt, registerSuccessfulLogin, LOCKOUT_MS } = require('../utils/loginRateLimit');
 
 const router = express.Router();
 
@@ -204,10 +205,21 @@ router.post('/setup', (req, res) => {
 
 router.post('/login', (req, res) => {
   const { username, password } = req.body || {};
+  // Rodada de segurança (15/10/2026): antes de checar a senha, confere se
+  // esse usuário já estourou o limite de tentativas erradas seguidas — se
+  // sim, recusa mesmo que a senha agora digitada esteja certa (é assim que
+  // o bloqueio trava de verdade um ataque automatizado em andamento).
+  const lockedMs = msLockedFor(username);
+  if (lockedMs > 0) {
+    const minutos = Math.ceil(lockedMs / 60000);
+    return res.status(429).json({ error: `Muitas tentativas de login erradas pra esse usuário. Tente novamente em ${minutos} minuto(s).` });
+  }
   const user = db.get('users').find({ username: (username || '').trim() }).value();
   if (!user || !bcrypt.compareSync(password || '', user.passwordHash)) {
+    registerFailedAttempt(username);
     return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
   }
+  registerSuccessfulLogin(username);
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 

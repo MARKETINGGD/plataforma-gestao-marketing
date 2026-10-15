@@ -9680,6 +9680,7 @@
   // só pro super admin -- é aí que a edição de verdade fica restrita. ----------
   async function loadUsers() {
     $('#userNewBtn').hidden = !currentUser.isSuperAdmin;
+    $('#backupSection').hidden = !currentUser.isSuperAdmin;
     const data = await api('/api/auth/users');
     const body = $('#usersTableBody');
     body.innerHTML = '';
@@ -10350,6 +10351,43 @@
   }
   $('#userNewBtn').onclick = () => openUserForm(null);
   $('#userFormCancel').onclick = () => { $('#userFormWrap').hidden = true; };
+
+  // Backup completo (rodada de segurança, 15/10/2026) -- baixa um .zip com
+  // o banco inteiro (db.json) + todos os arquivos anexados (data/uploads),
+  // direto da tela de Usuários, sem precisar de terminal nem acesso ao
+  // Railway. Não usa api() (que sempre espera uma resposta JSON) -- aqui a
+  // resposta é binária (o próprio arquivo .zip), então usa fetch() direto.
+  async function downloadBackup() {
+    const btn = $('#backupExportBtn');
+    const status = $('#backupExportStatus');
+    btn.disabled = true;
+    status.textContent = 'Gerando backup...';
+    try {
+      const res = await fetch('/api/backup/export', { headers: { Authorization: 'Bearer ' + token } });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Erro inesperado ao gerar o backup.');
+      }
+      const blob = await res.blob();
+      const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+      const filename = match ? match[1] : 'papoi-backup.zip';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      status.textContent = 'Backup baixado com sucesso — guarde esse arquivo num lugar seguro.';
+    } catch (e) {
+      status.textContent = '';
+      alert(e.message || 'Erro ao gerar o backup.');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  $('#backupExportBtn').onclick = downloadBackup;
 
   // Foto de perfil: editando um usuário que já existe, sobe na hora; num
   // cadastro novo (ainda sem id), guarda o arquivo e sobe assim que o

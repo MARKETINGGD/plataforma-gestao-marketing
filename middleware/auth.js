@@ -5,6 +5,18 @@ const db = require('../db');
 // 3 dashboards — é isso que faz o login único funcionar (ver .env.example).
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-troque-em-producao';
 
+// Rodada de segurança (15/10/2026): se o Railway não tiver `JWT_SECRET`
+// configurado nas Variables do serviço, o sistema cai sozinho nesse valor
+// padrão de desenvolvimento — bem mais fraco, e igual em qualquer cópia
+// deste código. Isso sempre funcionou "por baixo dos panos" sem avisar
+// ninguém; agora fica um aviso bem visível no log do Railway assim que o
+// servidor sobe, pra nunca mais passar despercebido.
+if (!process.env.JWT_SECRET) {
+  console.warn('\n⚠️  ATENÇÃO: JWT_SECRET não está configurado nas variáveis de ambiente — '
+    + 'usando o valor padrão de desenvolvimento, que não é seguro em produção. '
+    + 'Configure JWT_SECRET nas Variables do Railway o quanto antes.\n');
+}
+
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;

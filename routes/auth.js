@@ -355,7 +355,22 @@ function adminUserView(u) {
 // de cada pessoa continua um dado só do admin ver, mesmo agora que a lista
 // em si é visível pra todos.
 router.get('/users', requireAuth, (req, res) => {
-  const view = req.user.isSuperAdmin ? adminUserView : publicUser;
+  // BUG CRÍTICO corrigido na 95ª rodada (15/10/2026, reportado pela Raquel:
+  // "a cada atualização do papoi, os horários do ponto da equipe somem"):
+  // `req.user` vem do token JWT ({id, username, role} -- ver signToken() e
+  // requireAuth() em middleware/auth.js), que NUNCA tem uma propriedade
+  // `isSuperAdmin` (só `role: 'super_admin'|'user'`). A checagem antiga
+  // (`req.user.isSuperAdmin`) era SEMPRE `undefined`/falsy, pra qualquer
+  // pessoa, inclusive o super admin de verdade -- então esta rota nunca
+  // devolvia `pontoSchedule` pra ninguém. Resultado: a tela de Usuários
+  // sempre abria o formulário de edição com os 4 campos de horário em
+  // branco (mesmo quando já existia um horário cadastrado) e, ao salvar
+  // QUALQUER edição de QUALQUER usuário (trocar cargo, permissão, nome
+  // etc. -- não precisa nem mexer no horário), o formulário mandava os 4
+  // campos vazios pro PUT /users/:id, que apagava (`null`) o horário de
+  // ponto que já existia. Corrigido comparando com `req.user.role`, igual
+  // já era feito (corretamente) em requireSuperAdmin() logo abaixo.
+  const view = req.user.role === 'super_admin' ? adminUserView : publicUser;
   res.json({ users: db.get('users').value().map(view) });
 });
 

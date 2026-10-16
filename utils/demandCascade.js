@@ -76,4 +76,57 @@ function alsoInvolvedUserIds(d) {
   return Array.from(ids);
 }
 
-module.exports = { cascadeCompleteDemandas, alsoInvolvedUserIds };
+// 98ª rodada, bug reportado pela Raquel: "quando é criado algo em
+// agendamento, ele vira uma demanda correto? mas quando altero data de
+// postagem lá no agendamento, não esta alterando na demanda criada por
+// ele, n esta tendo essa covnersa entre eles" -- createDemandCardsForNewInvolved
+// (routes/socialPosts.js) só grava título/descrição/dueDate/rede/marca na
+// CRIAÇÃO do card; uma edição posterior do agendamento (trocar a data, o
+// assunto, a legenda, a rede, a marca...) nunca refletia nas demandas-irmãs
+// já criadas, porque nada chamava de volta nelas. Mesmo espírito de
+// cascadeCompleteDemandas acima (achar pelo sourceSocialPostId), só que
+// sincronizando os CAMPOS do card em vez de completá-lo -- só mexe nas
+// demandas ainda "vivas" (não arquivadas, não concluídas): uma demanda já
+// concluída/arquivada é histórico, uma edição posterior no agendamento não
+// deve reabri-la nem alterar silenciosamente um registro já fechado.
+// `fields` é um objeto com os valores JÁ calculados a partir do post
+// atualizado (ver demandTitleAndDescriptionForPost em routes/socialPosts.js)
+// -- só grava as chaves que vierem definidas (!== undefined) e que
+// realmente mudaram, pra não gerar update/log à toa quando nada mudou de
+// verdade (ex.: PUT que só mexeu em `link` ou `briefingText`, campos que
+// não entram em `fields`). Retorna quantas demandas foram atualizadas.
+function syncLinkedDemandas(sourceSocialPostId, fields, req) {
+  if (!sourceSocialPostId) return 0;
+  const targets = db.get('demandas').value().filter((d) =>
+    d.sourceSocialPostId === sourceSocialPostId &&
+    !d.archived &&
+    d.status !== 'concluida'
+  );
+  if (targets.length === 0) return 0;
+  const now = new Date().toISOString();
+  let changedCount = 0;
+  targets.forEach((d) => {
+    const updates = {};
+    Object.keys(fields).forEach((key) => {
+      if (fields[key] !== undefined && fields[key] !== d[key]) updates[key] = fields[key];
+    });
+    if (Object.keys(updates).length === 0) return;
+    updates.updatedAt = now;
+    db.get('demandas').find({ id: d.id }).assign(updates).write();
+    changedCount += 1;
+    if (req && req.user) {
+      logAudit({
+        user: req.user,
+        entityType: 'demanda',
+        entityId: d.id,
+        entityLabel: d.title,
+        action: 'update',
+        details: 'Atualizada automaticamente: o agendamento de redes sociais de origem foi editado (data/assunto/legenda/rede/marca).',
+        meta: { visibility: d.visibility }
+      });
+    }
+  });
+  return changedCount;
+}
+
+module.exports = { cascadeCompleteDemandas, alsoInvolvedUserIds, syncLinkedDemandas };

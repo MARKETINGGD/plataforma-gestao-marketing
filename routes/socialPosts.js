@@ -7,7 +7,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
-const { cascadeCompleteDemandas } = require('../utils/demandCascade');
+const { cascadeCompleteDemandas, syncLinkedDemandas } = require('../utils/demandCascade');
 const { createAutoRecado, updateAutoRecadosForPost } = require('./recados');
 const metaPublisher = require('../utils/metaPublisher');
 const linkedinPublisher = require('../utils/linkedinPublisher');
@@ -264,13 +264,13 @@ function notifyReadyForApproval(post) {
   });
 }
 
-// Cria automaticamente, no quadro geral de Demandas, um card pra cada
-// pessoa recém adicionada como envolvida num agendamento — assim ela já
-// vê na própria lista que foi chamada pra aquele material, com a data.
-// Só entra gente NOVA (comparado com a lista anterior), pra não spammar
-// card repetido a cada edição do agendamento.
-function createDemandCardsForNewInvolved(post, newIds, req) {
-  if (!newIds || newIds.length === 0) return;
+// Título/descrição do card de Demanda gerado a partir de um agendamento --
+// extraído numa função própria (98ª rodada) pra ser recalculado tanto na
+// CRIAÇÃO (createDemandCardsForNewInvolved, pra gente nova marcada) quanto
+// numa edição posterior do mesmo agendamento (ver syncLinkedDemandas em
+// utils/demandCascade.js, chamada no PUT /:id abaixo) -- garante que os 2
+// caminhos nunca fiquem com fórmulas diferentes por engano.
+function demandTitleAndDescriptionForPost(post) {
   const platformLabel = PLATFORM_LABEL_PT[post.platform] || post.platform;
   const typeLabel = POST_TYPE_LABEL_PT[post.postType] || '';
   const brandLabel = BRAND_LABEL_PT[post.brand] || post.brand;
@@ -283,6 +283,17 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
     : `Agendamento ${brandLabel} · ${platformLabel}${typeLabel ? ' (' + typeLabel + ')' : ''} · ${post.scheduledDate || 'sem data'}`;
   const description = 'Você foi marcado(a) como pessoa envolvida num agendamento de redes sociais.'
     + (post.caption ? ` Legenda: "${post.caption.slice(0, 200)}"` : '');
+  return { title, description };
+}
+
+// Cria automaticamente, no quadro geral de Demandas, um card pra cada
+// pessoa recém adicionada como envolvida num agendamento — assim ela já
+// vê na própria lista que foi chamada pra aquele material, com a data.
+// Só entra gente NOVA (comparado com a lista anterior), pra não spammar
+// card repetido a cada edição do agendamento.
+function createDemandCardsForNewInvolved(post, newIds, req) {
+  if (!newIds || newIds.length === 0) return;
+  const { title, description } = demandTitleAndDescriptionForPost(post);
   newIds.forEach((userId) => {
     const demanda = {
       id: nanoid(),
@@ -878,6 +889,24 @@ router.put('/:id', requireAuth, async (req, res) => {
   if (updates.involvedUserIds !== undefined) {
     const newIds = updates.involvedUserIds.filter((id) => !previousInvolvedIds.includes(id));
     createDemandCardsForNewInvolved(fresh, newIds, req);
+  }
+  // 98ª rodada, bug reportado pela Raquel: "quando altero data de postagem
+  // lá no agendamento, não esta alterando na demanda criada por ele" --
+  // qualquer campo que entra na fórmula do título/dueDate/rede/marca do
+  // card (ver demandTitleAndDescriptionForPost acima) precisa refletir nas
+  // demandas-irmãs já criadas (sourceSocialPostId === fresh.id), não só nas
+  // que ainda vão nascer. Só recalcula quando a edição de fato tocou em
+  // algum desses campos -- evita trabalho/log à toa num PUT que só mexeu
+  // em `link`/`briefingText`/outros campos que não entram nessa fórmula.
+  if (['scheduledDate', 'subject', 'caption', 'platform', 'brand', 'postType'].some((k) => updates[k] !== undefined)) {
+    const { title, description } = demandTitleAndDescriptionForPost(fresh);
+    syncLinkedDemandas(fresh.id, {
+      title,
+      description,
+      dueDate: fresh.scheduledDate || null,
+      network: fresh.platform || null,
+      brand: fresh.brand || null
+    }, req);
   }
   // 34ª rodada: marcar o agendamento como "publicado" completa sozinho
   // todas as demandas que ele criou (uma por pessoa marcada como

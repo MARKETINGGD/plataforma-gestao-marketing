@@ -39,7 +39,12 @@ const router = express.Router();
 // campo do card (não é mais o eixo do quadro, ver comentário acima), dá pra
 // qualquer card pular direto pra qualquer status a qualquer momento, sem
 // trava nenhuma de ordem.
-const STATUSES = ['a_fazer', 'andamento', 'em_revisao', 'em_refacao', 'aprovacao', 'concluida'];
+// 97ª rodada, pedido da Raquel: "em demandas, no status - adicione a
+// Aprovado" -- mais 1 status aditivo, distinto de "Em Aprovação"
+// (aprovacao, que é "mandado pra aprovar, esperando resposta"): "Aprovado"
+// é o card que JÁ foi aprovado e só falta ser finalizado/publicado. Entra
+// depois de "aprovacao" e antes de "concluida", seguindo o mesmo fluxo.
+const STATUSES = ['a_fazer', 'andamento', 'em_revisao', 'em_refacao', 'aprovacao', 'aprovado', 'concluida'];
 const VISIBILITIES = ['geral', 'pessoal'];
 // Marca (37ª rodada, pedido da Raquel): opcional -- mostra o ícone da marca
 // no início do título do card. Demanda criada automaticamente a partir de
@@ -311,7 +316,7 @@ function cardOrder(d) {
 
 // Rótulos em PT do status, usados só pra montar frases legíveis no
 // histórico (22ª rodada) — mesmos valores de STATUSES acima.
-const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', concluida: 'Concluída' };
+const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', aprovado: 'Aprovado', concluida: 'Concluída' };
 
 function serialize(d, viewerId) {
   // Quando a demanda veio de um agendamento de redes sociais (uma por
@@ -503,9 +508,10 @@ router.get('/summary', requireAuth, (req, res) => {
   // sem isso, `summary[d.status] += 1` logo abaixo viraria NaN pra card
   // em "Em Revisão"/"Em Refação" (a tela Início continua só mostrando as
   // 4 barras de sempre, ver loadHome() no app.js, mas o número por trás
-  // não pode quebrar por causa disso).
-  const summary = { a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
-  const lists = { a_fazer: [], andamento: [], em_revisao: [], em_refacao: [], aprovacao: [], concluida: [], atrasada: [] };
+  // não pode quebrar por causa disso). 97ª rodada: mesma lógica pro status
+  // novo "aprovado".
+  const summary = { a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, aprovado: 0, concluida: 0, atrasada: 0 };
+  const lists = { a_fazer: [], andamento: [], em_revisao: [], em_refacao: [], aprovacao: [], aprovado: [], concluida: [], atrasada: [] };
   const toLite = (d) => ({
     id: d.id,
     title: d.title,
@@ -731,7 +737,7 @@ router.get('/team-report', requireAuth, (req, res) => {
 
   const team = teamUsers.map((u) => {
     const mine = allDemandas.filter((d) => (d.assigneeIds || []).includes(u.id) && matchesPeriodAndBrand(d));
-    const totals = { total: mine.length, a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, concluida: 0, atrasada: 0 };
+    const totals = { total: mine.length, a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, aprovado: 0, concluida: 0, atrasada: 0 };
     mine.forEach((d) => { const k = teamReportStatusKey(d); totals[k] = (totals[k] || 0) + 1; });
     return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals };
   });

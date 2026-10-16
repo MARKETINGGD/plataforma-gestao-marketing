@@ -707,13 +707,15 @@
   const BRAND_LABEL = { ghelplus: 'GhelPlus', debacco: 'De Bacco', duranox: 'Duranox', boutiqueinox: 'Boutique Inox' };
   // 92ª rodada, pedido da Raquel: "nos status das demandas adicione tbm: Em
   // refação, em revisão" -- precisa bater com STATUSES/STATUS_LABEL_PT em
-  // routes/demandas.js.
+  // routes/demandas.js. 97ª rodada: adicionado "aprovado" pelo mesmo motivo
+  // (pedido da Raquel: "em demandas, no status - adicione a Aprovado").
   const STATUS_COLUMNS = [
     { key: 'a_fazer', label: 'A Fazer' },
     { key: 'andamento', label: 'Em Andamento' },
     { key: 'em_revisao', label: 'Em Revisão' },
     { key: 'em_refacao', label: 'Em Refação' },
     { key: 'aprovacao', label: 'Em Aprovação' },
+    { key: 'aprovado', label: 'Aprovado' },
     { key: 'concluida', label: 'Concluída' }
   ];
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter', influencer: 'Influencer', blog: 'Blog' };
@@ -7261,7 +7263,7 @@
   // (pessoa/status/marca/período — ver rota em routes/demandas.js). Cada
   // troca de filtro dispara uma nova chamada (dataset pequeno, sem
   // paginação por enquanto, mesmo espírito do loadBudget acima).
-  const ACOMPANHAMENTO_STATUS_LABEL = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', concluida: 'Concluída', atrasada: 'Atrasada' };
+  const ACOMPANHAMENTO_STATUS_LABEL = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', aprovado: 'Aprovado', concluida: 'Concluída', atrasada: 'Atrasada' };
   async function loadAcompanhamentoEquipe() {
     const pessoaSel = $('#acompanhamentoFilterPessoa');
     const resumoBody = $('#acompanhamentoResumoBody');

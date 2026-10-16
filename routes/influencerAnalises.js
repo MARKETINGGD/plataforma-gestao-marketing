@@ -42,16 +42,20 @@ const NUMERIC_FIELDS = [
 ];
 // Campos de valor cobrado por formato — monetários (step 0.01), mesmo
 // padrão já usado em Budget (budgetFormPlanejado/budgetFormRealizado).
+// 95ª rodada, pedido da Raquel: "adicionar um local para observações de
+// cada infleuncers, escopo (entregas) e dentro de escopo ter onde por
+// valor" -- `escopoValor` é monetário (mesmo padrão dos outros valores
+// acima), por isso entra em MONEY_FIELDS, não em TEXT_FIELDS.
 const MONEY_FIELDS = [
   'valorPostFotoStories', 'valorPostVideoStories', 'valorPostAvulsoFoto',
   'valorPostAvulsoVideoReels', 'valorQuatroStories', 'valorPresencaPostStories',
-  'valorYoutube', 'valorTiktok'
+  'valorYoutube', 'valorTiktok', 'escopoValor'
 ];
 // Campos de texto livre (aba "Mapeamento", além dos numéricos acima).
 // "email" e "tipoConteudo" são novos na 91ª rodada (planilha atualizada da
 // Raquel) — ficam logo depois de "genero", antes de "estado", igual à
 // ordem de colunas de verdade da planilha.
-const TEXT_FIELDS_MAPEAMENTO = ['nome', 'genero', 'email', 'tipoConteudo', 'estado', 'principaisTemas', 'cidades'];
+const TEXT_FIELDS_MAPEAMENTO = ['nome', 'genero', 'email', 'tipoConteudo', 'estado', 'principaisTemas', 'cidades', 'observacoes', 'escopo'];
 // Campos de texto livre (aba "Informações importantes") — tudo texto livre
 // de propósito (igual ao precedente de "Estado" em outras telas da
 // Plataforma: campo livre, não um <select> fechado), já que são respostas

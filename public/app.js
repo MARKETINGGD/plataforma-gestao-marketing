@@ -222,7 +222,7 @@
   let brindesCatalog = [];
   let brindesLog = [];
   let editingBrindeId = null;
-  let editingBrindeLogId = null;
+  let editingBrindeLogId = null; // 96ª rodada: edição de retirada no Registro de Saídas
 
   // ---------- Gerenciamento de Influencers (14ª rodada) ----------
   let influencersTab = 'debacco'; // 'debacco' | 'ghelplus' | 'todas'
@@ -256,6 +256,10 @@
     'principaisTemas', 'cidades',
     'valorPostFotoStories', 'valorPostVideoStories', 'valorPostAvulsoFoto', 'valorPostAvulsoVideoReels',
     'valorQuatroStories', 'valorPresencaPostStories', 'valorYoutube', 'valorTiktok',
+    // 95ª rodada, pedido da Raquel: "adicionar um local para observações de
+    // cada infleuncers, escopo (entregas) e dentro de escopo ter onde por
+    // valor".
+    'observacoes', 'escopo', 'escopoValor',
     'instagramHandle', 'tiktokHandle', 'youtubeHandle', 'aniversario', 'idade', 'statusCivil',
     'reforma', 'filhos', 'moraSozinho', 'local', 'tipoCabelo', 'intoleranciasAlimentares',
     'habitosAlimentares', 'alergias', 'oculosGrau', 'animalEstimacao'
@@ -2105,6 +2109,9 @@
         if (b.dataset.view === 'campanha-cooperada') loadCampanhasCooperadas();
         // 68ª rodada
         if (b.dataset.view === 'produtos-catalogo') loadProdutosCatalogo();
+        // 96ª rodada
+        if (b.dataset.view === 'produtos-fora-linha') loadComunicados();
+        if (b.dataset.view === 'produtos-revisao-catalogo') loadCatalogoRevisoes();
         if (b.dataset.view === 'expositores-estoque') loadExpositoresEstoque();
         if (b.dataset.view === 'expositores-catalogo') loadExpositoresCatalogo();
         // 77ª rodada
@@ -4437,11 +4444,164 @@
     return true;
   }
 
+  // 96ª rodada: monta o cabeçalho Jan..Dez da tabela pivotada uma vez só
+  // (entre "Título da compra" e "Total", que já vêm fixos no HTML).
+  let budgetPivotHeaderBuilt = false;
+  function ensureBudgetPivotHeader() {
+    if (budgetPivotHeaderBuilt) return;
+    const headerRow = $('#budgetPivotHeaderRow');
+    const totalTh = headerRow.children[3];
+    MONTHS.forEach((m) => {
+      const th = document.createElement('th');
+      th.textContent = m;
+      headerRow.insertBefore(th, totalTh);
+    });
+    budgetPivotHeaderBuilt = true;
+  }
+
+  // 96ª rodada, pedido da Raquel (com 2 prints da planilha real): "ajuste
+  // as colunas conforme a planilha real, e coloque os fluxos assim, em
+  // coluna tbm. qdo aparece o realizado no papoi, n coloque o planejado,
+  // e a dferença. Fica confuso, o mesmo vale para o planejado." -- as
+  // abas Planejado/Realizado (espelho das abas "PLANEJADO 2026"/
+  // "REALIZADO 2026" da planilha oficial) viram esta tabela agrupada por
+  // Fluxo, com Quantidade/Fornecedor/Título da compra + os 12 meses em
+  // coluna (só o valor desta aba) + um subtotal por fluxo (igual aos
+  // prints: "INSTITUCIONAL- FLUXO 2.5.2.3" somando o total do fluxo).
+  // Cada "linha" funde, por (fluxo + fornecedor + título da compra), até
+  // 12 lançamentos (1 por mês, mesmo modelo de dados de sempre -- nenhuma
+  // mudança no backend/formulário, só na MONTAGEM da tabela). Clicar num
+  // mês já preenchido abre o formulário de sempre pra editar aquele
+  // lançamento certo; clicar num mês vazio abre o mesmo formulário já com
+  // fluxo/fornecedor/título/ano/mês preenchidos, só falta digitar o
+  // valor -- sem precisar escolher tudo nos selects de novo.
+  function renderBudgetPivot(field, canEdit) {
+    ensureBudgetPivotHeader();
+    const year = Number($('#budgetFilterYear').value) || new Date().getFullYear();
+    const search = {
+      fluxo: $('#budgetSearchFluxo').value,
+      month: $('#budgetSearchMonth').value ? Number($('#budgetSearchMonth').value) : null,
+      fornecedor: $('#budgetSearchFornecedor').value.trim().toLowerCase(),
+      titulo: $('#budgetSearchTitulo').value.trim().toLowerCase(),
+      valor: $('#budgetSearchValor').value === '' ? null : Number($('#budgetSearchValor').value)
+    };
+
+    const groups = {};
+    budgetEntries.forEach((e) => {
+      if (e.year !== year) return;
+      if (e[field] === null || e[field] === undefined) return;
+      const key = `${e.category}\u0000${e.fornecedor || ''}\u0000${e.tituloCompra || ''}`;
+      if (!groups[key]) {
+        groups[key] = { category: e.category, fornecedor: e.fornecedor || '', tituloCompra: e.tituloCompra || '', quantidade: null, meses: {} };
+      }
+      const g = groups[key];
+      if (g.quantidade === null && e.quantidade !== null && e.quantidade !== undefined) g.quantidade = e.quantidade;
+      g.meses[e.month] = { value: Number(e[field]) || 0, entryId: e.id };
+    });
+
+    const gruposPorFluxo = {};
+    Object.values(groups).forEach((g) => {
+      if (search.fluxo && g.category !== search.fluxo) return;
+      if (search.fornecedor && !g.fornecedor.toLowerCase().includes(search.fornecedor)) return;
+      if (search.titulo && !g.tituloCompra.toLowerCase().includes(search.titulo)) return;
+      if (search.month && !g.meses[search.month]) return;
+      if (search.valor !== null && !Object.values(g.meses).some((m) => Math.abs(m.value - search.valor) < 0.005)) return;
+      if (!gruposPorFluxo[g.category]) gruposPorFluxo[g.category] = [];
+      gruposPorFluxo[g.category].push(g);
+    });
+
+    const body = $('#budgetPivotBody');
+    body.innerHTML = '';
+    // Segue a mesma ordem da planilha oficial (vem de /api/budget/meta),
+    // não ordem alfabética -- só entra na tabela o fluxo que tiver pelo
+    // menos 1 linha depois do filtro, pra não poluir com seções vazias.
+    const ordemFluxos = (budgetFluxosByBrand[currentBudgetBrand] || []).length
+      ? budgetFluxosByBrand[currentBudgetBrand]
+      : Object.keys(gruposPorFluxo).sort();
+    let totalLinhas = 0;
+    ordemFluxos.forEach((fluxo) => {
+      const linhas = gruposPorFluxo[fluxo];
+      if (!linhas || linhas.length === 0) return;
+      totalLinhas += linhas.length;
+      const headerTr = document.createElement('tr');
+      headerTr.className = 'budget-pivot-group-header';
+      headerTr.innerHTML = `<td colspan="17">${escapeHtml(fluxo)}</td>`;
+      body.appendChild(headerTr);
+      let fluxoTotal = 0;
+      linhas.forEach((g) => {
+        const tr = document.createElement('tr');
+        let rowTotal = 0;
+        const monthCells = [];
+        for (let m = 1; m <= 12; m++) {
+          const info = g.meses[m];
+          if (info) rowTotal += info.value;
+          monthCells.push(info
+            ? `<td class="num budget-pivot-cell" data-edit-budget-entry="${info.entryId}">${fmtMoney(info.value)}</td>`
+            : `<td class="num budget-pivot-cell budget-pivot-cell-empty" data-add-budget-entry data-fluxo="${escapeHtml(fluxo)}" data-fornecedor="${escapeHtml(g.fornecedor)}" data-titulo="${escapeHtml(g.tituloCompra)}" data-quantidade="${g.quantidade === null ? '' : g.quantidade}" data-mes="${m}">${canEdit ? '+' : ''}</td>`);
+        }
+        fluxoTotal += rowTotal;
+        tr.innerHTML = `
+          <td class="num">${g.quantidade === null ? '' : g.quantidade}</td>
+          <td>${escapeHtml(g.fornecedor)}</td>
+          <td>${escapeHtml(g.tituloCompra)}</td>
+          ${monthCells.join('')}
+          <td class="num"><strong>${fmtMoney(rowTotal)}</strong></td>
+          <td></td>
+        `;
+        body.appendChild(tr);
+      });
+      const subtotalTr = document.createElement('tr');
+      subtotalTr.className = 'budget-pivot-subtotal';
+      subtotalTr.innerHTML = `<td colspan="15">Total ${escapeHtml(fluxo)}</td><td class="num">${fmtMoney(fluxoTotal)}</td><td></td>`;
+      body.appendChild(subtotalTr);
+    });
+
+    $('#budgetPivotEmpty').hidden = totalLinhas > 0;
+    if (totalLinhas === 0) $('#budgetPivotEmpty').textContent = 'Nenhum lançamento encontrado.';
+
+    $all('[data-edit-budget-entry]').forEach((td) => {
+      td.onclick = () => {
+        if (!canEdit) return;
+        const entry = budgetEntries.find((e) => e.id === td.dataset.editBudgetEntry);
+        if (entry) openBudgetForm(entry);
+      };
+    });
+    $all('[data-add-budget-entry]').forEach((td) => {
+      if (!canEdit) return;
+      td.onclick = () => {
+        openBudgetForm({
+          category: td.dataset.fluxo,
+          year,
+          month: Number(td.dataset.mes),
+          fornecedor: td.dataset.fornecedor,
+          tituloCompra: td.dataset.titulo,
+          quantidade: td.dataset.quantidade === '' ? null : Number(td.dataset.quantidade),
+          planejado: null,
+          realizado: null,
+          notes: ''
+        });
+      };
+    });
+  }
+
   function renderBudget() {
     const canEdit = budgetAccess === 'editor' || budgetAccess === 'admin';
-    $('#budgetTableWrap').hidden = budgetTab === 'comparativo';
+    $('#budgetTableWrap').hidden = budgetTab !== 'geral';
+    $('#budgetPivotWrap').hidden = !(budgetTab === 'planejado' || budgetTab === 'realizado');
     $('#budgetComparativoWrap').hidden = budgetTab !== 'comparativo';
     $('#budgetNewBtn').hidden = !canEdit || budgetTab === 'comparativo';
+
+    // 96ª rodada, pedido da Raquel: "qdo aparece o realizado no papoi, n
+    // coloque o planejado, e a dferença. Fica confuso, o mesmo vale para
+    // o planejado. Esse comparativo deve ter somente na visão geral e no
+    // comparativo por fluxo." -- os 3 cartões de resumo seguem a mesma
+    // regra (só aparecem juntos fora das abas Planejado/Realizado).
+    const summaryCardPlan = $('#sumPlanejado').closest('.summary-card');
+    const summaryCardReal = $('#sumRealizado').closest('.summary-card');
+    const summaryCardDiff = $('#sumDiferenca').closest('.summary-card');
+    if (summaryCardPlan) summaryCardPlan.hidden = budgetTab === 'realizado';
+    if (summaryCardReal) summaryCardReal.hidden = budgetTab === 'planejado';
+    if (summaryCardDiff) summaryCardDiff.hidden = (budgetTab === 'planejado' || budgetTab === 'realizado');
 
     let rows = budgetEntries;
     if (budgetTab === 'planejado') rows = rows.filter((e) => e.planejado !== null && e.planejado !== undefined);
@@ -4455,51 +4615,55 @@
     $('#sumRealizado').textContent = fmtMoney(totalReal);
     $('#sumDiferenca').textContent = fmtMoney(totalReal - totalPlan);
 
-    const body = $('#budgetTableBody');
-    body.innerHTML = '';
-    $('#budgetEmpty').hidden = rows.length > 0;
-    if (rows.length === 0) $('#budgetEmpty').textContent = 'Nenhum lançamento encontrado.';
-    rows.forEach((e) => {
-      const st = budgetEntryStatus(e);
-      // Diferença = planejado - realizado (quanto sobrou do orçamento).
-      // Fica negativa (e em vermelho) quando o realizado estourou o
-      // planejado — foi assim que a Raquel pediu pra sinalizar (25ª rodada).
-      const diff = (st.planVal || 0) - (st.realVal || 0);
-      const tr = document.createElement('tr');
-      if (st.isOverBudget) tr.classList.add('row-over');
-      else if (st.isUnplanned) tr.classList.add('row-unplanned');
-      const realizadoHtml = st.isOverBudget
-        ? `<span class="text-danger">-${fmtMoney(st.realVal)}</span>`
-        : fmtMoney(e.realizado);
-      const diffHtml = st.isOverBudget
-        ? `<span class="text-danger">${fmtMoney(diff)}</span>`
-        : fmtMoney(diff);
-      tr.innerHTML = `
-        <td>${e.category}</td>
-        <td>${MONTHS[e.month - 1] || e.month}/${e.year}</td>
-        <td>${e.fornecedor || ''}</td>
-        <td>${e.tituloCompra || ''}</td>
-        <td class="num">${e.quantidade === null || e.quantidade === undefined ? '' : e.quantidade}</td>
-        <td class="num">${fmtMoney(e.planejado)}</td>
-        <td class="num">${realizadoHtml}</td>
-        <td class="num">${diffHtml}</td>
-        <td>${e.notes || ''}</td>
-        <td></td>
-      `;
-      if (canEdit) {
-        const actionsTd = tr.querySelector('td:last-child');
-        const editBtn = document.createElement('button');
-        editBtn.textContent = 'Editar';
-        editBtn.onclick = () => openBudgetForm(e);
-        const delBtn = document.createElement('button');
-        delBtn.textContent = 'Excluir';
-        delBtn.className = 'danger';
-        delBtn.onclick = () => deleteBudgetEntry(e.id);
-        actionsTd.appendChild(editBtn);
-        actionsTd.appendChild(delBtn);
-      }
-      body.appendChild(tr);
-    });
+    if (budgetTab === 'planejado' || budgetTab === 'realizado') {
+      renderBudgetPivot(budgetTab, canEdit);
+    } else {
+      const body = $('#budgetTableBody');
+      body.innerHTML = '';
+      $('#budgetEmpty').hidden = rows.length > 0;
+      if (rows.length === 0) $('#budgetEmpty').textContent = 'Nenhum lançamento encontrado.';
+      rows.forEach((e) => {
+        const st = budgetEntryStatus(e);
+        // Diferença = planejado - realizado (quanto sobrou do orçamento).
+        // Fica negativa (e em vermelho) quando o realizado estourou o
+        // planejado — foi assim que a Raquel pediu pra sinalizar (25ª rodada).
+        const diff = (st.planVal || 0) - (st.realVal || 0);
+        const tr = document.createElement('tr');
+        if (st.isOverBudget) tr.classList.add('row-over');
+        else if (st.isUnplanned) tr.classList.add('row-unplanned');
+        const realizadoHtml = st.isOverBudget
+          ? `<span class="text-danger">-${fmtMoney(st.realVal)}</span>`
+          : fmtMoney(e.realizado);
+        const diffHtml = st.isOverBudget
+          ? `<span class="text-danger">${fmtMoney(diff)}</span>`
+          : fmtMoney(diff);
+        tr.innerHTML = `
+          <td>${e.category}</td>
+          <td>${MONTHS[e.month - 1] || e.month}/${e.year}</td>
+          <td>${e.fornecedor || ''}</td>
+          <td>${e.tituloCompra || ''}</td>
+          <td class="num">${e.quantidade === null || e.quantidade === undefined ? '' : e.quantidade}</td>
+          <td class="num">${fmtMoney(e.planejado)}</td>
+          <td class="num">${realizadoHtml}</td>
+          <td class="num">${diffHtml}</td>
+          <td>${e.notes || ''}</td>
+          <td></td>
+        `;
+        if (canEdit) {
+          const actionsTd = tr.querySelector('td:last-child');
+          const editBtn = document.createElement('button');
+          editBtn.textContent = 'Editar';
+          editBtn.onclick = () => openBudgetForm(e);
+          const delBtn = document.createElement('button');
+          delBtn.textContent = 'Excluir';
+          delBtn.className = 'danger';
+          delBtn.onclick = () => deleteBudgetEntry(e.id);
+          actionsTd.appendChild(editBtn);
+          actionsTd.appendChild(delBtn);
+        }
+        body.appendChild(tr);
+      });
+    }
 
     if (budgetTab === 'comparativo') renderBudgetComparativo();
     renderBudgetChart();
@@ -4613,8 +4777,14 @@
   }
 
   function openBudgetForm(entry) {
-    editingBudgetId = entry ? entry.id : null;
-    $('#budgetFormTitle').textContent = entry ? 'Editar lançamento' : 'Novo lançamento';
+    // 96ª rodada: clicar numa célula VAZIA da tabela pivotada (Planejado/
+    // Realizado) passa um "entry" fake só pra pré-preencher fluxo/
+    // fornecedor/título/mês (sem id nenhum) -- título/ação têm que
+    // continuar dizendo "Novo lançamento", já que vai criar (POST), não
+    // editar. Só é edição de verdade quando o entry tem `id`.
+    const isEditing = !!(entry && entry.id);
+    editingBudgetId = isEditing ? entry.id : null;
+    $('#budgetFormTitle').textContent = isEditing ? 'Editar lançamento' : 'Novo lançamento';
     $('#budgetFormBrand').value = currentBudgetBrand;
     $('#budgetFormCategory').value = entry ? entry.category : ((budgetFluxosByBrand[currentBudgetBrand] || [])[0] || '');
     $('#budgetFormYear').value = entry ? entry.year : new Date().getFullYear();
@@ -7578,6 +7748,29 @@
     return `${value} <span class="stock-updated-hint" title="${tip}">ⓘ</span>`;
   }
 
+  // 95ª rodada, pedido da Raquel: "ao exportar em pdf ou excel, não
+  // aparece a informação de quem cadastrou... acho melhor ter uma coluna
+  // com data e nome de quem fez a edição" -- vira uma coluna de verdade
+  // (não só tooltip, que some na exportação), tanto no Catálogo quanto no
+  // Registro de Saídas. Prioriza a última EDIÇÃO (updatedBy/updatedAt); se
+  // o item nunca foi editado depois de criado, cai pro CADASTRO
+  // (createdBy/createdAt); item sem nenhum dos dois (semeado direto da
+  // planilha, ou cadastrado antes desta rodada existir) mostra "—".
+  function lastEditLabel(item) {
+    const name = item.updatedByName || item.createdByName;
+    const at = item.updatedByName ? item.updatedAt : item.createdAt;
+    if (!name) return '—';
+    return `${escapeHtml(name)}${at ? ' · ' + fmtDateTime(at) : ''}`;
+  }
+  // Mesma informação, em texto puro (sem HTML), pra usar nas exportações
+  // Excel (que escrevem direto na célula, sem interpretar tags).
+  function lastEditPlainText(item) {
+    const name = item.updatedByName || item.createdByName;
+    const at = item.updatedByName ? item.updatedAt : item.createdAt;
+    if (!name) return '—';
+    return `${name}${at ? ' - ' + fmtDateTime(at) : ''}`;
+  }
+
   function renderBrindesCatalog(brand) {
     const body = $('#brindesCatalogBody');
     body.innerHTML = '';
@@ -7595,6 +7788,7 @@
         <td class="num">${stockCellHtml(r.estoquePE, r.estoquePEUpdatedAt, r.estoquePEUpdatedByName)}</td>
         <td class="num">${r.estoqueTotal}</td>
         <td>${r.status || ''}</td>
+        <td>${lastEditLabel(r)}</td>
         <td></td>
       `;
       if (editable) {
@@ -7623,6 +7817,15 @@
     return (r.items || []).map((it) => `${it.item} (x${it.quantidade})`).join(', ');
   }
 
+  // 96ª rodada: uma saída pode ter itens de mais de uma marca agora --
+  // mostra todas as marcas presentes ("GhelPlus + De Bacco"), não mais
+  // só uma.
+  function logBrandsLabel(r) {
+    const brands = (r.brands && r.brands.length) ? r.brands : (r.brand ? [r.brand] : []);
+    if (brands.length === 0) return '—';
+    return brands.map((b) => BRAND_LABEL[b] || b).join(' + ');
+  }
+
   function renderBrindesLog() {
     const body = $('#brindesLogBody');
     body.innerHTML = '';
@@ -7630,16 +7833,23 @@
     brindesLog.forEach((r) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${BRAND_LABEL[r.brand] || r.brand}</td>
+        <td>${logBrandsLabel(r)}</td>
         <td>${fmtDate(r.date)}</td>
         <td>${r.representante || ''}</td>
         <td>${r.cliente || ''}</td>
         <td>${escapeHtml(logItemsLabel(r))}</td>
         <td>${r.motivo || ''}</td>
+        <td>${lastEditLabel(r)}</td>
         <td></td>
       `;
       if (editable) {
         const actionsTd = tr.querySelector('td:last-child');
+        // 96ª rodada, pedido da Raquel: "deve ter a opção de editar" --
+        // o backend (PUT /log/:id) já existia desde a 88ª rodada, só
+        // faltava este botão.
+        const editBtn = document.createElement('button');
+        editBtn.textContent = 'Editar';
+        editBtn.onclick = () => openBrindeLogForm(r);
         const delBtn = document.createElement('button');
         delBtn.textContent = 'Excluir';
         delBtn.className = 'danger';
@@ -7648,6 +7858,7 @@
           await api('/api/brindes/log/' + r.id, { method: 'DELETE' });
           await loadBrindes();
         };
+        actionsTd.appendChild(editBtn);
         actionsTd.appendChild(delBtn);
       }
       body.appendChild(tr);
@@ -7679,14 +7890,29 @@
   // (brindesTab), pra exportar exatamente o catálogo que está na tela.
   $('#brindesExportExcelBtn').onclick = () => {
     const brand = brindesTab === 'log' ? 'debacco' : brindesTab;
-    const headers = ['Código', 'Item', 'Múltiplo', 'Valor', 'Estoque PR', 'Estoque SP', 'Estoque PE', 'Total', 'Status'];
+    // 95ª rodada: coluna "Última atualização" (data + nome de quem
+    // cadastrou/editou) também na exportação Excel -- antes só existia
+    // como tooltip na tela, que não sobrevive à exportação.
+    const headers = ['Código', 'Item', 'Múltiplo', 'Valor', 'Estoque PR', 'Estoque SP', 'Estoque PE', 'Total', 'Status', 'Última atualização'];
     const rows = brindesCatalog.filter((r) => r.brand === brand).map((r) => [
       r.code || '', r.item, r.multiplo || '', Number(r.valor) || 0,
-      r.estoquePR, r.estoqueSP, r.estoquePE, r.estoqueTotal, r.status || ''
+      r.estoquePR, r.estoqueSP, r.estoquePE, r.estoqueTotal, r.status || '', lastEditPlainText(r)
     ]);
     exportRowsToExcel(`Papoi - Brindes ${BRAND_LABEL[brand] || brand}.xlsx`, 'Brindes', headers, rows);
   };
   $('#brindesExportPdfBtn').onclick = exportViewToPdf;
+  // 95ª rodada: Registro de Saídas ganhou exportação própria (antes não
+  // tinha nenhuma) -- mesmo padrão do Catálogo acima, com a coluna de
+  // autoria ("Cadastrado por").
+  $('#brindesLogExportExcelBtn').onclick = () => {
+    const headers = ['Marca', 'Data', 'Representante', 'Cliente', 'Itens', 'Motivo', 'Última atualização'];
+    const rows = brindesLog.map((r) => [
+      logBrandsLabel(r), fmtDate(r.date), r.representante || '', r.cliente || '',
+      logItemsLabel(r), r.motivo || '', lastEditPlainText(r)
+    ]);
+    exportRowsToExcel('Papoi - Brindes Registro de Saidas.xlsx', 'Registro de Saidas', headers, rows);
+  };
+  $('#brindesLogExportPdfBtn').onclick = exportViewToPdf;
   $('#brindeFormCancel').onclick = () => { $('#brindeFormWrap').hidden = true; };
   $('#brindeFormSave').onclick = async () => {
     const payload = {
@@ -7734,7 +7960,9 @@
   // 88ª rodada, pedido da Raquel: "em registro de saida coloque a opção
   // de adicionar mais itens em um mesmo registro" -- lista de itens
   // montada NA TELA enquanto o formulário está aberto, mesmo espírito do
-  // `retiradaPendingItems` de Retiradas Internas (79ª rodada).
+  // `retiradaPendingItems` de Retiradas Internas (79ª rodada). Desde a
+  // 96ª rodada cada item do rascunho guarda também a própria `brand`
+  // (pra poder misturar marcas numa mesma saída).
   let logPendingItems = [];
 
   function renderLogPendingItems() {
@@ -7744,7 +7972,7 @@
     logPendingItems.forEach((it, idx) => {
       const row = document.createElement('div');
       row.className = 'retirada-item-row';
-      row.innerHTML = `<span>${escapeHtml(it.item)} — quantidade: ${it.quantidade}</span>`;
+      row.innerHTML = `<span>${escapeHtml(BRAND_LABEL[it.brand] || it.brand)} — ${escapeHtml(it.item)} — quantidade: ${it.quantidade}</span>`;
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.className = 'retirada-item-row-remove';
@@ -7758,30 +7986,39 @@
     });
   }
 
-  function openBrindeLogForm() {
-    $('#brindeLogFormBrand').value = 'debacco';
-    $('#brindeLogFormDate').value = new Date().toISOString().slice(0, 10);
-    $('#brindeLogFormRepresentante').value = '';
-    $('#brindeLogFormEstado').value = '';
-    $('#brindeLogFormCliente').value = '';
+  // 96ª rodada, pedido da Raquel: "deve ter a opção de editar" -- mesma
+  // tela serve pra registrar (row=null) e pra editar uma saída já
+  // existente (row preenchido), mesmo padrão já usado em openBrindeForm
+  // (Catálogo) acima.
+  function openBrindeLogForm(row) {
+    editingBrindeLogId = row ? row.id : null;
+    $('#brindeLogFormTitle').textContent = row ? 'Editar saída' : 'Registrar saída';
+    $('#brindeLogFormItemBrand').value = 'debacco';
+    $('#brindeLogFormDate').value = row ? row.date : new Date().toISOString().slice(0, 10);
+    $('#brindeLogFormRepresentante').value = row ? (row.representante || '') : '';
+    $('#brindeLogFormEstado').value = row ? (row.estado || '') : '';
+    $('#brindeLogFormCliente').value = row ? (row.cliente || '') : '';
     $('#brindeLogFormQuantidade').value = '1';
     $('#brindeLogFormItemSelect').innerHTML = brindeLogItemOptionsHTML('debacco');
-    $('#brindeLogFormMotivo').value = '';
+    $('#brindeLogFormMotivo').value = row ? (row.motivo || '') : '';
     $('#brindeLogFormError').hidden = true;
-    logPendingItems = [];
+    // Edição começa com a mesma lista de itens que já estava salva (cada
+    // um já com sua própria marca) -- dá pra remover, adicionar mais ou
+    // deixar como está, sem perder nada do que já tinha.
+    logPendingItems = row ? (row.items || []).map((it) => Object.assign({}, it)) : [];
     renderLogPendingItems();
     $('#brindeLogFormWrap').hidden = false;
   }
-  $('#brindesLogNewBtn').onclick = openBrindeLogForm;
+  $('#brindesLogNewBtn').onclick = () => openBrindeLogForm(null);
   $('#brindeLogFormCancel').onclick = () => { $('#brindeLogFormWrap').hidden = true; };
-  $('#brindeLogFormBrand').onchange = () => {
-    $('#brindeLogFormItemSelect').innerHTML = brindeLogItemOptionsHTML($('#brindeLogFormBrand').value);
+  $('#brindeLogFormItemBrand').onchange = () => {
+    $('#brindeLogFormItemSelect').innerHTML = brindeLogItemOptionsHTML($('#brindeLogFormItemBrand').value);
   };
 
-  // "+ Adicionar item à lista" -- valida só o item atual (item do
+  // "+ Adicionar item à lista" -- valida só o item atual (marca + item do
   // catálogo + quantidade) e empilha no rascunho, limpando os campos pra
-  // já poder adicionar o próximo sem reabrir nada (mesmo padrão de
-  // Retiradas Internas).
+  // já poder adicionar o próximo (de qualquer marca) sem reabrir nada
+  // (mesmo padrão de Retiradas Internas).
   $('#brindeLogFormAddItemBtn').onclick = () => {
     const catalogItemId = $('#brindeLogFormItemSelect').value;
     const catalogItem = brindesCatalog.find((it) => it.id === catalogItemId);
@@ -7797,14 +8034,13 @@
       return;
     }
     $('#brindeLogFormError').hidden = true;
-    logPendingItems.push({ catalogItemId, item: catalogItem.item, quantidade });
+    logPendingItems.push({ catalogItemId, item: catalogItem.item, quantidade, brand: catalogItem.brand });
     renderLogPendingItems();
     $('#brindeLogFormQuantidade').value = '1';
   };
 
   $('#brindeLogFormSave').onclick = async () => {
     const payload = {
-      brand: $('#brindeLogFormBrand').value,
       date: $('#brindeLogFormDate').value,
       representante: $('#brindeLogFormRepresentante').value.trim(),
       estado: $('#brindeLogFormEstado').value.trim(),
@@ -7818,7 +8054,11 @@
       return;
     }
     try {
-      await api('/api/brindes/log', { method: 'POST', body: JSON.stringify(payload) });
+      if (editingBrindeLogId) {
+        await api('/api/brindes/log/' + editingBrindeLogId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/brindes/log', { method: 'POST', body: JSON.stringify(payload) });
+      }
       $('#brindeLogFormWrap').hidden = true;
       await loadBrindes();
     } catch (e) {
@@ -8322,6 +8562,12 @@
     return concorrentesDe(it).some((c) => (c.produto || '').toLowerCase().includes(q));
   }
   let lancamentosBrandFilter = 'todos';
+  // 96ª rodada: a aba "⚙️ Checklist de Processos" não é mais um filtro de
+  // marca, é um MODO de tela diferente (edita o modelo em vez de listar
+  // lançamentos) -- ver openLancamentoForm/checklist mais abaixo.
+  let lancamentosViewMode = 'lista'; // 'lista' | 'checklist-template'
+  let checklistTemplateItems = [];
+  let editingChecklistTemplateId = null;
   let editingConcorrenciaId = null;
   // 42ª rodada: linhas de concorrente do formulário (1 ou mais), editadas
   // em memória e só lidas do DOM na hora de salvar/adicionar/remover linha
@@ -8353,6 +8599,7 @@
     if (produtosTab === 'concorrencia') {
       await loadConcorrencia();
     } else {
+      showLancamentosListMode();
       await loadLancamentos();
     }
   }
@@ -8657,6 +8904,16 @@
     } catch (e) { alert(e.message); }
   }
 
+  // 96ª rodada: "x/y ✓" com o progresso do checklist de processos -- item
+  // sem NENHUM item no modelo ainda mostra "—" (nada pra conferir ainda).
+  function lancamentoChecklistProgressoLabel(it) {
+    const checklist = it.checklist || [];
+    if (checklist.length === 0) return '—';
+    const feitos = checklist.filter((c) => c.concluido).length;
+    const completo = feitos === checklist.length;
+    return `<span class="${completo ? 'checklist-progresso-completo' : ''}">${feitos}/${checklist.length} ✓</span>`;
+  }
+
   function renderLancamentos() {
     $('#lancamentosNewBtn').hidden = !canEditProdutos();
     const rows = lancamentosItems
@@ -8678,6 +8935,7 @@
         <td>${it.codigo || '—'}</td>
         <td>${it.dataLancamento ? fmtDate(it.dataLancamento) : '—'}</td>
         <td>${LANCAMENTO_STATUS_LABEL[it.status] || it.status}</td>
+        <td>${lancamentoChecklistProgressoLabel(it)}</td>
         <td>${
           // 68ª rodada, pedido da Raquel: "os arquivos anexados devem
           // ficar disponíveis para baixar, hoje para acessar ele tem que
@@ -8775,6 +9033,261 @@
       const data = await api('/api/produtos/catalogo');
       renderCatalogFileScreen('produtosCatalogoList', '/api/produtos/catalogo', data.items || [], data.canEdit, loadProdutosCatalogo);
     } catch (e) { alert(e.message); }
+  }
+
+  // ---------- Produtos fora de linha → Comunicados (96ª rodada) ----------
+  // Pedido da Raquel: novo submenu "Produtos fora de linha", com uma aba
+  // "Comunicados" (nome, data, descrição, arquivo anexado). A tela já
+  // nasce com a estrutura de abas (só 1 aba por enquanto) pra caber novas
+  // abas aqui dentro mais pra frente sem mexer no menu de novo.
+  let comunicadosItems = [];
+  let editingComunicadoId = null;
+  async function loadComunicados() {
+    try {
+      const data = await api('/api/produtos/comunicados');
+      comunicadosItems = data.items || [];
+      renderComunicados();
+    } catch (e) { alert(e.message); }
+  }
+  function renderComunicados() {
+    const canEdit = canEditProdutos();
+    $('#comunicadosNewBtn').hidden = !canEdit;
+    const body = $('#comunicadosBody');
+    body.innerHTML = '';
+    $('#comunicadosEmpty').hidden = comunicadosItems.length > 0;
+    comunicadosItems.forEach((it) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(it.nome)}</td>
+        <td>${it.data ? fmtDate(it.data) : '—'}</td>
+        <td>${escapeHtml(it.descricao || '')}</td>
+        <td>${it.arquivo ? `<a href="${it.arquivo.url}" target="_blank" rel="noopener">${escapeHtml(it.arquivo.name)}</a>` : '—'}</td>
+        <td></td>
+      `;
+      if (canEdit) {
+        const actionsTd = tr.querySelector('td:last-child');
+        const editBtn = document.createElement('button');
+        editBtn.textContent = 'Editar';
+        editBtn.onclick = () => openComunicadoForm(it);
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Excluir';
+        delBtn.className = 'danger';
+        delBtn.onclick = () => deleteComunicado(it.id);
+        actionsTd.appendChild(editBtn);
+        actionsTd.appendChild(delBtn);
+      }
+      body.appendChild(tr);
+    });
+  }
+  function openComunicadoForm(item) {
+    editingComunicadoId = item ? item.id : null;
+    $('#comunicadosFormTitle').textContent = item ? 'Editar comunicado' : 'Novo comunicado';
+    $('#comunicadosFormNome').value = item ? item.nome : '';
+    $('#comunicadosFormData').value = item ? (item.data || '') : '';
+    $('#comunicadosFormDescricao').value = item ? (item.descricao || '') : '';
+    $('#comunicadosFormError').hidden = true;
+    // Upload do arquivo só depois de o comunicado existir (precisa do id
+    // na URL) -- mesmo padrão já usado em Lançamentos de Produtos/Demandas.
+    $('#comunicadosFormArquivoSection').hidden = !item;
+    $('#comunicadosFormArquivoInput').value = '';
+    $('#comunicadosFormArquivoAtual').textContent = item && item.arquivo ? `Arquivo atual: ${item.arquivo.name}` : 'Nenhum arquivo enviado ainda.';
+    $('#comunicadosFormWrap').hidden = false;
+  }
+  $('#comunicadosNewBtn').onclick = () => openComunicadoForm(null);
+  $('#comunicadosFormCancel').onclick = () => { $('#comunicadosFormWrap').hidden = true; };
+  $('#comunicadosFormSave').onclick = async () => {
+    const payload = {
+      nome: $('#comunicadosFormNome').value.trim(),
+      data: $('#comunicadosFormData').value || null,
+      descricao: $('#comunicadosFormDescricao').value.trim()
+    };
+    if (!payload.nome) {
+      $('#comunicadosFormError').textContent = 'Informe o nome do comunicado.';
+      $('#comunicadosFormError').hidden = false;
+      return;
+    }
+    try {
+      let savedId = editingComunicadoId;
+      if (editingComunicadoId) {
+        await api('/api/produtos/comunicados/' + editingComunicadoId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        const created = await api('/api/produtos/comunicados', { method: 'POST', body: JSON.stringify(payload) });
+        savedId = created.item.id;
+      }
+      await loadComunicados();
+      // Se acabou de criar, reabre já em modo edição pra liberar o upload
+      // de arquivo -- mesmo comportamento usado em Lançamentos de Produtos.
+      if (!editingComunicadoId && savedId) {
+        openComunicadoForm(comunicadosItems.find((it) => it.id === savedId));
+      } else {
+        $('#comunicadosFormWrap').hidden = true;
+      }
+    } catch (e) {
+      $('#comunicadosFormError').textContent = e.message;
+      $('#comunicadosFormError').hidden = false;
+    }
+  };
+  $('#comunicadosFormArquivoUpload').onclick = async () => {
+    const file = $('#comunicadosFormArquivoInput').files[0];
+    if (!file || !editingComunicadoId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/produtos/comunicados/${editingComunicadoId}/file`, { method: 'POST', body: fd });
+      $('#comunicadosFormArquivoInput').value = '';
+      await loadComunicados();
+      openComunicadoForm(comunicadosItems.find((it) => it.id === editingComunicadoId));
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  async function deleteComunicado(id) {
+    if (!confirm('Excluir este comunicado?')) return;
+    try {
+      await api('/api/produtos/comunicados/' + id, { method: 'DELETE' });
+      await loadComunicados();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // ---------- Catálogo → Revisão Catálogo (96ª rodada) ----------
+  // Pedido da Raquel: "planilhas de revisão" com nome da pessoa (dá pra
+  // adicionar várias) + data + arquivo revisado anexado. Entrou dentro de
+  // Produtos → Catálogo (ambiguidade documentada em db.js/routes/
+  // produtos.js, confirmar com ela).
+  let catalogoRevisaoItems = [];
+  let editingCatalogoRevisaoId = null;
+  async function loadCatalogoRevisoes() {
+    try {
+      const data = await api('/api/produtos/catalogo-revisoes');
+      catalogoRevisaoItems = data.items || [];
+      renderCatalogoRevisoes();
+    } catch (e) { alert(e.message); }
+  }
+  function renderCatalogoRevisoes() {
+    const canEdit = canEditProdutos();
+    $('#catalogoRevisaoNewBtn').hidden = !canEdit;
+    const body = $('#catalogoRevisaoBody');
+    body.innerHTML = '';
+    $('#catalogoRevisaoEmpty').hidden = catalogoRevisaoItems.length > 0;
+    catalogoRevisaoItems.forEach((it) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml((it.pessoas || []).join(', '))}</td>
+        <td>${it.data ? fmtDate(it.data) : '—'}</td>
+        <td>${it.arquivo ? `<a href="${it.arquivo.url}" target="_blank" rel="noopener">${escapeHtml(it.arquivo.name)}</a>` : '—'}</td>
+        <td></td>
+      `;
+      if (canEdit) {
+        const actionsTd = tr.querySelector('td:last-child');
+        const editBtn = document.createElement('button');
+        editBtn.textContent = 'Editar';
+        editBtn.onclick = () => openCatalogoRevisaoForm(it);
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Excluir';
+        delBtn.className = 'danger';
+        delBtn.onclick = () => deleteCatalogoRevisao(it.id);
+        actionsTd.appendChild(editBtn);
+        actionsTd.appendChild(delBtn);
+      }
+      body.appendChild(tr);
+    });
+  }
+  // Linhas de pessoa dinâmicas (+ Adicionar pessoa) -- sempre pelo menos 1
+  // linha visível, nunca deixa remover a última (senão o form fica sem
+  // nenhuma pessoa pra digitar).
+  function renderCatalogoRevisaoPessoasInputs(pessoas) {
+    const wrap = $('#catalogoRevisaoPessoasList');
+    wrap.innerHTML = '';
+    const lista = pessoas && pessoas.length ? pessoas : [''];
+    lista.forEach((nome) => {
+      const row = document.createElement('div');
+      row.className = 'retirada-item-row';
+      row.innerHTML = `
+        <input type="text" class="catalogo-revisao-pessoa-input" placeholder="Nome da pessoa" style="flex:1;" value="${escapeHtml(nome || '')}">
+        <button type="button" class="retirada-item-row-remove">✕</button>
+      `;
+      row.querySelector('.retirada-item-row-remove').onclick = () => {
+        if (wrap.children.length <= 1) return;
+        row.remove();
+      };
+      wrap.appendChild(row);
+    });
+  }
+  $('#catalogoRevisaoAddPessoaBtn').onclick = () => {
+    const wrap = $('#catalogoRevisaoPessoasList');
+    const atuais = Array.from(wrap.querySelectorAll('.catalogo-revisao-pessoa-input')).map((i) => i.value);
+    atuais.push('');
+    renderCatalogoRevisaoPessoasInputs(atuais);
+  };
+  function openCatalogoRevisaoForm(item) {
+    editingCatalogoRevisaoId = item ? item.id : null;
+    $('#catalogoRevisaoFormTitle').textContent = item ? 'Editar planilha de revisão' : 'Nova planilha de revisão';
+    $('#catalogoRevisaoFormData').value = item ? (item.data || '') : '';
+    renderCatalogoRevisaoPessoasInputs(item ? item.pessoas : ['']);
+    $('#catalogoRevisaoFormError').hidden = true;
+    // Upload do arquivo só depois de a planilha existir (precisa do id na
+    // URL) -- mesmo padrão já usado em Comunicados/Lançamentos de Produtos.
+    $('#catalogoRevisaoArquivoSection').hidden = !item;
+    $('#catalogoRevisaoArquivoInput').value = '';
+    $('#catalogoRevisaoArquivoAtual').textContent = item && item.arquivo ? `Arquivo atual: ${item.arquivo.name}` : 'Nenhum arquivo enviado ainda.';
+    $('#catalogoRevisaoFormWrap').hidden = false;
+  }
+  $('#catalogoRevisaoNewBtn').onclick = () => openCatalogoRevisaoForm(null);
+  $('#catalogoRevisaoFormCancel').onclick = () => { $('#catalogoRevisaoFormWrap').hidden = true; };
+  $('#catalogoRevisaoFormSave').onclick = async () => {
+    const pessoas = Array.from($('#catalogoRevisaoPessoasList').querySelectorAll('.catalogo-revisao-pessoa-input'))
+      .map((i) => i.value.trim()).filter(Boolean);
+    const payload = { pessoas, data: $('#catalogoRevisaoFormData').value || null };
+    if (pessoas.length === 0) {
+      $('#catalogoRevisaoFormError').textContent = 'Informe pelo menos 1 pessoa.';
+      $('#catalogoRevisaoFormError').hidden = false;
+      return;
+    }
+    try {
+      let savedId = editingCatalogoRevisaoId;
+      if (editingCatalogoRevisaoId) {
+        await api('/api/produtos/catalogo-revisoes/' + editingCatalogoRevisaoId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        const created = await api('/api/produtos/catalogo-revisoes', { method: 'POST', body: JSON.stringify(payload) });
+        savedId = created.item.id;
+      }
+      await loadCatalogoRevisoes();
+      // Se acabou de criar, reabre já em modo edição pra liberar o upload
+      // do arquivo revisado -- mesmo comportamento usado em Comunicados.
+      if (!editingCatalogoRevisaoId && savedId) {
+        openCatalogoRevisaoForm(catalogoRevisaoItems.find((it) => it.id === savedId));
+      } else {
+        $('#catalogoRevisaoFormWrap').hidden = true;
+      }
+    } catch (e) {
+      $('#catalogoRevisaoFormError').textContent = e.message;
+      $('#catalogoRevisaoFormError').hidden = false;
+    }
+  };
+  $('#catalogoRevisaoArquivoUpload').onclick = async () => {
+    const file = $('#catalogoRevisaoArquivoInput').files[0];
+    if (!file || !editingCatalogoRevisaoId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/produtos/catalogo-revisoes/${editingCatalogoRevisaoId}/file`, { method: 'POST', body: fd });
+      $('#catalogoRevisaoArquivoInput').value = '';
+      await loadCatalogoRevisoes();
+      openCatalogoRevisaoForm(catalogoRevisaoItems.find((it) => it.id === editingCatalogoRevisaoId));
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  async function deleteCatalogoRevisao(id) {
+    if (!confirm('Excluir esta planilha de revisão?')) return;
+    try {
+      await api('/api/produtos/catalogo-revisoes/' + id, { method: 'DELETE' });
+      await loadCatalogoRevisoes();
+    } catch (e) {
+      alert(e.message);
+    }
   }
   async function loadExpositoresCatalogo() {
     try {
@@ -9363,6 +9876,7 @@
     $('#lancamentoFileInput').value = '';
     $('#lancamentoFileInput').style.display = item ? '' : 'none';
     renderLancamentoFiles(item);
+    renderLancamentoChecklist(item);
     $('#lancamentoFormWrap').hidden = false;
   }
   $('#lancamentosNewBtn').onclick = () => openLancamentoForm(null);
@@ -9424,14 +9938,145 @@
       $('#lancamentoFormError').hidden = false;
     }
   };
+  // 96ª rodada: clicar numa aba de marca sempre volta pro modo "lista"
+  // (sai do modo "editar modelo do checklist", se estiver nele).
+  function showLancamentosListMode() {
+    lancamentosViewMode = 'lista';
+    $('#lancamentosChecklistTemplateTabBtn').classList.remove('active');
+    $all('.tab-btn[data-lancamentos-brand]').forEach((x) => x.classList.toggle('active', x.dataset.lancamentosBrand === lancamentosBrandFilter));
+    $('#lancamentosChecklistTemplateWrap').hidden = true;
+    $('#lancamentosListWrap').hidden = false;
+  }
   $all('.tab-btn[data-lancamentos-brand]').forEach((b) => {
     b.onclick = () => {
       lancamentosBrandFilter = b.dataset.lancamentosBrand;
       $all('.tab-btn[data-lancamentos-brand]').forEach((x) => x.classList.toggle('active', x === b));
+      showLancamentosListMode();
       renderLancamentos();
     };
   });
   $('#homeGoLancamentos').onclick = () => { $('#navProdutosLancamentos').click(); };
+
+  // ---------- Checklist de Processos (96ª rodada) ----------
+  // Modelo editável (setor responsável + atividade) do Lançamento de
+  // Produtos -- ver comentário completo em routes/produtos.js.
+  async function loadChecklistTemplate() {
+    try {
+      const data = await api('/api/produtos/checklist-template');
+      checklistTemplateItems = data.items || [];
+      renderChecklistTemplate();
+    } catch (e) { alert(e.message); }
+  }
+
+  function renderChecklistTemplate() {
+    const canEdit = canEditProdutos();
+    $('#checklistTemplateNewBtn').hidden = !canEdit;
+    $('#checklistTemplateEmpty').hidden = checklistTemplateItems.length > 0;
+    $('#checklistTemplateBody').innerHTML = checklistTemplateItems.map((it) => `
+      <tr>
+        <td>${escapeHtml(it.setor || '—')}</td>
+        <td>${escapeHtml(it.atividade)}</td>
+        <td>${canEdit ? `<button class="btn-link" data-edit-checklist-template="${it.id}">Editar</button> <button class="btn-link danger" data-del-checklist-template="${it.id}">Excluir</button>` : ''}</td>
+      </tr>
+    `).join('');
+    $all('[data-edit-checklist-template]').forEach((b) => {
+      b.onclick = () => openChecklistTemplateForm(checklistTemplateItems.find((it) => it.id === b.dataset.editChecklistTemplate));
+    });
+    $all('[data-del-checklist-template]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir este item do checklist? Lançamentos que já tinham ele conferido mantêm o histórico (só não aparece mais pra lançamentos novos).')) return;
+        await api('/api/produtos/checklist-template/' + b.dataset.delChecklistTemplate, { method: 'DELETE' });
+        await loadChecklistTemplate();
+      };
+    });
+  }
+
+  function openChecklistTemplateForm(item) {
+    editingChecklistTemplateId = item ? item.id : null;
+    $('#checklistTemplateFormTitle').textContent = item ? 'Editar item do checklist' : 'Novo item do checklist';
+    $('#checklistTemplateFormSetor').value = item ? (item.setor || '') : '';
+    $('#checklistTemplateFormAtividade').value = item ? item.atividade : '';
+    $('#checklistTemplateFormError').hidden = true;
+    $('#checklistTemplateFormWrap').hidden = false;
+  }
+  $('#checklistTemplateNewBtn').onclick = () => openChecklistTemplateForm(null);
+  $('#checklistTemplateFormCancel').onclick = () => { $('#checklistTemplateFormWrap').hidden = true; };
+  $('#checklistTemplateFormSave').onclick = async () => {
+    const payload = {
+      setor: $('#checklistTemplateFormSetor').value.trim(),
+      atividade: $('#checklistTemplateFormAtividade').value.trim()
+    };
+    if (!payload.atividade) {
+      $('#checklistTemplateFormError').textContent = 'Informe a atividade.';
+      $('#checklistTemplateFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingChecklistTemplateId) {
+        await api('/api/produtos/checklist-template/' + editingChecklistTemplateId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/produtos/checklist-template', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#checklistTemplateFormWrap').hidden = true;
+      await loadChecklistTemplate();
+    } catch (e) {
+      $('#checklistTemplateFormError').textContent = e.message;
+      $('#checklistTemplateFormError').hidden = false;
+    }
+  };
+  $('#lancamentosChecklistTemplateTabBtn').onclick = async () => {
+    lancamentosViewMode = 'checklist-template';
+    $all('.tab-btn[data-lancamentos-brand]').forEach((x) => x.classList.remove('active'));
+    $('#lancamentosChecklistTemplateTabBtn').classList.add('active');
+    $('#lancamentosListWrap').hidden = true;
+    $('#lancamentosChecklistTemplateWrap').hidden = false;
+    await loadChecklistTemplate();
+  };
+
+  // Checklist de UM lançamento (dentro do formulário "Editar lançamento")
+  // -- cada item do modelo vira uma checkbox; marcar/desmarcar salva na
+  // hora (não espera o botão "Salvar" do formulário, igual o upload de
+  // arquivo logo acima).
+  function renderLancamentoChecklist(item) {
+    const section = $('#lancamentoChecklistSection');
+    if (!item) { section.hidden = true; return; }
+    section.hidden = false;
+    const checklist = item.checklist || [];
+    $('#lancamentoChecklistEmpty').hidden = checklist.length > 0;
+    const wrap = $('#lancamentoChecklistWrap');
+    wrap.innerHTML = '';
+    checklist.forEach((c) => {
+      const row = document.createElement('div');
+      row.className = 'checklist-item';
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = !!c.concluido;
+      checkbox.disabled = !canEditProdutos();
+      const span = document.createElement('span');
+      const setorTxt = c.setor ? `<strong>${escapeHtml(c.setor)}</strong> — ` : '';
+      const conferidoTxt = c.concluido ? ` <span class="muted">(conferido por ${escapeHtml(c.concluidoByName || '—')} em ${fmtDateTime(c.concluidoAt)})</span>` : '';
+      span.innerHTML = `${setorTxt}${escapeHtml(c.atividade)}${conferidoTxt}`;
+      checkbox.onchange = async () => {
+        checkbox.disabled = true;
+        try {
+          const resp = await api(`/api/produtos/lancamentos/${item.id}/checklist/${c.templateItemId}`, { method: 'PUT', body: JSON.stringify({ concluido: checkbox.checked }) });
+          const idx = lancamentosItems.findIndex((it) => it.id === item.id);
+          if (idx !== -1) lancamentosItems[idx] = resp.item;
+          renderLancamentoChecklist(resp.item);
+          renderLancamentos();
+        } catch (e) {
+          alert(e.message);
+          checkbox.checked = !checkbox.checked;
+          checkbox.disabled = !canEditProdutos();
+        }
+      };
+      label.appendChild(checkbox);
+      label.appendChild(span);
+      row.appendChild(label);
+      wrap.appendChild(row);
+    });
+  }
 
   // ---------- Feiras (41ª rodada) ----------
   // Mesma permissão do Budget (`budgetAccess`, carregado em loadHome()) —

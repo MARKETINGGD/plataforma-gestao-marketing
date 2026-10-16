@@ -247,6 +247,14 @@
             <!-- 68ª rodada, pedido da Raquel: "adicione em produtos um sub
                  menu com o nome catálogo... deve ser separado por marca". -->
             <button class="navlink navlink-sub" id="navProdutosCatalogo" data-view="produtos-catalogo">Catálogo</button>
+            <!-- 96ª rodada, pedido da Raquel: "em catálogo, adicione um sub
+                 menu chamado Revisão Catálogo" -- entrou aqui dentro de
+                 Produtos → Catálogo (ambiguidade documentada em db.js,
+                 confirmar com ela). -->
+            <button class="navlink navlink-sub" id="navProdutosRevisaoCatalogo" data-view="produtos-revisao-catalogo">Revisão Catálogo</button>
+            <!-- 96ª rodada, pedido da Raquel: novo submenu "Produtos fora de
+                 linha", começando com a aba Comunicados. -->
+            <button class="navlink navlink-sub" id="navProdutosForaLinha" data-view="produtos-fora-linha">Produtos fora de linha</button>
           </div>
         </div>
         <!-- 46ª rodada, pedido da Raquel: "em expositores coloque: sub menu-
@@ -1332,6 +1340,16 @@
             <div><label>Tiktok</label><input id="analiseFormValorTiktok" type="number" step="0.01"></div>
           </div>
 
+          <!-- 95ª rodada, pedido da Raquel: "adicionar um local para
+               observações de cada infleuncers, escopo (entregas) e dentro
+               de escopo ter onde por valor". -->
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Observações e Escopo</p>
+          <div><label>Observações</label><textarea id="analiseFormObservacoes" rows="2"></textarea></div>
+          <div class="form-row">
+            <div><label>Escopo (entregas)</label><textarea id="analiseFormEscopo" rows="2" placeholder="Ex: 1 post + 3 stories, 1 reels..."></textarea></div>
+            <div><label>Valor do escopo (R$)</label><input id="analiseFormEscopoValor" type="number" step="0.01"></div>
+          </div>
+
           <p class="muted" style="margin:16px 0 4px;font-size:12px;">Informações importantes</p>
           <div class="form-row">
             <div><label>@Instagram</label><input id="analiseFormInstagramHandle" type="text"></div>
@@ -1509,6 +1527,33 @@
             <tbody id="budgetTableBody"></tbody>
           </table>
           <p id="budgetEmpty" class="muted" hidden>Nenhum lançamento ainda.</p>
+        </div>
+
+        <!-- 96ª rodada, pedido da Raquel (com 2 prints da planilha real):
+             "ajuste as colunas conforme a planilha real, e coloque os
+             fluxos assim, em coluna tbm. qdo aparece o realizado no
+             papoi, n coloque o planejado, e a dferença. Fica confuso, o
+             mesmo vale para o planejado." -- as abas Planejado/Realizado
+             (que espelham as abas "PLANEJADO 2026"/"REALIZADO 2026" da
+             planilha oficial) trocam a tabela de cima por esta aqui:
+             agrupada por Fluxo (igual aos prints: "INSTITUCIONAL- FLUXO
+             2.5.2.3" somando o total do fluxo), com Quantidade/
+             Fornecedor/Título da compra e os 12 meses em COLUNA (só o
+             valor da própria aba -- nunca planejado+realizado+diferença
+             juntos, isso continua só na Visão Geral/Comparativo por
+             Fluxo acima/abaixo). Ver renderBudgetPivot em app.js. -->
+        <div id="budgetPivotWrap" hidden style="overflow-x:auto;">
+          <table class="data-table budget-pivot-table">
+            <thead>
+              <tr id="budgetPivotHeaderRow">
+                <th>Qtd.</th><th>Fornecedor</th><th>Título da compra</th>
+                <!-- colunas Jan..Dez inseridas aqui via JS -->
+                <th>Total</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="budgetPivotBody"></tbody>
+          </table>
+          <p id="budgetPivotEmpty" class="muted" hidden>Nenhum lançamento encontrado.</p>
         </div>
 
         <div id="budgetComparativoWrap" hidden>
@@ -1690,7 +1735,7 @@
 
           <table class="data-table">
             <thead>
-              <tr><th>Código</th><th>Item</th><th>Múltiplo</th><th>Valor</th><th>Estoque PR</th><th>Estoque SP</th><th>Estoque PE</th><th>Total</th><th>Status</th><th></th></tr>
+              <tr><th>Código</th><th>Item</th><th>Múltiplo</th><th>Valor</th><th>Estoque PR</th><th>Estoque SP</th><th>Estoque PE</th><th>Total</th><th>Status</th><th>Última atualização</th><th></th></tr>
             </thead>
             <tbody id="brindesCatalogBody"></tbody>
           </table>
@@ -1700,6 +1745,11 @@
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="brindesLogNewBtn">+ Registrar saída</button>
             <button class="btn-secondary no-print" id="brindesSaidasPublicLinkBtn" type="button">🔗 Link externo</button>
+            <!-- 95ª rodada, pedido da Raquel: exportação (Excel/PDF) com
+                 autoria também no Registro de Saídas -- antes só o
+                 Catálogo (acima) tinha botão de exportar. -->
+            <button class="btn-secondary no-print" id="brindesLogExportExcelBtn" type="button">⬇️ Exportar Excel</button>
+            <button class="btn-secondary no-print" id="brindesLogExportPdfBtn" type="button">🖨️ Exportar PDF</button>
           </div>
 
           <!-- 88ª rodada, pedido da Raquel: "o registro de saidas deve
@@ -1742,30 +1792,38 @@
           </div>
 
           <div id="brindeLogFormWrap" class="form-card" hidden>
-            <h3>Registrar saída</h3>
+            <h3 id="brindeLogFormTitle">Registrar saída</h3>
             <div class="form-row">
-              <div><label>Marca</label>
-                <select id="brindeLogFormBrand">
-                  <option value="debacco">De Bacco</option>
-                  <option value="ghelplus">GhelPlus</option>
-                </select>
-              </div>
               <div><label>Data</label><input id="brindeLogFormDate" type="date"></div>
+              <div><label>Representante</label><input id="brindeLogFormRepresentante" type="text"></div>
             </div>
             <div class="form-row">
-              <div><label>Representante</label><input id="brindeLogFormRepresentante" type="text"></div>
               <div><label>Estado</label><input id="brindeLogFormEstado" type="text"></div>
+              <div><label>Cliente</label><input id="brindeLogFormCliente" type="text"></div>
             </div>
-            <div><label>Cliente</label><input id="brindeLogFormCliente" type="text"></div>
 
             <!-- 88ª rodada, pedido da Raquel: "em registro de saida
                  coloque a opção de adicionar mais itens em um mesmo
                  registro" -- mesmo padrão de lista de itens já usado em
-                 Retiradas Internas (79ª rodada). -->
-            <label>Itens da saída <span class="muted" style="font-weight:400;">(desconta do estoque automaticamente)</span></label>
+                 Retiradas Internas (79ª rodada).
+                 96ª rodada, pedido da Raquel: "deve ter... a opção de
+                 selecionar mais de uma marca em uma mesma retirada, por
+                 exe copos - ghelplus, avental- de bacco, tudo na mesma
+                 retirada" -- a Marca deixou de ser um campo único do
+                 registro inteiro (lá em cima) e virou um campo DE CADA
+                 ITEM, junto com o Item e a Quantidade logo abaixo, pra
+                 poder misturar itens de marcas diferentes numa mesma
+                 saída -- cada um desconta do estoque da própria marca. -->
+            <label>Itens da saída <span class="muted" style="font-weight:400;">(desconta do estoque automaticamente, de cada marca)</span></label>
             <div id="brindeLogFormItemsList" class="retirada-items-list"></div>
-            <p class="muted" id="brindeLogFormItemsEmpty" style="margin:2px 0 10px;">Nenhum item adicionado ainda — escolha um item e a quantidade abaixo, depois clique em "Adicionar item".</p>
+            <p class="muted" id="brindeLogFormItemsEmpty" style="margin:2px 0 10px;">Nenhum item adicionado ainda — escolha a marca, o item e a quantidade abaixo, depois clique em "Adicionar item".</p>
             <div class="form-row">
+              <div><label>Marca</label>
+                <select id="brindeLogFormItemBrand">
+                  <option value="debacco">De Bacco</option>
+                  <option value="ghelplus">GhelPlus</option>
+                </select>
+              </div>
               <div><label>Item</label><select id="brindeLogFormItemSelect"></select></div>
               <div><label>Quantidade</label><input id="brindeLogFormQuantidade" type="number" min="1" step="1" placeholder="1"></div>
             </div>
@@ -1781,7 +1839,7 @@
 
           <table class="data-table">
             <thead>
-              <tr><th>Marca</th><th>Data</th><th>Representante</th><th>Cliente</th><th>Itens</th><th>Motivo</th><th></th></tr>
+              <tr><th>Marca</th><th>Data</th><th>Representante</th><th>Cliente</th><th>Itens</th><th>Motivo</th><th>Última atualização</th><th></th></tr>
             </thead>
             <tbody id="brindesLogBody"></tbody>
           </table>
@@ -2164,10 +2222,48 @@
             <button class="tab-btn active" data-lancamentos-brand="todos">Todas as marcas</button>
             <button class="tab-btn" data-lancamentos-brand="debacco">De Bacco</button>
             <button class="tab-btn" data-lancamentos-brand="ghelplus">GhelPlus</button>
+            <!-- 96ª rodada, pedido da Raquel: "adicionar aba dentro de
+                 lançamento de produtos, um check list de processos a
+                 serem seguidos... deixe de forma editavel, p poder por o
+                 setor responsavel e a atividade de cada um" -- esta aba
+                 não filtra por marca (é o MODELO do checklist, igual pras
+                 duas marcas), por isso fica separada das 3 de cima. -->
+            <button class="tab-btn" id="lancamentosChecklistTemplateTabBtn" type="button">⚙️ Checklist de Processos</button>
           </div>
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="lancamentosNewBtn">+ Novo lançamento</button>
           </div>
+
+          <!-- Modelo do checklist (editável) -- a Raquel ainda vai mandar
+               o fluxograma com os setores de verdade, por enquanto dá pra
+               criar/editar/excluir os itens livremente. Editar/excluir um
+               item aqui NUNCA apaga o que já tinha marcado num lançamento
+               que já existe (ver syncChecklist em routes/produtos.js). -->
+          <div id="lancamentosChecklistTemplateWrap" hidden>
+            <p class="muted">Esse é o modelo de checklist que TODO produto lançado precisa ter conferido -- cada item tem um setor responsável e uma atividade. Editar aqui vale pros lançamentos novos e também soma nos que já existem (sem apagar o que já foi conferido).</p>
+            <div class="view-toolbar-actions" style="margin:12px 0;">
+              <button class="btn-primary" id="checklistTemplateNewBtn">+ Novo item do checklist</button>
+            </div>
+            <div id="checklistTemplateFormWrap" class="form-card" hidden>
+              <h3 id="checklistTemplateFormTitle">Novo item do checklist</h3>
+              <div class="form-row">
+                <div><label>Setor responsável</label><input id="checklistTemplateFormSetor" type="text" placeholder="Ex.: Engenharia"></div>
+                <div><label>Atividade</label><input id="checklistTemplateFormAtividade" type="text" placeholder="Ex.: Validar desenho técnico"></div>
+              </div>
+              <div id="checklistTemplateFormError" class="error" hidden></div>
+              <div class="form-actions">
+                <button id="checklistTemplateFormSave" class="btn-primary">Salvar</button>
+                <button id="checklistTemplateFormCancel" class="btn-secondary">Cancelar</button>
+              </div>
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Setor responsável</th><th>Atividade</th><th></th></tr></thead>
+              <tbody id="checklistTemplateBody"></tbody>
+            </table>
+            <p class="muted" id="checklistTemplateEmpty" hidden>Nenhum item cadastrado ainda -- monte aqui o passo a passo que todo lançamento precisa seguir.</p>
+          </div>
+
+          <div id="lancamentosListWrap">
 
           <!-- 39ª rodada, pedido da Raquel: campos novos (produto, código,
                diferenciais, arquivos) e status trocado pro fluxo de
@@ -2207,6 +2303,19 @@
             <label>Arquivos</label>
             <div id="lancamentoFiles"></div>
             <input type="file" id="lancamentoFileInput">
+
+            <!-- 96ª rodada, pedido da Raquel: "cada produto lançado deve
+                 ter esse check list conferido" -- só aparece depois de o
+                 lançamento já existir (igual Arquivos, logo acima), com
+                 os itens do modelo (setor + atividade), cada um com sua
+                 própria checkbox -- marcar/desmarcar salva na hora,
+                 carimbando quem conferiu. -->
+            <div id="lancamentoChecklistSection" hidden>
+              <label>Checklist de processos</label>
+              <div id="lancamentoChecklistWrap"></div>
+              <p class="muted" id="lancamentoChecklistEmpty" hidden>Nenhum item cadastrado no modelo de checklist ainda -- monte o modelo na aba "⚙️ Checklist de Processos".</p>
+            </div>
+
             <div id="lancamentoFormError" class="error" hidden></div>
             <div class="form-actions">
               <button id="lancamentoFormSave" class="btn-primary">Salvar</button>
@@ -2215,10 +2324,11 @@
           </div>
 
           <table class="data-table">
-            <thead><tr><th>Marca</th><th>Produto</th><th>Nome</th><th>Código</th><th>Data de lançamento</th><th>Status</th><th>Arquivos</th><th></th></tr></thead>
+            <thead><tr><th>Marca</th><th>Produto</th><th>Nome</th><th>Código</th><th>Data de lançamento</th><th>Status</th><th>Checklist</th><th>Arquivos</th><th></th></tr></thead>
             <tbody id="lancamentosBody"></tbody>
           </table>
           <p class="muted" id="lancamentosEmpty" hidden>Nenhum lançamento cadastrado ainda.</p>
+          </div>
         </div>
       </section>
 
@@ -2229,6 +2339,105 @@
         <h2>Produtos — Catálogo</h2>
         <p class="muted">Suba aqui o catálogo atualizado de cada marca -- enviar um arquivo novo substitui o anterior.</p>
         <div id="produtosCatalogoList"></div>
+      </section>
+
+      <!-- Revisão Catálogo (96ª rodada), pedido da Raquel: "planilhas de
+           revisão" com nome da pessoa (dá pra adicionar várias) + data +
+           arquivo revisado anexado. -->
+      <section id="view-produtos-revisao-catalogo" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Catálogo — Revisão Catálogo</h2>
+          <div class="view-toolbar-actions">
+            <button class="btn-primary" id="catalogoRevisaoNewBtn">+ Nova planilha de revisão</button>
+          </div>
+        </div>
+        <p class="muted">Planilhas de revisão do catálogo: quem revisou, quando, e o arquivo revisado anexado.</p>
+
+        <div id="catalogoRevisaoFormWrap" class="form-card" hidden>
+          <h3 id="catalogoRevisaoFormTitle">Nova planilha de revisão</h3>
+          <div class="form-row">
+            <div><label>Data da revisão</label><input id="catalogoRevisaoFormData" type="date"></div>
+          </div>
+          <div class="form-row">
+            <div style="flex:1 1 100%;">
+              <label>Pessoas que revisaram</label>
+              <div id="catalogoRevisaoPessoasList"></div>
+              <button type="button" class="btn-secondary" id="catalogoRevisaoAddPessoaBtn">+ Adicionar pessoa</button>
+            </div>
+          </div>
+          <div id="catalogoRevisaoFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="catalogoRevisaoFormSave" class="btn-primary">Salvar</button>
+            <button id="catalogoRevisaoFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+          <!-- O upload do arquivo revisado só aparece depois de salvar
+               (precisa do id da planilha de revisão), mesmo padrão já
+               usado em Comunicados/Lançamentos de Produtos. -->
+          <div id="catalogoRevisaoArquivoSection" hidden style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+            <label>Arquivo revisado</label>
+            <div id="catalogoRevisaoArquivoAtual" class="muted" style="margin-bottom:8px;"></div>
+            <input type="file" id="catalogoRevisaoArquivoInput">
+            <button class="btn-secondary" id="catalogoRevisaoArquivoUpload" type="button">Enviar arquivo</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr><th>Pessoas</th><th>Data</th><th>Arquivo revisado</th><th></th></tr>
+          </thead>
+          <tbody id="catalogoRevisaoBody"></tbody>
+        </table>
+        <p class="muted" id="catalogoRevisaoEmpty" hidden>Nenhuma planilha de revisão cadastrada ainda.</p>
+      </section>
+
+      <!-- Produtos fora de linha (96ª rodada), começando com a aba
+           Comunicados: nome, data, descrição e um arquivo anexado por
+           comunicado (upload novo substitui o anterior). Já nasce com a
+           estrutura de abas, pra caber novas abas aqui dentro mais pra
+           frente sem precisar mexer no menu de novo. -->
+      <section id="view-produtos-fora-linha" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Produtos fora de linha</h2>
+          <div class="view-toolbar-actions">
+            <button class="btn-primary" id="comunicadosNewBtn">+ Novo comunicado</button>
+          </div>
+        </div>
+        <div class="tabs">
+          <button class="tab-btn active" data-fora-linha-tab="comunicados">Comunicados</button>
+        </div>
+
+        <div id="comunicadosFormWrap" class="form-card" hidden>
+          <h3 id="comunicadosFormTitle">Novo comunicado</h3>
+          <div class="form-row">
+            <div><label>Nome</label><input id="comunicadosFormNome" type="text" placeholder="Ex.: Descontinuação linha X"></div>
+            <div><label>Data</label><input id="comunicadosFormData" type="date"></div>
+          </div>
+          <div class="form-row">
+            <div style="flex:1 1 100%;"><label>Descrição</label><textarea id="comunicadosFormDescricao" rows="3" placeholder="Detalhes do comunicado..."></textarea></div>
+          </div>
+          <div id="comunicadosFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="comunicadosFormSave" class="btn-primary">Salvar</button>
+            <button id="comunicadosFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+          <!-- O upload do arquivo só aparece depois de salvar (precisa do
+               id do comunicado), mesmo padrão já usado em Lançamentos de
+               Produtos/Demandas. -->
+          <div id="comunicadosFormArquivoSection" hidden style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+            <label>Arquivo</label>
+            <div id="comunicadosFormArquivoAtual" class="muted" style="margin-bottom:8px;"></div>
+            <input type="file" id="comunicadosFormArquivoInput">
+            <button class="btn-secondary" id="comunicadosFormArquivoUpload" type="button">Enviar arquivo</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr><th>Nome</th><th>Data</th><th>Descrição</th><th>Arquivo</th><th></th></tr>
+          </thead>
+          <tbody id="comunicadosBody"></tbody>
+        </table>
+        <p class="muted" id="comunicadosEmpty" hidden>Nenhum comunicado cadastrado ainda.</p>
       </section>
 
       <!-- Book Técnico (46ª rodada: nasceu só como navegação em branco;

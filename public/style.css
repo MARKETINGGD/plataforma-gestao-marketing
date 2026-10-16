@@ -638,6 +638,21 @@ button{font-weight:700;}
 .budget-chart-svg{width:100%;height:auto;display:block;}
 .budget-chart-empty{margin:0;}
 
+/* ---------- tabela "pivô" (planilha) do Budget, abas Planejado/Realizado
+   (96ª rodada) -- colunas Qtd/Fornecedor/Título + Jan..Dez, agrupada por
+   Fluxo com subtotal, sem comparação simultânea planejado x realizado
+   (essa visão fica só em Visão Geral/Comparativo por Fluxo). ---------- */
+.budget-pivot-table{width:100%;border-collapse:collapse;font-size:13px;}
+.budget-pivot-table th,.budget-pivot-table td{padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+.budget-pivot-table thead th{position:sticky;top:0;background:var(--card);z-index:1;font-size:12px;color:var(--muted);text-align:left;}
+.budget-pivot-group-header td{background:var(--bg);font-weight:700;font-size:12.5px;color:var(--primary-dark);padding-top:12px;}
+.budget-pivot-subtotal td{background:var(--bg);font-weight:700;border-top:1px solid var(--border);border-bottom:2px solid var(--border);}
+.budget-pivot-cell{cursor:pointer;border-radius:6px;}
+.budget-pivot-cell:hover{background:var(--bg);}
+.budget-pivot-cell-empty{cursor:pointer;color:var(--muted);text-align:center;border-radius:6px;opacity:.6;}
+.budget-pivot-cell-empty:hover{background:var(--bg);opacity:1;}
+.budget-pivot-total-col{font-weight:700;}
+
 /* ---------- Kanban (Demandas) — uma lista por pessoa da equipe ---------- */
 .kanban{display:flex;gap:14px;margin-top:16px;overflow-x:auto;padding-bottom:8px;align-items:flex-start;}
 .kanban-col{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px;min-height:120px;width:250px;flex:0 0 250px;transition:opacity .15s,outline .1s;}
@@ -854,6 +869,9 @@ button{font-weight:700;}
    normal dele. */
 .checklist-item label input[type="checkbox"]{margin-top:3px;flex:0 0 auto;width:auto;}
 .checklist-item label span{overflow-wrap:break-word;word-break:break-word;line-height:1.4;flex:1;min-width:0;}
+/* 96ª rodada: progresso do checklist de processos (Lançamento de
+   Produtos) em verde quando os itens já foram todos conferidos. */
+.checklist-progresso-completo{color:var(--success,#2e7d32);font-weight:600;}
 .checklist-due-input,.checklist-assignee-select{margin-top:1px;}
 /* Alinha o início da 2ª linha (data) com o texto do item acima, não com o
    quadradinho do checkbox (26px ≈ largura do checkbox + gap da 1ª linha). */

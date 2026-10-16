@@ -285,15 +285,99 @@ router.delete('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) 
   res.json({ ok: true });
 });
 
+// ---------- Checklist de Processos do Lançamento (96ª rodada) ----------
+// Modelo editável (setor responsável + atividade) -- a Raquel ainda vai
+// mandar um fluxograma com os setores de verdade ("ainda n tenho os
+// setores"), por enquanto a tela deixa criar/editar/excluir os itens
+// livremente, igual o Gerenciar Etiquetas de Demandas. `ordem` é só a
+// posição de criação (número crescente), pra manter a lista sempre na
+// mesma ordem que foi montada.
+function nextChecklistTemplateOrdem() {
+  const items = db.get('produtosChecklistTemplate').value();
+  return items.length ? Math.max(...items.map((it) => it.ordem || 0)) + 1 : 1;
+}
+
+router.get('/checklist-template', requireAuth, (req, res) => {
+  const items = db.get('produtosChecklistTemplate').value().slice().sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+  res.json({ items });
+});
+
+router.post('/checklist-template', requireAuth, requireProdutosEdit, (req, res) => {
+  const { setor, atividade } = req.body || {};
+  const atividadeTrim = str(atividade);
+  if (!atividadeTrim) return res.status(400).json({ error: 'Informe a atividade do checklist.' });
+  const item = {
+    id: nanoid(),
+    setor: str(setor),
+    atividade: atividadeTrim,
+    ordem: nextChecklistTemplateOrdem(),
+    createdAt: new Date().toISOString(),
+    createdBy: req.user.id
+  };
+  db.get('produtosChecklistTemplate').push(item).write();
+  logAudit({ user: req.user, entityType: 'produtosChecklistTemplate', entityId: item.id, entityLabel: item.atividade, action: 'create', details: `Item de checklist de processos criado: "${item.atividade}" (setor: ${item.setor || '—'})` });
+  res.json({ item });
+});
+
+router.put('/checklist-template/:id', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('produtosChecklistTemplate').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Item do checklist não encontrado.' });
+  const { setor, atividade } = req.body || {};
+  const updates = {};
+  if (setor !== undefined) updates.setor = str(setor);
+  if (atividade !== undefined) updates.atividade = str(atividade);
+  db.get('produtosChecklistTemplate').find({ id: req.params.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'produtosChecklistTemplate', entityId: existing.id, entityLabel: updates.atividade || existing.atividade, action: 'update', details: 'Item de checklist de processos atualizado' });
+  res.json({ item: db.get('produtosChecklistTemplate').find({ id: req.params.id }).value() });
+});
+
+router.delete('/checklist-template/:id', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('produtosChecklistTemplate').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Item do checklist não encontrado.' });
+  db.get('produtosChecklistTemplate').remove({ id: req.params.id }).write();
+  // Importante: excluir um item do MODELO não mexe nos lançamentos que já
+  // tinham ele copiado no próprio checklist (`syncChecklist` abaixo nunca
+  // remove item nenhum, só adiciona os novos) -- o histórico de quem já
+  // conferiu aquela etapa num produto já lançado nunca se perde.
+  logAudit({ user: req.user, entityType: 'produtosChecklistTemplate', entityId: existing.id, entityLabel: existing.atividade, action: 'delete', details: `Item de checklist de processos excluído: "${existing.atividade}"` });
+  res.json({ ok: true });
+});
+
+// Garante que um lançamento tenha, no próprio checklist, todos os itens
+// que existem HOJE no modelo -- sem nunca mexer num item que já estava lá
+// (preserva `concluido`/`concluidoBy`/`concluidoAt` de quem já conferiu).
+// Chamado na leitura (mesmo padrão "on read" já usado em Brindes acima);
+// só grava de volta no banco se alguma coisa realmente mudou.
+function syncChecklist(item) {
+  const template = db.get('produtosChecklistTemplate').value();
+  const existing = Array.isArray(item.checklist) ? item.checklist : [];
+  const existingIds = new Set(existing.map((c) => c.templateItemId));
+  const missing = template
+    .filter((t) => !existingIds.has(t.id))
+    .map((t) => ({ templateItemId: t.id, setor: t.setor, atividade: t.atividade, concluido: false, concluidoBy: null, concluidoByName: '', concluidoAt: null }));
+  if (missing.length === 0) return item;
+  const checklist = existing.concat(missing);
+  db.get('lancamentosProdutos').find({ id: item.id }).assign({ checklist }).write();
+  return Object.assign({}, item, { checklist });
+}
+
 // ---------- Lançamentos de produtos ----------
 router.get('/lancamentos', requireAuth, (req, res) => {
-  res.json({ items: db.get('lancamentosProdutos').value() });
+  const items = db.get('lancamentosProdutos').value().map(syncChecklist);
+  res.json({ items });
 });
 
 router.post('/lancamentos', requireAuth, requireProdutosEdit, (req, res) => {
   const { brand, produto, nome, codigo, diferenciais, dataLancamento, status, descricao } = req.body || {};
   const nomeTrim = str(nome);
   if (!nomeTrim) return res.status(400).json({ error: 'Informe o nome do produto.' });
+  // Todo lançamento novo já nasce com o checklist de processos atual
+  // (modelo inteiro, tudo desmarcado) -- "cada produto lançado deve ter
+  // esse check list conferido".
+  const checklist = db.get('produtosChecklistTemplate').value().map((t) => ({
+    templateItemId: t.id, setor: t.setor, atividade: t.atividade,
+    concluido: false, concluidoBy: null, concluidoByName: '', concluidoAt: null
+  }));
   const item = {
     id: nanoid(),
     brand: validBrand(brand),
@@ -305,6 +389,7 @@ router.post('/lancamentos', requireAuth, requireProdutosEdit, (req, res) => {
     status: LANCAMENTO_STATUSES.includes(status) ? status : LANCAMENTO_STATUSES[0],
     descricao: str(descricao),
     arquivos: [],
+    checklist,
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
     updatedAt: new Date().toISOString()
@@ -312,6 +397,27 @@ router.post('/lancamentos', requireAuth, requireProdutosEdit, (req, res) => {
   db.get('lancamentosProdutos').push(item).write();
   logAudit({ user: req.user, entityType: 'lancamentoProduto', entityId: item.id, entityLabel: item.nome, action: 'create', details: `Lançamento de produto criado: "${item.nome}"` });
   res.json({ item });
+});
+
+// Marca/desmarca 1 item do checklist DE UM lançamento específico --
+// carimba quem conferiu e quando (só quando está marcando; desmarcar
+// limpa o carimbo, já que deixou de estar conferido por aquela pessoa).
+router.put('/lancamentos/:id/checklist/:itemId', requireAuth, requireProdutosEdit, (req, res) => {
+  const existingRaw = db.get('lancamentosProdutos').find({ id: req.params.id }).value();
+  if (!existingRaw) return res.status(404).json({ error: 'Lançamento não encontrado.' });
+  const existing = syncChecklist(existingRaw);
+  const alvo = (existing.checklist || []).find((c) => c.templateItemId === req.params.itemId);
+  if (!alvo) return res.status(404).json({ error: 'Item do checklist não encontrado neste lançamento.' });
+  const concluido = !!(req.body || {}).concluido;
+  const checklist = existing.checklist.map((c) => {
+    if (c.templateItemId !== req.params.itemId) return c;
+    return concluido
+      ? Object.assign({}, c, { concluido: true, concluidoBy: req.user.id, concluidoByName: req.user.name, concluidoAt: new Date().toISOString() })
+      : Object.assign({}, c, { concluido: false, concluidoBy: null, concluidoByName: '', concluidoAt: null });
+  });
+  db.get('lancamentosProdutos').find({ id: req.params.id }).assign({ checklist }).write();
+  logAudit({ user: req.user, entityType: 'lancamentoProduto', entityId: existing.id, entityLabel: existing.nome, action: 'update', details: `Checklist "${alvo.atividade}" ${concluido ? 'marcado como conferido' : 'desmarcado'}` });
+  res.json({ item: db.get('lancamentosProdutos').find({ id: req.params.id }).value() });
 });
 
 router.put('/lancamentos/:id', requireAuth, requireProdutosEdit, (req, res) => {
@@ -408,5 +514,218 @@ router.use('/catalogo', makeCatalogFileRouter({
   permissionKey: 'produtos',
   resourceLabel: 'Catálogo de Produtos'
 }));
+
+// ---------- Produtos fora de linha → Comunicados (96ª rodada) ----------
+// Item 6 da fila de pedidos da Raquel: novo submenu "Produtos fora de
+// linha", começando com a aba "Comunicados" -- cada comunicado tem nome,
+// data, descrição e um arquivo anexado (upload novo substitui o anterior,
+// mesmo padrão já usado no Catálogo). Lista única (sem separação por
+// marca -- não foi pedido aqui).
+router.get('/comunicados', requireAuth, (req, res) => {
+  const items = db.get('produtosComunicados').value().slice().sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')));
+  res.json({ items });
+});
+
+router.post('/comunicados', requireAuth, requireProdutosEdit, (req, res) => {
+  const b = req.body || {};
+  if (!str(b.nome)) return res.status(400).json({ error: 'Preencha o nome do comunicado.' });
+  const item = {
+    id: nanoid(),
+    nome: str(b.nome),
+    data: str(b.data),
+    descricao: str(b.descricao),
+    arquivo: null,
+    createdAt: new Date().toISOString(),
+    createdBy: req.user.id,
+    createdByName: req.user.name,
+    updatedAt: new Date().toISOString()
+  };
+  db.get('produtosComunicados').push(item).write();
+  logAudit({ user: req.user, entityType: 'produtoComunicado', entityId: item.id, entityLabel: item.nome, action: 'create' });
+  res.json({ item });
+});
+
+router.put('/comunicados/:id', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('produtosComunicados').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Comunicado não encontrado.' });
+  const b = req.body || {};
+  if (b.nome !== undefined && !str(b.nome)) return res.status(400).json({ error: 'Preencha o nome do comunicado.' });
+  const updates = { updatedAt: new Date().toISOString(), updatedBy: req.user.id, updatedByName: req.user.name };
+  ['nome', 'data', 'descricao'].forEach((k) => { if (b[k] !== undefined) updates[k] = str(b[k]); });
+  db.get('produtosComunicados').find({ id: req.params.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'produtoComunicado', entityId: existing.id, entityLabel: updates.nome || existing.nome, action: 'update' });
+  res.json({ item: db.get('produtosComunicados').find({ id: req.params.id }).value() });
+});
+
+router.delete('/comunicados/:id', requireAuth, requireProdutosEdit, (req, res) => {
+  const target = db.get('produtosComunicados').find({ id: req.params.id }).value();
+  db.get('produtosComunicados').remove({ id: req.params.id }).write();
+  if (target) {
+    const dir = path.join(__dirname, '..', 'data', 'uploads', 'produtos-comunicados', req.params.id);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    logAudit({ user: req.user, entityType: 'produtoComunicado', entityId: target.id, entityLabel: target.nome, action: 'delete' });
+  }
+  res.json({ ok: true });
+});
+
+const comunicadosUploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'produtos-comunicados');
+const comunicadosStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(comunicadosUploadsRoot, req.params.id);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadComunicado = multer({ storage: comunicadosStorage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB
+
+router.post('/comunicados/:id/file', requireAuth, requireProdutosEdit, uploadComunicado.single('file'), (req, res) => {
+  const existing = db.get('produtosComunicados').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Comunicado não encontrado.' });
+  if (!req.file) return res.status(400).json({ error: 'Selecione um arquivo.' });
+  // Upload novo substitui o anterior (mesmo padrão do Catálogo) -- apaga
+  // o arquivo físico antigo, se existia, antes de gravar o novo.
+  if (existing.arquivo && existing.arquivo.url) {
+    const oldPath = path.join(comunicadosUploadsRoot, req.params.id, path.basename(existing.arquivo.url));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  const arquivo = {
+    name: req.file.originalname,
+    url: `/uploads/produtos-comunicados/${req.params.id}/${req.file.filename}`,
+    size: req.file.size,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: req.user.id,
+    uploadedByName: req.user.name
+  };
+  db.get('produtosComunicados').find({ id: req.params.id }).assign({ arquivo, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'produtoComunicado', entityId: existing.id, entityLabel: existing.nome, action: 'file_upload', details: `Arquivo enviado: ${arquivo.name}` });
+  res.json({ item: db.get('produtosComunicados').find({ id: req.params.id }).value() });
+});
+
+router.delete('/comunicados/:id/file', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('produtosComunicados').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Comunicado não encontrado.' });
+  if (existing.arquivo && existing.arquivo.url) {
+    const oldPath = path.join(comunicadosUploadsRoot, req.params.id, path.basename(existing.arquivo.url));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  db.get('produtosComunicados').find({ id: req.params.id }).assign({ arquivo: null, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'produtoComunicado', entityId: existing.id, entityLabel: existing.nome, action: 'file_delete' });
+  res.json({ item: db.get('produtosComunicados').find({ id: req.params.id }).value() });
+});
+
+// ---------- Catálogo → Revisão Catálogo (96ª rodada) ----------
+// Item 7 da fila de pedidos: "planilhas de revisão" com nome da pessoa +
+// data + arquivo revisado anexado, com opção de adicionar VÁRIAS pessoas
+// por planilha de revisão. Ver comentário extenso em db.js sobre a
+// ambiguidade de qual catálogo (entrou dentro de Produtos → Catálogo,
+// pendente de confirmação da Raquel).
+function sanitizePessoas(pessoas) {
+  if (!Array.isArray(pessoas)) return [];
+  return pessoas.map((p) => str(p)).filter(Boolean);
+}
+
+router.get('/catalogo-revisoes', requireAuth, (req, res) => {
+  const items = db.get('produtosCatalogoRevisoes').value().slice().sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')));
+  res.json({ items });
+});
+
+router.post('/catalogo-revisoes', requireAuth, requireProdutosEdit, (req, res) => {
+  const b = req.body || {};
+  const pessoas = sanitizePessoas(b.pessoas);
+  if (pessoas.length === 0) return res.status(400).json({ error: 'Informe pelo menos 1 pessoa.' });
+  const item = {
+    id: nanoid(),
+    pessoas,
+    data: str(b.data),
+    arquivo: null,
+    createdAt: new Date().toISOString(),
+    createdBy: req.user.id,
+    createdByName: req.user.name,
+    updatedAt: new Date().toISOString()
+  };
+  db.get('produtosCatalogoRevisoes').push(item).write();
+  logAudit({ user: req.user, entityType: 'catalogoRevisao', entityId: item.id, entityLabel: pessoas.join(', '), action: 'create' });
+  res.json({ item });
+});
+
+router.put('/catalogo-revisoes/:id', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Planilha de revisão não encontrada.' });
+  const b = req.body || {};
+  const updates = { updatedAt: new Date().toISOString(), updatedBy: req.user.id, updatedByName: req.user.name };
+  if (b.pessoas !== undefined) {
+    const pessoas = sanitizePessoas(b.pessoas);
+    if (pessoas.length === 0) return res.status(400).json({ error: 'Informe pelo menos 1 pessoa.' });
+    updates.pessoas = pessoas;
+  }
+  if (b.data !== undefined) updates.data = str(b.data);
+  db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'catalogoRevisao', entityId: existing.id, entityLabel: (updates.pessoas || existing.pessoas).join(', '), action: 'update' });
+  res.json({ item: db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).value() });
+});
+
+router.delete('/catalogo-revisoes/:id', requireAuth, requireProdutosEdit, (req, res) => {
+  const target = db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).value();
+  db.get('produtosCatalogoRevisoes').remove({ id: req.params.id }).write();
+  if (target) {
+    const dir = path.join(__dirname, '..', 'data', 'uploads', 'produtos-catalogo-revisoes', req.params.id);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    logAudit({ user: req.user, entityType: 'catalogoRevisao', entityId: target.id, entityLabel: (target.pessoas || []).join(', '), action: 'delete' });
+  }
+  res.json({ ok: true });
+});
+
+const catalogoRevisoesUploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'produtos-catalogo-revisoes');
+const catalogoRevisoesStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(catalogoRevisoesUploadsRoot, req.params.id);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadCatalogoRevisao = multer({ storage: catalogoRevisoesStorage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB
+
+router.post('/catalogo-revisoes/:id/file', requireAuth, requireProdutosEdit, uploadCatalogoRevisao.single('file'), (req, res) => {
+  const existing = db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Planilha de revisão não encontrada.' });
+  if (!req.file) return res.status(400).json({ error: 'Selecione um arquivo.' });
+  // Upload novo substitui o anterior (mesmo padrão do Catálogo/
+  // Comunicados) -- apaga o arquivo físico antigo, se existia.
+  if (existing.arquivo && existing.arquivo.url) {
+    const oldPath = path.join(catalogoRevisoesUploadsRoot, req.params.id, path.basename(existing.arquivo.url));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  const arquivo = {
+    name: req.file.originalname,
+    url: `/uploads/produtos-catalogo-revisoes/${req.params.id}/${req.file.filename}`,
+    size: req.file.size,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: req.user.id,
+    uploadedByName: req.user.name
+  };
+  db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).assign({ arquivo, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'catalogoRevisao', entityId: existing.id, entityLabel: (existing.pessoas || []).join(', '), action: 'file_upload', details: `Arquivo enviado: ${arquivo.name}` });
+  res.json({ item: db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).value() });
+});
+
+router.delete('/catalogo-revisoes/:id/file', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Planilha de revisão não encontrada.' });
+  if (existing.arquivo && existing.arquivo.url) {
+    const oldPath = path.join(catalogoRevisoesUploadsRoot, req.params.id, path.basename(existing.arquivo.url));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).assign({ arquivo: null, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'catalogoRevisao', entityId: existing.id, entityLabel: (existing.pessoas || []).join(', '), action: 'file_delete' });
+  res.json({ item: db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).value() });
+});
 
 module.exports = router;

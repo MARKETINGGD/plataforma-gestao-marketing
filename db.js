@@ -218,7 +218,44 @@ db.defaults({
   // a 78ª rodada; dá pra completar depois editando o influencer já
   // criado) com a "planilha" (tabela de ações, `influencerPosts`) nascendo
   // vazia do jeito que já acontece hoje pra qualquer influencer novo.
-  influencerAnalises: []
+  influencerAnalises: [],
+  // Checklist de Processos do Lançamento de Produtos (96ª rodada, pedido
+  // da Raquel: "em produtos- adicionar aba dentro de lançamento de
+  // produtos, um check list de processos a serem seguidos... deixe de
+  // forma editavel, p poder por o setor responsavel e a atividade de cada
+  // um, pq cada produto lançado deve ter esse check list conferido") —
+  // `produtosChecklistTemplate` é o MODELO (editável, setor + atividade de
+  // cada etapa do processo — a Raquel ainda vai mandar os setores de
+  // verdade, por enquanto fica vazio/genérico até ela editar); cada
+  // lançamento (`lancamentosProdutos`) guarda sua PRÓPRIA cópia desse
+  // checklist (campo `checklist`, ver routes/produtos.js), marcada item a
+  // item conforme o produto avança -- editar o modelo depois não apaga
+  // nem desmarca o que já tinha em lançamentos existentes.
+  produtosChecklistTemplate: [],
+  // Produtos fora de linha (96ª rodada) -- novo submenu dentro de Produtos,
+  // começando com a aba "Comunicados" (exatamente os campos pedidos pela
+  // Raquel: nome, data, descrição, arquivo): avisos sobre produtos
+  // descontinuados/fora de linha. Coleção única, sem separação por marca
+  // (a Raquel não pediu isso aqui, diferente de Catálogo/Lançamentos).
+  // Cada registro guarda no máximo 1 arquivo anexado (upload novo
+  // substitui o anterior, mesmo padrão do Catálogo).
+  produtosComunicados: [],
+  // Catálogo → Revisão Catálogo (96ª rodada, pedido chegou depois do bug
+  // do ponto): "em catálogo, adicione um sub menu chamado Revisão
+  // Catálogo, nele deve tera possibilidade de criar planilhas de revisão
+  // com Nome da pessoa e data e tbm um local adiconar o arquyivo q foi
+  // revisado nessa planilha. Deixe aopção de adiconar pessoas." A Raquel
+  // não disse QUAL catálogo (Produtos ou Expositores já existem os 2) --
+  // entrou como um novo submenu dentro de Produtos → Catálogo (mesmo
+  // lugar de onde ela mandou o pedido anterior desta leva, item 6,
+  // "Produtos fora de linha"), por ser a leitura mais direta da palavra
+  // "catálogo" sozinha nesta conversa; fica fácil de replicar pro
+  // Catálogo de Expositores depois se ela quiser lá também, já que é o
+  // mesmo modelo genérico. CONFIRMAR COM A RAQUEL. Cada "planilha de
+  // revisão" é 1 registro com uma ou mais pessoas (nome livre, dá pra
+  // adicionar várias), 1 data e 1 arquivo revisado anexado (upload novo
+  // substitui o anterior).
+  produtosCatalogoRevisoes: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

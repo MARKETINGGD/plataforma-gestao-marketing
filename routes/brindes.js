@@ -40,6 +40,18 @@ function sumStock(pr, sp, pe) {
 // aquele número (ver PUT /catalog/:id abaixo). Resolve o nome ao vivo
 // (mesmo padrão de resolveUserName usado em createdByName de Demandas),
 // caindo pro nome gravado na hora se a pessoa não existir mais.
+// 95ª rodada, pedido da Raquel: "ao exportar em pdf ou excel, não aparece
+// a informação de quem cadastrou, preciso que isso seja ajustado, acho
+// melhor ter uma coluna com data e nome de quem fez a edição, isso em
+// todas as abas do controle de brindes" -- o carimbo por praça (acima,
+// da 62ª rodada) já existia, mas só aparece num tooltip ao passar o
+// mouse (pra não lotar uma tabela que já tem 10 colunas), e um tooltip
+// não sobrevive nem à exportação Excel nem ao PDF (`window.print()`, que
+// só imprime o texto visível da tabela). `createdBy`/`createdByName` e um
+// `updatedBy`/`updatedByName` GERAL (qualquer campo, não só estoque) são
+// novos -- registros já cadastrados antes desta rodada simplesmente não
+// tinham essa informação guardada (não é um dado perdido, é um dado que
+// nunca existiu) e aparecem em branco até a próxima edição.
 function serializeCatalogItem(it) {
   const out = Object.assign({}, it);
   ['PR', 'SP', 'PE'].forEach((region) => {
@@ -47,6 +59,8 @@ function serializeCatalogItem(it) {
     const nameKey = 'estoque' + region + 'UpdatedByName';
     if (it[byKey]) out[nameKey] = resolveUserName(it[byKey], it[nameKey] || '');
   });
+  if (it.createdBy) out.createdByName = resolveUserName(it.createdBy, it.createdByName || '');
+  if (it.updatedBy) out.updatedByName = resolveUserName(it.updatedBy, it.updatedByName || '');
   return out;
 }
 
@@ -103,7 +117,8 @@ function restoreCatalogStock(catalogItemId, deduction) {
   db.get('brindesCatalog').find({ id: catalogItemId }).assign(updates).write();
 }
 
-function catalogItem(brand, group, code, item, multiplo, valor, pr, sp, pe, status, obs) {
+function catalogItem(brand, group, code, item, multiplo, valor, pr, sp, pe, status, obs, creator) {
+  const now = new Date().toISOString();
   return {
     id: nanoid(),
     brand,
@@ -118,7 +133,14 @@ function catalogItem(brand, group, code, item, multiplo, valor, pr, sp, pe, stat
     estoqueTotal: sumStock(pr, sp, pe),
     status: status || '',
     obs: obs || '',
-    updatedAt: new Date().toISOString()
+    updatedAt: now,
+    createdAt: now,
+    // 95ª rodada: item semeado direto da planilha (sem `creator`) fica sem
+    // autoria -- correto, ninguém "cadastrou" pela Papoi, foi importado.
+    createdBy: (creator && creator.id) || null,
+    createdByName: (creator && creator.name) || '',
+    updatedBy: (creator && creator.id) || null,
+    updatedByName: (creator && creator.name) || ''
   };
 }
 
@@ -200,7 +222,7 @@ router.get('/low-stock', requireAuth, (req, res) => {
 router.post('/catalog', requireAuth, requireBrindesEdit, (req, res) => {
   const { brand, group, code, item, multiplo, valor, estoquePR, estoqueSP, estoquePE, status, obs } = req.body || {};
   if (!brand || !item) return res.status(400).json({ error: 'Preencha marca e nome do item.' });
-  const row = catalogItem(brand, group || '', code || '', item, multiplo, valor, estoquePR, estoqueSP, estoquePE, status, obs);
+  const row = catalogItem(brand, group || '', code || '', item, multiplo, valor, estoquePR, estoqueSP, estoquePE, status, obs, { id: req.user.id, name: req.user.name });
   db.get('brindesCatalog').push(row).write();
   logAudit({ user: req.user, entityType: 'brindeCatalogo', entityId: row.id, entityLabel: row.item, action: 'create' });
   res.json({ item: row });
@@ -210,7 +232,12 @@ router.put('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesCatalog').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Item não encontrado.' });
   const b = req.body || {};
-  const updates = { updatedAt: new Date().toISOString() };
+  // 95ª rodada: carimbo GERAL de "quem editou por último" -- diferente dos
+  // carimbos por praça logo abaixo (62ª rodada, só mexem quando o número
+  // daquela praça muda), este aqui registra QUALQUER edição (código, item,
+  // valor, status, obs também), pra alimentar a coluna de autoria pedida
+  // nas exportações.
+  const updates = { updatedAt: new Date().toISOString(), updatedBy: req.user.id, updatedByName: req.user.name };
   ['brand', 'group', 'code', 'item', 'multiplo', 'status', 'obs'].forEach((k) => {
     if (b[k] !== undefined) updates[k] = b[k];
   });
@@ -263,16 +290,44 @@ router.delete('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {
 // `catalogItemId`/`item`/`quantidade`/`estoqueDeduzido` direto no
 // registro, sem `items`): `withLogItemsArray()` converte na leitura, sem
 // precisar migrar nada no arquivo (mesmo padrão "on read" de sempre).
+//
+// 96ª rodada, pedido da Raquel: "em brindes, registro de saida, deve ter
+// a opção de editar e de selecionar mais de uma marca em uma mesma
+// retirada, por exe copos - ghelplus, avental- de bacco, tudo na mesma
+// retirada, e ai esses itens devem sair do estoque de cada marca, de
+// forma organizada" -- a "marca" da saída deixou de ser um campo único
+// do registro inteiro e virou um campo DE CADA ITEM (cada item sempre
+// veio do catálogo, então sempre tem uma marca própria -- ver
+// `validateLogItems` abaixo). `withLogItemsArray` agora também garante
+// que todo item tenha `brand` preenchido, mesmo em registros de antes
+// desta rodada (tanto os "bem antigos", de antes da 88ª rodada, sem
+// `items` nenhum, quanto os "só não tinham marca por item", da 88ª até a
+// 95ª rodada): nesses casos resolve a marca pelo item do catálogo (se
+// ele ainda existir) ou cai pro `brand` antigo do registro inteiro --
+// nenhum dado se perde, só passa a ficar mais detalhado. `brands` é a
+// lista (sem repetição) de todas as marcas presentes na saída, pra
+// mostrar "GhelPlus + De Bacco" numa retirada mista.
 function withLogItemsArray(r) {
-  if (Array.isArray(r.items)) return r;
-  return Object.assign({}, r, {
-    items: [{
-      catalogItemId: r.catalogItemId || null,
-      item: r.item || '',
-      quantidade: r.quantidade || null,
-      estoqueDeduzido: r.estoqueDeduzido || null
-    }]
+  let items = Array.isArray(r.items) ? r.items : [{
+    catalogItemId: r.catalogItemId || null,
+    item: r.item || '',
+    quantidade: r.quantidade || null,
+    estoqueDeduzido: r.estoqueDeduzido || null
+  }];
+  items = items.map((it) => {
+    if (it.brand) return it;
+    const catalogRow = it.catalogItemId ? db.get('brindesCatalog').find({ id: it.catalogItemId }).value() : null;
+    return Object.assign({}, it, { brand: (catalogRow && catalogRow.brand) || r.brand || null });
   });
+  const brands = (r.brands && r.brands.length) ? r.brands : Array.from(new Set(items.map((it) => it.brand).filter(Boolean)));
+  return Object.assign({}, r, { items, brands, brand: r.brand || brands[0] || null });
+}
+
+// Recorta uma saída só pros itens de UMA marca -- usado no link externo
+// (sempre escopado a uma marca só), pra uma saída mista não "vazar" pro
+// visitante os itens/quantidades de uma marca que não é a dele.
+function scopeLogItemsToBrand(row, brand) {
+  return Object.assign({}, row, { items: (row.items || []).filter((it) => it.brand === brand) });
 }
 
 function toQuantidadeLog(value) {
@@ -295,7 +350,10 @@ function validateLogItems(rawItems) {
     if (!catalogRow) return { error: 'Escolha o item de cada saída (item do catálogo não encontrado).' };
     const quantidade = toQuantidadeLog(raw && raw.quantidade);
     if (!quantidade) return { error: `Informe a quantidade de "${catalogRow.item}" (mínimo 1).` };
-    items.push({ catalogItemId, item: catalogRow.item, quantidade });
+    // 96ª rodada: cada item carrega a própria marca (a do item do
+    // catálogo escolhido) -- é isso que permite misturar marcas
+    // diferentes numa mesma saída.
+    items.push({ catalogItemId, item: catalogRow.item, quantidade, brand: catalogRow.brand });
   }
   return { items };
 }
@@ -322,23 +380,37 @@ function logItemsLabel(items) {
 
 router.get('/log', requireAuth, (req, res) => {
   const { brand } = req.query;
-  let rows = db.get('brindesLog').value();
-  if (brand) rows = rows.filter((r) => r.brand === brand);
+  let rows = db.get('brindesLog').value().map(withLogItemsArray);
+  // 96ª rodada: uma saída pode ter itens de mais de uma marca, então o
+  // filtro por marca passou a olhar os ITENS (aparece pro filtro de
+  // qualquer marca presente na saída), não mais um campo único do
+  // registro inteiro.
+  if (brand) rows = rows.filter((r) => r.items.some((it) => it.brand === brand));
   rows = rows.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  // Nome resolvido ao vivo (20ª rodada) — ver utils/names.js.
-  rows = rows.map((r) => Object.assign({}, withLogItemsArray(r), { createdByName: resolveUserName(r.createdBy, r.createdByName) }));
+  // Nome resolvido ao vivo (20ª rodada) — ver utils/names.js. `updatedByName`
+  // só existe em registros editados depois da 96ª rodada (acima).
+  rows = rows.map((r) => {
+    const out = Object.assign({}, r, { createdByName: resolveUserName(r.createdBy, r.createdByName) });
+    if (r.updatedBy) out.updatedByName = resolveUserName(r.updatedBy, r.updatedByName || '');
+    return out;
+  });
   res.json({ items: rows });
 });
 
 router.post('/log', requireAuth, requireBrindesEdit, (req, res) => {
-  const { brand, date, gerente, representante, estado, cliente, motivo, obs, items } = req.body || {};
-  if (!brand) return res.status(400).json({ error: 'Escolha a marca.' });
+  const { date, gerente, representante, estado, cliente, motivo, obs, items } = req.body || {};
   const validated = validateLogItems(items);
   if (validated.error) return res.status(400).json({ error: validated.error });
   const finalItems = applyLogItemsDeduction(validated.items);
+  // 96ª rodada: `brand`/`brands` do registro são derivados dos itens (não
+  // mais escolhidos à parte) -- `brand` guarda a marca do 1º item (só
+  // por compatibilidade com qualquer código antigo que ainda olhe esse
+  // campo único), `brands` é a lista completa, sem repetição.
+  const brands = Array.from(new Set(finalItems.map((it) => it.brand).filter(Boolean)));
   const row = {
     id: nanoid(),
-    brand,
+    brand: brands[0] || null,
+    brands,
     date: date || new Date().toISOString().slice(0, 10),
     gerente: gerente || '',
     representante: representante || '',
@@ -380,10 +452,16 @@ router.get('/log/public/:token', (req, res) => {
   const link = shareLinks.findByToken(req.params.token);
   if (!link || link.resource !== 'brindesSaidas') return res.status(404).json({ error: 'Link inválido ou desativado.' });
   const catalogItems = db.get('brindesCatalog').value().filter((r) => r.brand === link.scopeKey).map(serializeCatalogItem);
+  // 96ª rodada: uma saída mista (com itens de mais de uma marca) só
+  // aparece pro link externo de uma marca se tiver algum item daquela
+  // marca -- e, nesse caso, `scopeLogItemsToBrand` esconde os itens das
+  // OUTRAS marcas dessa mesma saída, pra um link de uma marca nunca
+  // mostrar pro visitante o que saiu de uma marca que não é a dele.
   const rows = db.get('brindesLog').value()
-    .filter((r) => r.brand === link.scopeKey)
-    .slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-    .map((r) => withLogItemsArray(r));
+    .map(withLogItemsArray)
+    .filter((r) => r.items.some((it) => it.brand === link.scopeKey))
+    .map((r) => scopeLogItemsToBrand(r, link.scopeKey))
+    .slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   res.json({ brand: link.scopeKey, mode: link.mode || 'leitura', items: rows, catalogItems });
 });
 
@@ -408,6 +486,7 @@ router.post('/log/public/:token', (req, res) => {
   const row = {
     id: nanoid(),
     brand: link.scopeKey,
+    brands: [link.scopeKey],
     date: date || new Date().toISOString().slice(0, 10),
     gerente: '',
     representante: representante || '',
@@ -455,32 +534,48 @@ router.delete('/log/public-link', requireAuth, requireBrindesEdit, (req, res) =>
   res.json({ ok: true });
 });
 
+// 96ª rodada, pedido da Raquel: "deve ter a opção de editar" -- antes só
+// existia a rota (nenhuma tela usava), agora o Registro de Saídas tem um
+// botão "Editar" de verdade. Mesmo espírito de "uma edição sempre apaga
+// e recria" as deduções de estoque já usado aqui antes, mais um carimbo
+// geral de quem editou por último (mesmo padrão do Catálogo, 95ª
+// rodada).
 router.put('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
   const existingRaw = db.get('brindesLog').find({ id: req.params.id }).value();
   if (!existingRaw) return res.status(404).json({ error: 'Registro não encontrado.' });
   const existing = withLogItemsArray(existingRaw);
   const b = req.body || {};
-  const updates = {};
-  ['brand', 'date', 'gerente', 'representante', 'estado', 'cliente', 'motivo', 'obs'].forEach((k) => {
+  const updates = { updatedAt: new Date().toISOString(), updatedBy: req.user.id, updatedByName: req.user.name };
+  ['date', 'gerente', 'representante', 'estado', 'cliente', 'motivo', 'obs'].forEach((k) => {
     if (b[k] !== undefined) updates[k] = b[k];
   });
   // Se a lista de itens mudou, desfaz todas as deduções antigas por
   // inteiro e aplica as novas do zero -- mesmo espírito "uma edição
   // sempre apaga e recria" já usado na sincronia Feiras→Budget (41ª
-  // rodada) e no próprio Catálogo de Brindes acima.
+  // rodada) e no próprio Catálogo de Brindes acima. `brand`/`brands` são
+  // recalculados a partir dos itens novos (podem mudar se a edição trocar
+  // a marca de algum item, ou misturar/deixar de misturar marcas).
   if (b.items !== undefined) {
     const validated = validateLogItems(b.items);
     if (validated.error) return res.status(400).json({ error: validated.error });
     restoreLogItemsDeduction(existing.items);
-    updates.items = applyLogItemsDeduction(validated.items);
-  }
-  // Registro antigo (sem `items` salvo ainda) que está sendo editado pela
-  // primeira vez desde esta rodada: garante que o que fica salvo já é a
-  // forma nova, mesmo que só outros campos (ex.: motivo) tenham mudado.
-  if (b.items === undefined && !Array.isArray(existingRaw.items)) {
+    const finalItems = applyLogItemsDeduction(validated.items);
+    updates.items = finalItems;
+    const brands = Array.from(new Set(finalItems.map((it) => it.brand).filter(Boolean)));
+    updates.brand = brands[0] || null;
+    updates.brands = brands;
+  } else {
+    // Itens não mudaram nessa edição -- ainda assim garante que o que
+    // fica salvo já tem `items`/`brand`/`brands` na forma mais recente
+    // (registro bem antigo, da época de antes da marca por item, ou
+    // antes de `items` existir), sem precisar editar os itens de novo só
+    // pra "destravar" isso.
     updates.items = existing.items;
+    updates.brand = existing.brand;
+    updates.brands = existing.brands;
   }
   db.get('brindesLog').find({ id: req.params.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'brindeSaida', entityId: existing.id, entityLabel: logItemsLabel(withLogItemsArray(db.get('brindesLog').find({ id: req.params.id }).value()).items), action: 'update' });
   res.json({ item: withLogItemsArray(db.get('brindesLog').find({ id: req.params.id }).value()) });
 });
 
@@ -530,7 +625,9 @@ router.put('/public/:token/catalog/:id', (req, res) => {
   const { nome, estoquePR, estoqueSP, estoquePE } = req.body || {};
   const nomeTrim = (nome || '').trim();
   if (!nomeTrim) return res.status(400).json({ error: 'Informe seu nome antes de salvar -- fica registrado quem atualizou.' });
-  const updates = { updatedAt: new Date().toISOString() };
+  // 95ª rodada: carimbo GERAL também pro visitante via link externo (mesmo
+  // texto "(nome) via link externo" já usado nos carimbos por praça).
+  const updates = { updatedAt: new Date().toISOString(), updatedBy: null, updatedByName: `${nomeTrim} (via link externo)` };
   [['estoquePR', estoquePR], ['estoqueSP', estoqueSP], ['estoquePE', estoquePE]].forEach(([k, v]) => {
     if (v === undefined) return;
     const novo = Number(v) || 0;

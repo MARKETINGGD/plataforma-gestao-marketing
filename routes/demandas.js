@@ -7,7 +7,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
-const { cascadeCompleteDemandas, alsoInvolvedUserIds } = require('../utils/demandCascade');
+const { alsoInvolvedUserIds, syncLinkedDemandas, mirrorArrayField, mirrorCommentToSiblings } = require('../utils/demandCascade');
 // 36ª rodada: sincronização de 3 vias Influencers <-> Agendamento <-> Demandas
 // (ver utils/tripleSync.js). Seguro exigir aqui -- tripleSync.js não exige
 // demandas.js de volta, então não cria require circular.
@@ -976,9 +976,22 @@ router.put('/:id', requireAuth, (req, res) => {
   // que a demanda já tinha) — pra não perder a marcação por engano quando o
   // card é salvo sem mexer nos marcados.
   const effectiveAssigneeIdsForResp = updates.assigneeIds !== undefined ? updates.assigneeIds : (demanda.assigneeIds || []);
+  // 99ª rodada, pedido da Raquel: responsável agora também é sincronizado
+  // entre demandas-irmãs de um mesmo agendamento (ver bloco de
+  // sincronização mais abaixo) -- como cada demanda-irmã só tem UMA pessoa
+  // marcada (a própria envolvida, ver createDemandCardsForNewInvolved em
+  // routes/socialPosts.js), a regra normal "responsável precisa estar
+  // entre os marcados NESTE card" travaria a sincronização assim que o
+  // responsável escolhido não fosse a própria pessoa dessa demanda. Pra
+  // esse caso específico (demanda com sourceSocialPostId), o responsável
+  // representa "quem é responsável por este material inteiro", não só por
+  // este card -- só valida que é um usuário de verdade.
+  const isSiblingGroup = !!demanda.sourceSocialPostId;
   if (responsibleId !== undefined) {
-    updates.responsibleId = effectiveAssigneeIdsForResp.includes(responsibleId) ? responsibleId : null;
-  } else if (updates.assigneeIds !== undefined && demanda.responsibleId && !updates.assigneeIds.includes(demanda.responsibleId)) {
+    updates.responsibleId = isSiblingGroup
+      ? validUserId(responsibleId)
+      : (effectiveAssigneeIdsForResp.includes(responsibleId) ? responsibleId : null);
+  } else if (!isSiblingGroup && updates.assigneeIds !== undefined && demanda.responsibleId && !updates.assigneeIds.includes(demanda.responsibleId)) {
     // Se o responsável geral atual saiu da lista de marcados nessa mesma
     // atualização, a marcação cai junto (não faz sentido sobreviver sozinha).
     updates.responsibleId = null;
@@ -1082,21 +1095,46 @@ router.put('/:id', requireAuth, (req, res) => {
   const details = describeChanges(demanda, updates);
   db.get('demandas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: updates.title || demanda.title, action: 'update', details, meta: { visibility: demanda.visibility } });
-  // 34ª rodada: se essa demanda veio de um agendamento de redes sociais
-  // (junto com outras, uma por pessoa marcada como envolvida) e ela
-  // acabou de virar "Concluída" de verdade (não o caso de recorrência
-  // acima, que volta sozinha pra "A Fazer"), arrasta as demandas-irmãs do
-  // mesmo agendamento junto — pedido da Raquel: concluir pra uma pessoa
-  // marcada deve concluir pra todas.
-  if (updates.status === 'concluida' && demanda.sourceSocialPostId) {
-    cascadeCompleteDemandas(demanda.sourceSocialPostId, demanda.id, req);
-    // 36ª rodada: se o agendamento de origem veio de uma ação da planilha
-    // de influencers, concluir a demanda aqui também publica o
+  // 99ª rodada, pedido explícito da Raquel: "a mudança deve ocorrer em
+  // todos os cards de demandas irmãs vindas do agendamento... Checklist,
+  // comentarios, arquivos, cor do card, responsavel e todos os status,
+  // devem mudar para todo tbm... assim todos terão sempre as mesmas
+  // informações" -- substitui a antiga lógica que só sincronizava a
+  // CONCLUSÃO (cascadeCompleteDemandas, ainda usada só quando é o
+  // AGENDAMENTO em si que vira "publicado" — ver routes/socialPosts.js).
+  // Qualquer um dos campos abaixo que tenha mudado NESTA gravação (já
+  // depois do ajuste de recorrência/auto-arquivamento lá acima, então
+  // reflete o estado FINAL de verdade) é replicado pra toda demanda-irmã
+  // do mesmo agendamento. `lastCompletedAt`/`lastCompletedDueDate` entram
+  // na lista pra que uma conclusão replicada continue pontuando certo no
+  // REIS DO MARKETING pra quem está marcado em cada demanda-irmã (mesmo
+  // cuidado que já existia em cascadeCompleteDemandas). Diferente da
+  // cautela da 98ª rodada, isso agora vale pra QUALQUER status, inclusive
+  // concluída/arquivada -- uma demanda-irmã já concluída deixa de ser
+  // "intocável": se outra do mesmo grupo mudar, ela acompanha.
+  if (demanda.sourceSocialPostId) {
+    const mirrorFields = {};
+    ['title', 'description', 'dueDate', 'status', 'color', 'link', 'checklistTitle', 'labelIds', 'network', 'brands', 'responsibleId', 'archived', 'lastCompletedAt', 'lastCompletedDueDate', 'recurrence', 'recurring'].forEach((key) => {
+      if (updates[key] !== undefined) mirrorFields[key] = updates[key];
+    });
+    if (Object.keys(mirrorFields).length > 0) {
+      syncLinkedDemandas(
+        demanda.sourceSocialPostId,
+        mirrorFields,
+        req,
+        demanda.id,
+        'Atualizada automaticamente: outra demanda do mesmo agendamento de redes sociais foi alterada.'
+      );
+    }
+    // 36ª rodada (mantido): se o agendamento de origem veio de uma ação da
+    // planilha de influencers, concluir a demanda aqui também publica o
     // agendamento e a ação de influencer ligados -- "tudo se altera
     // junto", pedido da Raquel.
-    const linkedPost = db.get('socialPosts').find({ id: demanda.sourceSocialPostId }).value();
-    if (linkedPost && linkedPost.sourceInfluencerPostId) {
-      markSocialPostPublished(demanda.sourceSocialPostId, req);
+    if (updates.status === 'concluida') {
+      const linkedPost = db.get('socialPosts').find({ id: demanda.sourceSocialPostId }).value();
+      if (linkedPost && linkedPost.sourceInfluencerPostId) {
+        markSocialPostPublished(demanda.sourceSocialPostId, req);
+      }
     }
   }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id), recurringReset });
@@ -1108,6 +1146,18 @@ router.put('/:id/archive', requireAuth, (req, res) => {
   const archived = !!(req.body || {}).archived;
   db.get('demandas').find({ id: req.params.id }).assign({ archived, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: archived ? 'archive' : 'unarchive', meta: { visibility: demanda.visibility } });
+  // 99ª rodada: arquivar/desarquivar manualmente (fora do fluxo de
+  // concluir) também é um dos campos que precisa ficar igual em toda
+  // demanda-irmã do mesmo agendamento -- mesmo espírito do PUT /:id acima.
+  if (demanda.sourceSocialPostId) {
+    syncLinkedDemandas(
+      demanda.sourceSocialPostId,
+      { archived },
+      req,
+      demanda.id,
+      archived ? 'Arquivada automaticamente: outra demanda do mesmo agendamento foi arquivada.' : 'Desarquivada automaticamente: outra demanda do mesmo agendamento foi desarquivada.'
+    );
+  }
   res.json({ ok: true });
 });
 
@@ -1203,6 +1253,12 @@ router.post('/:id/comments', requireAuth, (req, res) => {
   const text = ((req.body || {}).text || '').trim();
   if (!text) return res.status(400).json({ error: 'Escreva um comentário.' });
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'comment', details: text, meta: { visibility: demanda.visibility } });
+  // 99ª rodada, pedido da Raquel: comentário também é um dos campos que
+  // precisa "aparecer pra todo mundo" -- registra o mesmo comentário no
+  // Histórico de cada demanda-irmã do mesmo agendamento.
+  if (demanda.sourceSocialPostId) {
+    mirrorCommentToSiblings(demanda.sourceSocialPostId, demanda.id, text, req);
+  }
   res.json({ ok: true });
 });
 
@@ -1223,6 +1279,13 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
   const checklist = [...(demanda.checklist || []), item];
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_add', details: `Item adicionado ao checklist: "${text}"`, meta: { visibility: demanda.visibility } });
+  // 99ª rodada, pedido da Raquel: checklist precisa ficar igual em toda
+  // demanda-irmã do mesmo agendamento -- substitui o checklist inteiro
+  // (não só o item novo) pra garantir que fica exatamente igual, mesmo se
+  // as listas já tivessem divergido antes.
+  if (demanda.sourceSocialPostId) {
+    mirrorArrayField(demanda.sourceSocialPostId, demanda.id, 'checklist', checklist, req, `Item adicionado ao checklist (em outra demanda do mesmo agendamento): "${text}"`);
+  }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
@@ -1270,6 +1333,12 @@ router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
     }
     if (detail) logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_update', details: detail, meta: { visibility: demanda.visibility } });
   }
+  // 99ª rodada: mesma sincronização de checklist do POST acima -- qualquer
+  // edição de item (marcar/desmarcar, renomear, mudar data/responsável/marca)
+  // replica o checklist inteiro pras demandas-irmãs.
+  if (demanda.sourceSocialPostId) {
+    mirrorArrayField(demanda.sourceSocialPostId, demanda.id, 'checklist', checklist, req, 'Checklist atualizado (em outra demanda do mesmo agendamento).');
+  }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
@@ -1280,6 +1349,11 @@ router.delete('/:id/checklist/:itemId', requireAuth, (req, res) => {
   const checklist = (demanda.checklist || []).filter((it) => it.id !== req.params.itemId);
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   if (target) logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_remove', details: `Item removido do checklist: "${target.text}"`, meta: { visibility: demanda.visibility } });
+  // 99ª rodada: mesma sincronização de checklist -- remover um item
+  // também precisa remover ele de todas as demandas-irmãs.
+  if (demanda.sourceSocialPostId && target) {
+    mirrorArrayField(demanda.sourceSocialPostId, demanda.id, 'checklist', checklist, req, `Item removido do checklist (em outra demanda do mesmo agendamento): "${target.text}"`);
+  }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
@@ -1300,6 +1374,17 @@ router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
   const files = [...(demanda.files || []), fileMeta];
   db.get('demandas').find({ id: req.params.id }).assign({ files, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'file_upload', details: `Arquivo enviado: ${fileMeta.name}`, meta: { visibility: demanda.visibility } });
+  // 99ª rodada, pedido da Raquel: arquivo precisa aparecer em toda
+  // demanda-irmã do mesmo agendamento, não só na que recebeu o upload --
+  // o arquivo físico continua guardado só na pasta de quem recebeu
+  // (`req.params.id`, dentro de `uploadsRoot`), mas a URL já aponta pra lá
+  // de qualquer lugar, então basta cada demanda-irmã ganhar a MESMA
+  // entrada de metadado na própria lista `files` pra poder ver/baixar
+  // igual. Cada demanda-irmã recebe o array completo (não só o item novo)
+  // pra já corrigir qualquer divergência anterior também.
+  if (demanda.sourceSocialPostId) {
+    mirrorArrayField(demanda.sourceSocialPostId, demanda.id, 'files', files, req, `Arquivo adicionado (em outra demanda do mesmo agendamento): ${fileMeta.name}`);
+  }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
@@ -1310,9 +1395,24 @@ router.delete('/:id/files/:fileId', requireAuth, (req, res) => {
   const files = (demanda.files || []).filter((f) => f.id !== req.params.fileId);
   db.get('demandas').find({ id: req.params.id }).assign({ files, updatedAt: new Date().toISOString() }).write();
   if (target) {
-    const filePath = path.join(uploadsRoot, req.params.id, path.basename(target.url));
+    // 99ª rodada: como um arquivo agora pode aparecer em várias
+    // demandas-irmãs mas só fica guardado de verdade na pasta de QUEM
+    // RECEBEU o upload originalmente, a exclusão física precisa achar
+    // essa pasta pela própria URL do arquivo (`/uploads/demandas/<id-de-
+    // verdade>/<arquivo>`) -- nunca pelo `req.params.id` da rota, que
+    // pode ser uma demanda-irmã diferente, sem a pasta física nenhuma.
+    const urlParts = String(target.url || '').split('/').filter(Boolean); // ['uploads','demandas','<id>','<arquivo>']
+    const ownerDemandaId = urlParts.length >= 3 ? urlParts[2] : req.params.id;
+    const filePath = path.join(uploadsRoot, ownerDemandaId, path.basename(target.url));
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'file_delete', details: `Arquivo removido: ${target.name}`, meta: { visibility: demanda.visibility } });
+    // Mesma sincronização das outras mudanças -- remover o arquivo em
+    // qualquer demanda-irmã remove ele de todas (a lista inteira some,
+    // não só o metadado; o arquivo físico já foi apagado acima, uma vez
+    // só, independente de quantas demandas-irmãs o estavam exibindo).
+    if (demanda.sourceSocialPostId) {
+      mirrorArrayField(demanda.sourceSocialPostId, demanda.id, 'files', files, req, `Arquivo removido (em outra demanda do mesmo agendamento): ${target.name}`);
+    }
   }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });

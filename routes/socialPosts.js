@@ -7,7 +7,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
-const { cascadeCompleteDemandas, syncLinkedDemandas } = require('../utils/demandCascade');
+const { cascadeCompleteDemandas, syncLinkedDemandas, sharedStateForNewSibling } = require('../utils/demandCascade');
 const { createAutoRecado, updateAutoRecadosForPost } = require('./recados');
 const metaPublisher = require('../utils/metaPublisher');
 const linkedinPublisher = require('../utils/linkedinPublisher');
@@ -294,24 +294,42 @@ function demandTitleAndDescriptionForPost(post) {
 function createDemandCardsForNewInvolved(post, newIds, req) {
   if (!newIds || newIds.length === 0) return;
   const { title, description } = demandTitleAndDescriptionForPost(post);
+  // 99ª rodada, pedido da Raquel: se o grupo (mesmo sourceSocialPostId) já
+  // tem demanda-irmã criada antes, a pessoa nova marcada agora precisa
+  // nascer já com o MESMO estado "editável" que o resto do grupo tem
+  // (status, cor, link, título do checklist, etiquetas, responsável,
+  // arquivamento, checklist e arquivos) -- "todos terão sempre as mesmas
+  // informações" vale também pra quem chega depois. Título/descrição/
+  // dueDate/rede/marca não entram aqui porque já nascem calculados do
+  // próprio post (ver demandTitleAndDescriptionForPost acima) -- esses já
+  // nascem iguais. Grupo novo (nenhuma demanda-irmã ainda): shared é null,
+  // cai nos padrões de sempre.
+  const shared = sharedStateForNewSibling(post.id);
   newIds.forEach((userId) => {
     const demanda = {
       id: nanoid(),
       title,
       description,
-      status: 'a_fazer',
+      status: shared ? shared.status : 'a_fazer',
       visibility: 'geral',
-      archived: false,
+      archived: shared ? shared.archived : false,
       dueDate: post.scheduledDate || null,
       assigneeIds: [userId],
       // 78ª rodada, pedido da Raquel: "toda demanda deve ter um
-      // responsável marcado, não importa de onde veio" -- essa demanda
-      // nasce com 1 pessoa só marcada (a própria pessoa envolvida), então
-      // ela já nasce como a responsável, sem precisar perguntar nada.
-      responsibleId: userId,
-      labelIds: [],
-      checklist: [],
-      files: [],
+      // responsável marcado, não importa de onde veio". 99ª rodada: se o
+      // grupo já tem um responsável definido (compartilhado entre as
+      // demandas-irmãs), a pessoa nova herda esse MESMO responsável, em
+      // vez de virar responsável pelo próprio card sozinha -- mantém "todo
+      // mundo com a mesma informação" desde o nascimento do card.
+      responsibleId: (shared && shared.responsibleId) ? shared.responsibleId : userId,
+      labelIds: shared ? shared.labelIds : [],
+      color: shared ? shared.color : null,
+      link: shared ? shared.link : null,
+      checklistTitle: shared ? shared.checklistTitle : 'Checklist',
+      checklist: shared ? shared.checklist : [],
+      files: shared ? shared.files : [],
+      lastCompletedAt: shared ? shared.lastCompletedAt : null,
+      lastCompletedDueDate: shared ? shared.lastCompletedDueDate : null,
       // 78ª rodada: mesmo espírito de "todo card novo nasce no topo da
       // lista" já aplicado à criação manual em routes/demandas.js -- vale
       // igual pro card gerado automaticamente por um agendamento.
@@ -900,13 +918,21 @@ router.put('/:id', requireAuth, async (req, res) => {
   // em `link`/`briefingText`/outros campos que não entram nessa fórmula.
   if (['scheduledDate', 'subject', 'caption', 'platform', 'brand', 'postType'].some((k) => updates[k] !== undefined)) {
     const { title, description } = demandTitleAndDescriptionForPost(fresh);
+    // 99ª rodada: grava `brand` (legado, singular -- é esse o campo que
+    // createDemandCardsForNewInvolved sempre grava nessas demandas) E
+    // `brands` (array, formato atual -- caso a demanda já tenha sido
+    // editada manualmente depois de criada e passado a usar esse campo,
+    // ver brandsOf() em routes/demandas.js) -- os dois juntos, pra
+    // `brandsOf()` nunca ler um valor desatualizado não importa qual dos
+    // dois campos ela prioriza.
     syncLinkedDemandas(fresh.id, {
       title,
       description,
       dueDate: fresh.scheduledDate || null,
       network: fresh.platform || null,
-      brand: fresh.brand || null
-    }, req);
+      brand: fresh.brand || null,
+      brands: fresh.brand ? [fresh.brand] : []
+    }, req, null, 'Atualizada automaticamente: o agendamento de redes sociais de origem foi editado (data/assunto/legenda/rede/marca).');
   }
   // 34ª rodada: marcar o agendamento como "publicado" completa sozinho
   // todas as demandas que ele criou (uma por pessoa marcada como

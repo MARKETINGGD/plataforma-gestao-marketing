@@ -155,11 +155,16 @@ async function run() {
       return depois && depois.title === antes.title && depois.dueDate === antes.dueDate && depois.network === antes.network && depois.brand === antes.brand;
     }));
 
-  // ---------- 6. Demanda já concluída/arquivada não é reaberta/alterada ----------
-  // Post com 1 pessoa só envolvida (de propósito -- com 2+ pessoas, concluir
-  // UMA demanda-irmã já completa TODAS as outras do mesmo agendamento, regra
-  // da 34ª rodada em cascadeCompleteDemandas; não dá pra ter 1 concluída e
-  // outra ainda "viva" no MESMO agendamento ao mesmo tempo).
+  // ---------- 6. [SUPERADO PELA 99ª RODADA] ----------
+  // Até a 98ª rodada, uma demanda já concluída/arquivada era tratada como
+  // "histórico intocável" e NUNCA era alterada por uma edição posterior do
+  // agendamento. A 99ª rodada, a pedido explícito da Raquel ("Quando uma
+  // demanda, independente de onde ela veio, tem mudanças, isso sempre deve
+  // refletir no card de todos que estão ali, assim todos terão sempre as
+  // mesmas informações"), reverteu essa cautela de propósito -- ver
+  // demandasSyncTotal99.test.js pro comportamento atual completo. Mantido
+  // aqui, com a asserção invertida, só pra registrar explicitamente que a
+  // mudança de regra foi intencional (não um regresso silencioso).
   const postB = await fetch(`${BASE}/api/social-posts`, {
     method: 'POST', headers: hj(adminToken),
     body: JSON.stringify({
@@ -168,7 +173,6 @@ async function run() {
     })
   }).then((r) => r.json()).then((d) => d.post);
   const demandaB = demandasDoPost(postB.id)[0];
-  const tituloAntesDeConcluir = demandaB.title;
   await fetch(`${BASE}/api/demandas/${demandaB.id}`, {
     method: 'PUT', headers: hj(adminToken), body: JSON.stringify({ status: 'concluida' })
   });
@@ -179,8 +183,8 @@ async function run() {
     method: 'PUT', headers: hj(adminToken), body: JSON.stringify({ scheduledDate: '2027-01-15' })
   });
   const demandaBDepoisDaEdicao = db.get('demandas').find({ id: demandaB.id }).value();
-  check('[98ª rodada] demanda já concluída/arquivada NÃO é alterada por uma edição posterior do agendamento',
-    demandaBDepoisDaEdicao.title === tituloAntesDeConcluir && demandaBDepoisDaEdicao.dueDate === '2026-11-10' && demandaBDepoisDaEdicao.status === 'concluida');
+  check('[99ª rodada, regra nova] demanda já concluída/arquivada TAMBÉM é atualizada por uma edição posterior do agendamento (status continua concluída -- só os campos derivados do post mudam)',
+    demandaBDepoisDaEdicao.dueDate === '2027-01-15' && demandaBDepoisDaEdicao.status === 'concluida' && demandaBDepoisDaEdicao.archived === true);
 
   // ---------- 7. Isolamento: agendamento diferente não é afetado ----------
   const outroPost = await fetch(`${BASE}/api/social-posts`, {

@@ -74,6 +74,12 @@ require('./utils/migrateLastCompletedAt').migrateLastCompletedAt();
 // agendamento/ação de influencer antes desse campo existir (ver
 // utils/migrateDemandaBrand.js).
 require('./utils/migrateDemandaBrand').migrateDemandaBrand();
+// 99ª rodada: reconcilia retroativamente qualquer grupo de demandas-irmãs
+// que tenha ficado divergente ANTES da sincronização total entre elas
+// existir (ver utils/demandCascade.js e utils/migrateReconcileSiblingDemandas99.js) --
+// pedido explícito da Raquel pra garantir que nenhum card-irmão ficou
+// desatualizado em relação aos outros.
+require('./utils/migrateReconcileSiblingDemandas99').migrateReconcileSiblingDemandas99();
 // 42ª rodada: dá `concorrentes[]` retroativo pra análise de concorrência
 // criada antes da tela suportar várias marcas por análise (ver
 // utils/migrateConcorrenciaMultiMarca.js), e importa (uma vez só) a

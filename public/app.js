@@ -5901,6 +5901,16 @@
     const isCardAssignee = !!(demanda && currentUser && (demanda.assigneeIds || []).includes(currentUser.id));
     $('#demCardDelete').hidden = !demanda || !isCardCreator;
     $('#demCardLeave').hidden = !demanda || !isCardAssignee;
+    // 105ª rodada, pedido da Raquel: mover o card entre Quadro Geral <->
+    // Área Pessoal a qualquer momento -- mesma regra de quem pode usar o
+    // botão (criou ou foi marcado) que o backend já exige em PUT /:id.
+    const canMoveScope = !!demanda && (isCardCreator || isCardAssignee);
+    $('#demCardMoveScope').hidden = !canMoveScope;
+    if (canMoveScope) {
+      $('#demCardMoveScope').textContent = demanda.visibility === 'pessoal'
+        ? 'Mover para o Quadro Geral'
+        : 'Mover para a Área Pessoal';
+    }
     // O checklist agora fica sempre liberado, mesmo num card ainda não
     // salvo — os itens ficam no rascunho local até o Save (26ª rodada).
     $('#demFileInput').style.display = demanda ? '' : 'none';
@@ -6060,6 +6070,30 @@
       await refreshOpenDemanda();
     } catch (e) {
       alert(e.message);
+    }
+  };
+
+  // 105ª rodada, pedido da Raquel: "deixe a possibilidade de quando
+  // quiser, tirar o card da area pessoal, e por na geral ou vice e versa"
+  // -- ação imediata (não espera o "Salvar"), já que mudar a visibilidade
+  // tira o card da tela em que você está vendo agora (some do Quadro
+  // Geral se for pra Área Pessoal, e vice-versa), então fecha o modal e
+  // recarrega o quadro certo na sequência, igual Arquivar/Excluir/Sair
+  // do card acima.
+  $('#demCardMoveScope').onclick = async () => {
+    if (!editingDemandaId || !openDemandaCache) return;
+    const indoPara = openDemandaCache.visibility === 'pessoal' ? 'geral' : 'pessoal';
+    const msg = indoPara === 'pessoal'
+      ? 'Mover este card para a sua Área Pessoal? Ele deixa de aparecer no Quadro Geral pra quem não estiver marcado nele.'
+      : 'Mover este card para o Quadro Geral? Ele passa a aparecer pra qualquer pessoa logada na Plataforma.';
+    if (!confirm(msg)) return;
+    try {
+      await api('/api/demandas/' + editingDemandaId, { method: 'PUT', body: JSON.stringify({ visibility: indoPara }) });
+      $('#demandaModal').hidden = true;
+      await loadDemandas();
+      refreshReisDoMarketingSoon();
+    } catch (e) {
+      alert(e.message || 'Não foi possível mover o card.');
     }
   };
 

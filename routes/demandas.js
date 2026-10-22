@@ -420,6 +420,10 @@ function describeChanges(before, updates) {
   if (updates.checklistTitle !== undefined && updates.checklistTitle !== (before.checklistTitle || 'Checklist')) {
     parts.push(`checklist renomeado para "${updates.checklistTitle}"`);
   }
+  // 105ª rodada: mover entre Quadro Geral <-> Área Pessoal.
+  if (updates.visibility !== undefined && updates.visibility !== before.visibility) {
+    parts.push(updates.visibility === 'pessoal' ? 'movido para a Área Pessoal' : 'movido para o Quadro Geral');
+  }
   return parts.join('; ');
 }
 
@@ -954,13 +958,50 @@ router.put('/:id/personal-list', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, brands, network, personalListId } = req.body || {};
+  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, brands, network, personalListId, visibility } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
+  // 105ª rodada, pedido da Raquel: "deixe a possibilidade de quando
+  // quiser, tirar o card da área pessoal, e por na geral ou vice e
+  // versa" -- antes `visibility` só era definido na CRIAÇÃO (ver POST
+  // acima), sem jeito nenhum de mudar depois. Só quem já enxerga o card
+  // de qualquer forma (criou ou foi marcado) pode mover -- mesmo cuidado
+  // que um card Geral (aberto pra qualquer pessoa logada) não pode ser
+  // escondido na Área Pessoal por alguém de fora dele, que depois nem
+  // conseguiria enxergar o próprio card pra desfazer (canAccess() de
+  // demanda pessoal só libera criador/marcados).
+  if (visibility !== undefined && VISIBILITIES.includes(visibility) && visibility !== demanda.visibility) {
+    const isOwnerOrAssignee = demanda.createdBy === req.user.id || (demanda.assigneeIds || []).includes(req.user.id);
+    if (!isOwnerOrAssignee) {
+      return res.status(403).json({ error: 'Só quem criou ou está marcado nesta demanda pode movê-la entre Geral e Área Pessoal.' });
+    }
+    updates.visibility = visibility;
+  }
+  // Visibilidade "efetiva" depois desta gravação -- usada logo abaixo pra
+  // decidir se um `personalListId` enviado junto (mover e já escolher a
+  // lista, numa tacada só) deve valer; sem isso, mover de Geral pra
+  // Pessoal nunca conseguia vir com a lista já escolhida na mesma
+  // chamada (a checagem antiga olhava só `demanda.visibility`, de ANTES
+  // desta gravação).
+  const effectiveVisibility = updates.visibility !== undefined ? updates.visibility : demanda.visibility;
+  // 105ª rodada: no Quadro Geral o card só aparece na coluna de quem está
+  // marcado (não existe mais coluna "Sem responsável", ver comentário
+  // mais acima) -- uma demanda da Área Pessoal sem ninguém marcado (caso
+  // comum: tarefa solo de quem criou) virando Geral sem essa correção
+  // ficaria sem nenhuma coluna pra aparecer, "sumida" pro quadro inteiro.
+  // Marca automaticamente quem está movendo como responsável, exatamente
+  // como já acontece na criação (ver POST acima).
+  if (effectiveVisibility === 'geral') {
+    const effectiveAssigneeIds = updates.assigneeIds !== undefined ? updates.assigneeIds : (demanda.assigneeIds || []);
+    if (effectiveAssigneeIds.length === 0) {
+      updates.assigneeIds = [req.user.id];
+      updates.responsibleId = req.user.id;
+    }
+  }
   // 78ª rodada: mudar de lista pessoal pelo próprio modal de edição do
   // card (mesma regra da rota dedicada PUT /:id/personal-list acima --
   // só aceita uma lista que seja DA PRÓPRIA pessoa que está salvando, e só
   // mexe na organização dela, nunca na de quem mais vir esse card).
-  if (personalListId !== undefined && demanda.visibility === 'pessoal') {
+  if (personalListId !== undefined && effectiveVisibility === 'pessoal') {
     const list = db.get('personalLists').find({ id: personalListId, ownerId: req.user.id }).value();
     if (list) {
       updates.personalPlacements = Object.assign({}, demanda.personalPlacements || {}, { [req.user.id]: personalListId });

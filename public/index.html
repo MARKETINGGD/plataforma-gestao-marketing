@@ -3540,6 +3540,12 @@
 
     <div class="modal-footer">
       <button id="demCardSave" class="btn-primary">Salvar</button>
+      <!-- 105ª rodada, pedido da Raquel: "deixe a possibilidade de quando
+           quiser, tirar o card da area pessoal, e por na geral ou vice e
+           versa" -- some pra quem criou e foi marcado (mesma regra do
+           backend, ver PUT /api/demandas/:id); texto/alvo trocam sozinhos
+           conforme a visibilidade atual do card (ver openDemandaModal). -->
+      <button id="demCardMoveScope" class="btn-secondary">Mover para a Área Pessoal</button>
       <button id="demCardArchive" class="btn-secondary">Arquivar</button>
       <!-- Sair do card (53ª rodada, pedido da Raquel) — só aparece pra
            quem está marcado (assigneeIds) no card; some da lista de quem

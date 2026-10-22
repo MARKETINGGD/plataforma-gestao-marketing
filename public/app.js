@@ -39,8 +39,24 @@
   let editingBudgetId = null;
   let editingUserId = null;
   let pendingUserPhotoFile = null; // foto escolhida antes do usuário existir (cadastro novo)
+  // Ausências (104ª rodada) -- aba dentro de Usuários. `usersTab` controla
+  // qual das 2 abas (Usuários/Ausências) está visível; `ausenciasAdmin` é a
+  // listagem COMPLETA (com observações, só pra quem tem acesso a
+  // Configurações -- ver loadAusenciasAdmin()); `ausenciasCalMonth` é o mês
+  // mostrado no calendário (mesmo padrão de `cronogramaCalMonth`).
+  let usersTab = 'usuarios';
+  let ausenciasAdmin = [];
+  let ausenciasCalMonth = new Date();
+  let editingAusenciaId = null;
 
   let teamMembers = [];
+  // Ausências (104ª rodada) -- listagem enxuta (sem observações), carregada
+  // no boot do app e sempre que Demandas é visitada, usada pra: aviso na
+  // coluna da pessoa em Demandas (renderKanban) e aviso de conflito ao
+  // marcar entrega durante a ausência de alguém marcado ($('#demCardSave')).
+  // A listagem COMPLETA (com observações, só pra quem tem acesso a
+  // Configurações) tem seu próprio estado -- ver ausenciasAdmin, mais abaixo.
+  let ausenciasPublicas = [];
   let demandas = [];
   let demandasArchived = [];
   let showingArchived = false;
@@ -1837,6 +1853,13 @@
     try {
       const team = await api('/api/auth/team');
       teamMembers = team.users;
+    } catch (e) { /* ignora */ }
+    // Ausências (104ª rodada) -- carrega cedo, no boot, igual ao teamMembers
+    // acima, pra já estar pronto assim que Demandas é aberta (aviso na
+    // coluna da pessoa + aviso de conflito ao marcar entrega).
+    try {
+      const ausData = await api('/api/ausencias/publicas');
+      ausenciasPublicas = ausData.ausencias || [];
     } catch (e) { /* ignora */ }
     // Carrega a paleta de cores sugeridas cedo (não só quando visita
     // Demandas), pra já estar pronta pro seletor de cor da tela Início.
@@ -4921,14 +4944,19 @@
     const calls = [
       api('/api/demandas?archived=false&scope=' + demandasScope),
       api('/api/demandas?archived=true&scope=' + demandasScope),
-      api('/api/labels')
+      api('/api/labels'),
+      // 104ª rodada: recarrega aqui também (não só no boot do app) pra
+      // pegar uma ausência cadastrada durante a mesma sessão, antes de
+      // desenhar as colunas/avisos.
+      api('/api/ausencias/publicas').catch(() => ({ ausencias: ausenciasPublicas }))
     ];
     if (demandasScope === 'pessoal') calls.push(loadPersonalLists());
-    const [ativas, arquivadas, labelsData] = await Promise.all(calls);
+    const [ativas, arquivadas, labelsData, ausData] = await Promise.all(calls);
     demandas = ativas.demandas;
     demandasArchived = arquivadas.demandas;
     labels = labelsData.labels;
     labelSuggestedColors = labelsData.suggestedColors || [];
+    ausenciasPublicas = ausData.ausencias || [];
     populateDemandasFilterLabelOptions();
     renderKanban();
     renderArchived();
@@ -5045,6 +5073,23 @@
         return ra - rb;
       })
       .map((x) => x.col);
+  }
+
+  // Ausências (104ª rodada) -- usado tanto no aviso da coluna da pessoa
+  // (renderKanban, logo abaixo) quanto no aviso de conflito ao marcar
+  // entrega ($('#demCardSave').onclick). `dateStr` default é hoje; passar
+  // uma data de entrega checa "essa pessoa vai estar ausente NAQUELE dia",
+  // não necessariamente hoje.
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function ausenciaEm(userId, dateStr) {
+    dateStr = dateStr || todayStr();
+    return ausenciasPublicas.find((a) => a.userId === userId && a.dataInicio <= dateStr && dateStr <= a.dataFim) || null;
+  }
+  function ausenciaBadgeLabel(a) {
+    if (!a) return '';
+    if (a.tipo === 'saida') return '🕐 Saída';
+    if (a.tipo === 'afastamento') return '😷 Afastado(a)';
+    return '🏖️ Férias';
   }
 
   function kanbanColumns() {
@@ -5212,7 +5257,16 @@
       const extraHeaderBtnsHtml = isPessoal
         ? `<button type="button" class="kanban-rename-list-btn" title="Renomear lista">✎</button><button type="button" class="kanban-delete-list-btn" title="Excluir lista">🗑</button>`
         : `<button type="button" class="color-dot-btn" title="Cor da lista"></button>`;
-      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${escapeHtml(member.name)}</span><button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button>${extraHeaderBtnsHtml}<span class="kanban-count">${items.length}</span></div>`;
+      // 104ª rodada, pedido da Raquel: "quando a pessoa estiver ausente, lá
+      // em demandas, deve aparecer na lista da pessoa um pequeno aviso,
+      // mostrando que esta em férias" -- só faz sentido no Quadro Geral
+      // (cada coluna É uma pessoa de verdade); a Área Pessoal tem listas
+      // nomeáveis, sem usuário por trás.
+      const ausenciaAgora = !isPessoal ? ausenciaEm(member.id) : null;
+      const ausenciaBadgeHtml = ausenciaAgora
+        ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaAgora.tipo === 'saida' ? 'Saída fora do horário hoje' : (ausenciaAgora.tipo === 'afastamento' ? 'Afastado(a)' : 'Férias') + ' até ' + fmtDate(ausenciaAgora.dataFim))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
+        : '';
+      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${escapeHtml(member.name)}</span>${ausenciaBadgeHtml}<button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button>${extraHeaderBtnsHtml}<span class="kanban-count">${items.length}</span></div>`;
       colEl.querySelector('.kanban-sort-date-btn').onclick = (e) => {
         e.stopPropagation();
         sortColumnByDate(items);
@@ -5923,6 +5977,29 @@
       $('#demCardError').textContent = 'Marque um responsável (estrela) para esta demanda.';
       $('#demCardError').hidden = false;
       return;
+    }
+    // 104ª rodada, pedido da Raquel: "quando a pessoa de ferias ou
+    // ausente, receber demandas, deve ter um aviso para quem esta criando
+    // a demanda, caso a entrega da demanda seja durante a ausencia" --
+    // aviso (confirm), não bloqueio: quem está criando decide se segue
+    // mesmo assim (ex.: a pessoa vai resolver antes de sair, ou outra vai
+    // cobrir). Só checa quando tem data de entrega marcada.
+    if (payload.dueDate) {
+      const conflitos = payload.assigneeIds
+        .map((id) => ({ id, ausencia: ausenciaEm(id, payload.dueDate) }))
+        .filter((x) => x.ausencia);
+      if (conflitos.length > 0) {
+        const nomes = conflitos.map((x) => {
+          const u = teamMembers.find((m) => m.id === x.id);
+          const nome = u ? u.name : 'Essa pessoa';
+          const a = x.ausencia;
+          const periodo = a.tipo === 'saida' ? `no dia ${fmtDate(a.dataInicio)}` : `de ${fmtDate(a.dataInicio)} a ${fmtDate(a.dataFim)}`;
+          return `${nome} (${ausenciaBadgeLabel(a)} ${periodo})`;
+        }).join('; ');
+        if (!confirm(`Atenção: a data de entrega cai durante a ausência de ${nomes}. Deseja salvar mesmo assim?`)) {
+          return;
+        }
+      }
     }
     try {
       if (editingDemandaId) {
@@ -11130,6 +11207,9 @@
   async function loadUsers() {
     if (!canViewConfiguracoes()) {
       $('#usersAccessDenied').hidden = false;
+      $('#usersTabsBar').hidden = true;
+      $('#usersTabUsuarios').hidden = true;
+      $('#usersTabAusencias').hidden = true;
       $('#usersTable').hidden = true;
       $('#userNewBtn').hidden = true;
       $('#backupSection').hidden = true;
@@ -11137,9 +11217,20 @@
       return;
     }
     $('#usersAccessDenied').hidden = true;
+    $('#usersTabsBar').hidden = false;
     $('#usersTable').hidden = false;
     $('#userNewBtn').hidden = !currentUser.isSuperAdmin;
     $('#backupSection').hidden = !currentUser.isSuperAdmin;
+    // 104ª rodada: as 2 abas (Usuários/Ausências) só aparecem quando o
+    // acesso já passou pela checagem acima -- a visibilidade de QUAL aba
+    // está ativa é controlada por `usersTab` (ver os cliques em
+    // data-users-tab, logo abaixo).
+    $('#usersTabUsuarios').hidden = usersTab !== 'usuarios';
+    $('#usersTabAusencias').hidden = usersTab !== 'ausencias';
+    if (usersTab === 'ausencias') {
+      await loadAusenciasAdmin();
+      return;
+    }
     const data = await api('/api/auth/users');
     const body = $('#usersTableBody');
     body.innerHTML = '';
@@ -11176,6 +11267,221 @@
       }
       body.appendChild(tr);
     });
+  }
+
+  $all('.tab-btn[data-users-tab]').forEach((b) => {
+    b.onclick = () => {
+      usersTab = b.dataset.usersTab;
+      $all('.tab-btn[data-users-tab]').forEach((x) => x.classList.toggle('active', x === b));
+      loadUsers();
+    };
+  });
+
+  // ---------- Ausências (104ª rodada) ----------
+  // Pedido da Raquel: "adicione tbm, em usuários, uma aba com um
+  // calendário e nele deve ter a opção de cadastrar os dias de férias,
+  // afastamentos, saidas fora do horário de cada colaborador e nesse
+  // calendario deve mostrar quem estava ausente nasqueles dias." Mesma
+  // regra de acesso da aba Usuários (visualizar/admin pra ver; super
+  // admin de verdade pra criar/editar/excluir -- ver routes/ausencias.js).
+  async function loadAusenciasAdmin() {
+    $('#ausenciaNewBtn').hidden = !currentUser.isSuperAdmin;
+    const data = await api('/api/ausencias');
+    ausenciasAdmin = data.ausencias || [];
+    populateAusenciaFormUserOptions();
+    renderAusenciasCalendar();
+    renderAusenciasTable();
+  }
+
+  function populateAusenciaFormUserOptions() {
+    $('#ausenciaFormUser').innerHTML = teamMembers.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('');
+  }
+
+  function ausenciaTipoLabel(tipo) {
+    return tipo === 'saida' ? 'Saída fora do horário' : (tipo === 'afastamento' ? 'Afastamento' : 'Férias');
+  }
+
+  // Recarrega a listagem enxuta usada em Demandas (ausenciasPublicas), sem
+  // esperar o próximo boot/visita -- assim um cadastro feito agora já
+  // aparece na coluna da pessoa se der uma espiada em Demandas na mesma
+  // sessão.
+  async function refreshAusenciasPublicas() {
+    try {
+      const ausData = await api('/api/ausencias/publicas');
+      ausenciasPublicas = ausData.ausencias || [];
+    } catch (e) { /* ignora */ }
+  }
+
+  function renderAusenciasCalendar() {
+    const year = ausenciasCalMonth.getFullYear();
+    const month = ausenciasCalMonth.getMonth();
+    $('#ausenciasMonthLabel').textContent = `${MONTHS_FULL[month]} ${year}`;
+
+    const grid = $('#ausenciasCalGrid');
+    grid.innerHTML = '';
+    WEEKDAYS_SHORT.forEach((w) => {
+      const el = document.createElement('div');
+      el.className = 'cal-weekday';
+      el.textContent = w;
+      grid.appendChild(el);
+    });
+
+    const firstWeekday = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+    const todayS = todayStr();
+
+    for (let i = 0; i < totalCells; i++) {
+      const dayOffset = i - firstWeekday + 1;
+      let cellYear = year, cellMonth = month, cellDay = dayOffset, otherMonth = false;
+      if (dayOffset < 1) {
+        cellMonth = month - 1; cellDay = daysInPrevMonth + dayOffset; otherMonth = true;
+        if (cellMonth < 0) { cellMonth = 11; cellYear -= 1; }
+      } else if (dayOffset > daysInMonth) {
+        cellMonth = month + 1; cellDay = dayOffset - daysInMonth; otherMonth = true;
+        if (cellMonth > 11) { cellMonth = 0; cellYear += 1; }
+      }
+      const cellDateStr = `${cellYear}-${String(cellMonth + 1).padStart(2, '0')}-${String(cellDay).padStart(2, '0')}`;
+
+      const cell = document.createElement('div');
+      cell.className = 'cal-day' + (otherMonth ? ' other-month' : '') + (cellDateStr === todayS ? ' today' : '');
+      const num = document.createElement('div');
+      num.className = 'cal-day-num';
+      num.textContent = cellDay;
+      cell.appendChild(num);
+
+      const dayAusencias = ausenciasAdmin.filter((a) => a.dataInicio <= cellDateStr && cellDateStr <= a.dataFim);
+      dayAusencias.forEach((a) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'cal-post-chip';
+        chip.innerHTML = `<b>${ausenciaBadgeLabel(a)} ${escapeHtml(a.userName || '')}</b>${ausenciaTipoLabel(a.tipo)}`;
+        chip.onclick = () => openAusenciaForm(a);
+        cell.appendChild(chip);
+      });
+
+      grid.appendChild(cell);
+    }
+  }
+
+  $('#ausenciasPrevMonth').onclick = () => {
+    ausenciasCalMonth = new Date(ausenciasCalMonth.getFullYear(), ausenciasCalMonth.getMonth() - 1, 1);
+    renderAusenciasCalendar();
+  };
+  $('#ausenciasNextMonth').onclick = () => {
+    ausenciasCalMonth = new Date(ausenciasCalMonth.getFullYear(), ausenciasCalMonth.getMonth() + 1, 1);
+    renderAusenciasCalendar();
+  };
+
+  function renderAusenciasTable() {
+    const body = $('#ausenciasTableBody');
+    body.innerHTML = '';
+    ausenciasAdmin.forEach((a) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${ausenciaBadgeLabel(a)}</td>
+        <td>${escapeHtml(a.userName || '')}</td>
+        <td>${ausenciaTipoLabel(a.tipo)}</td>
+        <td>${fmtDate(a.dataInicio)}</td>
+        <td>${fmtDate(a.dataFim)}</td>
+        <td>${escapeHtml(a.observacoes || '')}</td>
+        <td></td>
+      `;
+      if (currentUser.isSuperAdmin) {
+        const actionsTd = tr.querySelector('td:last-child');
+        const editBtn = document.createElement('button');
+        editBtn.textContent = 'Editar';
+        editBtn.onclick = () => openAusenciaForm(a);
+        actionsTd.appendChild(editBtn);
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Excluir';
+        delBtn.className = 'danger';
+        delBtn.onclick = () => deleteAusencia(a.id);
+        actionsTd.appendChild(delBtn);
+      }
+      body.appendChild(tr);
+    });
+  }
+
+  function openAusenciaForm(ausencia) {
+    editingAusenciaId = ausencia ? ausencia.id : null;
+    $('#ausenciaFormTitle').textContent = ausencia ? 'Editar ausência' : 'Nova ausência';
+    $('#ausenciaFormId').value = ausencia ? ausencia.id : '';
+    populateAusenciaFormUserOptions();
+    $('#ausenciaFormUser').value = ausencia ? ausencia.userId : (teamMembers[0] ? teamMembers[0].id : '');
+    $('#ausenciaFormTipo').value = ausencia ? ausencia.tipo : 'ferias';
+    $('#ausenciaFormInicio').value = ausencia ? ausencia.dataInicio : '';
+    $('#ausenciaFormFim').value = ausencia ? ausencia.dataFim : '';
+    $('#ausenciaFormObs').value = ausencia ? (ausencia.observacoes || '') : '';
+    $('#ausenciaFormError').hidden = true;
+    $('#ausenciaFormDelete').hidden = !ausencia || !currentUser.isSuperAdmin;
+    updateAusenciaFimVisibility();
+    $('#ausenciaFormWrap').hidden = false;
+  }
+
+  // "Saída fora do horário" é sempre de 1 dia só -- esconde o campo Data
+  // fim (o backend também trava isso, nunca confia só na tela).
+  function updateAusenciaFimVisibility() {
+    const isSaida = $('#ausenciaFormTipo').value === 'saida';
+    $('#ausenciaFormFimWrap').hidden = isSaida;
+    if (isSaida) $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
+  }
+  $('#ausenciaFormTipo').onchange = updateAusenciaFimVisibility;
+  $('#ausenciaFormInicio').onchange = () => {
+    if ($('#ausenciaFormTipo').value === 'saida') $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
+  };
+
+  $('#ausenciaNewBtn').onclick = () => openAusenciaForm(null);
+  $('#ausenciaFormCancel').onclick = () => { $('#ausenciaFormWrap').hidden = true; };
+  $('#ausenciaFormSave').onclick = async () => {
+    const payload = {
+      userId: $('#ausenciaFormUser').value,
+      tipo: $('#ausenciaFormTipo').value,
+      dataInicio: $('#ausenciaFormInicio').value,
+      dataFim: $('#ausenciaFormTipo').value === 'saida' ? $('#ausenciaFormInicio').value : $('#ausenciaFormFim').value,
+      observacoes: $('#ausenciaFormObs').value.trim()
+    };
+    if (!payload.dataInicio) {
+      $('#ausenciaFormError').textContent = 'Informe a data de início.';
+      $('#ausenciaFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingAusenciaId) {
+        await api('/api/ausencias/' + editingAusenciaId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/ausencias', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#ausenciaFormWrap').hidden = true;
+      await loadAusenciasAdmin();
+      await refreshAusenciasPublicas();
+    } catch (e) {
+      $('#ausenciaFormError').textContent = e.message || 'Não foi possível salvar.';
+      $('#ausenciaFormError').hidden = false;
+    }
+  };
+  $('#ausenciaFormDelete').onclick = async () => {
+    if (!editingAusenciaId) return;
+    if (!confirm('Excluir esta ausência?')) return;
+    try {
+      await api('/api/ausencias/' + editingAusenciaId, { method: 'DELETE' });
+      $('#ausenciaFormWrap').hidden = true;
+      await loadAusenciasAdmin();
+      await refreshAusenciasPublicas();
+    } catch (e) {
+      alert(e.message || 'Não foi possível excluir.');
+    }
+  };
+  async function deleteAusencia(id) {
+    if (!confirm('Excluir esta ausência?')) return;
+    try {
+      await api('/api/ausencias/' + id, { method: 'DELETE' });
+      await loadAusenciasAdmin();
+      await refreshAusenciasPublicas();
+    } catch (e) {
+      alert(e.message || 'Não foi possível excluir.');
+    }
   }
 
   // ---------- Integrações (54ª rodada) ----------

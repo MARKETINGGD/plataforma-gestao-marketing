@@ -53,6 +53,9 @@ app.use('/api/campanha-cooperada', require('./routes/campanhaCooperada'));
 app.use('/api/share-links', require('./routes/shareLinksPublic'));
 // Backup completo (rodada de segurança, 15/10/2026) — ver routes/backup.js.
 app.use('/api/backup', require('./routes/backup'));
+// Ausências (104ª rodada) -- calendário de férias/afastamentos/saídas
+// fora do horário, dentro de Usuários. Ver routes/ausencias.js.
+app.use('/api/ausencias', require('./routes/ausencias'));
 
 // Importação automática (só roda uma vez) do orçamento 2026 real da
 // GhelPlus e da De Bacco, vindo das planilhas oficiais — agora linha a

@@ -3009,6 +3009,18 @@
         <p class="muted">Todo mundo logado pode ver os dashboards e as demais áreas da Plataforma — as permissões abaixo controlam quem pode EDITAR em cada uma. Orçamento e esta própria tela de Configurações (Usuários/Integrações) são as únicas restritas também pra VISUALIZAR — só o admin vê, a não ser que libere "Visualizar" pra alguém.</p>
         <p class="muted" id="usersAccessDenied" hidden>Você não tem acesso a esta área — peça pro admin liberar "Visualizar" em Configurações, no seu cadastro.</p>
 
+        <!-- 104ª rodada, pedido da Raquel: "adicione tbm, em usuários, uma
+             aba com um calendário" pra férias/afastamentos/saídas fora do
+             horário -- ganhou abas dentro da própria tela de Usuários,
+             mesmo padrão de tabs já usado em Cronograma/Brindes. Escondida
+             junto com o resto quando a pessoa não tem acesso (ver
+             #usersAccessDenied/loadUsers() em app.js). -->
+        <div class="tabs" id="usersTabsBar">
+          <button type="button" class="tab-btn active" data-users-tab="usuarios">Usuários</button>
+          <button type="button" class="tab-btn" data-users-tab="ausencias">Ausências</button>
+        </div>
+
+        <div id="usersTabUsuarios">
         <!-- Backup completo (rodada de segurança, 15/10/2026, pedido da
              Raquel: "o que falta para deixar 100% segura a plataforma
              papoi? e se der algum problema, tem chance de perdermos o
@@ -3143,6 +3155,70 @@
           </thead>
           <tbody id="usersTableBody"></tbody>
         </table>
+        </div>
+
+        <!-- 104ª rodada: calendário de Ausências (férias, afastamentos,
+             saídas fora do horário). Cadastrar/editar/excluir é exclusivo
+             do super admin (mesma decisão da 103ª: ações dentro de
+             Configurações não são delegáveis por permissão simples) --
+             quem só tem "Visualizar" em Configurações vê a aba e o
+             calendário, sem o botão de nova ausência nem ações na tabela.
+             Ver routes/ausencias.js e a seção "Ausências" em app.js. -->
+        <div id="usersTabAusencias" hidden>
+          <p class="muted">Cadastre férias, afastamentos e saídas fora do horário de cada colaborador(a). O calendário abaixo mostra quem estava ausente em cada dia -- e isso também aparece como um aviso na lista da pessoa em Demandas, e um comunicado automático em Recados quando a ausência é cadastrada.</p>
+          <button id="ausenciaNewBtn" class="btn-primary" type="button">+ Nova ausência</button>
+
+          <div id="ausenciaFormWrap" class="form-card" hidden>
+            <h3 id="ausenciaFormTitle">Nova ausência</h3>
+            <input type="hidden" id="ausenciaFormId">
+            <div class="form-row">
+              <div>
+                <label>Colaborador(a)</label>
+                <select id="ausenciaFormUser"></select>
+              </div>
+              <div>
+                <label>Tipo</label>
+                <select id="ausenciaFormTipo">
+                  <option value="ferias">Férias</option>
+                  <option value="afastamento">Afastamento</option>
+                  <option value="saida">Saída fora do horário</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div>
+                <label>Data início</label>
+                <input id="ausenciaFormInicio" type="date">
+              </div>
+              <div id="ausenciaFormFimWrap">
+                <label>Data fim</label>
+                <input id="ausenciaFormFim" type="date">
+              </div>
+            </div>
+            <label>Observações</label>
+            <textarea id="ausenciaFormObs" rows="2"></textarea>
+            <div id="ausenciaFormError" class="error" hidden></div>
+            <div class="form-actions">
+              <button id="ausenciaFormSave" class="btn-primary">Salvar</button>
+              <button id="ausenciaFormDelete" class="danger" type="button" hidden>Excluir</button>
+              <button id="ausenciaFormCancel" class="btn-secondary">Cancelar</button>
+            </div>
+          </div>
+
+          <div class="cal-toolbar" id="ausenciasCalToolbar">
+            <button class="btn-secondary" id="ausenciasPrevMonth">← Mês anterior</button>
+            <h3 id="ausenciasMonthLabel"></h3>
+            <button class="btn-secondary" id="ausenciasNextMonth">Próximo mês →</button>
+          </div>
+          <div class="cal-grid" id="ausenciasCalGrid"></div>
+
+          <table class="data-table" id="ausenciasTable" style="margin-top:20px;">
+            <thead>
+              <tr><th></th><th>Colaborador(a)</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Observações</th><th></th></tr>
+            </thead>
+            <tbody id="ausenciasTableBody"></tbody>
+          </table>
+        </div>
       </section>
 
       <!-- Integrações (54ª rodada, pedido da Raquel: "conectar o Agendamento

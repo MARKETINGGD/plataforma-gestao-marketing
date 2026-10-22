@@ -288,7 +288,16 @@ db.defaults({
   // Compras, com `sourceOrcamentoId` ligando os dois -- ver
   // routes/brindesCompras.js).
   brindesOrcamentos: [],
-  brindesCompras: []
+  brindesCompras: [],
+  // 104ª rodada, pedido da Raquel: calendário de ausências dentro de
+  // Usuários -- férias, afastamentos e saídas fora do horário de cada
+  // colaborador(a). `tipo`: 'ferias' | 'afastamento' | 'saida'.
+  // `dataInicio`/`dataFim` (YYYY-MM-DD, inclusive dos dois lados; pra
+  // 'saida' nasce com os dois iguais, só 1 dia). Usado pelo calendário
+  // admin (ver routes/ausencias.js), pelo aviso na coluna da pessoa em
+  // Demandas, pelo aviso de conflito ao marcar entrega durante a
+  // ausência, e pelo comunicado automático em Recados.
+  ausencias: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

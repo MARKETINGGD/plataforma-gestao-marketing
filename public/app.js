@@ -233,6 +233,13 @@
   let terceirizadoDocSecaoAtiva = 'contratos';
   let editingBrindeId = null;
   let editingBrindeLogId = null; // 96ª rodada: edição de retirada no Registro de Saídas
+  // 101ª rodada: Brindes -- Orçamentos + Compras.
+  let brindesOrcamentosCache = [];
+  let brindesOrcamentosCanEdit = false;
+  let editingBrindeOrcamentoId = null;
+  let brindesComprasCache = [];
+  let brindesComprasCanEdit = false;
+  let editingBrindeCompraId = null;
 
   // ---------- Gerenciamento de Influencers (14ª rodada) ----------
   let influencersTab = 'debacco'; // 'debacco' | 'ghelplus' | 'todas'
@@ -1237,7 +1244,7 @@
     }
     // Brindes (38ª rodada; Campanha Cooperada entrou como 3º item na 50ª) --
     // mesmo padrão do Budget/Produtos acima.
-    if (id === 'navBrindesControleGeral' || id === 'navBrindesRetiradas' || id === 'navCampanhaCooperada') {
+    if (id === 'navBrindesControleGeral' || id === 'navBrindesRetiradas' || id === 'navBrindesOrcamentos' || id === 'navBrindesCompras' || id === 'navCampanhaCooperada') {
       $('#navBrindesParent').classList.add('active');
       $('#navBrindesSubmenu').hidden = false;
     }
@@ -2123,6 +2130,8 @@
         if (b.dataset.view === 'integracoes') loadIntegracoes();
         if (b.dataset.view === 'brindes') loadBrindes();
         if (b.dataset.view === 'brindes-retiradas') loadRetiradas();
+        if (b.dataset.view === 'brindes-orcamentos') loadBrindesOrcamentos();
+        if (b.dataset.view === 'brindes-compras') loadBrindesCompras();
         if (b.dataset.view === 'agendamento') loadSocialPosts();
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
@@ -8469,6 +8478,249 @@
     } catch (e) {
       $('#brindeLogFormError').textContent = e.message;
       $('#brindeLogFormError').hidden = false;
+    }
+  };
+
+  // ---------- Brindes — Orçamentos + Compras (101ª rodada) ----------
+  // Pedido da Raquel: submenu Compras (item/quantidade/valor unitário/
+  // valor total/quem pediu/quem autorizou/fornecedor/data da compra/
+  // forma de pagamento/data de entrega/conferência) + aba Orçamentos --
+  // aprovar um orçamento cria a compra automaticamente (ver
+  // routes/brindes.js). Reusa a mesma permissão "brindes" de sempre.
+  const ORCAMENTO_STATUS_LABEL = { pendente: 'Pendente', aprovado: 'Aprovado', reprovado: 'Reprovado' };
+
+  async function loadBrindesOrcamentos() {
+    const data = await api('/api/brindes/orcamentos');
+    brindesOrcamentosCache = data.items;
+    brindesOrcamentosCanEdit = data.canEdit;
+    $('#brindesOrcamentoNewBtn').hidden = !brindesOrcamentosCanEdit;
+    renderBrindesOrcamentos();
+  }
+
+  function renderBrindesOrcamentos() {
+    const body = $('#brindesOrcamentosBody');
+    body.innerHTML = '';
+    $('#brindesOrcamentosEmpty').hidden = brindesOrcamentosCache.length > 0;
+    brindesOrcamentosCache.forEach((o) => {
+      const tr = document.createElement('tr');
+      const statusSelectOptions = ORCAMENTO_STATUSES_FRONT.map((s) => `<option value="${s}" ${o.status === s ? 'selected' : ''}>${ORCAMENTO_STATUS_LABEL[s]}</option>`).join('');
+      tr.innerHTML = `
+        <td>${escapeHtml(o.item)}</td>
+        <td>${o.quantidade != null ? o.quantidade : '—'}</td>
+        <td>${o.valorUnitario != null ? 'R$ ' + o.valorUnitario.toFixed(2) : '—'}</td>
+        <td>${escapeHtml(o.fornecedor || '—')}</td>
+        <td>${escapeHtml(o.quemPediu || '—')}</td>
+        <td>
+          ${brindesOrcamentosCanEdit
+            ? `<select data-orcamento-status="${o.id}">${statusSelectOptions}</select>`
+            : `<span class="badge">${ORCAMENTO_STATUS_LABEL[o.status] || o.status}</span>`}
+          ${o.compraId ? ' <span class="muted" title="Já gerou uma compra">🛒</span>' : ''}
+        </td>
+        <td>${fileChipsHtml(o.arquivos, brindesOrcamentosCanEdit, 'del-orcamento-arquivo')}
+          ${brindesOrcamentosCanEdit ? `<br><input type="file" multiple data-upload-orcamento="${o.id}" style="max-width:160px;">` : ''}
+        </td>
+        <td>${brindesOrcamentosCanEdit ? `<button class="btn-link" data-edit-orcamento="${o.id}">Editar</button> <button class="btn-link danger" data-del-orcamento="${o.id}">Excluir</button>` : ''}</td>
+      `;
+      body.appendChild(tr);
+    });
+    $all('[data-orcamento-status]').forEach((sel) => {
+      sel.onchange = async () => {
+        const novoStatus = sel.value;
+        const orc = brindesOrcamentosCache.find((o) => o.id === sel.dataset.orcamentoStatus);
+        if (novoStatus === 'aprovado' && orc && !orc.compraId) {
+          if (!confirm(`Aprovar este orçamento cria automaticamente uma compra em "Compras" com fornecedor "${orc.fornecedor || '(sem fornecedor)'}"`+ `, e atualiza a última compra desse fornecedor. Confirmar?`)) {
+            sel.value = orc.status;
+            return;
+          }
+        }
+        try {
+          const resp = await api('/api/brindes/orcamentos/' + sel.dataset.orcamentoStatus, { method: 'PUT', body: JSON.stringify({ status: novoStatus }) });
+          await loadBrindesOrcamentos();
+          if (resp.compraCriada) alert('Compra criada automaticamente em Brindes → Compras.');
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-edit-orcamento]').forEach((b) => { b.onclick = () => openBrindesOrcamentoForm(brindesOrcamentosCache.find((o) => o.id === b.dataset.editOrcamento)); });
+    $all('[data-del-orcamento]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir este orçamento?')) return;
+        await api('/api/brindes/orcamentos/' + b.dataset.delOrcamento, { method: 'DELETE' });
+        await loadBrindesOrcamentos();
+      };
+    });
+    $all('[data-upload-orcamento]').forEach((input) => {
+      input.onchange = async () => {
+        if (!input.files.length) return;
+        const fd = new FormData();
+        Array.from(input.files).forEach((f) => fd.append('files', f));
+        try {
+          await api('/api/brindes/orcamentos/' + input.dataset.uploadOrcamento + '/arquivos', { method: 'POST', body: fd });
+          await loadBrindesOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-del-orcamento-arquivo]').forEach((b) => {
+      const orcamentoId = brindesOrcamentosCache.find((o) => (o.arquivos || []).some((f) => f.id === b.dataset.delOrcamentoArquivo)).id;
+      b.onclick = async () => {
+        await api(`/api/brindes/orcamentos/${orcamentoId}/arquivos/${b.dataset.delOrcamentoArquivo}`, { method: 'DELETE' });
+        await loadBrindesOrcamentos();
+      };
+    });
+  }
+  const ORCAMENTO_STATUSES_FRONT = ['pendente', 'aprovado', 'reprovado'];
+
+  function openBrindesOrcamentoForm(row) {
+    editingBrindeOrcamentoId = row ? row.id : null;
+    $('#brindesOrcamentoFormTitle').textContent = row ? 'Editar orçamento' : 'Novo orçamento';
+    $('#brindesOrcamentoFormItem').value = row ? row.item : '';
+    $('#brindesOrcamentoFormFornecedor').value = row ? (row.fornecedor || '') : '';
+    $('#brindesOrcamentoFormQuantidade').value = row && row.quantidade != null ? row.quantidade : '';
+    $('#brindesOrcamentoFormValorUnitario').value = row && row.valorUnitario != null ? row.valorUnitario : '';
+    $('#brindesOrcamentoFormQuemPediu').value = row ? (row.quemPediu || '') : (currentUser ? currentUser.name : '');
+    $('#brindesOrcamentoFormData').value = row ? (row.dataOrcamento || '') : new Date().toISOString().slice(0, 10);
+    $('#brindesOrcamentoFormObs').value = row ? (row.observacoes || '') : '';
+    $('#brindesOrcamentoFormError').hidden = true;
+    $('#brindesOrcamentoFormWrap').hidden = false;
+  }
+  $('#brindesOrcamentoNewBtn').onclick = () => openBrindesOrcamentoForm(null);
+  $('#brindesOrcamentoFormCancel').onclick = () => { $('#brindesOrcamentoFormWrap').hidden = true; };
+  $('#brindesOrcamentoFormSave').onclick = async () => {
+    const payload = {
+      item: $('#brindesOrcamentoFormItem').value.trim(),
+      fornecedor: $('#brindesOrcamentoFormFornecedor').value.trim(),
+      quantidade: $('#brindesOrcamentoFormQuantidade').value,
+      valorUnitario: $('#brindesOrcamentoFormValorUnitario').value,
+      quemPediu: $('#brindesOrcamentoFormQuemPediu').value.trim(),
+      dataOrcamento: $('#brindesOrcamentoFormData').value,
+      observacoes: $('#brindesOrcamentoFormObs').value.trim()
+    };
+    if (!payload.item) {
+      $('#brindesOrcamentoFormError').textContent = 'Informe o item orçado.';
+      $('#brindesOrcamentoFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingBrindeOrcamentoId) {
+        await api('/api/brindes/orcamentos/' + editingBrindeOrcamentoId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/brindes/orcamentos', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#brindesOrcamentoFormWrap').hidden = true;
+      await loadBrindesOrcamentos();
+    } catch (e) {
+      $('#brindesOrcamentoFormError').textContent = e.message;
+      $('#brindesOrcamentoFormError').hidden = false;
+    }
+  };
+
+  async function loadBrindesCompras() {
+    const data = await api('/api/brindes/compras');
+    brindesComprasCache = data.items;
+    brindesComprasCanEdit = data.canEdit;
+    $('#brindesCompraNewBtn').hidden = !brindesComprasCanEdit;
+    renderBrindesCompras();
+  }
+
+  function renderBrindesCompras() {
+    const body = $('#brindesComprasBody');
+    body.innerHTML = '';
+    $('#brindesComprasEmpty').hidden = brindesComprasCache.length > 0;
+    brindesComprasCache.forEach((c) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(c.item)}${c.origemOrcamentoId ? ' <span class="muted" title="Criada automaticamente a partir de um orçamento aprovado">📋</span>' : ''}</td>
+        <td>${c.quantidade != null ? c.quantidade : '—'}</td>
+        <td>${c.valorTotal != null ? 'R$ ' + c.valorTotal.toFixed(2) : '—'}</td>
+        <td>${escapeHtml(c.fornecedor || '—')}</td>
+        <td>${escapeHtml(c.dataCompra || '—')}</td>
+        <td>${escapeHtml(c.dataEntrega || '—')}</td>
+        <td>${c.conferencia ? '✅' : '—'}</td>
+        <td>${fileChipsHtml(c.arquivos, brindesComprasCanEdit, 'del-compra-arquivo')}
+          ${brindesComprasCanEdit ? `<br><input type="file" multiple data-upload-compra="${c.id}" style="max-width:160px;">` : ''}
+        </td>
+        <td>${brindesComprasCanEdit ? `<button class="btn-link" data-edit-compra="${c.id}">Editar</button> <button class="btn-link danger" data-del-compra="${c.id}">Excluir</button>` : ''}</td>
+      `;
+      body.appendChild(tr);
+    });
+    $all('[data-edit-compra]').forEach((b) => { b.onclick = () => openBrindesCompraForm(brindesComprasCache.find((c) => c.id === b.dataset.editCompra)); });
+    $all('[data-del-compra]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir esta compra?')) return;
+        await api('/api/brindes/compras/' + b.dataset.delCompra, { method: 'DELETE' });
+        await loadBrindesCompras();
+      };
+    });
+    $all('[data-upload-compra]').forEach((input) => {
+      input.onchange = async () => {
+        if (!input.files.length) return;
+        const fd = new FormData();
+        Array.from(input.files).forEach((f) => fd.append('files', f));
+        try {
+          await api('/api/brindes/compras/' + input.dataset.uploadCompra + '/arquivos', { method: 'POST', body: fd });
+          await loadBrindesCompras();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-del-compra-arquivo]').forEach((b) => {
+      const compraId = brindesComprasCache.find((c) => (c.arquivos || []).some((f) => f.id === b.dataset.delCompraArquivo)).id;
+      b.onclick = async () => {
+        await api(`/api/brindes/compras/${compraId}/arquivos/${b.dataset.delCompraArquivo}`, { method: 'DELETE' });
+        await loadBrindesCompras();
+      };
+    });
+  }
+
+  function openBrindesCompraForm(row) {
+    editingBrindeCompraId = row ? row.id : null;
+    $('#brindesCompraFormTitle').textContent = row ? 'Editar compra' : 'Nova compra';
+    $('#brindesCompraFormItem').value = row ? row.item : '';
+    $('#brindesCompraFormFornecedor').value = row ? (row.fornecedor || '') : '';
+    $('#brindesCompraFormQuantidade').value = row && row.quantidade != null ? row.quantidade : '';
+    $('#brindesCompraFormValorUnitario').value = row && row.valorUnitario != null ? row.valorUnitario : '';
+    $('#brindesCompraFormValorTotal').value = row && row.valorTotal != null ? row.valorTotal : '';
+    $('#brindesCompraFormFormaPagamento').value = row ? (row.formaPagamento || '') : '';
+    $('#brindesCompraFormQuemPediu').value = row ? (row.quemPediu || '') : (currentUser ? currentUser.name : '');
+    $('#brindesCompraFormQuemAutorizou').value = row ? (row.quemAutorizou || '') : '';
+    $('#brindesCompraFormDataCompra').value = row ? (row.dataCompra || '') : new Date().toISOString().slice(0, 10);
+    $('#brindesCompraFormDataEntrega').value = row ? (row.dataEntrega || '') : '';
+    $('#brindesCompraFormConferencia').checked = row ? !!row.conferencia : false;
+    $('#brindesCompraFormObs').value = row ? (row.observacoes || '') : '';
+    $('#brindesCompraFormError').hidden = true;
+    $('#brindesCompraFormWrap').hidden = false;
+  }
+  $('#brindesCompraNewBtn').onclick = () => openBrindesCompraForm(null);
+  $('#brindesCompraFormCancel').onclick = () => { $('#brindesCompraFormWrap').hidden = true; };
+  $('#brindesCompraFormSave').onclick = async () => {
+    const payload = {
+      item: $('#brindesCompraFormItem').value.trim(),
+      fornecedor: $('#brindesCompraFormFornecedor').value.trim(),
+      quantidade: $('#brindesCompraFormQuantidade').value,
+      valorUnitario: $('#brindesCompraFormValorUnitario').value,
+      valorTotal: $('#brindesCompraFormValorTotal').value,
+      formaPagamento: $('#brindesCompraFormFormaPagamento').value.trim(),
+      quemPediu: $('#brindesCompraFormQuemPediu').value.trim(),
+      quemAutorizou: $('#brindesCompraFormQuemAutorizou').value.trim(),
+      dataCompra: $('#brindesCompraFormDataCompra').value,
+      dataEntrega: $('#brindesCompraFormDataEntrega').value,
+      conferencia: $('#brindesCompraFormConferencia').checked,
+      observacoes: $('#brindesCompraFormObs').value.trim()
+    };
+    if (!payload.item) {
+      $('#brindesCompraFormError').textContent = 'Informe o item comprado.';
+      $('#brindesCompraFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingBrindeCompraId) {
+        await api('/api/brindes/compras/' + editingBrindeCompraId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/brindes/compras', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#brindesCompraFormWrap').hidden = true;
+      await loadBrindesCompras();
+    } catch (e) {
+      $('#brindesCompraFormError').textContent = e.message;
+      $('#brindesCompraFormError').hidden = false;
     }
   };
 

@@ -1,10 +1,14 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName } = require('../utils/names');
 const shareLinks = require('../utils/shareLinks');
+const fornecedoresHelper = require('../utils/fornecedoresHelper');
 
 const router = express.Router();
 
@@ -675,6 +679,310 @@ router.delete('/public-link', requireAuth, requireBrindesEdit, (req, res) => {
   shareLinks.revokeLink('brindes', brand, resolvedMode);
   logAudit({ user: req.user, entityType: 'shareLink', entityId: 'brindes:' + brand, entityLabel: 'Brindes · ' + brand, action: 'revoke_public_link', details: `Modo: ${resolvedMode === 'edicao' ? 'edição' : 'leitura'}` });
   res.json({ ok: true });
+});
+
+// ---------- Orçamentos + Compras (101ª rodada) ----------
+//
+// Pedido da Raquel: "em brindes, adicione submenu Compras com campos:
+// item comprado, quantidade, valor unitário, valor total, quem pediu,
+// quem autorizou, fornecedor, data da compra, forma de pagamento, data
+// de entrega, conferência. Adicionar aba Orçamentos (se não existir):
+// ao aprovar um orçamento, ele cai automaticamente em Compras como
+// pedido efetuado. Atualizar também o cadastro do fornecedor (campo
+// 'última compra')."
+//
+// Fluxo: um Orçamento nasce "pendente". Quando alguém com permissão de
+// editar Brindes marca ele como "aprovado", uma Compra é criada
+// automaticamente (copiando item/quantidade/valor/fornecedor/quem
+// pediu, com quem autorizou = quem aprovou e data da compra = hoje) e
+// o cadastro do fornecedor (coleção `fornecedores`, reservada desde a
+// 100ª rodada -- ver utils/fornecedoresHelper.js) ganha/atualiza o
+// campo "última compra", mesmo ainda sem existir uma tela própria de
+// Fornecedores (Pendência seguinte). Reprovar um orçamento nunca gera
+// Compra, e nunca duplica a Compra se o mesmo orçamento for aprovado
+// de novo depois de já ter gerado uma. Depois de criada, a Compra é um
+// registro independente -- editar o orçamento aprovado depois não
+// volta a tocar na Compra já gerada (mesmo espírito de "não reabrir o
+// que já virou outra coisa" usado em outras partes da base).
+//
+// Reusa a mesma permissão "brindes" já usada no Catálogo/Registro de
+// Saídas/Retiradas -- a Raquel não pediu uma permissão própria pra
+// Orçamentos/Compras, então não há motivo pra inventar uma nova.
+const ORCAMENTO_STATUSES = ['pendente', 'aprovado', 'reprovado'];
+
+const orcamentoUploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'brindes-orcamentos');
+const orcamentoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(orcamentoUploadsRoot, req.params.id);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadOrcamentoFile = multer({ storage: orcamentoStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+const compraUploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'brindes-compras');
+const compraStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(compraUploadsRoot, req.params.id);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadCompraFile = multer({ storage: compraStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+function numOrNullBrinde(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function serializeOrcamentoBrinde(o) {
+  const out = Object.assign({}, o, { arquivos: o.arquivos || [] });
+  if (o.createdBy) out.createdByName = resolveUserName(o.createdBy, o.createdByName || '');
+  if (o.updatedBy) out.updatedByName = resolveUserName(o.updatedBy, o.updatedByName || '');
+  return out;
+}
+
+function serializeCompraBrinde(c) {
+  const out = Object.assign({}, c, { arquivos: c.arquivos || [] });
+  if (c.createdBy) out.createdByName = resolveUserName(c.createdBy, c.createdByName || '');
+  if (c.updatedBy) out.updatedByName = resolveUserName(c.updatedBy, c.updatedByName || '');
+  return out;
+}
+
+// Cria a Compra (seja a partir de um Orçamento aprovado, seja cadastrada
+// direto na aba Compras) e atualiza o cadastro do fornecedor -- função
+// única pra nunca ficar lógica duplicada entre os 2 jeitos de nascer.
+function criarCompraEAtualizarFornecedor(dados, req, origemOrcamentoId) {
+  const now = new Date().toISOString();
+  const quantidade = numOrNullBrinde(dados.quantidade);
+  const valorUnitario = numOrNullBrinde(dados.valorUnitario);
+  const valorTotal = dados.valorTotal !== undefined && dados.valorTotal !== ''
+    ? numOrNullBrinde(dados.valorTotal)
+    : (quantidade != null && valorUnitario != null ? Math.round(quantidade * valorUnitario * 100) / 100 : null);
+  const compra = {
+    id: nanoid(),
+    item: (dados.item || '').trim(),
+    quantidade,
+    valorUnitario,
+    valorTotal,
+    quemPediu: (dados.quemPediu || '').trim(),
+    quemAutorizou: (dados.quemAutorizou || '').trim(),
+    fornecedor: (dados.fornecedor || '').trim(),
+    dataCompra: dados.dataCompra || now.slice(0, 10),
+    formaPagamento: dados.formaPagamento || '',
+    dataEntrega: dados.dataEntrega || null,
+    conferencia: !!dados.conferencia,
+    observacoes: dados.observacoes || '',
+    arquivos: [],
+    origemOrcamentoId: origemOrcamentoId || null,
+    createdAt: now,
+    createdBy: req.user.id,
+    createdByName: req.user.name,
+    updatedAt: now
+  };
+  db.get('brindesCompras').push(compra).write();
+  if (compra.fornecedor) {
+    fornecedoresHelper.upsertUltimaCompra(compra.fornecedor, {
+      data: compra.dataCompra,
+      valor: compra.valorTotal,
+      item: compra.item,
+      origem: 'brindesCompras',
+      origemId: compra.id
+    }, { tipo: 'brindes' });
+  }
+  logAudit({
+    user: req.user,
+    entityType: 'brindeCompra',
+    entityId: compra.id,
+    entityLabel: compra.item,
+    action: 'create',
+    details: origemOrcamentoId ? 'Criada automaticamente a partir de um orçamento aprovado' : undefined
+  });
+  return compra;
+}
+
+// ---- Orçamentos ----
+router.get('/orcamentos', requireAuth, (req, res) => {
+  const rows = db.get('brindesOrcamentos').value().slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  res.json({ canEdit: canEdit(req), items: rows.map(serializeOrcamentoBrinde) });
+});
+
+router.post('/orcamentos', requireAuth, requireBrindesEdit, (req, res) => {
+  const b = req.body || {};
+  if (!(b.item || '').trim()) return res.status(400).json({ error: 'Informe o item orçado.' });
+  const now = new Date().toISOString();
+  const orc = {
+    id: nanoid(),
+    item: (b.item || '').trim(),
+    quantidade: numOrNullBrinde(b.quantidade),
+    valorUnitario: numOrNullBrinde(b.valorUnitario),
+    fornecedor: (b.fornecedor || '').trim(),
+    quemPediu: (b.quemPediu || '').trim(),
+    status: 'pendente',
+    quemAutorizou: '',
+    dataOrcamento: b.dataOrcamento || now.slice(0, 10),
+    dataDecisao: null,
+    observacoes: b.observacoes || '',
+    arquivos: [],
+    compraId: null,
+    createdAt: now,
+    createdBy: req.user.id,
+    createdByName: req.user.name,
+    updatedAt: now
+  };
+  db.get('brindesOrcamentos').push(orc).write();
+  logAudit({ user: req.user, entityType: 'brindeOrcamento', entityId: orc.id, entityLabel: orc.item, action: 'create' });
+  res.json({ item: serializeOrcamentoBrinde(orc) });
+});
+
+router.put('/orcamentos/:id', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesOrcamentos').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Orçamento não encontrado.' });
+  const b = req.body || {};
+  const updates = { updatedAt: new Date().toISOString(), updatedBy: req.user.id, updatedByName: req.user.name };
+  ['item', 'fornecedor', 'quemPediu', 'observacoes', 'dataOrcamento'].forEach((k) => {
+    if (b[k] !== undefined) updates[k] = typeof b[k] === 'string' ? b[k].trim() : b[k];
+  });
+  if (b.quantidade !== undefined) updates.quantidade = numOrNullBrinde(b.quantidade);
+  if (b.valorUnitario !== undefined) updates.valorUnitario = numOrNullBrinde(b.valorUnitario);
+
+  let compraCriada = null;
+  if (b.status !== undefined && ORCAMENTO_STATUSES.includes(b.status) && b.status !== existing.status) {
+    updates.status = b.status;
+    updates.dataDecisao = new Date().toISOString();
+    updates.quemAutorizou = req.user.name;
+    // Só cria a Compra automaticamente na TRANSIÇÃO pra "aprovado", e só
+    // se esse orçamento ainda não tiver gerado uma Compra antes -- nunca
+    // duplica, mesmo que alguém reprove e aprove de novo depois.
+    if (b.status === 'aprovado' && !existing.compraId) {
+      const dadosParaCompra = Object.assign({}, existing, updates);
+      compraCriada = criarCompraEAtualizarFornecedor(dadosParaCompra, req, existing.id);
+      updates.compraId = compraCriada.id;
+    }
+  }
+  db.get('brindesOrcamentos').find({ id: req.params.id }).assign(updates).write();
+  logAudit({ user: req.user, entityType: 'brindeOrcamento', entityId: existing.id, entityLabel: updates.item || existing.item, action: 'update' });
+  res.json({
+    item: serializeOrcamentoBrinde(db.get('brindesOrcamentos').find({ id: req.params.id }).value()),
+    compraCriada: compraCriada ? serializeCompraBrinde(compraCriada) : null
+  });
+});
+
+router.delete('/orcamentos/:id', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesOrcamentos').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Orçamento não encontrado.' });
+  db.get('brindesOrcamentos').remove({ id: req.params.id }).write();
+  const dir = path.join(orcamentoUploadsRoot, existing.id);
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  logAudit({ user: req.user, entityType: 'brindeOrcamento', entityId: existing.id, entityLabel: existing.item, action: 'delete' });
+  res.json({ ok: true });
+});
+
+router.post('/orcamentos/:id/arquivos', requireAuth, requireBrindesEdit, uploadOrcamentoFile.array('files', 10), (req, res) => {
+  const existing = db.get('brindesOrcamentos').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Orçamento não encontrado.' });
+  const files = req.files || [];
+  const novos = files.map((f) => ({ id: nanoid(), name: f.originalname, url: `/uploads/brindes-orcamentos/${existing.id}/${f.filename}` }));
+  const arquivos = (existing.arquivos || []).concat(novos);
+  db.get('brindesOrcamentos').find({ id: req.params.id }).assign({ arquivos, updatedAt: new Date().toISOString() }).write();
+  res.json({ item: serializeOrcamentoBrinde(db.get('brindesOrcamentos').find({ id: req.params.id }).value()) });
+});
+
+router.delete('/orcamentos/:id/arquivos/:fileId', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesOrcamentos').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Orçamento não encontrado.' });
+  const arquivos = (existing.arquivos || []).filter((a) => a.id !== req.params.fileId);
+  db.get('brindesOrcamentos').find({ id: req.params.id }).assign({ arquivos, updatedAt: new Date().toISOString() }).write();
+  res.json({ item: serializeOrcamentoBrinde(db.get('brindesOrcamentos').find({ id: req.params.id }).value()) });
+});
+
+// ---- Compras ----
+router.get('/compras', requireAuth, (req, res) => {
+  const rows = db.get('brindesCompras').value().slice().sort((a, b) => (b.dataCompra || '').localeCompare(a.dataCompra || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  res.json({ canEdit: canEdit(req), items: rows.map(serializeCompraBrinde) });
+});
+
+router.post('/compras', requireAuth, requireBrindesEdit, (req, res) => {
+  const b = req.body || {};
+  if (!(b.item || '').trim()) return res.status(400).json({ error: 'Informe o item comprado.' });
+  const compra = criarCompraEAtualizarFornecedor(b, req, null);
+  res.json({ item: serializeCompraBrinde(compra) });
+});
+
+router.put('/compras/:id', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  const b = req.body || {};
+  const updates = { updatedAt: new Date().toISOString(), updatedBy: req.user.id, updatedByName: req.user.name };
+  ['item', 'quemPediu', 'quemAutorizou', 'fornecedor', 'dataCompra', 'formaPagamento', 'dataEntrega', 'observacoes'].forEach((k) => {
+    if (b[k] !== undefined) updates[k] = typeof b[k] === 'string' ? b[k].trim() : b[k];
+  });
+  if (b.quantidade !== undefined) updates.quantidade = numOrNullBrinde(b.quantidade);
+  if (b.valorUnitario !== undefined) updates.valorUnitario = numOrNullBrinde(b.valorUnitario);
+  if (b.valorTotal !== undefined) updates.valorTotal = numOrNullBrinde(b.valorTotal);
+  if (b.conferencia !== undefined) updates.conferencia = !!b.conferencia;
+
+  // Se o fornecedor mudou nesta edição, ou a conferência acabou de ser
+  // marcada agora, atualiza o cadastro do fornecedor de novo -- não
+  // fica dependendo só do instante de criação da compra.
+  const fornecedorMudou = updates.fornecedor !== undefined && updates.fornecedor !== existing.fornecedor;
+  const conferenciaNova = b.conferencia === true && !existing.conferencia;
+  db.get('brindesCompras').find({ id: req.params.id }).assign(updates).write();
+  const atualizado = db.get('brindesCompras').find({ id: req.params.id }).value();
+  if ((fornecedorMudou || conferenciaNova) && atualizado.fornecedor) {
+    fornecedoresHelper.upsertUltimaCompra(atualizado.fornecedor, {
+      data: atualizado.dataCompra,
+      valor: atualizado.valorTotal,
+      item: atualizado.item,
+      origem: 'brindesCompras',
+      origemId: atualizado.id
+    }, { tipo: 'brindes' });
+  }
+  logAudit({ user: req.user, entityType: 'brindeCompra', entityId: existing.id, entityLabel: updates.item || existing.item, action: 'update' });
+  res.json({ item: serializeCompraBrinde(atualizado) });
+});
+
+router.delete('/compras/:id', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  db.get('brindesCompras').remove({ id: req.params.id }).write();
+  if (existing.origemOrcamentoId) {
+    // Excluir a Compra não ressuscita o orçamento como "pendente" -- só
+    // desvincula, pra não deixar um `compraId` fantasma apontando pra
+    // um registro que não existe mais.
+    db.get('brindesOrcamentos').find({ id: existing.origemOrcamentoId }).assign({ compraId: null }).write();
+  }
+  const dir = path.join(compraUploadsRoot, existing.id);
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  logAudit({ user: req.user, entityType: 'brindeCompra', entityId: existing.id, entityLabel: existing.item, action: 'delete' });
+  res.json({ ok: true });
+});
+
+router.post('/compras/:id/arquivos', requireAuth, requireBrindesEdit, uploadCompraFile.array('files', 10), (req, res) => {
+  const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  const files = req.files || [];
+  const novos = files.map((f) => ({ id: nanoid(), name: f.originalname, url: `/uploads/brindes-compras/${existing.id}/${f.filename}` }));
+  const arquivos = (existing.arquivos || []).concat(novos);
+  db.get('brindesCompras').find({ id: req.params.id }).assign({ arquivos, updatedAt: new Date().toISOString() }).write();
+  res.json({ item: serializeCompraBrinde(db.get('brindesCompras').find({ id: req.params.id }).value()) });
+});
+
+router.delete('/compras/:id/arquivos/:fileId', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  const arquivos = (existing.arquivos || []).filter((a) => a.id !== req.params.fileId);
+  db.get('brindesCompras').find({ id: req.params.id }).assign({ arquivos, updatedAt: new Date().toISOString() }).write();
+  res.json({ item: serializeCompraBrinde(db.get('brindesCompras').find({ id: req.params.id }).value()) });
 });
 
 module.exports = router;

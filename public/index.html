@@ -295,6 +295,11 @@
           <div class="navlink-submenu" id="navBrindesSubmenu" hidden>
             <button class="navlink navlink-sub" id="navBrindesControleGeral" data-view="brindes">Controle Geral</button>
             <button class="navlink navlink-sub" id="navBrindesRetiradas" data-view="brindes-retiradas">Retiradas Internas</button>
+            <!-- 101ª rodada, pedido da Raquel: submenu Compras + aba
+                 Orçamentos -- aprovar um orçamento cria a compra
+                 automaticamente (ver routes/brindes.js). -->
+            <button class="navlink navlink-sub" id="navBrindesOrcamentos" data-view="brindes-orcamentos">Orçamentos</button>
+            <button class="navlink navlink-sub" id="navBrindesCompras" data-view="brindes-compras">Compras</button>
             <button class="navlink navlink-sub" id="navCampanhaCooperada" data-view="campanha-cooperada">Campanha Cooperada</button>
           </div>
         </div>
@@ -2081,6 +2086,101 @@
           <tbody id="retiradasBody"></tbody>
         </table>
         <p class="muted" id="retiradasEmpty" hidden>Nenhuma retirada registrada ainda pra essa marca.</p>
+      </section>
+
+      <!-- Brindes -- Orçamentos (101ª rodada, pedido da Raquel: "adicionar
+           aba Orçamentos (se não existir): ao aprovar um orçamento, ele
+           cai automaticamente em Compras como pedido efetuado"). Fluxo:
+           nasce "Pendente"; marcar como "Aprovado" cria a Compra na hora
+           (ver view-brindes-compras abaixo) e atualiza o cadastro do
+           fornecedor com a última compra; marcar "Reprovado" nunca gera
+           Compra. -->
+      <section id="view-brindes-orcamentos" class="view" hidden>
+        <h2>Brindes — Orçamentos</h2>
+        <p class="muted">Cadastre os orçamentos recebidos de fornecedores antes de decidir a compra. Ao marcar um orçamento como <strong>Aprovado</strong>, ele cai automaticamente em Compras como pedido efetuado, e o cadastro do fornecedor é atualizado com a última compra.</p>
+        <div class="view-toolbar-actions" style="margin:12px 0;">
+          <button class="btn-primary" id="brindesOrcamentoNewBtn">+ Novo orçamento</button>
+        </div>
+
+        <div id="brindesOrcamentoFormWrap" class="form-card" hidden>
+          <h3 id="brindesOrcamentoFormTitle">Novo orçamento</h3>
+          <div class="form-row">
+            <div><label>Item orçado</label><input id="brindesOrcamentoFormItem" type="text"></div>
+            <div><label>Fornecedor</label><input id="brindesOrcamentoFormFornecedor" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Quantidade</label><input id="brindesOrcamentoFormQuantidade" type="number" min="1" step="1"></div>
+            <div><label>Valor unitário (R$)</label><input id="brindesOrcamentoFormValorUnitario" type="number" step="0.01"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Quem pediu</label><input id="brindesOrcamentoFormQuemPediu" type="text"></div>
+            <div><label>Data do orçamento</label><input id="brindesOrcamentoFormData" type="date"></div>
+          </div>
+          <div><label>Observações</label><textarea id="brindesOrcamentoFormObs" rows="2"></textarea></div>
+          <div id="brindesOrcamentoFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="brindesOrcamentoFormSave" class="btn-primary">Salvar</button>
+            <button id="brindesOrcamentoFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr><th>Item</th><th>Qtd.</th><th>Valor unit.</th><th>Fornecedor</th><th>Quem pediu</th><th>Status</th><th>Arquivos</th><th></th></tr>
+          </thead>
+          <tbody id="brindesOrcamentosBody"></tbody>
+        </table>
+        <p class="muted" id="brindesOrcamentosEmpty" hidden>Nenhum orçamento cadastrado ainda.</p>
+      </section>
+
+      <!-- Brindes -- Compras (101ª rodada): pedidos efetuados, nascidos
+           automaticamente a partir de um orçamento aprovado (acima) ou
+           cadastrados direto aqui. -->
+      <section id="view-brindes-compras" class="view" hidden>
+        <h2>Brindes — Compras</h2>
+        <p class="muted">Pedidos de compra efetuados -- os que nascem de um orçamento aprovado entram aqui sozinhos; também dá pra cadastrar uma compra direto, sem passar por orçamento.</p>
+        <div class="view-toolbar-actions" style="margin:12px 0;">
+          <button class="btn-primary" id="brindesCompraNewBtn">+ Nova compra</button>
+        </div>
+
+        <div id="brindesCompraFormWrap" class="form-card" hidden>
+          <h3 id="brindesCompraFormTitle">Nova compra</h3>
+          <div class="form-row">
+            <div><label>Item comprado</label><input id="brindesCompraFormItem" type="text"></div>
+            <div><label>Fornecedor</label><input id="brindesCompraFormFornecedor" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Quantidade</label><input id="brindesCompraFormQuantidade" type="number" min="1" step="1"></div>
+            <div><label>Valor unitário (R$)</label><input id="brindesCompraFormValorUnitario" type="number" step="0.01"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Valor total (R$)</label><input id="brindesCompraFormValorTotal" type="number" step="0.01"></div>
+            <div><label>Forma de pagamento</label><input id="brindesCompraFormFormaPagamento" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Quem pediu</label><input id="brindesCompraFormQuemPediu" type="text"></div>
+            <div><label>Quem autorizou</label><input id="brindesCompraFormQuemAutorizou" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Data da compra</label><input id="brindesCompraFormDataCompra" type="date"></div>
+            <div><label>Data de entrega</label><input id="brindesCompraFormDataEntrega" type="date"></div>
+          </div>
+          <div><label><input type="checkbox" id="brindesCompraFormConferencia"> Conferência feita (item recebido confere com o pedido)</label></div>
+          <div><label>Observações</label><textarea id="brindesCompraFormObs" rows="2"></textarea></div>
+          <div id="brindesCompraFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="brindesCompraFormSave" class="btn-primary">Salvar</button>
+            <button id="brindesCompraFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr><th>Item</th><th>Qtd.</th><th>Valor total</th><th>Fornecedor</th><th>Data da compra</th><th>Entrega</th><th>Conferência</th><th>Arquivos</th><th></th></tr>
+          </thead>
+          <tbody id="brindesComprasBody"></tbody>
+        </table>
+        <p class="muted" id="brindesComprasEmpty" hidden>Nenhuma compra registrada ainda.</p>
       </section>
 
       <!-- Campanha Cooperada (43ª rodada, pedido da Raquel) -->

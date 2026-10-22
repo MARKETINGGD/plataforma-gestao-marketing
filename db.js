@@ -255,7 +255,40 @@ db.defaults({
   // revisão" é 1 registro com uma ou mais pessoas (nome livre, dá pra
   // adicionar várias), 1 data e 1 arquivo revisado anexado (upload novo
   // substitui o anterior).
-  produtosCatalogoRevisoes: []
+  produtosCatalogoRevisoes: [],
+  // 100ª rodada, pedido da Raquel (mega-pedido: Pagamentos + Fornecedores +
+  // Brindes/Compras) -- ver claude/PLATAFORMA-UNIFICADA-HANDOFF.md.
+  //
+  // Novo menu Pagamentos: Controle de Assinaturas (`assinaturas`), Controle
+  // de Pagamentos com abas Cartão/Mensal/Extras (`pagamentos`, campo `aba`
+  // distingue qual) e Terceirizados (`terceirizados`, com documentos
+  // necessários: contratos/checklist/pagamentos, cada um com arquivos).
+  // As planilhas que a Raquel colou direto no chat ("CONTROLE DE
+  // PAGAMENTOS" e "CONTROLE DE ASSINATURAS MKT") foram importadas 1x só
+  // (ver utils/seedPagamentosImport2026.js) com `historicalImport: true` --
+  // marca que não deve nunca disparar sincronização automática com o
+  // Budget (ver abaixo), exatamente como ela pediu: "o que ja esta na
+  // planilha, voce n deve colocar no budget... essa regra de comunicação
+  // só deve valer a partir de hoje, das informações que eu adicionar a
+  // partir de hoje" (22/10/2026).
+  assinaturas: [],
+  pagamentos: [],
+  terceirizados: [],
+  // Novo menu Fornecedores: cadastro único (Tipo em lista aberta -- pode
+  // cadastrar tipo novo, ver routes/fornecedores.js) com busca por nome/
+  // tipo e "últimos pedidos feitos" agregado automaticamente de qualquer
+  // lugar do sistema que tenha orçamento->pedido (por enquanto só Brindes
+  // Compras, ver abaixo -- pensado pra crescer pra outros módulos sem
+  // precisar migrar nada).
+  fornecedores: [],
+  // Brindes -- novo submenu Compras (pedido efetuado: item, quantidade,
+  // valor unitário/total, quem pediu, quem autorizou, fornecedor, data da
+  // compra, forma de pagamento, data de entrega, conferência) + nova aba
+  // Orçamentos (cotação -> ao aprovar, nasce automaticamente um pedido em
+  // Compras, com `sourceOrcamentoId` ligando os dois -- ver
+  // routes/brindesCompras.js).
+  brindesOrcamentos: [],
+  brindesCompras: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

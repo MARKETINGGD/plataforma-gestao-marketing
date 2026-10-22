@@ -221,6 +221,16 @@
   let brindesTab = 'debacco'; // 'debacco' | 'ghelplus' | 'log'
   let brindesCatalog = [];
   let brindesLog = [];
+  // 100ª rodada: Pagamentos (Assinaturas/Controle de Pagamentos/Terceirizados).
+  let assinaturasCache = [];
+  let assinaturasCanEdit = false;
+  let pagamentosAbaAtiva = 'cartao';
+  let pagamentosCache = [];
+  let pagamentosCanEdit = false;
+  let terceirizadosCache = [];
+  let terceirizadosCanEdit = false;
+  let terceirizadoSelecionadoId = null;
+  let terceirizadoDocSecaoAtiva = 'contratos';
   let editingBrindeId = null;
   let editingBrindeLogId = null; // 96ª rodada: edição de retirada no Registro de Saídas
 
@@ -1207,6 +1217,11 @@
       $('#navBudgetParent').classList.add('active');
       $('#navBudgetSubmenu').hidden = false;
     }
+    // Pagamentos (100ª rodada) -- mesmo padrão do Budget acima.
+    if (id === 'navAssinaturas' || id === 'navPagamentosControle' || id === 'navTerceirizados') {
+      $('#navPagamentosParent').classList.add('active');
+      $('#navPagamentosSubmenu').hidden = false;
+    }
     // Produtos (33ª rodada; Catálogo entrou na 68ª) -- mesmo padrão do
     // Budget acima.
     if (id === 'navProdutosConcorrencia' || id === 'navProdutosLancamentos' || id === 'navProdutosCatalogo') {
@@ -1989,6 +2004,12 @@
     sub.hidden = !sub.hidden;
     markNavParentActive('navBudgetParent');
   };
+  // Pagamentos (100ª rodada) -- mesmo padrão do Budget acima.
+  $('#navPagamentosParent').onclick = () => {
+    const sub = $('#navPagamentosSubmenu');
+    sub.hidden = !sub.hidden;
+    markNavParentActive('navPagamentosParent');
+  };
   $('#navProdutosParent').onclick = () => {
     const sub = $('#navProdutosSubmenu');
     sub.hidden = !sub.hidden;
@@ -2066,7 +2087,7 @@
     // views -- o onclick de verdade deles já foi montado antes (ver
     // applyTheme()/updateOsNotifBtn() acima), não pode ser sobrescrito
     // aqui com setActiveNav(), mesmo motivo do navPonto/navGestor/navPowerBI.
-    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI' || b.id === 'navAppExternosParent' || b.id === 'navConfiguracoesParent' || b.id === 'navRelatoriosParent' || b.id === 'themeToggleBtn' || b.id === 'osNotifToggleBtn' || b.id === 'navInfluencersParent') return;
+    if (b.id === 'navBudgetParent' || b.id === 'navProdutosParent' || b.id === 'navBrindesParent' || b.id === 'navExpositoresParent' || b.id === 'navPonto' || b.id === 'navGestor' || b.id === 'navPowerBI' || b.id === 'navAppExternosParent' || b.id === 'navConfiguracoesParent' || b.id === 'navRelatoriosParent' || b.id === 'themeToggleBtn' || b.id === 'osNotifToggleBtn' || b.id === 'navInfluencersParent' || b.id === 'navPagamentosParent') return;
     b.onclick = () => {
       // Acompanhamento Equipe (77ª rodada): botão sempre visível, mas o
       // clique só funciona pra quem pode ver esse relatório -- ver
@@ -2121,6 +2142,10 @@
         // 78ª rodada
         if (b.dataset.view === 'expositores-book-tecnico') loadExpositoresBookTecnico();
         if (b.dataset.view === 'expositores-orcamentos') loadExpositoresOrcamentos();
+        // 100ª rodada
+        if (b.dataset.view === 'assinaturas') loadAssinaturas();
+        if (b.dataset.view === 'pagamentos') loadPagamentos();
+        if (b.dataset.view === 'terceirizados') loadTerceirizados();
       }
     };
   });
@@ -7683,6 +7708,384 @@
     if (e.key === 'ArrowRight') feedLightboxStep(1);
   });
 
+  // ---------- Pagamentos (100ª rodada) ----------
+  // Todo mundo pode ver — só quem tem permissão "pagamentos" = editor/admin
+  // (ou é admin da plataforma) enxerga os botões de criar/editar/excluir/
+  // anexar arquivo, mesmo padrão de Brindes abaixo.
+  function canEditPagamentos() {
+    if (!currentUser) return false;
+    if (currentUser.isSuperAdmin) return true;
+    const access = (currentUser.permissions || {}).pagamentos || 'none';
+    return access === 'editor' || access === 'admin';
+  }
+
+  function fileChipsHtml(files, removable, onRemoveAttr) {
+    if (!files || files.length === 0) return '<span class="muted">Nenhum arquivo.</span>';
+    return files.map((f) => `<span class="file-chip"><a href="${f.url}" target="_blank" rel="noopener">📎 ${escapeHtml(f.name)}</a>${removable ? ` <button type="button" class="btn-link" data-${onRemoveAttr}="${f.id}">✕</button>` : ''}</span>`).join(' ');
+  }
+
+  // ---- Controle de Assinaturas ----
+  async function loadAssinaturas() {
+    const data = await api('/api/pagamentos/assinaturas');
+    assinaturasCache = data.items;
+    assinaturasCanEdit = data.canEdit;
+    $('#assinaturaNewBtn').hidden = !assinaturasCanEdit;
+    renderAssinaturas();
+  }
+  function renderAssinaturas() {
+    const body = $('#assinaturasBody');
+    body.innerHTML = '';
+    $('#assinaturasEmpty').hidden = assinaturasCache.length > 0;
+    assinaturasCache.forEach((a) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(a.nome)}${a.historicalImport ? ' <span class="muted" title="Importado da planilha">📄</span>' : ''}</td>
+        <td>${escapeHtml(a.precoRaw || '—')}</td>
+        <td>${escapeHtml(a.tipo || '—')}</td>
+        <td>${escapeHtml(a.fluxo || '—')}</td>
+        <td>${escapeHtml(a.pagamento || '—')}</td>
+        <td>${escapeHtml(a.status || '—')}</td>
+        <td>${escapeHtml(a.dataRenovacao || '—')}</td>
+        <td>${fileChipsHtml(a.arquivos, assinaturasCanEdit, 'del-assinatura-arquivo')}
+          ${assinaturasCanEdit ? `<br><input type="file" multiple data-upload-assinatura="${a.id}" style="max-width:160px;">` : ''}
+        </td>
+        <td>${assinaturasCanEdit ? `<button class="btn-link" data-edit-assinatura="${a.id}">Editar</button> <button class="btn-link danger" data-del-assinatura="${a.id}">Excluir</button>` : ''}</td>
+      `;
+      body.appendChild(tr);
+    });
+    $all('[data-edit-assinatura]').forEach((b) => { b.onclick = () => openAssinaturaForm(assinaturasCache.find((a) => a.id === b.dataset.editAssinatura)); });
+    $all('[data-del-assinatura]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir esta assinatura?')) return;
+        await api('/api/pagamentos/assinaturas/' + b.dataset.delAssinatura, { method: 'DELETE' });
+        await loadAssinaturas();
+      };
+    });
+    $all('[data-upload-assinatura]').forEach((input) => {
+      input.onchange = async () => {
+        if (!input.files.length) return;
+        const fd = new FormData();
+        Array.from(input.files).forEach((f) => fd.append('files', f));
+        try {
+          await api('/api/pagamentos/assinaturas/' + input.dataset.uploadAssinatura + '/arquivos', { method: 'POST', body: fd });
+          await loadAssinaturas();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-del-assinatura-arquivo]').forEach((b) => {
+      const assinaturaId = assinaturasCache.find((a) => (a.arquivos || []).some((f) => f.id === b.dataset.delAssinaturaArquivo)).id;
+      b.onclick = async () => {
+        await api(`/api/pagamentos/assinaturas/${assinaturaId}/arquivos/${b.dataset.delAssinaturaArquivo}`, { method: 'DELETE' });
+        await loadAssinaturas();
+      };
+    });
+  }
+  function openAssinaturaForm(a) {
+    $('#assinaturaFormId').value = a ? a.id : '';
+    $('#assinaturaFormTitle').textContent = a ? 'Editar assinatura' : 'Nova assinatura';
+    $('#assinaturaFormNome').value = a ? a.nome : '';
+    $('#assinaturaFormPreco').value = a ? (a.precoRaw || '') : '';
+    $('#assinaturaFormTipo').value = a ? (a.tipo || '') : '';
+    $('#assinaturaFormFluxo').value = a ? (a.fluxo || '') : '';
+    $('#assinaturaFormPagamento').value = a ? (a.pagamento || '') : '';
+    $('#assinaturaFormStatus').value = a ? (a.status || '') : '';
+    $('#assinaturaFormDataRenovacao').value = a ? (a.dataRenovacao || '') : '';
+    $('#assinaturaFormObservacoes').value = a ? (a.observacoes || '') : '';
+    $('#assinaturaFormError').hidden = true;
+    $('#assinaturaFormWrap').hidden = false;
+  }
+  $('#assinaturaNewBtn').onclick = () => openAssinaturaForm(null);
+  $('#assinaturaFormCancel').onclick = () => { $('#assinaturaFormWrap').hidden = true; };
+  $('#assinaturaFormSave').onclick = async () => {
+    const payload = {
+      nome: $('#assinaturaFormNome').value.trim(),
+      preco: $('#assinaturaFormPreco').value.trim(),
+      tipo: $('#assinaturaFormTipo').value.trim(),
+      fluxo: $('#assinaturaFormFluxo').value.trim(),
+      pagamento: $('#assinaturaFormPagamento').value.trim(),
+      status: $('#assinaturaFormStatus').value.trim(),
+      dataRenovacao: $('#assinaturaFormDataRenovacao').value.trim(),
+      observacoes: $('#assinaturaFormObservacoes').value.trim()
+    };
+    if (!payload.nome) { $('#assinaturaFormError').textContent = 'Informe o nome.'; $('#assinaturaFormError').hidden = false; return; }
+    try {
+      const id = $('#assinaturaFormId').value;
+      if (id) await api('/api/pagamentos/assinaturas/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+      else await api('/api/pagamentos/assinaturas', { method: 'POST', body: JSON.stringify(payload) });
+      $('#assinaturaFormWrap').hidden = true;
+      await loadAssinaturas();
+    } catch (e) { $('#assinaturaFormError').textContent = e.message; $('#assinaturaFormError').hidden = false; }
+  };
+
+  // ---- Controle de Pagamentos (Cartão/Mensal/Extras) ----
+  $all('.tab-btn[data-pagamentos-aba]').forEach((b) => {
+    b.onclick = () => {
+      pagamentosAbaAtiva = b.dataset.pagamentosAba;
+      $all('.tab-btn[data-pagamentos-aba]').forEach((x) => x.classList.toggle('active', x === b));
+      loadPagamentos();
+    };
+  });
+  async function loadPagamentos() {
+    const data = await api('/api/pagamentos/pagamentos?aba=' + pagamentosAbaAtiva);
+    pagamentosCache = data.items;
+    pagamentosCanEdit = data.canEdit;
+    $('#pagamentoNewBtn').hidden = !pagamentosCanEdit;
+    renderPagamentos();
+  }
+  function renderPagamentos() {
+    const body = $('#pagamentosBody');
+    body.innerHTML = '';
+    $('#pagamentosEmpty').hidden = pagamentosCache.length > 0;
+    pagamentosCache.forEach((p) => {
+      const tr = document.createElement('tr');
+      const budgetCell = p.historicalImport
+        ? '<span class="muted" title="Importado da planilha -- nunca lança automaticamente no Budget">Histórico</span>'
+        : (p.budgetSynced ? '✅ Lançado' : '—');
+      tr.innerHTML = `
+        <td>${escapeHtml(p.mes || '—')}${p.ano ? '/' + p.ano : ''}</td>
+        <td>${escapeHtml(p.fornecedor)}</td>
+        <td>${escapeHtml(p.valorRaw || '—')}</td>
+        <td>${escapeHtml(p.marcaRaw || '—')}</td>
+        <td>${escapeHtml(p.fluxoGerencial || '—')}</td>
+        <td>${escapeHtml(p.status || '—')}</td>
+        <td><input type="checkbox" data-toggle-pago="${p.id}" ${p.pago ? 'checked' : ''} ${pagamentosCanEdit ? '' : 'disabled'}></td>
+        <td>${budgetCell}</td>
+        <td>${fileChipsHtml(p.arquivos, pagamentosCanEdit, 'del-pagamento-arquivo')}
+          ${pagamentosCanEdit ? `<br><input type="file" multiple data-upload-pagamento="${p.id}" style="max-width:160px;">` : ''}
+        </td>
+        <td>${pagamentosCanEdit ? `<button class="btn-link" data-edit-pagamento="${p.id}">Editar</button> <button class="btn-link danger" data-del-pagamento="${p.id}">Excluir</button>` : ''}</td>
+      `;
+      body.appendChild(tr);
+    });
+    $all('[data-edit-pagamento]').forEach((b) => { b.onclick = () => openPagamentoForm(pagamentosCache.find((p) => p.id === b.dataset.editPagamento)); });
+    $all('[data-del-pagamento]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir este lançamento?')) return;
+        await api('/api/pagamentos/pagamentos/' + b.dataset.delPagamento, { method: 'DELETE' });
+        await loadPagamentos();
+      };
+    });
+    $all('[data-toggle-pago]').forEach((cb) => {
+      cb.onchange = async () => {
+        try {
+          await api('/api/pagamentos/pagamentos/' + cb.dataset.togglePago, { method: 'PUT', body: JSON.stringify({ pago: cb.checked }) });
+          await loadPagamentos();
+        } catch (e) { alert(e.message); cb.checked = !cb.checked; }
+      };
+    });
+    $all('[data-upload-pagamento]').forEach((input) => {
+      input.onchange = async () => {
+        if (!input.files.length) return;
+        const fd = new FormData();
+        Array.from(input.files).forEach((f) => fd.append('files', f));
+        try {
+          await api('/api/pagamentos/pagamentos/' + input.dataset.uploadPagamento + '/arquivos', { method: 'POST', body: fd });
+          await loadPagamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-del-pagamento-arquivo]').forEach((b) => {
+      const pagamentoId = pagamentosCache.find((p) => (p.arquivos || []).some((f) => f.id === b.dataset.delPagamentoArquivo)).id;
+      b.onclick = async () => {
+        await api(`/api/pagamentos/pagamentos/${pagamentoId}/arquivos/${b.dataset.delPagamentoArquivo}`, { method: 'DELETE' });
+        await loadPagamentos();
+      };
+    });
+  }
+  function openPagamentoForm(p) {
+    $('#pagamentoFormId').value = p ? p.id : '';
+    $('#pagamentoFormTitle').textContent = p ? 'Editar lançamento' : 'Novo lançamento';
+    $('#pagamentoFormMes').value = p ? (p.mes || '') : '';
+    $('#pagamentoFormAno').value = p ? (p.ano || '') : new Date().getFullYear();
+    $('#pagamentoFormFornecedor').value = p ? p.fornecedor : '';
+    $('#pagamentoFormCodigoFornecedor').value = p ? (p.codigoFornecedor || '') : '';
+    $('#pagamentoFormValor').value = p ? (p.valorRaw || '') : '';
+    $('#pagamentoFormStatus').value = p ? (p.status || '') : '';
+    $('#pagamentoFormMarca').value = p ? (p.marcaRaw || '') : '';
+    $('#pagamentoFormFluxoGerencial').value = p ? (p.fluxoGerencial || '') : '';
+    $('#pagamentoFormTipoPagamento').value = p ? (p.tipoPagamento || '') : '';
+    $('#pagamentoFormDataPagamento').value = p ? (p.dataPagamento || '') : '';
+    $('#pagamentoFormParcela').value = p ? (p.parcela || '') : '';
+    $('#pagamentoFormCartao').value = p ? (p.cartao || '') : '';
+    $('#pagamentoFormCentroCusto').value = p ? (p.centroCusto || '') : '';
+    $('#pagamentoFormContaContabil').value = p ? (p.contaContabil || '') : '';
+    $('#pagamentoFormEmailPara').value = p ? (p.emailPara || '') : '';
+    $('#pagamentoFormObservacoes').value = p ? (p.observacoes || '') : '';
+    $('#pagamentoFormDividirFluxo').checked = p ? !!p.dividirFluxo : false;
+    $('#pagamentoFormAprovada').checked = p ? !!p.aprovada : false;
+    $('#pagamentoFormPago').checked = p ? !!p.pago : false;
+    $('#pagamentoFormError').hidden = true;
+    $('#pagamentoFormWrap').hidden = false;
+  }
+  $('#pagamentoNewBtn').onclick = () => openPagamentoForm(null);
+  $('#pagamentoFormCancel').onclick = () => { $('#pagamentoFormWrap').hidden = true; };
+  $('#pagamentoFormSave').onclick = async () => {
+    const payload = {
+      aba: pagamentosAbaAtiva,
+      mes: $('#pagamentoFormMes').value,
+      ano: $('#pagamentoFormAno').value,
+      fornecedor: $('#pagamentoFormFornecedor').value.trim(),
+      codigoFornecedor: $('#pagamentoFormCodigoFornecedor').value.trim(),
+      valor: $('#pagamentoFormValor').value.trim(),
+      status: $('#pagamentoFormStatus').value.trim(),
+      marca: $('#pagamentoFormMarca').value.trim(),
+      fluxoGerencial: $('#pagamentoFormFluxoGerencial').value.trim(),
+      tipoPagamento: $('#pagamentoFormTipoPagamento').value.trim(),
+      dataPagamento: $('#pagamentoFormDataPagamento').value.trim(),
+      parcela: $('#pagamentoFormParcela').value.trim(),
+      cartao: $('#pagamentoFormCartao').value.trim(),
+      centroCusto: $('#pagamentoFormCentroCusto').value.trim(),
+      contaContabil: $('#pagamentoFormContaContabil').value.trim(),
+      emailPara: $('#pagamentoFormEmailPara').value.trim(),
+      observacoes: $('#pagamentoFormObservacoes').value.trim(),
+      dividirFluxo: $('#pagamentoFormDividirFluxo').checked,
+      aprovada: $('#pagamentoFormAprovada').checked,
+      pago: $('#pagamentoFormPago').checked
+    };
+    if (!payload.fornecedor) { $('#pagamentoFormError').textContent = 'Informe o fornecedor.'; $('#pagamentoFormError').hidden = false; return; }
+    try {
+      const id = $('#pagamentoFormId').value;
+      if (id) await api('/api/pagamentos/pagamentos/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+      else await api('/api/pagamentos/pagamentos', { method: 'POST', body: JSON.stringify(payload) });
+      $('#pagamentoFormWrap').hidden = true;
+      await loadPagamentos();
+    } catch (e) { $('#pagamentoFormError').textContent = e.message; $('#pagamentoFormError').hidden = false; }
+  };
+
+  // ---- Terceirizados ----
+  async function loadTerceirizados() {
+    const data = await api('/api/pagamentos/terceirizados');
+    terceirizadosCache = data.items;
+    terceirizadosCanEdit = data.canEdit;
+    $('#terceirizadoNewBtn').hidden = !terceirizadosCanEdit;
+    renderTerceirizados();
+    if (terceirizadoSelecionadoId) renderTerceirizadoDetail();
+  }
+  function renderTerceirizados() {
+    const body = $('#terceirizadosBody');
+    body.innerHTML = '';
+    $('#terceirizadosEmpty').hidden = terceirizadosCache.length > 0;
+    terceirizadosCache.forEach((t) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(t.nome)}</td>
+        <td>${escapeHtml(t.observacoes || '—')}</td>
+        <td>
+          <button class="btn-link" data-abrir-terceirizado="${t.id}">Documentos</button>
+          ${terceirizadosCanEdit ? ` <button class="btn-link" data-edit-terceirizado="${t.id}">Editar</button> <button class="btn-link danger" data-del-terceirizado="${t.id}">Excluir</button>` : ''}
+        </td>
+      `;
+      body.appendChild(tr);
+    });
+    $all('[data-edit-terceirizado]').forEach((b) => { b.onclick = () => openTerceirizadoForm(terceirizadosCache.find((t) => t.id === b.dataset.editTerceirizado)); });
+    $all('[data-del-terceirizado]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir este terceirizado?')) return;
+        await api('/api/pagamentos/terceirizados/' + b.dataset.delTerceirizado, { method: 'DELETE' });
+        if (terceirizadoSelecionadoId === b.dataset.delTerceirizado) { terceirizadoSelecionadoId = null; $('#terceirizadoDetailWrap').hidden = true; }
+        await loadTerceirizados();
+      };
+    });
+    $all('[data-abrir-terceirizado]').forEach((b) => {
+      b.onclick = () => {
+        terceirizadoSelecionadoId = b.dataset.abrirTerceirizado;
+        terceirizadoDocSecaoAtiva = 'contratos';
+        $all('.tab-btn[data-doc-secao]').forEach((x) => x.classList.toggle('active', x.dataset.docSecao === 'contratos'));
+        $('#terceirizadoDetailWrap').hidden = false;
+        renderTerceirizadoDetail();
+      };
+    });
+  }
+  function openTerceirizadoForm(t) {
+    $('#terceirizadoFormId').value = t ? t.id : '';
+    $('#terceirizadoFormTitle').textContent = t ? 'Editar terceirizado' : 'Novo terceirizado';
+    $('#terceirizadoFormNome').value = t ? t.nome : '';
+    $('#terceirizadoFormObservacoes').value = t ? (t.observacoes || '') : '';
+    $('#terceirizadoFormError').hidden = true;
+    $('#terceirizadoFormWrap').hidden = false;
+  }
+  $('#terceirizadoNewBtn').onclick = () => openTerceirizadoForm(null);
+  $('#terceirizadoFormCancel').onclick = () => { $('#terceirizadoFormWrap').hidden = true; };
+  $('#terceirizadoFormSave').onclick = async () => {
+    const payload = { nome: $('#terceirizadoFormNome').value.trim(), observacoes: $('#terceirizadoFormObservacoes').value.trim() };
+    if (!payload.nome) { $('#terceirizadoFormError').textContent = 'Informe o nome.'; $('#terceirizadoFormError').hidden = false; return; }
+    try {
+      const id = $('#terceirizadoFormId').value;
+      if (id) await api('/api/pagamentos/terceirizados/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+      else await api('/api/pagamentos/terceirizados', { method: 'POST', body: JSON.stringify(payload) });
+      $('#terceirizadoFormWrap').hidden = true;
+      await loadTerceirizados();
+    } catch (e) { $('#terceirizadoFormError').textContent = e.message; $('#terceirizadoFormError').hidden = false; }
+  };
+  $all('.tab-btn[data-doc-secao]').forEach((b) => {
+    b.onclick = () => {
+      terceirizadoDocSecaoAtiva = b.dataset.docSecao;
+      $all('.tab-btn[data-doc-secao]').forEach((x) => x.classList.toggle('active', x === b));
+      renderTerceirizadoDetail();
+    };
+  });
+  $('#terceirizadoDetailClose').onclick = () => { terceirizadoSelecionadoId = null; $('#terceirizadoDetailWrap').hidden = true; };
+  function renderTerceirizadoDetail() {
+    const t = terceirizadosCache.find((x) => x.id === terceirizadoSelecionadoId);
+    if (!t) { $('#terceirizadoDetailWrap').hidden = true; return; }
+    $('#terceirizadoDetailTitle').textContent = t.nome + ' — Documentos necessários';
+    const secao = terceirizadoDocSecaoAtiva;
+    const secaoData = t.documentos[secao] || { files: [] };
+    const SECAO_LABEL = { contratos: 'Contratos', checklist: 'Checklist', pagamentos: 'Pagamentos' };
+    let html = `<h4>${SECAO_LABEL[secao]}</h4>`;
+    if (secao === 'checklist') {
+      html += '<ul class="checklist-list" id="terceirizadoChecklistList">';
+      (secaoData.items || []).forEach((item) => {
+        html += `<li><label><input type="checkbox" data-check-item="${item.id}" ${item.done ? 'checked' : ''} ${terceirizadosCanEdit ? '' : 'disabled'}> <span style="${item.done ? 'text-decoration:line-through;' : ''}">${escapeHtml(item.text)}</span></label>${terceirizadosCanEdit ? ` <button class="btn-link danger" data-del-check-item="${item.id}">✕</button>` : ''}</li>`;
+      });
+      html += '</ul>';
+      if (terceirizadosCanEdit) {
+        html += `<div class="form-row"><input type="text" id="terceirizadoChecklistNovoTexto" placeholder="Novo item do checklist"><button class="btn-secondary" id="terceirizadoChecklistAddBtn" type="button">+ Adicionar</button></div>`;
+      }
+    }
+    html += `<p><strong>Arquivos:</strong> ${fileChipsHtml(secaoData.files, terceirizadosCanEdit, 'del-doc-arquivo')}</p>`;
+    if (terceirizadosCanEdit) html += `<input type="file" multiple id="terceirizadoDocUploadInput">`;
+    $('#terceirizadoDetailBody').innerHTML = html;
+
+    if (terceirizadosCanEdit && secao === 'checklist') {
+      $('#terceirizadoChecklistAddBtn').onclick = async () => {
+        const text = $('#terceirizadoChecklistNovoTexto').value.trim();
+        if (!text) return;
+        await api(`/api/pagamentos/terceirizados/${t.id}/checklist`, { method: 'POST', body: JSON.stringify({ text }) });
+        await loadTerceirizados();
+      };
+      $all('[data-check-item]').forEach((cb) => {
+        cb.onchange = async () => {
+          await api(`/api/pagamentos/terceirizados/${t.id}/checklist/${cb.dataset.checkItem}`, { method: 'PUT', body: JSON.stringify({ done: cb.checked }) });
+          await loadTerceirizados();
+        };
+      });
+      $all('[data-del-check-item]').forEach((b) => {
+        b.onclick = async () => {
+          await api(`/api/pagamentos/terceirizados/${t.id}/checklist/${b.dataset.delCheckItem}`, { method: 'DELETE' });
+          await loadTerceirizados();
+        };
+      });
+    }
+    if (terceirizadosCanEdit) {
+      $('#terceirizadoDocUploadInput').onchange = async (e) => {
+        if (!e.target.files.length) return;
+        const fd = new FormData();
+        Array.from(e.target.files).forEach((f) => fd.append('files', f));
+        try {
+          await api(`/api/pagamentos/terceirizados/${t.id}/documentos/${secao}/arquivos`, { method: 'POST', body: fd });
+          await loadTerceirizados();
+        } catch (err) { alert(err.message); }
+      };
+      $all('[data-del-doc-arquivo]').forEach((b) => {
+        b.onclick = async () => {
+          await api(`/api/pagamentos/terceirizados/${t.id}/documentos/${secao}/arquivos/${b.dataset.delDocArquivo}`, { method: 'DELETE' });
+          await loadTerceirizados();
+        };
+      });
+    }
+  }
+
   // ---------- Brindes ----------
   // Todo mundo pode ver o catálogo/registro de saídas — só quem tem
   // permissão "brindes" = editor/admin (ou é admin da plataforma) enxerga
@@ -10967,7 +11370,8 @@
   function labelForKey(key) {
     return {
       trafegoPago: 'Tráfego Pago', acoesSazonais: 'Ações Sazonais', redesSociais: 'Redes Sociais', budget: 'Orçamento',
-      brindes: 'Brindes (editar)', retiradasInternas: 'Retiradas Internas (editar)', produtos: 'Produtos (editar)', expositores: 'Expositores (editar)', campanhaCooperada: 'Campanha Cooperada (editar)'
+      brindes: 'Brindes (editar)', retiradasInternas: 'Retiradas Internas (editar)', produtos: 'Produtos (editar)', expositores: 'Expositores (editar)', campanhaCooperada: 'Campanha Cooperada (editar)',
+      pagamentos: 'Pagamentos (editar)', fornecedores: 'Fornecedores (editar)'
     }[key] || key;
   }
 

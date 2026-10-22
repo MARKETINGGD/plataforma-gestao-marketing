@@ -26,6 +26,9 @@ app.use('/api/social-posts', require('./routes/socialPosts'));
 // rodada) — ver routes/socialAccounts.js.
 app.use('/api/social-accounts', require('./routes/socialAccounts'));
 app.use('/api/brindes', require('./routes/brindes'));
+// Pagamentos (100ª rodada) -- Controle de Assinaturas, Controle de
+// Pagamentos (Cartão/Mensal/Extras) e Terceirizados. Ver routes/pagamentos.js.
+app.use('/api/pagamentos', require('./routes/pagamentos'));
 app.use('/api/retiradas-internas', require('./routes/retiradasInternas'));
 app.use('/api/influencers', require('./routes/influencers'));
 // Análise de Influencer (89ª rodada) — ver routes/influencerAnalises.js.
@@ -80,6 +83,12 @@ require('./utils/migrateDemandaBrand').migrateDemandaBrand();
 // pedido explícito da Raquel pra garantir que nenhum card-irmão ficou
 // desatualizado em relação aos outros.
 require('./utils/migrateReconcileSiblingDemandas99').migrateReconcileSiblingDemandas99();
+// 100ª rodada: importação única (idempotente) das planilhas "CONTROLE DE
+// PAGAMENTOS" e "CONTROLE DE ASSINATURAS MKT" que a Raquel colou direto no
+// chat -- ver utils/seedPagamentosImport2026.js. Nasce tudo com
+// `historicalImport: true`, pra nunca lançar automaticamente no Budget
+// (regra explícita dela).
+require('./utils/seedPagamentosImport2026').seedPagamentosImport2026();
 // 42ª rodada: dá `concorrentes[]` retroativo pra análise de concorrência
 // criada antes da tela suportar várias marcas por análise (ver
 // utils/migrateConcorrenciaMultiMarca.js), e importa (uma vez só) a

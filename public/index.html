@@ -309,6 +309,18 @@
             <button class="navlink navlink-sub" id="navFeiras" data-view="feiras">Feiras</button>
           </div>
         </div>
+        <!-- 100ª rodada, pedido da Raquel: "No menu, adicione Pagamentos e
+             dentro dele o sub menu: Controle de assinaturas, Controle de
+             Pagamentos..., Terceirizados" -- mesmo padrão de submenu já
+             usado em Budget/Brindes/Produtos/Expositores. -->
+        <div class="navlink-group" id="navPagamentosGroup">
+          <button class="navlink navlink-parent" id="navPagamentosParent" type="button">Pagamentos</button>
+          <div class="navlink-submenu" id="navPagamentosSubmenu" hidden>
+            <button class="navlink navlink-sub" id="navAssinaturas" data-view="assinaturas">Controle de Assinaturas</button>
+            <button class="navlink navlink-sub" id="navPagamentosControle" data-view="pagamentos">Controle de Pagamentos</button>
+            <button class="navlink navlink-sub" id="navTerceirizados" data-view="terceirizados">Terceirizados</button>
+          </div>
+        </div>
         <!-- APP Externos -- 76ª rodada: agrupa os 3 sistemas externos que já
              existiam soltos (Ponto desde a 47ª, Gestor desde a 49ª, Power BI
              desde a 52ª) num submenu só, a pedido da Raquel. Continuam só
@@ -1653,6 +1665,159 @@
         <p class="muted" id="feirasEmpty" hidden>Nenhuma feira cadastrada ainda.</p>
       </section>
 
+      <!-- 100ª rodada, pedido da Raquel: novo menu Pagamentos — Controle de
+           Assinaturas, Controle de Pagamentos (abas Cartão/Mensal/Extras) e
+           Terceirizados (ver routes/pagamentos.js). As planilhas que ela
+           colou direto no chat foram importadas 1x só (histórico), e NUNCA
+           lançam automaticamente no Budget — só lançamento criado pela tela
+           a partir de hoje (22/10/2026) entra nessa sincronização. -->
+      <section id="view-assinaturas" class="view" hidden>
+        <h2>Pagamentos — Controle de Assinaturas</h2>
+        <p class="muted">Assinaturas e ferramentas recorrentes da equipe de Marketing. As linhas já existentes na planilha foram importadas como histórico.</p>
+        <div class="toolbar">
+          <button class="btn-primary" id="assinaturaNewBtn">+ Nova assinatura</button>
+        </div>
+        <div id="assinaturaFormWrap" class="form-card form-card-wide" hidden>
+          <h3 id="assinaturaFormTitle">Nova assinatura</h3>
+          <input type="hidden" id="assinaturaFormId">
+          <div class="form-row">
+            <div><label>Nome</label><input id="assinaturaFormNome" type="text"></div>
+            <div><label>Preço <span class="muted" style="font-weight:400;">(ex.: R$ 150,00, US$ 20,00)</span></label><input id="assinaturaFormPreco" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Tipo</label><input id="assinaturaFormTipo" type="text" placeholder="Mensal / Anual / Créditos"></div>
+            <div><label>Fluxo</label><input id="assinaturaFormFluxo" type="text" placeholder="Ex.: 2.5.3.3, 2.5.2.3"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Forma de pagamento</label><input id="assinaturaFormPagamento" type="text" placeholder="Ex.: Cartão Raquel"></div>
+            <div><label>Status</label><input id="assinaturaFormStatus" type="text" placeholder="Renovar / Cancelado"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Data de renovação</label><input id="assinaturaFormDataRenovacao" type="text" placeholder="Ex.: 16.12.2026"></div>
+            <div><label>Observações</label><input id="assinaturaFormObservacoes" type="text"></div>
+          </div>
+          <div id="assinaturaFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="assinaturaFormSave" class="btn-primary">Salvar</button>
+            <button id="assinaturaFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Nome</th><th>Preço</th><th>Tipo</th><th>Fluxo</th><th>Pagamento</th><th>Status</th><th>Renovação</th><th>Arquivos</th><th></th></tr></thead>
+          <tbody id="assinaturasBody"></tbody>
+        </table>
+        <p class="muted" id="assinaturasEmpty" hidden>Nenhuma assinatura cadastrada ainda.</p>
+      </section>
+
+      <section id="view-pagamentos" class="view" hidden>
+        <h2>Pagamentos — Controle de Pagamentos</h2>
+        <p class="muted">Lançamentos por cartão, mensais e extras. Marcar um lançamento novo (criado por aqui) como "Pago" lança automaticamente no Budget, por mês/marca/fluxo — lançamentos importados da planilha (histórico) nunca entram nessa sincronização.</p>
+        <div class="tabs">
+          <button class="tab-btn active" data-pagamentos-aba="cartao">Cartão</button>
+          <button class="tab-btn" data-pagamentos-aba="mensal">Mensal</button>
+          <button class="tab-btn" data-pagamentos-aba="extras">Extras</button>
+        </div>
+        <div class="toolbar">
+          <button class="btn-primary" id="pagamentoNewBtn">+ Novo lançamento</button>
+        </div>
+        <div id="pagamentoFormWrap" class="form-card form-card-wide" hidden>
+          <h3 id="pagamentoFormTitle">Novo lançamento</h3>
+          <input type="hidden" id="pagamentoFormId">
+          <div class="form-row">
+            <div><label>Mês</label>
+              <select id="pagamentoFormMes">
+                <option value="Janeiro">Janeiro</option><option value="Fevereiro">Fevereiro</option>
+                <option value="Março">Março</option><option value="Abril">Abril</option>
+                <option value="Maio">Maio</option><option value="Junho">Junho</option>
+                <option value="Julho">Julho</option><option value="Agosto">Agosto</option>
+                <option value="Setembro">Setembro</option><option value="Outubro">Outubro</option>
+                <option value="Novembro">Novembro</option><option value="Dezembro">Dezembro</option>
+              </select>
+            </div>
+            <div><label>Ano</label><input id="pagamentoFormAno" type="number" step="1"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Fornecedor</label><input id="pagamentoFormFornecedor" type="text"></div>
+            <div><label>Código Forn.</label><input id="pagamentoFormCodigoFornecedor" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Valor</label><input id="pagamentoFormValor" type="text" placeholder="Ex.: R$ 1.000,00"></div>
+            <div><label>Status</label><input id="pagamentoFormStatus" type="text" placeholder="Mensal / Anual / Parc. única"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Marca <span class="muted" style="font-weight:400;">(separe por vírgula)</span></label><input id="pagamentoFormMarca" type="text" placeholder="De Bacco, GhelPlus"></div>
+            <div><label>Fluxo Gerencial</label><input id="pagamentoFormFluxoGerencial" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Tipo de Pag.</label><input id="pagamentoFormTipoPagamento" type="text" placeholder="PIX / BOLETO / Cartão"></div>
+            <div><label>Data de Pag.</label><input id="pagamentoFormDataPagamento" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Parcela</label><input id="pagamentoFormParcela" type="text"></div>
+            <div><label>Cartão <span class="muted" style="font-weight:400;">(aba Cartão)</span></label><input id="pagamentoFormCartao" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Centro de custo</label><input id="pagamentoFormCentroCusto" type="text"></div>
+            <div><label>Conta Contábil</label><input id="pagamentoFormContaContabil" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>E-mail para</label><input id="pagamentoFormEmailPara" type="text"></div>
+            <div><label>Observações</label><input id="pagamentoFormObservacoes" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label><input type="checkbox" id="pagamentoFormDividirFluxo"> Dividir fluxo entre as marcas</label></div>
+            <div><label><input type="checkbox" id="pagamentoFormAprovada"> Aprovada</label></div>
+            <div><label><input type="checkbox" id="pagamentoFormPago"> Pago</label></div>
+          </div>
+          <div id="pagamentoFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="pagamentoFormSave" class="btn-primary">Salvar</button>
+            <button id="pagamentoFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Mês/Ano</th><th>Fornecedor</th><th>Valor</th><th>Marca</th><th>Fluxo Gerencial</th><th>Status</th><th>Pago</th><th>Budget</th><th>Arquivos</th><th></th></tr></thead>
+          <tbody id="pagamentosBody"></tbody>
+        </table>
+        <p class="muted" id="pagamentosEmpty" hidden>Nenhum lançamento cadastrado ainda nessa aba.</p>
+      </section>
+
+      <section id="view-terceirizados" class="view" hidden>
+        <h2>Pagamentos — Terceirizados</h2>
+        <p class="muted">Documentos necessários por terceirizado: contratos, checklist e pagamentos — todos com opção de anexar arquivo.</p>
+        <div class="toolbar">
+          <button class="btn-primary" id="terceirizadoNewBtn">+ Novo terceirizado</button>
+        </div>
+        <div id="terceirizadoFormWrap" class="form-card" hidden>
+          <h3 id="terceirizadoFormTitle">Novo terceirizado</h3>
+          <input type="hidden" id="terceirizadoFormId">
+          <div class="form-row">
+            <div><label>Nome</label><input id="terceirizadoFormNome" type="text"></div>
+            <div><label>Observações</label><input id="terceirizadoFormObservacoes" type="text"></div>
+          </div>
+          <div id="terceirizadoFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="terceirizadoFormSave" class="btn-primary">Salvar</button>
+            <button id="terceirizadoFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Nome</th><th>Observações</th><th></th></tr></thead>
+          <tbody id="terceirizadosBody"></tbody>
+        </table>
+        <p class="muted" id="terceirizadosEmpty" hidden>Nenhum terceirizado cadastrado ainda.</p>
+        <div id="terceirizadoDetailWrap" class="form-card form-card-wide" hidden>
+          <h3 id="terceirizadoDetailTitle"></h3>
+          <div class="tabs">
+            <button class="tab-btn active" data-doc-secao="contratos">Contratos</button>
+            <button class="tab-btn" data-doc-secao="checklist">Checklist</button>
+            <button class="tab-btn" data-doc-secao="pagamentos">Pagamentos</button>
+          </div>
+          <div id="terceirizadoDetailBody"></div>
+          <div class="form-actions"><button class="btn-secondary" id="terceirizadoDetailClose">Fechar</button></div>
+        </div>
+      </section>
+
       <section id="view-brindes" class="view" hidden>
         <h2>Brindes</h2>
         <div class="tabs">
@@ -2766,6 +2931,11 @@
             <div class="perm-row"><span>Produtos</span><select data-perm="produtos"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Expositores</span><select data-perm="expositores"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Campanha Cooperada</span><select data-perm="campanhaCooperada"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+            <!-- 100ª rodada: Pagamentos (Assinaturas/Controle de Pagamentos/
+                 Terceirizados). Compras/Orçamentos de Brindes reaproveitam a
+                 permissão "Brindes" de cima (são submenus dele), por isso
+                 não ganham uma linha própria aqui. -->
+            <div class="perm-row"><span>Pagamentos</span><select data-perm="pagamentos"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
           </div>
 
           <div id="userFormError" class="error" hidden></div>

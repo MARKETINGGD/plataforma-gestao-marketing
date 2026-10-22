@@ -47,8 +47,15 @@ const uploadAvatar = multer({
 // quem pode EDITAR em cada uma. Produtos e Expositores ainda são só
 // placeholders na tela, mas o campo já fica pronto no cadastro de usuário
 // pra quando ganharem conteúdo de verdade.
-const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', retiradasInternas: 'none', produtos: 'none', expositores: 'none', campanhaCooperada: 'none' };
-const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', retiradasInternas: 'admin', produtos: 'admin', expositores: 'admin', campanhaCooperada: 'admin' };
+// 100ª rodada, pedido da Raquel: novas chaves 'pagamentos' (controla quem
+// edita o novo menu Pagamentos: Assinaturas/Controle de Pagamentos/
+// Terceirizados) e 'fornecedores' (controla quem edita o novo menu
+// Fornecedores) -- mesmo padrão de Brindes/Produtos/Expositores (view
+// aberta a todo mundo, só controla quem pode EDITAR). Brindes → Compras/
+// Orçamentos (também desta rodada) reaproveita a chave 'brindes' que já
+// existe, por serem submenus de Brindes.
+const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', retiradasInternas: 'none', produtos: 'none', expositores: 'none', campanhaCooperada: 'none', pagamentos: 'none', fornecedores: 'none' };
+const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', retiradasInternas: 'admin', produtos: 'admin', expositores: 'admin', campanhaCooperada: 'admin', pagamentos: 'admin', fornecedores: 'admin' };
 // 43ª rodada, pedido da Raquel: nova chave 'campanhaCooperada' — mesmo
 // padrão de Brindes/Produtos/Expositores (view aberta a todo mundo, só
 // controla quem pode EDITAR).
@@ -57,7 +64,7 @@ const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSo
 // aqui, Retiradas Internas usava a mesma chave 'brindes' do Catálogo/
 // Registro de Saídas (quem editava um, editava o outro). Agora vira uma
 // chave independente, pra dar pra autorizar uma edição sem a outra.
-const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'retiradasInternas', 'produtos', 'expositores', 'campanhaCooperada'];
+const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'retiradasInternas', 'produtos', 'expositores', 'campanhaCooperada', 'pagamentos', 'fornecedores'];
 
 // Cargo (função) da pessoa na equipe — usado pro Cronograma de Marketing:
 // a aba Calendário fica restrita a todo mundo, exceto quem tem cargo

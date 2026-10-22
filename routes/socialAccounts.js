@@ -270,12 +270,27 @@ function cleanupExpiredTiktokSelections() {
 // 76ª rodada, pedido explícito da Raquel: "Configurações... visivel para
 // todos, mas somente o admin pode editar" -- ver o STATUS de cada conexão
 // passou a ser permitido pra QUALQUER pessoa logada (tirado o
-// `requireSuperAdmin` daqui) -- nunca teve nada sensível pra esconder
-// mesmo (serialize() já nunca devolve token nenhum). Todas as rotas
-// abaixo que de fato CRIAM/MUDAM uma conexão (connect/pending/confirm/
-// disconnect, nas 4 redes) continuam com `requireSuperAdmin` -- essa sim é
-// a edição de verdade que a Raquel pediu pra manter restrita.
+// `requireSuperAdmin` daqui).
+//
+// 103ª rodada, pedido da Raquel: decisão REVERTIDA -- "o único módulo que
+// só o admin vê (a não ser que ele dê autorização) é: configurações,
+// budget". Integrações volta a ser privada por padrão -- `canViewConfiguracoes`
+// duplicada aqui (não importada, mesmo motivo de sempre nesta base: evitar
+// um require cruzado entre rotas que não têm mais nada a ver uma com a
+// outra) a partir da mesma regra de routes/auth.js. Todas as rotas abaixo
+// que de fato CRIAM/MUDAM uma conexão (connect/pending/confirm/disconnect,
+// nas 4 redes) continuam com `requireSuperAdmin`, sem nenhuma mudança --
+// 'visualizar' nunca desbloqueia essas.
+function canViewConfiguracoes(req) {
+  if (req.user.role === 'super_admin') return true;
+  const user = db.get('users').find({ id: req.user.id }).value();
+  const access = (user && user.permissions && user.permissions.configuracoes) || 'none';
+  return access === 'visualizar' || access === 'editor' || access === 'admin';
+}
 router.get('/', requireAuth, (req, res) => {
+  if (!canViewConfiguracoes(req)) {
+    return res.status(403).json({ error: 'Essa área é restrita -- peça pro admin liberar o acesso em Configurações.' });
+  }
   const metaAccounts = META_BRANDS.map((brand) => {
     const account = db.get('socialAccounts').find({ brand, platform: 'meta' }).value();
     return {

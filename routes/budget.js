@@ -87,6 +87,16 @@ function accessOf(req) {
 // Usado por routes/feiras.js (41ª rodada) — só permite acesso a quem já tem
 // permissão de "budget", já que uma feira é sempre lançada dentro de um
 // fluxo do orçamento. Fica aqui pra não duplicar a checagem de permissão.
+//
+// 103ª rodada, pedido da Raquel: novo valor 'visualizar' (ver
+// sanitizePermissions em routes/auth.js) -- já cai certinho nas 2 funções
+// abaixo sem precisar mudar nada aqui: `hasBudgetView` só exige diferente
+// de 'none' (então 'visualizar' já contava como acesso de leitura) e
+// `hasBudgetEdit` só libera 'editor'/'admin' (então 'visualizar' continua
+// sem poder criar/editar/excluir lançamento). O Orçamento já nascia
+// privado por padrão desde sempre (`requireBudgetView` abaixo já bloqueava
+// quem tinha 'none') -- a novidade é só o admin agora poder liberar
+// 'visualizar' pra alguém ver sem dar junto a permissão de editar.
 function hasBudgetEdit(req) {
   const access = accessOf(req);
   return access === 'editor' || access === 'admin';

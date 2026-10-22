@@ -54,8 +54,23 @@ const uploadAvatar = multer({
 // aberta a todo mundo, só controla quem pode EDITAR). Brindes → Compras/
 // Orçamentos (também desta rodada) reaproveita a chave 'brindes' que já
 // existe, por serem submenus de Brindes.
-const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', retiradasInternas: 'none', produtos: 'none', expositores: 'none', campanhaCooperada: 'none', pagamentos: 'none', fornecedores: 'none' };
-const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', retiradasInternas: 'admin', produtos: 'admin', expositores: 'admin', campanhaCooperada: 'admin', pagamentos: 'admin', fornecedores: 'admin' };
+//
+// 103ª rodada, pedido da Raquel: nova chave 'configuracoes' -- reverte a
+// decisão da 76ª rodada ("Configurações visível pra todos, só o admin
+// edita"). Agora Configurações (as telas Usuários e Integrações
+// especificamente -- Tema escuro/Ativar notificações continuam liberados
+// pra qualquer um, são preferência pessoal, não dado de ninguém) fica
+// PRIVADA por padrão: só o admin da plataforma vê, a não ser que ele
+// libere 'visualizar' pra alguém (ver canViewConfiguracoes() em
+// routes/auth.js e routes/socialAccounts.js). Igual ao Orçamento
+// (budget), mas sem a opção 'editor' nesta chave -- CRIAR/EDITAR/EXCLUIR
+// usuário e conectar/desconectar uma rede social continuam só do super
+// admin de verdade (nunca de quem só tem uma permissão liberada), porque
+// delegar isso por permissão abriria brecha pra alguém se promover a
+// admin ou desconectar uma integração sozinho -- 'visualizar' é o único
+// nível que faz sentido delegar aqui.
+const EMPTY_PERMISSIONS = { trafegoPago: 'none', acoesSazonais: 'none', redesSociais: 'none', budget: 'none', brindes: 'none', retiradasInternas: 'none', produtos: 'none', expositores: 'none', campanhaCooperada: 'none', pagamentos: 'none', fornecedores: 'none', configuracoes: 'none' };
+const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSociais: 'admin', budget: 'admin', brindes: 'admin', retiradasInternas: 'admin', produtos: 'admin', expositores: 'admin', campanhaCooperada: 'admin', pagamentos: 'admin', fornecedores: 'admin', configuracoes: 'admin' };
 // 43ª rodada, pedido da Raquel: nova chave 'campanhaCooperada' — mesmo
 // padrão de Brindes/Produtos/Expositores (view aberta a todo mundo, só
 // controla quem pode EDITAR).
@@ -64,7 +79,7 @@ const FULL_PERMISSIONS = { trafegoPago: 'admin', acoesSazonais: 'admin', redesSo
 // aqui, Retiradas Internas usava a mesma chave 'brindes' do Catálogo/
 // Registro de Saídas (quem editava um, editava o outro). Agora vira uma
 // chave independente, pra dar pra autorizar uma edição sem a outra.
-const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'retiradasInternas', 'produtos', 'expositores', 'campanhaCooperada', 'pagamentos', 'fornecedores'];
+const PERMISSION_KEYS = ['trafegoPago', 'acoesSazonais', 'redesSociais', 'budget', 'brindes', 'retiradasInternas', 'produtos', 'expositores', 'campanhaCooperada', 'pagamentos', 'fornecedores', 'configuracoes'];
 
 // Cargo (função) da pessoa na equipe — usado pro Cronograma de Marketing:
 // a aba Calendário fica restrita a todo mundo, exceto quem tem cargo
@@ -147,13 +162,34 @@ function publicUser(u) {
   };
 }
 
+// 103ª rodada: novo valor 'visualizar' -- um nível só de leitura, entre
+// 'none' (sem acesso nenhum) e 'editor' (lê e edita). Hoje só faz
+// diferença de verdade pras chaves 'budget' (que já bloqueava visualização
+// pra quem tinha 'none') e 'configuracoes' (nova, mesma regra) -- nas
+// demais chaves, visualização sempre foi liberada pra todo mundo
+// (inclusive 'none'), então 'visualizar' aí equivaleria a 'none' na
+// prática; a tela de Usuários só oferece a opção nesses 2 lugares.
 function sanitizePermissions(input) {
-  const allowed = ['none', 'editor', 'admin'];
+  const allowed = ['none', 'visualizar', 'editor', 'admin'];
   const out = { ...EMPTY_PERMISSIONS };
   PERMISSION_KEYS.forEach((key) => {
     if (input && allowed.includes(input[key])) out[key] = input[key];
   });
   return out;
+}
+
+// 103ª rodada, pedido da Raquel: "esses modulos novos, tbm devem ser
+// privados e o admin decide se vai liberar p alguém editar ou somente
+// visualizar" -- esclarecido depois pra duas telas específicas:
+// Configurações (Usuários/Integrações) e Orçamento (budget, ver
+// routes/budget.js). Aqui é a checagem de Configurações -- reaproveitada
+// (duplicada, não importada, mesmo motivo de sempre nesta base) em
+// routes/socialAccounts.js pra gatear Integrações com a mesma regra.
+function canViewConfiguracoes(req) {
+  if (req.user.role === 'super_admin') return true;
+  const user = db.get('users').find({ id: req.user.id }).value();
+  const access = (user && user.permissions && user.permissions.configuracoes) || 'none';
+  return access === 'visualizar' || access === 'editor' || access === 'admin';
 }
 
 // 88ª rodada: migração única (idempotente) pra separar a permissão de
@@ -357,11 +393,20 @@ function adminUserView(u) {
 // cadastrados passou a ser permitido pra QUALQUER pessoa logada, não só
 // super admin (criar/editar/excluir continuam abaixo, com
 // `requireSuperAdmin`, essa sim é a edição de verdade que a Raquel pediu
-// pra manter restrita). Quem não é super admin recebe a versão pública
-// (`publicUser`, sem `pontoSchedule`) de cada usuário -- o horário de ponto
-// de cada pessoa continua um dado só do admin ver, mesmo agora que a lista
-// em si é visível pra todos.
+// pra manter restrita).
+//
+// 103ª rodada, pedido da Raquel: decisão REVERTIDA -- "o único módulo que
+// só o admin vê (a não ser que ele dê autorização) é: configurações,
+// budget". Esta lista volta a ser privada por padrão (`canViewConfiguracoes`
+// acima); quem não é super admin nem tem 'configuracoes: visualizar'
+// recebe 403. Quem tem acesso (super admin ou 'visualizar') continua
+// recebendo a versão pública (`publicUser`, sem `pontoSchedule`) de cada
+// usuário -- o horário de ponto de cada pessoa continua um dado só do
+// admin de verdade ver.
 router.get('/users', requireAuth, (req, res) => {
+  if (!canViewConfiguracoes(req)) {
+    return res.status(403).json({ error: 'Essa área é restrita -- peça pro admin liberar o acesso em Configurações.' });
+  }
   // BUG CRÍTICO corrigido na 95ª rodada (15/10/2026, reportado pela Raquel:
   // "a cada atualização do papoi, os horários do ponto da equipe somem"):
   // `req.user` vem do token JWT ({id, username, role} -- ver signToken() e

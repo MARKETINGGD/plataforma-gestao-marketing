@@ -98,9 +98,14 @@ async function main() {
     check('GET /users (super admin): os 4 horários batem com o que foi salvo', JSON.stringify(userNaListaAdmin1.pontoSchedule) === JSON.stringify(horarioOriginal));
 
     // ---------- 2. privacidade: quem NÃO é super admin continua sem ver pontoSchedule ----------
+    // 103ª rodada: Configurações (GET /users) ficou privada por padrão -- pra
+    // este teste continuar validando a redação de pontoSchedule (não a
+    // privacidade de acesso à lista em si, que é coberta por
+    // privacidadeConfigOrcamento103.test.js), a usuária "comum" agora precisa
+    // ganhar "configuracoes: visualizar" antes de chamar GET /users.
     const comum = await fetch(`${BASE}/api/auth/users`, {
       method: 'POST', headers: hj(adminToken),
-      body: JSON.stringify({ username: 'naoadminpontoSchedule95', password: '123456', name: 'Não Admin PS95', cargo: 'analista' })
+      body: JSON.stringify({ username: 'naoadminpontoSchedule95', password: '123456', name: 'Não Admin PS95', cargo: 'analista', permissions: { configuracoes: 'visualizar' } })
     }).then((r) => r.json());
     const comumToken = await login('naoadminpontoSchedule95', '123456');
     const listaComum = await fetch(`${BASE}/api/auth/users`, { headers: hj(comumToken) }).then((r) => r.json());

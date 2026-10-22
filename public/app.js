@@ -11118,16 +11118,36 @@
   // só pro super admin, nunca pra quem só está visualizando). O botão
   // "+ Novo usuário" e as ações "Editar"/"Excluir" de cada linha continuam
   // só pro super admin -- é aí que a edição de verdade fica restrita. ----------
+  // 103ª rodada, pedido da Raquel: decisão revertida da 76ª -- Configurações
+  // (esta tela + Integrações) volta a ser privada por padrão. Mesma checagem
+  // do backend (GET /api/auth/users em routes/auth.js), feita aqui ANTES de
+  // chamar a API pra nem tentar buscar nada sem acesso (mesmo padrão já
+  // usado em loadBudget() pra `budgetAccess === 'none'`).
+  function canViewConfiguracoes() {
+    return !!(currentUser.isSuperAdmin || (currentUser.permissions || {}).configuracoes === 'visualizar');
+  }
+
   async function loadUsers() {
+    if (!canViewConfiguracoes()) {
+      $('#usersAccessDenied').hidden = false;
+      $('#usersTable').hidden = true;
+      $('#userNewBtn').hidden = true;
+      $('#backupSection').hidden = true;
+      $('#usersTableBody').innerHTML = '';
+      return;
+    }
+    $('#usersAccessDenied').hidden = true;
+    $('#usersTable').hidden = false;
     $('#userNewBtn').hidden = !currentUser.isSuperAdmin;
     $('#backupSection').hidden = !currentUser.isSuperAdmin;
     const data = await api('/api/auth/users');
     const body = $('#usersTableBody');
     body.innerHTML = '';
     data.users.forEach((u) => {
+      const accessLabel = (v) => (v === 'admin' ? 'admin' : v === 'editor' ? 'editor' : 'visualizar');
       const accessList = u.isSuperAdmin
         ? 'Tudo (admin da plataforma)'
-        : Object.entries(u.permissions).filter(([, v]) => v !== 'none').map(([k, v]) => `${labelForKey(k)} (${v === 'admin' ? 'admin' : 'editor'})`).join(', ') || 'Nenhum';
+        : Object.entries(u.permissions).filter(([, v]) => v !== 'none').map(([k, v]) => `${labelForKey(k)} (${accessLabel(v)})`).join(', ') || 'Nenhum';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${avatarHtml(u, 30)}</td>
@@ -11173,6 +11193,13 @@
   // admin -- escondidos no fim da função, sem duplicar a lógica de cada
   // cartão.
   async function loadIntegracoes() {
+    if (!canViewConfiguracoes()) {
+      $('#integracoesAccessDenied').hidden = false;
+      $('#integracoesContent').hidden = true;
+      return;
+    }
+    $('#integracoesAccessDenied').hidden = true;
+    $('#integracoesContent').hidden = false;
     const data = await api('/api/social-accounts');
     $('#integracoesMetaWarning').hidden = !!data.metaConfigured;
     const list = $('#integracoesList');
@@ -11759,7 +11786,7 @@
 
   function labelForKey(key) {
     return {
-      trafegoPago: 'Tráfego Pago', acoesSazonais: 'Ações Sazonais', redesSociais: 'Redes Sociais', budget: 'Orçamento',
+      configuracoes: 'Configurações (visualizar)', trafegoPago: 'Tráfego Pago', acoesSazonais: 'Ações Sazonais', redesSociais: 'Redes Sociais', budget: 'Orçamento',
       brindes: 'Brindes (editar)', retiradasInternas: 'Retiradas Internas (editar)', produtos: 'Produtos (editar)', expositores: 'Expositores (editar)', campanhaCooperada: 'Campanha Cooperada (editar)',
       pagamentos: 'Pagamentos (editar)', fornecedores: 'Fornecedores (editar)'
     }[key] || key;

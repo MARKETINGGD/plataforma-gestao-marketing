@@ -3006,7 +3006,8 @@
 
       <section id="view-users" class="view" hidden>
         <h2>Usuários da plataforma</h2>
-        <p class="muted">Todo mundo logado pode ver os dashboards e as demais áreas da Plataforma — as permissões abaixo controlam apenas quem pode EDITAR em cada dashboard e o acesso à aba de Orçamento (a única que também é restrita pra visualizar).</p>
+        <p class="muted">Todo mundo logado pode ver os dashboards e as demais áreas da Plataforma — as permissões abaixo controlam quem pode EDITAR em cada uma. Orçamento e esta própria tela de Configurações (Usuários/Integrações) são as únicas restritas também pra VISUALIZAR — só o admin vê, a não ser que libere "Visualizar" pra alguém.</p>
+        <p class="muted" id="usersAccessDenied" hidden>Você não tem acesso a esta área — peça pro admin liberar "Visualizar" em Configurações, no seu cadastro.</p>
 
         <!-- Backup completo (rodada de segurança, 15/10/2026, pedido da
              Raquel: "o que falta para deixar 100% segura a plataforma
@@ -3094,10 +3095,22 @@
 
           <div id="userFormPermissions">
             <label>Permissões por dashboard</label>
+            <!-- 103ª rodada, pedido da Raquel: "esses modulos novos, tbm
+                 devem ser privados e o admin decide se vai liberar p alguém
+                 editar ou somente visualizar" -- esclarecido depois: só
+                 Configurações e Orçamento ficam privados por padrão (o
+                 resto continua visível a todo mundo, só editar é
+                 restrito). Configurações não tem opção "Editor" aqui de
+                 propósito -- criar/editar usuário e conectar/desconectar
+                 uma rede social continuam só do super admin de verdade,
+                 nunca de quem só tem uma permissão liberada (ver
+                 routes/auth.js). -->
+            <p class="muted" style="margin:4px 0 4px;font-size:12px;">Configurações (Usuários/Integrações) e Orçamento são privados — só o admin vê, a não ser que libere abaixo.</p>
+            <div class="perm-row"><span>Configurações (Usuários/Integrações)</span><select data-perm="configuracoes"><option value="none">Sem acesso</option><option value="visualizar">Só visualizar</option></select></div>
+            <div class="perm-row"><span>Orçamento</span><select data-perm="budget"><option value="none">Sem acesso</option><option value="visualizar">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Tráfego Pago</span><select data-perm="trafegoPago"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Ações Sazonais</span><select data-perm="acoesSazonais"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Redes Sociais</span><select data-perm="redesSociais"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
-            <div class="perm-row"><span>Orçamento</span><select data-perm="budget"><option value="none">Sem acesso</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <p class="muted" style="margin:10px 0 4px;font-size:12px;">Brindes, Produtos e Expositores: todo mundo pode ver — as opções abaixo controlam só quem pode editar.</p>
             <div class="perm-row"><span>Brindes</span><select data-perm="brindes"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
             <div class="perm-row"><span>Retiradas Internas</span><select data-perm="retiradasInternas"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
@@ -3109,6 +3122,12 @@
                  permissão "Brindes" de cima (são submenus dele), por isso
                  não ganham uma linha própria aqui. -->
             <div class="perm-row"><span>Pagamentos</span><select data-perm="pagamentos"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+            <!-- 102ª rodada: Fornecedores -- linha que tinha ficado faltando
+                 nesta tela (a chave já existia desde a 100ª rodada e o
+                 backend/routes/fornecedores.js já checava ela certinho,
+                 mas sem esta linha não tinha como o admin liberar editor
+                 pra ninguém). Corrigido nesta rodada (103ª). -->
+            <div class="perm-row"><span>Fornecedores</span><select data-perm="fornecedores"><option value="none">Só visualizar</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
           </div>
 
           <div id="userFormError" class="error" hidden></div>
@@ -3118,7 +3137,7 @@
           </div>
         </div>
 
-        <table class="data-table">
+        <table class="data-table" id="usersTable">
           <thead>
             <tr><th></th><th>Nome</th><th>Usuário</th><th>Tipo</th><th>Cargo</th><th>Acessos</th><th></th></tr>
           </thead>
@@ -3135,6 +3154,12 @@
       <section id="view-integracoes" class="view" hidden>
         <h2>Integrações — Redes Sociais</h2>
         <p class="muted">Conecte a conta do Instagram/Facebook de cada marca para o Agendamento publicar sozinho, no horário certo. Estático, Carrossel, Reels e Storie já publicam sozinhos no Instagram (Estático também no Facebook) — os demais tipos continuam manuais, com a mesma tela de sempre.</p>
+        <p class="muted" id="integracoesAccessDenied" hidden>Você não tem acesso a esta área — peça pro admin liberar "Visualizar" em Configurações, no seu cadastro.</p>
+        <!-- 103ª rodada: tudo abaixo (Meta + LinkedIn + YouTube + Pinterest +
+             TikTok) fica dentro de #integracoesContent pra dar pra esconder
+             tudo de uma vez só quando a pessoa não tem acesso (ver
+             loadIntegracoes() em app.js). -->
+        <div id="integracoesContent">
         <div id="integracoesMetaWarning" class="error" hidden>A Papoi ainda não tem o App da Meta configurado no servidor (META_APP_ID/META_APP_SECRET) — conecte com quem cuida do deploy antes de tentar aqui.</div>
         <div id="integracoesList"></div>
 
@@ -3174,6 +3199,7 @@
         <p class="muted">Publica o tipo "Vídeo TikTok" (1 arquivo) direto como a criadora conectada. A legenda vira o texto do post (com hashtags/@menções, se tiver). <strong>Importante:</strong> a TikTok só libera publicação PÚBLICA depois de auditar o App da Papoi -- até lá, todo post sai em modo privado (só a própria criadora vê), o recado de sucesso avisa isso.</p>
         <div id="integracoesTiktokWarning" class="error" hidden>A Papoi ainda não tem o App do TikTok configurado no servidor (TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET).</div>
         <div id="integracoesTiktokList"></div>
+        </div>
       </section>
 
     </main>

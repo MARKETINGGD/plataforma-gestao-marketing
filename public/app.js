@@ -2132,6 +2132,7 @@
         if (b.dataset.view === 'brindes-retiradas') loadRetiradas();
         if (b.dataset.view === 'brindes-orcamentos') loadBrindesOrcamentos();
         if (b.dataset.view === 'brindes-compras') loadBrindesCompras();
+        if (b.dataset.view === 'fornecedores') loadFornecedores();
         if (b.dataset.view === 'agendamento') loadSocialPosts();
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
@@ -8094,6 +8095,143 @@
       });
     }
   }
+
+  // ---------- Fornecedores (102ª rodada) ----------
+  // Todo mundo pode ver — só quem tem permissão "fornecedores" =
+  // editor/admin (ou é admin da plataforma) enxerga os botões de criar/
+  // editar/excluir, mesmo padrão de Brindes/Pagamentos abaixo.
+  let fornecedoresCache = [];
+  let fornecedoresCanEdit = false;
+  let fornecedoresTiposUsados = [];
+  let editingFornecedorId = null;
+  let fornecedorDetalheId = null;
+  let fornecedoresFilters = { nome: '', tipo: '' };
+
+  async function loadFornecedores() {
+    const params = new URLSearchParams();
+    if (fornecedoresFilters.nome) params.set('nome', fornecedoresFilters.nome);
+    if (fornecedoresFilters.tipo) params.set('tipo', fornecedoresFilters.tipo);
+    const data = await api('/api/fornecedores' + (params.toString() ? '?' + params.toString() : ''));
+    fornecedoresCache = data.items;
+    fornecedoresCanEdit = data.canEdit;
+    fornecedoresTiposUsados = data.tiposUsados || [];
+    $('#fornecedorNewBtn').hidden = !fornecedoresCanEdit;
+    $('#fornecedorTipoOptions').innerHTML = fornecedoresTiposUsados.map((t) => `<option value="${escapeHtml(t)}"></option>`).join('');
+    const tipoSelect = $('#fornecedoresFilterTipo');
+    const tipoAtual = tipoSelect.value;
+    tipoSelect.innerHTML = '<option value="">Todos os tipos</option>' + fornecedoresTiposUsados.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    tipoSelect.value = tipoAtual;
+    renderFornecedores();
+  }
+
+  function renderFornecedores() {
+    const body = $('#fornecedoresBody');
+    body.innerHTML = '';
+    $('#fornecedoresEmpty').hidden = fornecedoresCache.length > 0;
+    fornecedoresCache.forEach((f) => {
+      const tr = document.createElement('tr');
+      const ultima = f.ultimaCompra;
+      tr.innerHTML = `
+        <td>${escapeHtml(f.nome)}${f.autoCreated ? ' <span class="muted" title="Cadastrado automaticamente a partir de uma compra -- ainda não revisado">⚙️</span>' : ''}</td>
+        <td>${escapeHtml(f.tipo || '—')}</td>
+        <td>${escapeHtml(f.contato || '—')}</td>
+        <td>${escapeHtml(f.telefone || '—')}</td>
+        <td>${ultima ? `${escapeHtml(ultima.item || '')}${ultima.valor != null ? ' — R$ ' + Number(ultima.valor).toFixed(2) : ''} (${escapeHtml(ultima.data || '')})` : '—'}</td>
+        <td>
+          <button class="btn-link" data-ver-pedidos-fornecedor="${f.id}">Últimos pedidos</button>
+          ${fornecedoresCanEdit ? ` <button class="btn-link" data-edit-fornecedor="${f.id}">Editar</button> <button class="btn-link danger" data-del-fornecedor="${f.id}">Excluir</button>` : ''}
+        </td>
+      `;
+      body.appendChild(tr);
+    });
+    $all('[data-edit-fornecedor]').forEach((b) => { b.onclick = () => openFornecedorForm(fornecedoresCache.find((f) => f.id === b.dataset.editFornecedor)); });
+    $all('[data-del-fornecedor]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir este fornecedor?')) return;
+        await api('/api/fornecedores/' + b.dataset.delFornecedor, { method: 'DELETE' });
+        await loadFornecedores();
+      };
+    });
+    $all('[data-ver-pedidos-fornecedor]').forEach((b) => { b.onclick = () => openFornecedorPedidos(b.dataset.verPedidosFornecedor); });
+  }
+
+  function openFornecedorForm(row) {
+    editingFornecedorId = row ? row.id : null;
+    $('#fornecedorFormTitle').textContent = row ? 'Editar fornecedor' : 'Novo fornecedor';
+    $('#fornecedorFormNome').value = row ? row.nome : '';
+    $('#fornecedorFormTipo').value = row ? (row.tipo || '') : '';
+    $('#fornecedorFormContato').value = row ? (row.contato || '') : '';
+    $('#fornecedorFormTelefone').value = row ? (row.telefone || '') : '';
+    $('#fornecedorFormEmail').value = row ? (row.email || '') : '';
+    $('#fornecedorFormCnpj').value = row ? (row.cnpj || '') : '';
+    $('#fornecedorFormEndereco').value = row ? (row.endereco || '') : '';
+    $('#fornecedorFormObs').value = row ? (row.observacoes || '') : '';
+    $('#fornecedorFormError').hidden = true;
+    $('#fornecedorFormWrap').hidden = false;
+  }
+  $('#fornecedorNewBtn').onclick = () => openFornecedorForm(null);
+  $('#fornecedorFormCancel').onclick = () => { $('#fornecedorFormWrap').hidden = true; };
+  $('#fornecedorFormSave').onclick = async () => {
+    const payload = {
+      nome: $('#fornecedorFormNome').value.trim(),
+      tipo: $('#fornecedorFormTipo').value.trim(),
+      contato: $('#fornecedorFormContato').value.trim(),
+      telefone: $('#fornecedorFormTelefone').value.trim(),
+      email: $('#fornecedorFormEmail').value.trim(),
+      cnpj: $('#fornecedorFormCnpj').value.trim(),
+      endereco: $('#fornecedorFormEndereco').value.trim(),
+      observacoes: $('#fornecedorFormObs').value.trim()
+    };
+    if (!payload.nome) {
+      $('#fornecedorFormError').textContent = 'Informe o nome do fornecedor.';
+      $('#fornecedorFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingFornecedorId) {
+        await api('/api/fornecedores/' + editingFornecedorId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/fornecedores', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      $('#fornecedorFormWrap').hidden = true;
+      await loadFornecedores();
+    } catch (e) {
+      $('#fornecedorFormError').textContent = e.message;
+      $('#fornecedorFormError').hidden = false;
+    }
+  };
+
+  async function openFornecedorPedidos(id) {
+    fornecedorDetalheId = id;
+    const fornecedor = fornecedoresCache.find((f) => f.id === id);
+    if (!fornecedor) return;
+    $('#fornecedorDetailTitle').textContent = fornecedor.nome + ' — Últimos pedidos feitos';
+    const data = await api('/api/fornecedores/' + id + '/pedidos');
+    const body = $('#fornecedorPedidosBody');
+    body.innerHTML = '';
+    $('#fornecedorPedidosEmpty').hidden = data.pedidos.length > 0;
+    data.pedidos.forEach((p) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(p.origem)}</td>
+        <td>${escapeHtml(p.item || '—')}</td>
+        <td>${p.quantidade != null ? p.quantidade : '—'}</td>
+        <td>${p.valorTotal != null ? 'R$ ' + Number(p.valorTotal).toFixed(2) : '—'}</td>
+        <td>${escapeHtml(p.data || '—')}</td>
+      `;
+      body.appendChild(tr);
+    });
+    $('#fornecedorDetailWrap').hidden = false;
+  }
+  $('#fornecedorDetailClose').onclick = () => { fornecedorDetalheId = null; $('#fornecedorDetailWrap').hidden = true; };
+
+  $('#fornecedoresFilterNome').oninput = () => { fornecedoresFilters.nome = $('#fornecedoresFilterNome').value.trim(); loadFornecedores(); };
+  $('#fornecedoresFilterTipo').onchange = () => { fornecedoresFilters.tipo = $('#fornecedoresFilterTipo').value; loadFornecedores(); };
+  $('#fornecedoresFilterClear').onclick = () => {
+    fornecedoresFilters = { nome: '', tipo: '' };
+    $('#fornecedoresFilterNome').value = '';
+    loadFornecedores();
+  };
 
   // ---------- Brindes ----------
   // Todo mundo pode ver o catálogo/registro de saídas — só quem tem

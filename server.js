@@ -29,6 +29,9 @@ app.use('/api/brindes', require('./routes/brindes'));
 // Pagamentos (100ª rodada) -- Controle de Assinaturas, Controle de
 // Pagamentos (Cartão/Mensal/Extras) e Terceirizados. Ver routes/pagamentos.js.
 app.use('/api/pagamentos', require('./routes/pagamentos'));
+// Fornecedores (102ª rodada) -- cadastro completo, alimentado desde a
+// 101ª rodada por utils/fornecedoresHelper.js. Ver routes/fornecedores.js.
+app.use('/api/fornecedores', require('./routes/fornecedores'));
 app.use('/api/retiradas-internas', require('./routes/retiradasInternas'));
 app.use('/api/influencers', require('./routes/influencers'));
 // Análise de Influencer (89ª rodada) — ver routes/influencerAnalises.js.

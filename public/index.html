@@ -326,6 +326,13 @@
             <button class="navlink navlink-sub" id="navTerceirizados" data-view="terceirizados">Terceirizados</button>
           </div>
         </div>
+        <!-- 102ª rodada, pedido da Raquel: novo menu Fornecedores --
+             cadastro completo (Tipo em lista aberta, filtros de busca por
+             nome/tipo, e "últimos pedidos feitos" agregando o que já foi
+             comprado em Brindes → Compras, extensível pra outros módulos
+             que ganharem esse mesmo fluxo orçamento→pedido). Tela única,
+             sem submenu. -->
+        <button class="navlink" id="navFornecedores" data-view="fornecedores">Fornecedores</button>
         <!-- APP Externos -- 76ª rodada: agrupa os 3 sistemas externos que já
              existiam soltos (Ponto desde a 47ª, Gestor desde a 49ª, Power BI
              desde a 52ª) num submenu só, a pedido da Raquel. Continuam só
@@ -1820,6 +1827,72 @@
           </div>
           <div id="terceirizadoDetailBody"></div>
           <div class="form-actions"><button class="btn-secondary" id="terceirizadoDetailClose">Fechar</button></div>
+        </div>
+      </section>
+
+      <!-- Fornecedores (102ª rodada): cadastro completo, com Tipo em
+           lista aberta (datalist -- sugere os já usados, mas aceita
+           digitar um novo), filtros de busca por nome/tipo, e um painel
+           de detalhe por fornecedor com os "últimos pedidos feitos",
+           agregados automaticamente de Brindes → Compras (1º módulo com
+           esse fluxo orçamento→pedido; ver utils/fornecedoresHelper.js
+           pra como estender a outros módulos no futuro). -->
+      <section id="view-fornecedores" class="view" hidden>
+        <h2>Fornecedores</h2>
+        <p class="muted">Cadastro de fornecedores usados em qualquer módulo da Papoi. A "última compra" e os "últimos pedidos feitos" são atualizados automaticamente sempre que uma compra é registrada (hoje, só em Brindes → Compras).</p>
+
+        <datalist id="fornecedorTipoOptions"></datalist>
+
+        <div class="demandas-filter-bar no-print">
+          <input type="text" id="fornecedoresFilterNome" placeholder="Buscar por nome...">
+          <select id="fornecedoresFilterTipo"><option value="">Todos os tipos</option></select>
+          <button type="button" class="btn-secondary" id="fornecedoresFilterClear">Limpar filtros</button>
+        </div>
+
+        <div class="view-toolbar-actions" style="margin:12px 0;">
+          <button class="btn-primary" id="fornecedorNewBtn">+ Novo fornecedor</button>
+        </div>
+
+        <div id="fornecedorFormWrap" class="form-card" hidden>
+          <h3 id="fornecedorFormTitle">Novo fornecedor</h3>
+          <div class="form-row">
+            <div><label>Nome</label><input id="fornecedorFormNome" type="text"></div>
+            <div><label>Tipo <span class="muted" style="font-weight:400;">(ex.: brindes, expositores -- ou digite um novo)</span></label><input id="fornecedorFormTipo" type="text" list="fornecedorTipoOptions"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Contato</label><input id="fornecedorFormContato" type="text"></div>
+            <div><label>Telefone</label><input id="fornecedorFormTelefone" type="text"></div>
+          </div>
+          <div class="form-row">
+            <div><label>E-mail</label><input id="fornecedorFormEmail" type="text"></div>
+            <div><label>CNPJ</label><input id="fornecedorFormCnpj" type="text"></div>
+          </div>
+          <div><label>Endereço</label><input id="fornecedorFormEndereco" type="text"></div>
+          <div><label>Observações</label><textarea id="fornecedorFormObs" rows="2"></textarea></div>
+          <div id="fornecedorFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button id="fornecedorFormSave" class="btn-primary">Salvar</button>
+            <button id="fornecedorFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr><th>Nome</th><th>Tipo</th><th>Contato</th><th>Telefone</th><th>Última compra</th><th></th></tr>
+          </thead>
+          <tbody id="fornecedoresBody"></tbody>
+        </table>
+        <p class="muted" id="fornecedoresEmpty" hidden>Nenhum fornecedor cadastrado ainda.</p>
+
+        <div id="fornecedorDetailWrap" class="form-card form-card-wide" hidden>
+          <h3 id="fornecedorDetailTitle"></h3>
+          <p class="muted">Últimos pedidos feitos (agregado automaticamente de todos os módulos com fluxo orçamento→pedido):</p>
+          <table class="data-table">
+            <thead><tr><th>Origem</th><th>Item</th><th>Qtd.</th><th>Valor</th><th>Data</th></tr></thead>
+            <tbody id="fornecedorPedidosBody"></tbody>
+          </table>
+          <p class="muted" id="fornecedorPedidosEmpty" hidden>Nenhum pedido registrado ainda pra este fornecedor.</p>
+          <div class="form-actions"><button class="btn-secondary" id="fornecedorDetailClose">Fechar</button></div>
         </div>
       </section>
 

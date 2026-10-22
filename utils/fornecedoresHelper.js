@@ -44,6 +44,8 @@ function upsertUltimaCompra(nomeFornecedor, info, extra) {
       contato: '',
       telefone: '',
       email: '',
+      endereco: '',
+      cnpj: '',
       observacoes: '',
       ultimaCompra: null,
       autoCreated: true,

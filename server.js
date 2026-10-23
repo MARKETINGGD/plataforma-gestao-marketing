@@ -161,6 +161,17 @@ require('./utils/tiktokPublisher').startTikTokPublisherScheduler();
 // utils/influencerBirthdayReminders.js) -- checa de hora em hora.
 require('./utils/influencerBirthdayReminders').startInfluencerBirthdayScheduler();
 
+// 109ª rodada, pedido da Raquel: notificação por e-mail de "demanda
+// atrasada" (pra pessoa responsável) -- checa de 30 em 30 minutos (ver
+// utils/demandaAtrasadaReminders.js).
+require('./utils/demandaAtrasadaReminders').startDemandaAtrasadaReminderScheduler();
+
+// 109ª rodada, pedido da Raquel: notificação por e-mail de "pedido de
+// aprovação em espera a mais de 24 horas" (pra quem aprova), cobrindo
+// Agendamento de redes sociais e Demandas -- checa de 30 em 30 minutos
+// (ver utils/aprovacaoPendenteReminders.js).
+require('./utils/aprovacaoPendenteReminders').startAprovacaoPendenteReminderScheduler();
+
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).
 app.use((req, res, next) => {

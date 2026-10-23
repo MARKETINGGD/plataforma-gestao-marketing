@@ -99,6 +99,18 @@ const CARGOS = ['gerente', 'analista', 'auxiliar', 'coordenador', 'designer', 'd
 // os 4 campos vazios) simplesmente não recebe nenhum lembrete — é assim
 // que a Raquel/Melissa, que não batem ponto, ficam de fora, sem precisar
 // de nenhuma flag especial.
+// E-mail (109ª rodada, pedido da Raquel: "quero poder enviar e-mail de
+// notificação para o email de cada membro da equipe") -- campo opcional
+// em cada usuário, usado só por utils/mailer.js (3º canal de
+// notificação, ao lado de recado interno + push) pra saber pra onde
+// mandar. Validação solta (só confere o formato básico nome@dominio) --
+// não é login nem credencial, é só o endereço de entrega.
+function validEmail(v) {
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).trim();
+  if (!s) return '';
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s : null;
+}
 const PONTO_SLOTS = ['entradaManha', 'saidaAlmoco', 'voltaAlmoco', 'saidaFinal'];
 function validTimeHHMM(v) {
   if (v === undefined || v === null) return null;
@@ -144,6 +156,7 @@ function publicUser(u) {
     isSuperAdmin: !!u.isSuperAdmin,
     permissions: u.permissions || EMPTY_PERMISSIONS,
     cargo: u.cargo || '',
+    email: u.email || '',
     columnColor: u.columnColor || null,
     homeColor: u.homeColor || null,
     // Tema escuro (14ª melhoria, 24/09/2026, pedido da Raquel: "deixe a
@@ -427,18 +440,21 @@ router.get('/users', requireAuth, (req, res) => {
 });
 
 router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {
-  const { username, password, name, isSuperAdmin, permissions, cargo, pontoSchedule } = req.body || {};
+  const { username, password, name, isSuperAdmin, permissions, cargo, pontoSchedule, email } = req.body || {};
   if (!username || !password || password.length < 6) {
     return res.status(400).json({ error: 'Informe um usuário e uma senha com pelo menos 6 caracteres.' });
   }
   if (db.get('users').find({ username: username.trim() }).value()) {
     return res.status(400).json({ error: 'Já existe um usuário com esse nome.' });
   }
+  const emailValido = validEmail(email);
+  if (emailValido === null) return res.status(400).json({ error: 'E-mail em formato inválido.' });
   const user = {
     id: nanoid(),
     username: username.trim(),
     passwordHash: bcrypt.hashSync(password, 10),
     name: (name || username).trim(),
+    email: emailValido || '',
     isSuperAdmin: !!isSuperAdmin,
     permissions: isSuperAdmin ? FULL_PERMISSIONS : sanitizePermissions(permissions),
     cargo: CARGOS.includes(cargo) ? cargo : '',
@@ -453,7 +469,7 @@ router.post('/users', requireAuth, requireSuperAdmin, (req, res) => {
 router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
   const target = db.get('users').find({ id: req.params.id }).value();
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  const { name, username, password, isSuperAdmin, permissions, cargo, pontoSchedule } = req.body || {};
+  const { name, username, password, isSuperAdmin, permissions, cargo, pontoSchedule, email } = req.body || {};
   const updates = {};
   if (name) updates.name = name.trim();
   if (username && username.trim() !== target.username) {
@@ -463,6 +479,11 @@ router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
       return res.status(400).json({ error: 'Já existe um usuário com esse nome.' });
     }
     updates.username = novoUsername;
+  }
+  if (email !== undefined) {
+    const emailValido = validEmail(email);
+    if (emailValido === null) return res.status(400).json({ error: 'E-mail em formato inválido.' });
+    updates.email = emailValido;
   }
   if (typeof isSuperAdmin === 'boolean') updates.isSuperAdmin = isSuperAdmin;
   if (cargo !== undefined) updates.cargo = CARGOS.includes(cargo) ? cargo : '';

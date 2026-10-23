@@ -297,7 +297,15 @@ db.defaults({
   // admin (ver routes/ausencias.js), pelo aviso na coluna da pessoa em
   // Demandas, pelo aviso de conflito ao marcar entrega durante a
   // ausência, e pelo comunicado automático em Recados.
-  ausencias: []
+  ausencias: [],
+  // 109ª rodada, pedido da Raquel: notificação por e-mail de "demanda
+  // atrasada" (pra pessoa responsável) e de "pedido de aprovação em
+  // espera a mais de 24 horas" (pra quem aprova) -- log de dedup de cada
+  // um, mesmo espírito do `pontoFired` acima, pra nunca mandar o mesmo
+  // aviso 2x no mesmo dia. Ver utils/demandaAtrasadaReminders.js e
+  // utils/aprovacaoPendenteReminders.js.
+  demandaAtrasadaEmailFired: [],
+  pendingApprovalEmailFired: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).

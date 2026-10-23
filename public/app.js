@@ -12322,6 +12322,8 @@
     $('#userFormName').value = user ? user.name : '';
     $('#userFormUsername').value = user ? user.username : '';
     $('#userFormUsername').disabled = false;
+    // 109ª rodada: e-mail opcional, usado pelas notificações por e-mail.
+    $('#userFormEmail').value = user ? (user.email || '') : '';
     $('#userFormPassword').value = '';
     $('#userFormPasswordLabel').textContent = user ? 'Nova senha (deixe em branco para manter)' : 'Senha (mínimo 6 caracteres)';
     $('#userFormSuperAdmin').checked = user ? user.isSuperAdmin : false;
@@ -12409,6 +12411,7 @@
     const payload = {
       name: $('#userFormName').value.trim(),
       username: $('#userFormUsername').value.trim(),
+      email: $('#userFormEmail').value.trim(),
       password: $('#userFormPassword').value,
       isSuperAdmin: $('#userFormSuperAdmin').checked,
       cargo: $('#userFormCargo').value,

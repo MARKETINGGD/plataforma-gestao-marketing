@@ -170,7 +170,17 @@ function anunciarAusencia(ausencia) {
     ? allUsers.filter((u) => u.isSuperAdmin || u.cargo === 'gerente' || u.cargo === 'coordenador').map((u) => u.id)
     : allUsers.map((u) => u.id);
   if (recipientIds.length === 0) return;
-  createAutoRecado({ recipientIds, text: texto, kind: 'ausencia_anunciada' });
+  // 109ª rodada, pedido literal da Raquel: "tbm quero poder enviar e-mail
+  // de notificação para o email de cada membro da equipe- somente as
+  // notificações de: afastamento, [...]" -- só "afastamento" dispara
+  // e-mail (igual ao recado, broadcast pra toda a equipe); férias,
+  // viagem e saída continuam só com recado + push, sem e-mail.
+  createAutoRecado({
+    recipientIds,
+    text: texto,
+    kind: 'ausencia_anunciada',
+    emailSubject: ausencia.tipo === 'afastamento' ? `Afastamento: ${nome}` : undefined
+  });
 }
 
 // Listagem completa, com observações (tela Usuários → aba Ausências).

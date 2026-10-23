@@ -7,6 +7,9 @@ const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 // 81ª rodada, pedido da Raquel: "as notificações devem vir no cel, mesmo
 // qdo o app esta fechado" -- ver utils/webPush.js.
 const { sendPushToUsers } = require('../utils/webPush');
+// 109ª rodada, pedido da Raquel: "...recados dos colegas (somente para
+// quem recebeu o recado)" -- 3º canal de notificação, ver utils/mailer.js.
+const { sendEmailToUsers } = require('../utils/mailer');
 
 const router = express.Router();
 
@@ -89,6 +92,9 @@ router.post('/', requireAuth, (req, res) => {
   db.get('recados').push(recado).write();
   logAudit({ user: req.user, entityType: 'recado', entityId: recado.id, entityLabel: recado.text.slice(0, 40), action: 'create' });
   sendPushToUsers(ids, { title: recado.createdByName || 'Novo recado', body: recado.text, tag: 'papoi-recado-' + recado.id });
+  // 109ª rodada: recado escrito por um colega (não automático do sistema)
+  // -- e-mail só pra quem recebeu, nunca pra quem escreveu.
+  sendEmailToUsers(ids, { subject: `Novo recado de ${recado.createdByName || 'um(a) colega'}`, text: recado.text });
   res.json({ recado: serialize(recado, req.user.id) });
 });
 
@@ -157,7 +163,23 @@ router.delete('/:id', requireAuth, (req, res) => {
 // existente (ver `updateAutoRecadosForPost` abaixo) -- por exemplo, achar
 // o aviso de "pronto pra aprovar" de um post pra atualizá-lo em vez de
 // criar um aviso solto novo quando o post é aprovado.
-function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwork, sourceSocialPostId, externalUrl, kind }) {
+// `emailSubject`/`emailRecipientIds` (109ª rodada, pedido da Raquel:
+// "quero poder enviar e-mail de notificação para o email de cada
+// membro da equipe- somente as notificações de: afastamento, demandas
+// atrasadas (para a pessoa responsável), pedido de aprovação em espera
+// a mais de 24 horas (somente para quem aprova), pedido de ajuste
+// (somente para quem ajusta), recados dos colegas (somente para quem
+// recebeu o recado)") -- diferente do push (que sempre dispara pra
+// QUALQUER recado automático, sem exceção), o e-mail é OPT-IN: só
+// dispara quando quem chamou esta função passa `emailSubject`
+// explicitamente, exatamente pras 4 categorias de recado automático que
+// a Raquel pediu (as outras continuam só com recado+push, como sempre
+// foram). `emailRecipientIds`, quando informado, é uma audiência MAIS
+// ESTREITA que `recipientIds` (ex.: reprovação de post avisa responsável
+// + gerente/coordenador por recado, mas o e-mail vai só pro responsável,
+// que é quem realmente precisa ajustar) -- sem ele, o e-mail usa a mesma
+// lista do recado.
+function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwork, sourceSocialPostId, externalUrl, kind, emailSubject, emailRecipientIds }) {
   const ids = validUserIds(recipientIds);
   if (ids.length === 0) return null;
   const recado = {
@@ -180,6 +202,10 @@ function createAutoRecado({ recipientIds, text, postTitle, postBrand, postNetwor
   };
   db.get('recados').push(recado).write();
   sendPushToUsers(ids, { title: 'Papoi', body: text, tag: 'papoi-recado-' + recado.id });
+  if (emailSubject) {
+    const emailIds = emailRecipientIds ? validUserIds(emailRecipientIds) : ids;
+    sendEmailToUsers(emailIds, { subject: emailSubject, text });
+  }
   return recado;
 }
 

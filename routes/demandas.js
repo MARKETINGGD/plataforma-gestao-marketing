@@ -12,6 +12,13 @@ const { alsoInvolvedUserIds, syncLinkedDemandas, mirrorArrayField, mirrorComment
 // (ver utils/tripleSync.js). Seguro exigir aqui -- tripleSync.js não exige
 // demandas.js de volta, então não cria require circular.
 const { markSocialPostPublished, deleteInfluencerTriad } = require('../utils/tripleSync');
+// 109ª rodada, pedido da Raquel: notificação (recado + e-mail) de "pedido
+// de ajuste" quando uma demanda entra em "Em Refação" -- primeira
+// notificação automática de qualquer tipo neste arquivo. Seguro exigir
+// routes/recados.js aqui -- ele não exige demandas.js de volta (mesmo
+// cuidado documentado em utils/tripleSync.js acima, pra não criar require
+// circular).
+const { createAutoRecado } = require('./recados');
 
 const router = express.Router();
 
@@ -354,6 +361,12 @@ function serialize(d, viewerId) {
     // pontua igual a qualquer outro marcado na demanda — ver GET
     // /reis-do-marketing abaixo.
     responsibleId: d.responsibleId || null,
+    // 109ª rodada, pedido da Raquel: "pedido de aprovação em espera a mais
+    // de 24 horas (somente para quem aprova)" -- marca desde QUANDO este
+    // card está parado no status "Em Aprovação" (ver bloco de transição no
+    // PUT /:id abaixo), pra utils/aprovacaoPendenteReminders.js (novo,
+    // 109ª rodada) saber quando os 24h se completaram.
+    pendingApprovalSince: d.pendingApprovalSince || null,
     // 78ª rodada: em qual lista pessoal ESSA pessoa (quem está pedindo)
     // organiza esse card — só existe de verdade quando visibility ===
     // 'pessoal' e a chamada informou quem está vendo (ver personalListIdFor
@@ -1172,6 +1185,41 @@ router.put('/:id', requireAuth, (req, res) => {
     updates.archived = true;
   }
 
+  // 109ª rodada, pedido explícito da Raquel: "pedido de ajuste (somente
+  // para quem ajusta)" -- dispara só na TRANSIÇÃO de verdade pro status
+  // "Em Refação" (pedido de ajuste), igual ao padrão já usado na
+  // reprovação de post (routes/socialPosts.js). Vai pro(s) assignee(s)
+  // atual(is) do card (`effectiveAssigneeIdsForResp`, já calculado acima,
+  // reflete os assignees FINAIS desta gravação) -- "quem ajusta" -- e o
+  // e-mail (emailSubject) vai pra essa mesma lista, já que aqui (diferente
+  // de post) não existe uma "gerência" separada recebendo o recado.
+  if (updates.status === 'em_refacao' && demanda.status !== 'em_refacao') {
+    if (effectiveAssigneeIdsForResp.length > 0) {
+      const demandaTitle = updates.title !== undefined ? updates.title : demanda.title;
+      createAutoRecado({
+        recipientIds: effectiveAssigneeIdsForResp,
+        text: `Aviso Papoi: a demanda "${demandaTitle}" foi marcada como "Em Refação" -- pedido de ajuste.`,
+        kind: 'demanda_ajuste',
+        emailSubject: `Pedido de ajuste -- ${demandaTitle}`
+      });
+    }
+  }
+
+  // 109ª rodada, pedido da Raquel: "pedido de aprovação em espera a mais
+  // de 24 horas (somente para quem aprova)" -- marca (ou limpa)
+  // `pendingApprovalSince`, usado pelo scheduler novo
+  // utils/aprovacaoPendenteReminders.js. Entra em "Em Aprovação" agora
+  // (`demanda.status !== 'aprovacao'` antes dessa gravação) -> começa a
+  // contar do zero; sai de "Em Aprovação" pra qualquer outro status ->
+  // some (deixou de estar esperando). Fica parado em "Em Aprovação" sem
+  // mudar de status (edição de outro campo qualquer) -> não toca no
+  // campo, continua contando desde quando entrou de verdade.
+  if (updates.status === 'aprovacao' && demanda.status !== 'aprovacao') {
+    updates.pendingApprovalSince = updates.updatedAt;
+  } else if (updates.status !== undefined && updates.status !== 'aprovacao' && demanda.status === 'aprovacao') {
+    updates.pendingApprovalSince = null;
+  }
+
   const details = describeChanges(demanda, updates);
   db.get('demandas').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: updates.title || demanda.title, action: 'update', details, meta: { visibility: demanda.visibility } });
@@ -1203,7 +1251,11 @@ router.put('/:id', requireAuth, (req, res) => {
     // sua própria lista pessoal via personalListIdFor()/ensureDefaultPersonalList(),
     // usando a pessoa marcada NAQUELA demanda-irmã especificamente, então
     // "sempre na lista da pessoa marcada" já sai de graça.
-    ['title', 'description', 'dueDate', 'status', 'color', 'link', 'checklistTitle', 'labelIds', 'network', 'brands', 'responsibleId', 'archived', 'lastCompletedAt', 'lastCompletedDueDate', 'recurrence', 'recurring', 'visibility'].forEach((key) => {
+    // `pendingApprovalSince` (109ª rodada) entra no mirror pelo mesmo
+    // motivo de `status` -- se uma demanda-irmã entra/sai de "Em
+    // Aprovação", todas acompanham, incluindo desde quando cada uma
+    // (nesse caso, todas ao mesmo tempo) ficou esperando.
+    ['title', 'description', 'dueDate', 'status', 'color', 'link', 'checklistTitle', 'labelIds', 'network', 'brands', 'responsibleId', 'archived', 'lastCompletedAt', 'lastCompletedDueDate', 'recurrence', 'recurring', 'visibility', 'pendingApprovalSince'].forEach((key) => {
       if (updates[key] !== undefined) mirrorFields[key] = updates[key];
     });
     if (Object.keys(mirrorFields).length > 0) {

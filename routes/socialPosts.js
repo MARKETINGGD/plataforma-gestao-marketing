@@ -138,6 +138,17 @@ function serialize(p) {
     approvedBy: p.approvedBy || null,
     approvedByName: resolveUserName(p.approvedBy, p.approvedByName),
     approvedAt: p.approvedAt || null,
+    // 109ª rodada, pedido da Raquel: "pedido de aprovação em espera a mais
+    // de 24 horas (somente para quem aprova)" -- marca desde QUANDO este
+    // post está esperando decisão (pendente), pra
+    // utils/aprovacaoPendenteReminders.js (novo, 109ª rodada) saber quando
+    // os 24h se completaram. Post de ANTES desta rodada nunca teve esse
+    // campo preenchido -- fica `null` e o scheduler simplesmente ignora
+    // (sem jeito seguro de saber desde quando já estava esperando, então
+    // não dá pra adivinhar; só entra na checagem a partir da próxima vez
+    // que alguém editar a aprovação dele, que é quando o campo passa a
+    // existir).
+    pendingApprovalSince: p.pendingApprovalSince || null,
     // Nomes resolvidos ao vivo (20ª rodada) — ver utils/names.js.
     createdByName: resolveUserName(p.createdBy, p.createdByName),
     createdByPhotoUrl: resolveUserPhoto(p.createdBy),
@@ -505,7 +516,10 @@ function createFacebookMirror(igPost, req) {
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
     createdByName: req.user.name,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    // 109ª rodada: mesmo motivo do post normal (ver POST / acima) -- o
+    // espelho também nasce "pendente".
+    pendingApprovalSince: new Date().toISOString()
   };
   db.get('socialPosts').push(mirror).write();
   db.get('socialPosts').find({ id: igPost.id }).assign({ mirroredToPostId: mirror.id }).write();
@@ -589,7 +603,11 @@ router.post('/', requireAuth, (req, res) => {
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
     createdByName: req.user.name,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    // 109ª rodada: todo post nasce "pendente" (default do campo
+    // `approvalStatus`, ver serialize() acima) -- já começa esperando
+    // aprovação desde a criação, ver pendingApprovalSince ali.
+    pendingApprovalSince: new Date().toISOString()
   }, changeSuggestionsMeta(changeSuggestions, '', req));
   db.get('socialPosts').push(post).write();
   createDemandCardsForNewInvolved(post, post.involvedUserIds, req);
@@ -1014,7 +1032,12 @@ router.put('/:id/approval', requireAuth, (req, res) => {
     approvedByName: approvalStatus === 'pendente' ? '' : req.user.name,
     approvedBy: approvalStatus === 'pendente' ? null : req.user.id,
     approvedAt: approvalStatus === 'pendente' ? null : new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    // 109ª rodada: volta a contar os 24h do zero se alguém reverter pra
+    // "pendente" manualmente; some (null) assim que sai de "pendente" --
+    // decidido (aprovado/reprovado) deixa de estar "esperando" por
+    // definição, então não faz sentido continuar contando.
+    pendingApprovalSince: approvalStatus === 'pendente' ? new Date().toISOString() : null
   };
   // 63ª rodada, "Rodada E" da Pendência 51, pedido da Raquel: "status
   // automático rascunho → agendado (ao aprovar) → publicado (na hora
@@ -1125,7 +1148,13 @@ router.put('/:id/approval', requireAuth, (req, res) => {
         postBrand: fresh.brand,
         postNetwork: fresh.platform,
         sourceSocialPostId: fresh.id,
-        kind: 'post_rejected'
+        kind: 'post_rejected',
+        // 109ª rodada, pedido literal da Raquel: "pedido de ajuste
+        // (somente para quem ajusta)" -- diferente do recado (que vai
+        // pro responsável + gerência), o e-mail vai só pro responsável
+        // de verdade (quem precisa fazer o ajuste), nunca pra gerência.
+        emailSubject: fresh.responsibleId ? `Post reprovado -- ajuste pedido (${postTitle})` : undefined,
+        emailRecipientIds: fresh.responsibleId ? [fresh.responsibleId] : undefined
       });
     }
   }
@@ -1165,7 +1194,10 @@ router.put('/:id/resubmit', requireAuth, (req, res) => {
     approvedByName: '',
     approvedBy: null,
     approvedAt: null,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    // 109ª rodada: reenviar pra aprovação volta a contar os 24h do zero
+    // (ver PUT /:id/approval acima, mesmo campo).
+    pendingApprovalSince: new Date().toISOString()
   };
   db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update', details: 'Reenviado para aprovação depois de ajustar a sugestão de alteração' });

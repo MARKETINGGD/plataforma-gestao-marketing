@@ -1690,9 +1690,13 @@
       // calendario e a explicação, exatamente como ela esta hoje na
       // plataforma." -- mesmo parágrafo explicativo e o mesmo calendário
       // (navegação por mês + chips por dia) da aba Usuários → Ausências,
-      // só que somente leitura (sem botão de editar/excluir no chip) e
-      // sem "saida" (saídas/chegadas fora do horário nunca aparecem aqui
-      // -- ver comentário em routes/ausencias.js#GET /public/:token).
+      // só que somente leitura (sem botão de editar/excluir no chip).
+      // Correção da própria Raquel, ainda na 108ª rodada: a 1ª versão
+      // escondia "saida" (saídas/chegadas fora do horário) por padrão de
+      // segurança; ela pediu de volta ("preciso que a saida fora do
+      // horario apareça no link externo"), então agora mostra todos os
+      // tipos, incluindo a coluna "Horário" (só preenchida pra saída,
+      // igual a tabela admin -- ver ausenciaHoraResumo()).
       const items = data.ausencias || [];
       empty = items.length === 0;
       html = `
@@ -1704,7 +1708,7 @@
         </div>
         <div class="cal-grid" id="sharePublicAusenciasCalGrid"></div>
         <table class="data-table" style="margin-top:20px;">
-          <thead><tr><th></th><th>Colaborador(a)</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Observações</th></tr></thead>
+          <thead><tr><th></th><th>Colaborador(a)</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Horário</th><th>Observações</th></tr></thead>
           <tbody>${items.map((a) => `
             <tr>
               <td>${ausenciaBadgeLabel(a)}</td>
@@ -1712,6 +1716,7 @@
               <td>${ausenciaTipoLabel(a.tipo)}</td>
               <td>${fmtDate(a.dataInicio)}</td>
               <td>${fmtDate(a.dataFim)}</td>
+              <td>${escapeHtml(ausenciaHoraResumo(a))}</td>
               <td>${escapeHtml(a.observacoes || '')}</td>
             </tr>
           `).join('')}</tbody>

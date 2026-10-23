@@ -6,15 +6,14 @@
 // Budget/Feiras/Brindes/Campanha Cooperada/Expositores/Concorrência (ver
 // utils/shareLinks.js), aplicado aqui em routes/ausencias.js.
 //
-// Ponto central deste teste: quem abre o link externo está DESLOGADO --
-// nunca dá pra saber se é coordenador/gerente/admin. Por isso o endpoint
-// `GET /api/ausencias/public/:token` NUNCA pode devolver um registro do
-// tipo "saida" (saída/chegada fora do horário, restrito desde a 107ª
-// rodada a coordenador/gerente/admin), mesmo que:
-//   (a) o registro exista normalmente no banco, e
-//   (b) quem gerou o link seja um super admin com acesso total.
-// Só férias/afastamento/viagem (já abertos à equipe toda mesmo dentro da
-// Papoi) podem aparecer no link público.
+// Ponto central deste teste (ATUALIZADO ainda na 108ª rodada): a 1ª
+// versão escondia "saida" (saída/chegada fora do horário, restrito
+// desde a 107ª rodada a coordenador/gerente/admin) do link público, por
+// quem abre esse link estar sempre DESLOGADO. A própria Raquel pediu
+// pra reverter isso ("preciso que a saida fora do horario apareça no
+// link externo") -- o endpoint `GET /api/ausencias/public/:token` agora
+// devolve TODOS os tipos (férias/afastamento/viagem/saida), sem nenhum
+// filtro por tipo, igual a listagem completa da aba Usuários.
 const path = require('path');
 const fs = require('fs');
 
@@ -119,7 +118,7 @@ async function run() {
   }).then((r) => r.json()).then((d) => d.ausencia);
   check('[108ª rodada] os 4 registros de teste foram criados', !!(feriasResp.id && afastamentoResp.id && viagemResp.id && saidaResp.id));
 
-  // ---------- 5. O link público (SEM login nenhum) devolve férias/afastamento/viagem ----------
+  // ---------- 5. O link público (SEM login nenhum) devolve os 4 tipos ----------
   const publicoResp = await fetch(`${BASE}/api/ausencias/public/${publicToken}`);
   check('[108ª rodada] acessar o link público sem nenhum header de auth funciona (200)', publicoResp.status === 200);
   const publicoData = await publicoResp.json();
@@ -128,11 +127,13 @@ async function run() {
   check('[108ª rodada] o link público mostra "afastamento"', ids.includes(afastamentoResp.id));
   check('[108ª rodada] o link público mostra "viagem a trabalho"', ids.includes(viagemResp.id));
 
-  // ---------- 6. O link público NUNCA mostra "saida" -- nem o próprio tipo nem o horário ----------
-  check('[108ª rodada] CRÍTICO: o link público NUNCA mostra "saída fora do horário" (ponto central da 107ª rodada aplicado ao link sem login)', !ids.includes(saidaResp.id));
-  check('[108ª rodada] nenhum registro devolvido pelo link público é do tipo "saida"', !publicoData.ausencias.some((a) => a.tipo === 'saida'));
-  const textoBruto = JSON.stringify(publicoData);
-  check('[108ª rodada] o payload do link público não contém nenhum horário de saída/retorno (15:00/16:30) que só existia no registro restrito', !textoBruto.includes('15:00') && !textoBruto.includes('16:30'));
+  // ---------- 6. ATUALIZADO: o link público agora TAMBÉM mostra "saida", com horário --------
+  // Pedido explícito da Raquel ("preciso que a saida fora do horario
+  // apareça no link externo"), revertendo a 1ª versão desta mesma
+  // rodada (que escondia por padrão de segurança).
+  check('[108ª rodada] o link público AGORA mostra "saída fora do horário" (pedido explícito da Raquel revertendo a decisão original)', ids.includes(saidaResp.id));
+  const saidaNoPublico = publicoData.ausencias.find((a) => a.id === saidaResp.id);
+  check('[108ª rodada] o registro de "saida" no link público vem com os horários certos (saiu 15:00, retornou 16:30)', !!saidaNoPublico && saidaNoPublico.horaSaida === '15:00' && saidaNoPublico.horaRetorno === '16:30');
 
   // ---------- 7. Token inválido/inexistente nunca funciona ----------
   const tokenInvalido = await fetch(`${BASE}/api/ausencias/public/token-que-nao-existe-108`);

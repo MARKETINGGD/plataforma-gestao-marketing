@@ -230,17 +230,18 @@ router.get('/publicas', requireAuth, (req, res) => {
 // "/public-link" com "/:id", id="public-link"). Este arquivo só tem
 // `/:id` no PUT/DELETE lá embaixo, então a ordem aqui é só por clareza.
 //
-// Visibilidade (107ª rodada) se aplica com mais força ainda aqui: quem
-// abre este link está DESLOGADO -- nunca dá pra saber se é coordenador/
-// gerente/admin. Por isso o link externo NUNCA mostra "saida" (saídas/
-// chegadas fora do horário), mesmo que quem gerou o link seja
-// coordenador/gerente/admin -- só férias/afastamento/viagem, que já são
-// abertos à equipe toda mesmo dentro da Papoi.
+// Visibilidade: na 108ª rodada, por padrão de segurança (quem abre este
+// link está DESLOGADO, nunca dá pra confirmar se é coordenador/gerente/
+// admin), o link externo tinha sido feito pra NUNCA mostrar "saida"
+// (saídas/chegadas fora do horário). Pedido explícito da Raquel, ainda
+// na 108ª rodada, revertendo essa decisão: "preciso que a saida fora do
+// horario apareça no link externo." -- o link público agora mostra
+// TODOS os tipos, igual a listagem completa da aba Usuários, sem
+// nenhum filtro por tipo.
 router.get('/public/:token', (req, res) => {
   const link = shareLinks.findByToken(req.params.token);
   if (!link || link.resource !== 'ausencias') return res.status(404).json({ error: 'Link inválido ou desativado.' });
   const rows = db.get('ausencias').value()
-    .filter((a) => a.tipo !== 'saida')
     .slice()
     .sort((a, b) => (b.dataInicio || '').localeCompare(a.dataInicio || ''));
   res.json({ ausencias: rows.map(serialize) });

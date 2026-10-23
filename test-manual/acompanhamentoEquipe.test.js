@@ -206,6 +206,39 @@ async function run() {
   const filterStatusIds = filterStatus.demandas.map((d) => d.id);
   check('filtro por status "atrasada" traz só d3', filterStatusIds.length === 1 && filterStatusIds[0] === d3.id);
 
+  // ---------- 107ª rodada: resumo de ausências dentro do relatório ----------
+  // Pedido literal da Raquel: "quero poder saber o que cada colaborador
+  // teve em relação a feria, saidas e afastamentos", vinculado a este
+  // mesmo relatório ("relatorio de demandas da equipe").
+  async function createAusencia(body) {
+    return fetch(`${BASE}/api/ausencias`, { method: 'POST', headers: hj(adminToken), body: JSON.stringify(body) }).then((r) => r.json()).then((d) => d.ausencia);
+  }
+  await createAusencia({ userId: ana1.id, tipo: 'ferias', dataInicio: '2026-06-05', dataFim: '2026-06-10' });
+  await createAusencia({ userId: ana1.id, tipo: 'viagem', dataInicio: '2026-01-01', dataFim: '2026-01-05' });
+  await createAusencia({ userId: ana2.id, tipo: 'saida', dataInicio: '2026-06-20', horaSaida: '15:00', horaRetorno: '16:00' });
+  await createAusencia({ userId: ana2.id, tipo: 'afastamento', dataInicio: '2026-03-01', dataFim: '2026-03-05' });
+
+  const semFiltroDepois = await fetch(`${BASE}/api/demandas/team-report`, { headers: h(adminToken) }).then((r) => r.json());
+  const ana1AbsSemFiltro = semFiltroDepois.team.find((u) => u.id === ana1.id);
+  const ana2AbsSemFiltro = semFiltroDepois.team.find((u) => u.id === ana2.id);
+  check('107ª: sem filtro, ana1 tem 1 férias e 1 viagem no resumo de ausências', ana1AbsSemFiltro && ana1AbsSemFiltro.ausenciasResumo.ferias === 1 && ana1AbsSemFiltro.ausenciasResumo.viagem === 1);
+  check('107ª: sem filtro, ana1.ausencias traz os 2 registros detalhados', ana1AbsSemFiltro && ana1AbsSemFiltro.ausencias.length === 2);
+  check('107ª: sem filtro, ana2 tem 1 "saida" e 1 afastamento no resumo', ana2AbsSemFiltro && ana2AbsSemFiltro.ausenciasResumo.saida === 1 && ana2AbsSemFiltro.ausenciasResumo.afastamento === 1);
+  const ana2SaidaDetalhe = ana2AbsSemFiltro && ana2AbsSemFiltro.ausencias.find((a) => a.tipo === 'saida');
+  check('107ª: horário da "saida" vem no detalhe (horaSaida/horaRetorno)', ana2SaidaDetalhe && ana2SaidaDetalhe.horaSaida === '15:00' && ana2SaidaDetalhe.horaRetorno === '16:00');
+
+  const comFiltroPeriodoDepois = await fetch(`${BASE}/api/demandas/team-report?from=2026-06-01&to=2026-06-30`, { headers: h(adminToken) }).then((r) => r.json());
+  const ana1AbsComFiltro = comFiltroPeriodoDepois.team.find((u) => u.id === ana1.id);
+  const ana2AbsComFiltro = comFiltroPeriodoDepois.team.find((u) => u.id === ana2.id);
+  check('107ª: filtro de período (junho) conta a férias de ana1, mas não a viagem (janeiro, fora do período)', ana1AbsComFiltro && ana1AbsComFiltro.ausenciasResumo.ferias === 1 && ana1AbsComFiltro.ausenciasResumo.viagem === 0);
+  check('107ª: filtro de período (junho) conta a "saida" de ana2, mas não o afastamento (março, fora do período)', ana2AbsComFiltro && ana2AbsComFiltro.ausenciasResumo.saida === 1 && ana2AbsComFiltro.ausenciasResumo.afastamento === 0);
+
+  // Gerente/coordenador também veem normalmente (mesma regra de acesso do
+  // relatório inteiro -- ver canViewTeamReport).
+  const comoGerenteAbs = await fetch(`${BASE}/api/demandas/team-report`, { headers: h(gerenteToken) }).then((r) => r.json());
+  const ana2AbsComoGerente = comoGerenteAbs.team.find((u) => u.id === ana2.id);
+  check('107ª: gerente também vê o resumo de ausências (inclusive "saida") normalmente', ana2AbsComoGerente && ana2AbsComoGerente.ausenciasResumo.saida === 1);
+
   console.log(failures === 0 ? '\nTODOS OS CHECKS PASSARAM' : `\n${failures} CHECK(S) FALHARAM`);
   process.exitCode = failures === 0 ? 0 : 1;
 

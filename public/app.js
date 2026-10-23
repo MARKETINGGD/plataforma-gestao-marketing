@@ -5088,7 +5088,6 @@
   function ausenciaBadgeLabel(a) {
     if (!a) return '';
     if (a.tipo === 'saida') return '🕐 Saída';
-    if (a.tipo === 'jornada_incompleta') return '⏰ Jornada Incompleta';
     if (a.tipo === 'afastamento') return '😷 Afastado(a)';
     if (a.tipo === 'viagem') return '✈️ Viagem';
     return '🏖️ Férias';
@@ -5266,7 +5265,7 @@
       // nomeáveis, sem usuário por trás.
       const ausenciaAgora = !isPessoal ? ausenciaEm(member.id) : null;
       const ausenciaBadgeHtml = ausenciaAgora
-        ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaTipoLabel(ausenciaAgora.tipo) + (ausenciaAgora.tipo === 'saida' || ausenciaAgora.tipo === 'jornada_incompleta' ? ' hoje' : ' até ' + fmtDate(ausenciaAgora.dataFim)))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
+        ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaTipoLabel(ausenciaAgora.tipo) + (ausenciaAgora.tipo === 'saida' ? ' hoje' : ' até ' + fmtDate(ausenciaAgora.dataFim)))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
         : '';
       colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${escapeHtml(member.name)}</span>${ausenciaBadgeHtml}<button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button>${extraHeaderBtnsHtml}<span class="kanban-count">${items.length}</span></div>`;
       colEl.querySelector('.kanban-sort-date-btn').onclick = (e) => {
@@ -6022,7 +6021,7 @@
           const u = teamMembers.find((m) => m.id === x.id);
           const nome = u ? u.name : 'Essa pessoa';
           const a = x.ausencia;
-          const periodo = (a.tipo === 'saida' || a.tipo === 'jornada_incompleta') ? `no dia ${fmtDate(a.dataInicio)}` : `de ${fmtDate(a.dataInicio)} a ${fmtDate(a.dataFim)}`;
+          const periodo = (a.tipo === 'saida') ? `no dia ${fmtDate(a.dataInicio)}` : `de ${fmtDate(a.dataInicio)} a ${fmtDate(a.dataFim)}`;
           return `${nome} (${ausenciaBadgeLabel(a)} ${periodo})`;
         }).join('; ');
         if (!confirm(`Atenção: a data de entrega cai durante a ausência de ${nomes}. Deseja salvar mesmo assim?`)) {
@@ -7429,6 +7428,30 @@
   // troca de filtro dispara uma nova chamada (dataset pequeno, sem
   // paginação por enquanto, mesmo espírito do loadBudget acima).
   const ACOMPANHAMENTO_STATUS_LABEL = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', aprovado: 'Aprovado', concluida: 'Concluída', atrasada: 'Atrasada' };
+
+  // 107ª rodada, pedido literal da Raquel: "quero poder saber o que cada
+  // colaborador teve em relação a feria, saidas e afastamentos" --
+  // GET /team-report agora manda, pra cada pessoa, `ausenciasResumo`
+  // (contagem por tipo, já filtrada pelo mesmo período/marca do resto do
+  // relatório) e `ausencias` (a lista detalhada). Mostra um resuminho
+  // compacto com ícone+contagem na célula, e o detalhe completo (período
+  // de cada uma, com horário quando for "saida") no `title` (tooltip ao
+  // passar o mouse) -- sem precisar de mais uma tabela na tela.
+  function ausenciasResumoCelula(u) {
+    const r = u.ausenciasResumo || {};
+    const partes = [];
+    if (r.ferias) partes.push(`🏖️ ${r.ferias}`);
+    if (r.afastamento) partes.push(`😷 ${r.afastamento}`);
+    if (r.viagem) partes.push(`✈️ ${r.viagem}`);
+    if (r.saida) partes.push(`🕐 ${r.saida}`);
+    if (partes.length === 0) return '—';
+    const detalhe = (u.ausencias || []).map((a) => {
+      const periodo = a.dataInicio === a.dataFim ? fmtDate(a.dataInicio) : `${fmtDate(a.dataInicio)} a ${fmtDate(a.dataFim)}`;
+      const horas = [a.horaChegada && `chegou às ${a.horaChegada}`, a.horaSaida && `saiu às ${a.horaSaida}`, a.horaRetorno && `retornou às ${a.horaRetorno}`].filter(Boolean).join(', ');
+      return `${ausenciaTipoLabel(a.tipo)}: ${periodo}${horas ? ' (' + horas + ')' : ''}`;
+    }).join('\n');
+    return `<span title="${escapeHtml(detalhe)}">${partes.join('  ')}</span>`;
+  }
   async function loadAcompanhamentoEquipe() {
     const pessoaSel = $('#acompanhamentoFilterPessoa');
     const resumoBody = $('#acompanhamentoResumoBody');
@@ -7471,6 +7494,7 @@
         <td>${u.totals.aprovacao}</td>
         <td>${u.totals.concluida}</td>
         <td>${u.totals.atrasada}</td>
+        <td>${ausenciasResumoCelula(u)}</td>
       `;
       tr.onclick = () => { pessoaSel.value = u.id; loadAcompanhamentoEquipe(); };
       resumoBody.appendChild(tr);
@@ -11351,9 +11375,12 @@
   }
 
   // Espelha routes/ausencias.js#horaDetalhes -- texto curto pra tabela de
-  // administração (coluna "Horário"), só preenchido pra Jornada Incompleta.
+  // administração (coluna "Horário"), só preenchido pra Saída fora do
+  // horário (107ª rodada: chegou/saiu/retornou são opcionais, até podem
+  // não ter nenhum preenchido num registro simples -- aí o resumo fica
+  // vazio mesmo, como sempre foi antes da 106ª rodada existir).
   function ausenciaHoraResumo(a) {
-    if (!a || a.tipo !== 'jornada_incompleta') return '';
+    if (!a || a.tipo !== 'saida') return '';
     const partes = [];
     if (a.horaChegada) partes.push(`Chegou ${a.horaChegada}`);
     if (a.horaSaida) partes.push(`Saiu ${a.horaSaida}`);
@@ -11363,7 +11390,6 @@
 
   function ausenciaTipoLabel(tipo) {
     if (tipo === 'saida') return 'Saída fora do horário';
-    if (tipo === 'jornada_incompleta') return 'Jornada Incompleta';
     if (tipo === 'afastamento') return 'Afastamento';
     if (tipo === 'viagem') return 'Viagem a trabalho';
     return 'Férias';
@@ -11492,21 +11518,23 @@
     $('#ausenciaFormWrap').hidden = false;
   }
 
-  // "Saída fora do horário" e "Jornada Incompleta" são sempre de 1 dia só
-  // -- esconde o campo Data fim (o backend também trava isso, nunca confia
-  // só na tela). Jornada Incompleta também mostra os 3 campos de horário
-  // (chegou/saiu/retornou), escondidos pra qualquer outro tipo.
+  // "Saída fora do horário" é sempre de 1 dia só -- esconde o campo Data
+  // fim (o backend também trava isso, nunca confia só na tela). 107ª
+  // rodada: os 3 campos de horário (chegou/saiu/retornou) passaram a
+  // pertencer a este mesmo tipo (opcionais -- dá pra salvar sem preencher
+  // nenhum, exatamente como um registro simples de sempre), escondidos
+  // pra qualquer outro tipo.
   function updateAusenciaFimVisibility() {
     const tipo = $('#ausenciaFormTipo').value;
-    const isUmDia = tipo === 'saida' || tipo === 'jornada_incompleta';
+    const isUmDia = tipo === 'saida';
     $('#ausenciaFormFimWrap').hidden = isUmDia;
     if (isUmDia) $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
-    $('#ausenciaFormHorasWrap').hidden = tipo !== 'jornada_incompleta';
+    $('#ausenciaFormHorasWrap').hidden = tipo !== 'saida';
   }
   $('#ausenciaFormTipo').onchange = updateAusenciaFimVisibility;
   $('#ausenciaFormInicio').onchange = () => {
     const tipo = $('#ausenciaFormTipo').value;
-    if (tipo === 'saida' || tipo === 'jornada_incompleta') $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
+    if (tipo === 'saida') $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
   };
 
   $('#ausenciaNewBtn').onclick = () => openAusenciaForm(null);
@@ -11516,7 +11544,7 @@
       userId: $('#ausenciaFormUser').value,
       tipo: $('#ausenciaFormTipo').value,
       dataInicio: $('#ausenciaFormInicio').value,
-      dataFim: ($('#ausenciaFormTipo').value === 'saida' || $('#ausenciaFormTipo').value === 'jornada_incompleta') ? $('#ausenciaFormInicio').value : $('#ausenciaFormFim').value,
+      dataFim: ($('#ausenciaFormTipo').value === 'saida') ? $('#ausenciaFormInicio').value : $('#ausenciaFormFim').value,
       horaChegada: $('#ausenciaFormHoraChegada').value || null,
       horaSaida: $('#ausenciaFormHoraSaida').value || null,
       horaRetorno: $('#ausenciaFormHoraRetorno').value || null,

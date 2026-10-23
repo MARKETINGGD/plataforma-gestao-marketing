@@ -739,11 +739,50 @@ router.get('/team-report', requireAuth, (req, res) => {
     return true;
   }
 
+  // 107ª rodada, pedido literal da Raquel: "Essas informações devem ficar
+  // vinculadas ao relatorio de demandas da equipe, quero poder saber o que
+  // cada colaborador teve em relação a feria, saidas e afastamentos." --
+  // "relatório de demandas da equipe" é exatamente este endpoint
+  // (Acompanhamento Equipe), e ele já é restrito a quem pode ver tudo
+  // (`canViewTeamReport` acima = mesma regra de `canViewHorarioRestrito`
+  // em routes/ausencias.js), então nenhuma restrição extra é precisa aqui
+  // -- inclusive "saida" (saída/chegada fora do horário) pode entrar
+  // tranquilamente. Mesmo filtro de período (`from`/`to`) já usado pras
+  // demandas: uma ausência entra se o período dela tiver qualquer
+  // sobreposição com a janela escolhida (sem `from`/`to`, entra tudo).
+  // Observações (texto livre, que pode ter motivo/detalhe sensível)
+  // continuam fora daqui, de propósito -- só aparecem na tela própria de
+  // Usuários → Ausências, que já tem sua própria regra de acesso mais
+  // restrita (`configuracoes`).
+  function matchesAbsencePeriod(a) {
+    if (from && (a.dataFim || a.dataInicio) < from) return false;
+    if (to && (a.dataInicio || a.dataFim) > to) return false;
+    return true;
+  }
+  const allAusencias = db.get('ausencias').value();
+
   const team = teamUsers.map((u) => {
     const mine = allDemandas.filter((d) => (d.assigneeIds || []).includes(u.id) && matchesPeriodAndBrand(d));
     const totals = { total: mine.length, a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, aprovado: 0, concluida: 0, atrasada: 0 };
     mine.forEach((d) => { const k = teamReportStatusKey(d); totals[k] = (totals[k] || 0) + 1; });
-    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals };
+
+    const minhasAusencias = allAusencias
+      .filter((a) => a.userId === u.id && matchesAbsencePeriod(a))
+      .slice()
+      .sort((a, b) => (b.dataInicio || '').localeCompare(a.dataInicio || ''));
+    const ausenciasResumo = { ferias: 0, afastamento: 0, viagem: 0, saida: 0 };
+    minhasAusencias.forEach((a) => { if (ausenciasResumo[a.tipo] !== undefined) ausenciasResumo[a.tipo] += 1; });
+    const ausencias = minhasAusencias.map((a) => ({
+      id: a.id,
+      tipo: a.tipo,
+      dataInicio: a.dataInicio,
+      dataFim: a.dataFim,
+      horaChegada: a.horaChegada || null,
+      horaSaida: a.horaSaida || null,
+      horaRetorno: a.horaRetorno || null
+    }));
+
+    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, ausenciasResumo, ausencias };
   });
 
   let detail = allDemandas.filter(matchesPeriodAndBrand);

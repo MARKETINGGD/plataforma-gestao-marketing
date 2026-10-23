@@ -5,11 +5,15 @@
 // - "o aviso de férias deve ser estará, quando as férias são no futuro ou
 //   ainda estão acontecendo, e esteve quando já acabaram as férias" --
 //   tense estará/esteve, testado em viagem (futura/passada/em andamento).
-// - "Coloque tbm em ausencias o horário, e adicione 'Jornada Incompleta'...
-//   deve ter a opção de marcar, chegou tal hora ou saiu tal hora e caso
-//   tenha retornado, retornou tal hora" -- novo tipo `jornada_incompleta`
-//   com horaChegada/horaSaida/horaRetorno opcionais (pelo menos chegada OU
-//   saída obrigatória), validação, persistência e frase do comunicado.
+// - "Coloque tbm em ausencias o horário" -- horário de chegada/saída/
+//   retorno, originalmente criado nesta rodada como um tipo novo
+//   `jornada_incompleta` -- e CORRIGIDO ainda na própria 106ª/já na 107ª
+//   rodada, a pedido da Raquel: os 3 campos de horário passam a viver
+//   dentro do próprio tipo "Saída fora do horário" (`saida`), já existente,
+//   totalmente OPCIONAIS (nada mais é obrigatório) -- ver seção 2 abaixo.
+//   Mais uma regra da 107ª: essas saídas/chegadas fora do horário só
+//   aparecem pra quem é gerente/coordenador/admin -- férias, afastamentos
+//   e viagem continuam abertos pra equipe toda.
 // - "o card que sai do pessoal e vai p geral e vice versa, quando ele tem
 //   um card irmão, tudo que aconetce em um card deve acontecer no outro,
 //   inclusive ir de pessoal p privado, mas sempre na lista da pessoa
@@ -65,10 +69,10 @@ async function run() {
   }
   const hAdmin = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` };
 
-  async function createUser(username, name) {
+  async function createUser(username, name, cargo) {
     const user = await fetch(`${BASE}/api/auth/users`, {
       method: 'POST', headers: hAdmin,
-      body: JSON.stringify({ username, password: '123456', name })
+      body: JSON.stringify(cargo ? { username, password: '123456', name, cargo } : { username, password: '123456', name })
     }).then((r) => r.json()).then((d) => d.user);
     const token = await fetch(`${BASE}/api/auth/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -132,50 +136,115 @@ async function run() {
   const publicas = await fetch(`${BASE}/api/ausencias/publicas`, { headers: D.headers }).then((r) => r.json());
   check('GET /publicas lista as viagens cadastradas', (publicas.ausencias || []).filter((a) => a.tipo === 'viagem').length >= 3);
 
-  // ========== 2) Jornada Incompleta ==========
+  // ========== 2) Saída fora do horário: horário opcional + verbo +
+  //              visibilidade restrita (107ª rodada) ==========
+  //
+  // Correção da própria Raquel em cima da 106ª: o tipo "Jornada Incompleta"
+  // criado nessa rodada foi um passo além do que ela pediu -- os exemplos
+  // dela ("chegou às 8h"; "saiu às 15h e voltou às 16h"; "saiu às 16h sem
+  // retorno") deixam claro que é tudo a MESMA "Saída fora do horário" de
+  // sempre, só que agora com horário detalhado OPCIONAL. Esta seção testa
+  // o tipo `saida` já com os 3 campos de horário, e a nova regra de
+  // visibilidade ("só pra coordenadora, admin e gerente").
 
-  // 2a) Validação: nem chegada nem saída -> 400
-  const jornadaInvalida = await fetch(`${BASE}/api/ausencias`, {
-    method: 'POST', headers: hAdmin,
-    body: JSON.stringify({ userId: A.user.id, tipo: 'jornada_incompleta', dataInicio: addDays(10) })
-  });
-  check('jornada incompleta sem nenhum horário: recebe 400', jornadaInvalida.status === 400);
+  // Usuária com cargo "coordenador", pra testar o lado "pode ver".
+  const E = await createUser('userE107', 'CoordenadoraTeste107 Pessoa', 'coordenador');
 
-  // 2b) Só chegada + saída (sem retorno), no futuro -> "vai ter jornada incompleta" com "(chegou ... e saiu ...)"
-  const jornadaFutura = await fetch(`${BASE}/api/ausencias`, {
+  // 2a) Saída fora do horário SEM nenhum horário detalhado (uso simples, de
+  // sempre, de antes da 106ª rodada existir) -- continua válido, sem exigir
+  // nada (diferente da extinta "Jornada Incompleta", que exigia pelo menos
+  // chegada OU saída).
+  const saidaSimples = await fetch(`${BASE}/api/ausencias`, {
     method: 'POST', headers: hAdmin,
-    body: JSON.stringify({ userId: A.user.id, tipo: 'jornada_incompleta', dataInicio: addDays(10), horaChegada: '10:00', horaSaida: '15:30' })
+    body: JSON.stringify({ userId: A.user.id, tipo: 'saida', dataInicio: addDays(10) })
   }).then((r) => r.json()).then((d) => d.ausencia);
-  check('jornada incompleta futura: dataFim = dataInicio (1 dia só)', jornadaFutura.dataFim === jornadaFutura.dataInicio);
-  check('jornada incompleta futura: persiste horaChegada/horaSaida, horaRetorno null', jornadaFutura.horaChegada === '10:00' && jornadaFutura.horaSaida === '15:30' && jornadaFutura.horaRetorno === null);
-  const recJornadaFutura = await ultimoRecadoDe('ViagemFutura106');
-  check('jornada incompleta futura: comunicado usa "vai ter jornada incompleta"', !!recJornadaFutura && recJornadaFutura.text.includes('vai ter jornada incompleta'));
-  check('jornada incompleta futura: frase junta chegada e saída com "e"', !!recJornadaFutura && recJornadaFutura.text.includes('(chegou às 10:00 e saiu às 15:30)'));
+  check('saída simples sem horário: aceita (horário não é mais obrigatório)', !!saidaSimples && saidaSimples.tipo === 'saida');
+  check('saída simples: dataFim = dataInicio (1 dia só)', saidaSimples.dataFim === saidaSimples.dataInicio);
+  check('saída simples: os 3 horários ficam null', saidaSimples.horaChegada === null && saidaSimples.horaSaida === null && saidaSimples.horaRetorno === null);
+  const recSaidaSimples = await ultimoRecadoDe('ViagemFutura106', hAdmin);
+  check('saída simples, no futuro: comunicado usa "vai sair mais cedo / fora do horário", sem parênteses', !!recSaidaSimples && recSaidaSimples.text.includes('vai sair mais cedo / fora do horário no dia') && !recSaidaSimples.text.includes('('));
 
-  // 2c) Chegada + saída + retorno (3 horários), no passado -> "teve jornada incompleta", junção com vírgula + "e"
-  const jornadaPassadaComRetorno = await fetch(`${BASE}/api/ausencias`, {
+  // 2b) Só CHEGADA fora do horário (exemplo literal da Raquel: "ela
+  // precisou chegar às 08 da manhã") -- usa "chegou"/"vai chegar".
+  const chegadaTarde = await fetch(`${BASE}/api/ausencias`, {
     method: 'POST', headers: hAdmin,
-    body: JSON.stringify({ userId: B.user.id, tipo: 'jornada_incompleta', dataInicio: addDays(-10), horaChegada: '09:15', horaSaida: '11:00', horaRetorno: '13:45' })
+    body: JSON.stringify({ userId: B.user.id, tipo: 'saida', dataInicio: addDays(10), horaChegada: '08:00' })
   }).then((r) => r.json()).then((d) => d.ausencia);
-  check('jornada incompleta passada: persiste os 3 horários', jornadaPassadaComRetorno.horaChegada === '09:15' && jornadaPassadaComRetorno.horaSaida === '11:00' && jornadaPassadaComRetorno.horaRetorno === '13:45');
-  const recJornadaPassada = await ultimoRecadoDe('ViagemPassada106');
-  check('jornada incompleta passada: comunicado usa "teve jornada incompleta"', !!recJornadaPassada && recJornadaPassada.text.includes('teve jornada incompleta'));
-  check('jornada incompleta passada: frase com 3 horários usa vírgula + "e" antes do último', !!recJornadaPassada && recJornadaPassada.text.includes('(chegou às 09:15, saiu às 11:00 e retornou às 13:45)'));
+  check('só chegada: persiste horaChegada, horaSaida/horaRetorno ficam null', chegadaTarde.horaChegada === '08:00' && chegadaTarde.horaSaida === null && chegadaTarde.horaRetorno === null);
+  const recChegadaTarde = await ultimoRecadoDe('ViagemPassada106', hAdmin);
+  check('só chegada, no futuro: comunicado usa "vai chegar mais tarde / fora do horário" com "(chegou às 08:00)"', !!recChegadaTarde && recChegadaTarde.text.includes('vai chegar mais tarde / fora do horário') && recChegadaTarde.text.includes('(chegou às 08:00)'));
 
-  // 2d) PUT: trocar tipo pra Férias deve limpar os horários
-  const virouFerias = await fetch(`${BASE}/api/ausencias/${jornadaFutura.id}`, {
+  // 2c) Saída + retorno, no PASSADO (exemplo literal da Raquel: "precisou
+  // sair as 15:00 da empresa e retornou as 16:00").
+  const saidaComRetorno = await fetch(`${BASE}/api/ausencias`, {
+    method: 'POST', headers: hAdmin,
+    body: JSON.stringify({ userId: C.user.id, tipo: 'saida', dataInicio: addDays(-10), horaSaida: '15:00', horaRetorno: '16:00' })
+  }).then((r) => r.json()).then((d) => d.ausencia);
+  check('saída + retorno: persiste horaSaida e horaRetorno, horaChegada fica null', saidaComRetorno.horaChegada === null && saidaComRetorno.horaSaida === '15:00' && saidaComRetorno.horaRetorno === '16:00');
+  const recSaidaComRetorno = await ultimoRecadoDe('ViagemAndamento106', hAdmin);
+  check('saída + retorno, já no passado: comunicado usa "saiu mais cedo / fora do horário" com "(saiu às 15:00 e retornou às 16:00)"', !!recSaidaComRetorno && recSaidaComRetorno.text.includes('saiu mais cedo / fora do horário') && recSaidaComRetorno.text.includes('(saiu às 15:00 e retornou às 16:00)'));
+
+  // 2d) Saída SEM retorno (exemplo literal da Raquel: "ou ainda, saiu as
+  // 16:00. Sem retorno").
+  const saidaSemRetorno = await fetch(`${BASE}/api/ausencias`, {
+    method: 'POST', headers: hAdmin,
+    body: JSON.stringify({ userId: D.user.id, tipo: 'saida', dataInicio: addDays(-10), horaSaida: '16:00' })
+  }).then((r) => r.json()).then((d) => d.ausencia);
+  check('saída sem retorno: persiste só horaSaida', saidaSemRetorno.horaChegada === null && saidaSemRetorno.horaSaida === '16:00' && saidaSemRetorno.horaRetorno === null);
+  const recSaidaSemRetorno = await ultimoRecadoDe('QuartaPessoa106', hAdmin);
+  check('saída sem retorno, no passado: frase com 1 horário só, sem "e retornou"', !!recSaidaSemRetorno && recSaidaSemRetorno.text.includes('(saiu às 16:00)') && !recSaidaSemRetorno.text.includes('e retornou'));
+
+  // 2e) Chegada + saída + retorno (os 3 horários juntos) -- junção com
+  // vírgula + "e" antes do último, igual já era na extinta Jornada
+  // Incompleta.
+  const tresHorarios = await fetch(`${BASE}/api/ausencias`, {
+    method: 'POST', headers: hAdmin,
+    body: JSON.stringify({ userId: E.user.id, tipo: 'saida', dataInicio: addDays(-10), horaChegada: '09:15', horaSaida: '11:00', horaRetorno: '13:45' })
+  }).then((r) => r.json()).then((d) => d.ausencia);
+  check('3 horários: persiste os 3', tresHorarios.horaChegada === '09:15' && tresHorarios.horaSaida === '11:00' && tresHorarios.horaRetorno === '13:45');
+  const recTresHorarios = await ultimoRecadoDe('CoordenadoraTeste107', hAdmin);
+  check('3 horários, no passado: frase junta com vírgula + "e" antes do último', !!recTresHorarios && recTresHorarios.text.includes('(chegou às 09:15, saiu às 11:00 e retornou às 13:45)'));
+
+  // 2f) PUT: trocar tipo "saida" pra Férias deve limpar os horários
+  const virouFerias = await fetch(`${BASE}/api/ausencias/${chegadaTarde.id}`, {
     method: 'PUT', headers: hAdmin,
-    body: JSON.stringify({ tipo: 'ferias', dataInicio: jornadaFutura.dataInicio, dataFim: addDays(15) })
+    body: JSON.stringify({ tipo: 'ferias', dataInicio: chegadaTarde.dataInicio, dataFim: addDays(15) })
   }).then((r) => r.json()).then((d) => d.ausencia);
   check('virou Férias: tipo atualizado', virouFerias.tipo === 'ferias');
   check('virou Férias: horários antigos foram limpos (null)', virouFerias.horaChegada === null && virouFerias.horaSaida === null && virouFerias.horaRetorno === null);
 
-  // 2e) PUT: editando uma Jornada Incompleta existente, remover os 2 horários obrigatórios -> 400
-  const jornadaSemHoraInvalida = await fetch(`${BASE}/api/ausencias/${jornadaPassadaComRetorno.id}`, {
+  // 2g) PUT: editando uma "saida" existente, removendo TODOS os horários --
+  // diferente da extinta Jornada Incompleta (que exigia pelo menos um e
+  // dava 400), isso agora é PERMITIDO, porque horário nunca foi obrigatório
+  // pra "Saída fora do horário".
+  const saidaSemHoraNenhumaRes = await fetch(`${BASE}/api/ausencias/${saidaComRetorno.id}`, {
     method: 'PUT', headers: hAdmin,
-    body: JSON.stringify({ horaChegada: '', horaSaida: '' })
+    body: JSON.stringify({ horaChegada: '', horaSaida: '', horaRetorno: '' })
   });
-  check('PUT jornada incompleta zerando chegada e saída: recebe 400', jornadaSemHoraInvalida.status === 400);
+  check('PUT saída zerando todos os horários: aceita (200), não é mais obrigatório ter horário', saidaSemHoraNenhumaRes.status === 200);
+  const saidaSemHoraNenhuma = await saidaSemHoraNenhumaRes.json().then((d) => d.ausencia);
+  check('PUT saída zerando horários: os 3 ficam null', saidaSemHoraNenhuma.horaChegada === null && saidaSemHoraNenhuma.horaSaida === null && saidaSemHoraNenhuma.horaRetorno === null);
+
+  // 2h) Visibilidade restrita (pedido literal da Raquel: "todas as saidas
+  // ou chegadas fora do horário devem aparecer apenas para coordenadora,
+  // admim e gerente"): GET /publicas NÃO mostra nenhuma "saida" pra quem
+  // não tem esse cargo (D não tem cargo nenhum cadastrado).
+  const publicasComoD = await fetch(`${BASE}/api/ausencias/publicas`, { headers: D.headers }).then((r) => r.json());
+  check('GET /publicas, visto por quem NÃO é coordenador/gerente/admin: nenhuma "saida" aparece', !(publicasComoD.ausencias || []).some((a) => a.tipo === 'saida'));
+  check('GET /publicas, visto por quem NÃO é coordenador/gerente/admin: férias e viagem continuam aparecendo ("para a equipe toda")', (publicasComoD.ausencias || []).some((a) => a.tipo === 'viagem') && (publicasComoD.ausencias || []).some((a) => a.tipo === 'ferias'));
+
+  // 2i) Visibilidade restrita: GET /publicas MOSTRA "saida" normalmente pra
+  // quem É coordenador (E).
+  const publicasComoCoordenadora = await fetch(`${BASE}/api/ausencias/publicas`, { headers: E.headers }).then((r) => r.json());
+  check('GET /publicas, visto por coordenadora: "saida" aparece normalmente', (publicasComoCoordenadora.ausencias || []).some((a) => a.tipo === 'saida'));
+
+  // 2j) Visibilidade restrita: o COMUNICADO (recado) de "saida" só vai pra
+  // quem é gerente/coordenador/admin -- D (sem cargo) nunca recebe, mas a
+  // coordenadora (E) recebe normalmente.
+  const recSaidaComoD = await ultimoRecadoDe('CoordenadoraTeste107', D.headers);
+  check('comunicado de "saida": quem NÃO é coordenador/gerente/admin não recebe', recSaidaComoD === null);
+  const recSaidaComoCoordenadora = await ultimoRecadoDe('CoordenadoraTeste107', E.headers);
+  check('comunicado de "saida": coordenadora recebe normalmente', !!recSaidaComoCoordenadora);
 
   // ========== 3) Demandas-irmãs: visibility sempre sincronizada ==========
 

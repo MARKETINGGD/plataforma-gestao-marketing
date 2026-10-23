@@ -107,6 +107,15 @@ require('./utils/seedConcorrenciaGhelplusImport2026').seedConcorrenciaGhelplusIm
 // por print, casando pelo nome já cadastrado (ver
 // utils/migratePontoScheduleInicial.js).
 require('./utils/migratePontoScheduleInicial').migratePontoScheduleInicial();
+// 107ª rodada: o tipo "Jornada Incompleta" (criado na 106ª) foi fundido em
+// "Saída fora do horário" (tipo `saida`) -- converte qualquer registro
+// antigo que por acaso já exista com o tipo extinto (ver
+// utils/migrateConvertJornadaIncompleta107.js). E corrige o TEXTO de
+// comunicados de ausência já enviados antes da correção estará/esteve
+// existir, trocando pro passado só quando a data já passou, sem tocar em
+// nada que ainda esteja certo (ver utils/migrateFixAusenciaTense107.js).
+require('./utils/migrateConvertJornadaIncompleta107').migrateConvertJornadaIncompleta107();
+require('./utils/migrateFixAusenciaTense107').migrateFixAusenciaTense107();
 
 // 47ª rodada: lembretes automáticos de bater o ponto (5 min antes/depois
 // de cada horário cadastrado por pessoa, só dias úteis) — primeiro recurso

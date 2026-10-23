@@ -21,7 +21,9 @@ const RESOURCE_LABEL_PT = {
   // 68ª rodada
   expositoresEstoque: 'Controle de Expositores',
   concorrencia: 'Análise de Concorrência',
-  concorrenciaItem: 'Análise de Concorrência'
+  concorrenciaItem: 'Análise de Concorrência',
+  // 108ª rodada
+  ausencias: 'Ausências'
 };
 
 router.get('/resolve/:token', (req, res) => {

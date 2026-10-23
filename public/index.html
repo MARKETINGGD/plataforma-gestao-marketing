@@ -954,6 +954,7 @@
           <input id="acompanhamentoFilterFrom" type="date" title="Demandas criadas a partir de">
           <input id="acompanhamentoFilterTo" type="date" title="Demandas criadas até">
           <button id="acompanhamentoFilterClear" class="btn-secondary" type="button">Limpar filtros</button>
+          <button id="acompanhamentoExportPdfBtn" class="btn-secondary no-print" type="button">🖨️ Exportar PDF</button>
         </div>
 
         <h3 style="margin-top:18px;">Resumo por pessoa</h3>
@@ -3166,7 +3167,29 @@
              Ver routes/ausencias.js e a seção "Ausências" em app.js. -->
         <div id="usersTabAusencias" hidden>
           <p class="muted">Cadastre férias, afastamentos e saídas fora do horário de cada colaborador(a). O calendário abaixo mostra quem estava ausente em cada dia -- e isso também aparece como um aviso na lista da pessoa em Demandas, e um comunicado automático em Recados quando a ausência é cadastrada.</p>
-          <button id="ausenciaNewBtn" class="btn-primary" type="button">+ Nova ausência</button>
+          <div class="toolbar">
+            <button id="ausenciaNewBtn" class="btn-primary" type="button">+ Nova ausência</button>
+            <button id="ausenciasPublicLinkBtn" class="btn-secondary no-print" type="button">🔗 Link externo</button>
+          </div>
+
+          <!-- 108ª rodada, pedido literal da Raquel: "a aba das ausencias,
+               deve ter um link externo de compartilhamento, que apareça o
+               calendario e a explicação, exatamente como ela esta hoje na
+               plataforma." Só leitura, 1 link único (sem escopo por marca/
+               pessoa) -- e, por segurança, nunca mostra "saída fora do
+               horário" (ver routes/ausencias.js#GET /public/:token). -->
+          <div id="ausenciasPublicLinkPanel" class="form-card no-print" hidden>
+            <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver o calendário de férias, afastamentos e viagens a trabalho, somente leitura, mesmo sem estar logada na plataforma. Por segurança, saídas/chegadas fora do horário NUNCA aparecem nesse link, mesmo que você seja coordenador(a), gerente ou admin.</p>
+            <div id="ausenciasPublicLinkActive" hidden>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="ausenciasPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                <button class="btn-secondary" id="ausenciasCopyLinkBtn" type="button">Copiar link</button>
+                <button class="btn-secondary" id="ausenciasRegenLinkBtn" type="button">Gerar novo link</button>
+                <button class="btn-secondary danger" id="ausenciasRevokeLinkBtn" type="button">Desativar</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="ausenciasGenLinkBtn" type="button">Gerar link externo</button>
+          </div>
 
           <div id="ausenciaFormWrap" class="form-card" hidden>
             <h3 id="ausenciaFormTitle">Nova ausência</h3>

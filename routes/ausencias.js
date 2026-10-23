@@ -5,6 +5,7 @@ const { requireAuth, requireSuperAdmin } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { createAutoRecado } = require('./recados');
+const shareLinks = require('../utils/shareLinks');
 
 const router = express.Router();
 
@@ -210,6 +211,53 @@ router.get('/publicas', requireAuth, (req, res) => {
       dataFim: a.dataFim
     }));
   res.json({ ausencias: rows });
+});
+
+// ---------- link externo (108ª rodada, pedido literal da Raquel: "a aba
+// das ausencias, deve ter um link externo de compartilhamento, que
+// apareça o calendario e a explicação, exatamente como ela esta hoje na
+// plataforma.") ----------
+// Mesmo mecanismo genérico já usado em Budget/Feiras/Brindes/Campanha
+// Cooperada/Expositores/Concorrência (ver utils/shareLinks.js) -- só
+// "leitura" (não faz sentido editar ausência sem login). Sem escopo por
+// marca/pessoa (o calendário é de toda a equipe, sempre o mesmo pra
+// qualquer um que acesse a aba dentro da Papoi) -- `scopeKey` fixo
+// 'geral', só pra reaproveitar as mesmas 3 funções genéricas sem
+// reescrever nada.
+//
+// **Precisa ficar ANTES de qualquer rota com `/:id`** -- mesmo motivo já
+// documentado em routes/feiras.js/routes/budget.js (Express casaria
+// "/public-link" com "/:id", id="public-link"). Este arquivo só tem
+// `/:id` no PUT/DELETE lá embaixo, então a ordem aqui é só por clareza.
+//
+// Visibilidade (107ª rodada) se aplica com mais força ainda aqui: quem
+// abre este link está DESLOGADO -- nunca dá pra saber se é coordenador/
+// gerente/admin. Por isso o link externo NUNCA mostra "saida" (saídas/
+// chegadas fora do horário), mesmo que quem gerou o link seja
+// coordenador/gerente/admin -- só férias/afastamento/viagem, que já são
+// abertos à equipe toda mesmo dentro da Papoi.
+router.get('/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'ausencias') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const rows = db.get('ausencias').value()
+    .filter((a) => a.tipo !== 'saida')
+    .slice()
+    .sort((a, b) => (b.dataInicio || '').localeCompare(a.dataInicio || ''));
+  res.json({ ausencias: rows.map(serialize) });
+});
+router.get('/public-link', requireAuth, requireSuperAdmin, (req, res) => {
+  const link = shareLinks.getLink('ausencias', 'geral');
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/public-link/generate', requireAuth, requireSuperAdmin, (req, res) => {
+  const token = shareLinks.generateLink('ausencias', 'geral', req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'ausencias:geral', entityLabel: 'Ausências', action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/public-link', requireAuth, requireSuperAdmin, (req, res) => {
+  shareLinks.revokeLink('ausencias', 'geral');
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'ausencias:geral', entityLabel: 'Ausências', action: 'revoke_public_link' });
+  res.json({ ok: true });
 });
 
 router.post('/', requireAuth, requireSuperAdmin, (req, res) => {

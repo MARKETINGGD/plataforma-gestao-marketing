@@ -1018,6 +1018,11 @@
   setupPublicLinkPanel({ prefix: 'budget', apiBase: '/api/budget', getKey: () => currentBudgetBrand, keyParamName: 'brand' });
   setupPublicLinkPanel({ prefix: 'feiras', apiBase: '/api/feiras', getKey: () => feirasBrandFilter, keyParamName: 'key' });
   setupPublicLinkPanel({ prefix: 'campanhaCooperada', apiBase: '/api/campanha-cooperada', getKey: () => campanhaCooperadaBrandFilter, keyParamName: 'key' });
+  // 108ª rodada: Ausências não tem escopo por marca/pessoa (o calendário é
+  // sempre de toda a equipe) -- `getKey` fixo só pra satisfazer a
+  // assinatura genérica; o backend (routes/ausencias.js) nem lê esse
+  // valor, sempre usa o mesmo link único ('geral').
+  setupPublicLinkPanel({ prefix: 'ausencias', apiBase: '/api/ausencias', getKey: () => 'geral', keyParamName: 'key' });
 
   // Brindes (68ª rodada): painel próprio (não o genérico acima) -- é um
   // dos 2 recursos (junto com Registro de Saídas) com o modo "edição",
@@ -1420,7 +1425,7 @@
   // endpoint público daquele recurso específico (cada um serializa do seu
   // jeito). A tabela é montada na hora, já que cada recurso tem colunas
   // diferentes.
-  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item' };
+  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias' };
   function publicTableHtml(headers, rows) {
     return `<table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '' : c}</td>`).join('')}</tr>`).join('')
@@ -1679,6 +1684,39 @@
       // 68ª rodada: link de 1 análise só.
       empty = !data.item;
       html = data.item ? concorrenciaCardHtml(data.item, { editable: false, actionsHtml: '' }) : '';
+    } else if (resource === 'ausencias') {
+      // 108ª rodada, pedido literal da Raquel: "a aba das ausencias, deve
+      // ter um link externo de compartilhamento, que apareça o
+      // calendario e a explicação, exatamente como ela esta hoje na
+      // plataforma." -- mesmo parágrafo explicativo e o mesmo calendário
+      // (navegação por mês + chips por dia) da aba Usuários → Ausências,
+      // só que somente leitura (sem botão de editar/excluir no chip) e
+      // sem "saida" (saídas/chegadas fora do horário nunca aparecem aqui
+      // -- ver comentário em routes/ausencias.js#GET /public/:token).
+      const items = data.ausencias || [];
+      empty = items.length === 0;
+      html = `
+        <p class="muted" style="margin-top:0;">Cadastre férias, afastamentos e saídas fora do horário de cada colaborador(a). O calendário abaixo mostra quem estava ausente em cada dia -- e isso também aparece como um aviso na lista da pessoa em Demandas, e um comunicado automático em Recados quando a ausência é cadastrada.</p>
+        <div class="cal-toolbar">
+          <button class="btn-secondary" id="sharePublicAusenciasPrevMonth" type="button">← Mês anterior</button>
+          <h3 id="sharePublicAusenciasMonthLabel"></h3>
+          <button class="btn-secondary" id="sharePublicAusenciasNextMonth" type="button">Próximo mês →</button>
+        </div>
+        <div class="cal-grid" id="sharePublicAusenciasCalGrid"></div>
+        <table class="data-table" style="margin-top:20px;">
+          <thead><tr><th></th><th>Colaborador(a)</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Observações</th></tr></thead>
+          <tbody>${items.map((a) => `
+            <tr>
+              <td>${ausenciaBadgeLabel(a)}</td>
+              <td>${escapeHtml(a.userName || '')}</td>
+              <td>${ausenciaTipoLabel(a.tipo)}</td>
+              <td>${fmtDate(a.dataInicio)}</td>
+              <td>${fmtDate(a.dataFim)}</td>
+              <td>${escapeHtml(a.observacoes || '')}</td>
+            </tr>
+          `).join('')}</tbody>
+        </table>
+      `;
     }
     $('#sharePublicContent').innerHTML = html;
     $('#sharePublicEmpty').hidden = !empty;
@@ -1713,6 +1751,61 @@
       }
       $('#sharePublicConcorrenciaFilter').addEventListener('input', renderFilteredConcorrencia);
       renderFilteredConcorrencia();
+    }
+    // 108ª rodada: desenha o calendário de Ausências separadamente (mesmo
+    // motivo dos 2 blocos acima) -- navegação por mês própria desta
+    // página (não mexe no calendário de dentro da Papoi), reaproveitando
+    // a mesma lógica de grade de renderAusenciasCalendar(), só que sem
+    // clique (chip não abre nada -- é só leitura, sem login).
+    if (resource === 'ausencias') {
+      const items = data.ausencias || [];
+      let calMonth = new Date();
+      function renderSharePublicAusenciasCal() {
+        const year = calMonth.getFullYear();
+        const month = calMonth.getMonth();
+        $('#sharePublicAusenciasMonthLabel').textContent = `${MONTHS_FULL[month]} ${year}`;
+        const grid = $('#sharePublicAusenciasCalGrid');
+        grid.innerHTML = '';
+        WEEKDAYS_SHORT.forEach((w) => {
+          const el = document.createElement('div');
+          el.className = 'cal-weekday';
+          el.textContent = w;
+          grid.appendChild(el);
+        });
+        const firstWeekday = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const daysInPrevMonth = new Date(year, month, 0).getDate();
+        const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+        const todayS = todayStr();
+        for (let i = 0; i < totalCells; i++) {
+          const dayOffset = i - firstWeekday + 1;
+          let cellYear = year, cellMonth = month, cellDay = dayOffset, otherMonth = false;
+          if (dayOffset < 1) {
+            cellMonth = month - 1; cellDay = daysInPrevMonth + dayOffset; otherMonth = true;
+            if (cellMonth < 0) { cellMonth = 11; cellYear -= 1; }
+          } else if (dayOffset > daysInMonth) {
+            cellMonth = month + 1; cellDay = dayOffset - daysInMonth; otherMonth = true;
+            if (cellMonth > 11) { cellMonth = 0; cellYear += 1; }
+          }
+          const cellDateStr = `${cellYear}-${String(cellMonth + 1).padStart(2, '0')}-${String(cellDay).padStart(2, '0')}`;
+          const cell = document.createElement('div');
+          cell.className = 'cal-day' + (otherMonth ? ' other-month' : '') + (cellDateStr === todayS ? ' today' : '');
+          const num = document.createElement('div');
+          num.className = 'cal-day-num';
+          num.textContent = cellDay;
+          cell.appendChild(num);
+          items.filter((a) => a.dataInicio <= cellDateStr && cellDateStr <= a.dataFim).forEach((a) => {
+            const chip = document.createElement('div');
+            chip.className = 'cal-post-chip';
+            chip.innerHTML = `<b>${ausenciaBadgeLabel(a)} ${escapeHtml(a.userName || '')}</b>${ausenciaTipoLabel(a.tipo)}`;
+            cell.appendChild(chip);
+          });
+          grid.appendChild(cell);
+        }
+      }
+      $('#sharePublicAusenciasPrevMonth').onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1); renderSharePublicAusenciasCal(); };
+      $('#sharePublicAusenciasNextMonth').onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1); renderSharePublicAusenciasCal(); };
+      renderSharePublicAusenciasCal();
     }
   }
   async function loadSharePublicPage(shareToken) {
@@ -7536,6 +7629,11 @@
     $('#acompanhamentoFilterTo').value = '';
     loadAcompanhamentoEquipe();
   };
+  // 108ª rodada, pedido da Raquel: "a aba do acompanhamento da equipe,
+  // deve ter a opção de gerar relatório em PDF" -- mesmo padrão já usado
+  // em Budget/Brindes/etc: window.print() + CSS @media print (ver
+  // exportViewToPdf acima).
+  $('#acompanhamentoExportPdfBtn').onclick = exportViewToPdf;
 
   let approvalToastTimer = null;
   // 40ª rodada, pedido da Raquel: "ao ser aprovado um post, deve ter uma
@@ -11363,6 +11461,10 @@
   // admin de verdade pra criar/editar/excluir -- ver routes/ausencias.js).
   async function loadAusenciasAdmin() {
     $('#ausenciaNewBtn').hidden = !currentUser.isSuperAdmin;
+    // 108ª rodada: gerar/revogar o link externo é tão administrativo
+    // quanto cadastrar uma ausência -- mesma regra de sempre (exclusivo
+    // do super admin de verdade, nunca delegável por "visualizar").
+    $('#ausenciasPublicLinkBtn').hidden = !currentUser.isSuperAdmin;
     const data = await api('/api/ausencias');
     ausenciasAdmin = data.ausencias || [];
     populateAusenciaFormUserOptions();

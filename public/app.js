@@ -4246,25 +4246,36 @@
     { id: 'ghelplus', label: 'GhelPlus' },
     { id: 'debacco', label: 'De Bacco' }
   ];
+  // 110ª rodada: lista (e ORDEM) das abas principais, exatamente como a
+  // Raquel pediu — "Metricas Mensais; Resultados; Resumos; Comparativo
+  // Anual; Planejamento atual; Planejamento Anterior". O Histórico de
+  // alterações não entrou nessa lista — vira um botão à parte
+  // (TRAFEGO_AUDIT_SECTION), pra não perder o acesso a ele.
   const TRAFEGO_SECTIONS = [
-    { id: 'planning', label: 'Planejamento', desc: 'Cronograma de campanhas por trimestre, com objetivo, público-alvo e KPIs.' },
-    { id: 'results', label: 'Resultados', desc: 'Indicadores por campanha, comparador entre campanhas e funil de conversão.' },
-    { id: 'summary', label: 'Resumo Campanhas', desc: 'Visão consolidada de todas as campanhas cadastradas.' },
-    { id: 'monthly', label: 'Métricas mensais', desc: 'Investimento, receita e conversões lançados mês a mês.' },
-    { id: 'archive', label: 'Planejamentos anteriores', desc: 'Campanhas de anos passados, separadas automaticamente pela data.' },
-    { id: 'yearly', label: 'Comparativo anual', desc: 'Compara os anos lado a lado: campanhas, orçado, investido e receita.' },
-    { id: 'audit', label: 'Histórico de alterações', desc: 'Quem criou, editou ou excluiu o quê e quando.' }
+    { id: 'monthly', label: 'Métricas Mensais' },
+    { id: 'results', label: 'Resultados' },
+    { id: 'summary', label: 'Resumos' },
+    { id: 'yearly', label: 'Comparativo Anual' },
+    { id: 'planning', label: 'Planejamento atual' },
+    { id: 'archive', label: 'Planejamento Anterior' }
   ];
+  const TRAFEGO_AUDIT_SECTION = 'audit';
   let trafegoBrand = 'ghelplus';
+  let trafegoSection = TRAFEGO_SECTIONS[0].id;
+  let trafegoFrameBase = null; // cache { baseUrl, platformParams } — evita re-assinar o token a cada clique de aba/marca
 
   function openTrafegoHub() {
     showView('trafego-hub');
     // Mesmo cuidado do Mídias: some com os controles de "Link externo" pra
-    // quem já entrou por um link externo (28ª rodada).
+    // quem já entrou por um link externo (28ª rodada) — mas o botão de
+    // Histórico continua visível pra quem entrou por esse link (acesso a
+    // TODAS as seções já era o combinado com a Raquel).
     $('#trafegoHubPublicLinkBtn').hidden = !!dashboardPublicToken;
     if (dashboardPublicToken) $('#trafegoPublicLinkPanel').hidden = true;
+    trafegoFrameBase = null;
     renderTrafegoBrandSwitch();
-    renderTrafegoHubBody();
+    renderTrafegoTabs();
+    loadTrafegoFrame();
   }
 
   function renderTrafegoBrandSwitch() {
@@ -4272,52 +4283,58 @@
     wrap.innerHTML = TRAFEGO_BRANDS.map((b) => `<button class="btn-secondary${b.id === trafegoBrand ? ' active' : ''}" data-trafego-brand="${b.id}">${b.label}</button>`).join('');
     wrap.querySelectorAll('[data-trafego-brand]').forEach((btn) => {
       btn.onclick = () => {
+        if (trafegoBrand === btn.dataset.trafegoBrand) return;
         trafegoBrand = btn.dataset.trafegoBrand;
         renderTrafegoBrandSwitch();
+        loadTrafegoFrame();
       };
     });
   }
 
-  function renderTrafegoHubBody() {
-    $('#trafegoHubGroups').innerHTML = `
-      <div class="card-grid">
-        ${TRAFEGO_SECTIONS.map((s) => `
-          <div class="dash-card" data-open-trafego-section="${s.id}">
-            <h3>${s.label}</h3>
-            <p>${s.desc}</p>
-            <button>Abrir →</button>
-          </div>`).join('')}
-      </div>`;
-    $all('[data-open-trafego-section]').forEach((card) => {
-      card.querySelector('button').onclick = () => openTrafegoSection(card.dataset.openTrafegoSection);
+  function renderTrafegoTabs() {
+    const el = $('#trafegoTabs');
+    el.innerHTML = TRAFEGO_SECTIONS.map((s) => `<button class="tab-btn${s.id === trafegoSection ? ' active' : ''}" data-trafego-section="${s.id}">${s.label}</button>`).join('');
+    el.querySelectorAll('[data-trafego-section]').forEach((btn) => {
+      btn.onclick = () => {
+        if (trafegoSection === btn.dataset.trafegoSection) return;
+        trafegoSection = btn.dataset.trafegoSection;
+        renderTrafegoTabs();
+        loadTrafegoFrame();
+      };
     });
+    const auditBtn = $('#trafegoAuditBtn');
+    if (auditBtn) auditBtn.classList.toggle('active', trafegoSection === TRAFEGO_AUDIT_SECTION);
   }
 
-  async function openTrafegoSection(sectionId) {
+  // Monta (ou reaproveita, se já montada nesta visita ao hub) a URL de login
+  // único do painel de Tráfego Pago, e aponta o iframe pra marca + aba
+  // atuais — chamada tanto ao abrir o hub quanto ao trocar de aba/marca.
+  async function loadTrafegoFrame() {
     try {
-      const data = await dashboardLaunch('trafegoPago');
-      // O launch devolve a URL ja com o token de login unico (?platformToken=...);
-      // a base (sem querystring) e o que precisamos pra montar os parametros de
-      // navegacao por cima — o painel de Trafego Pago le os dois juntos no boot.
-      const url = new URL(data.url);
-      const baseUrl = url.origin;
-      const platformParams = url.search; // ?platformToken=...&platformUser=...
+      if (!trafegoFrameBase) {
+        const data = await dashboardLaunch('trafegoPago');
+        // O launch devolve a URL ja com o token de login unico (?platformToken=...);
+        // a base (sem querystring) e o que precisamos pra montar os parametros de
+        // navegacao por cima — o painel de Trafego Pago le os dois juntos no boot.
+        const url = new URL(data.url);
+        trafegoFrameBase = { baseUrl: url.origin, platformParams: url.search };
+      }
       const params = new URLSearchParams();
       params.set('embedBrand', trafegoBrand);
-      params.set('embedView', sectionId);
-      const navSrc = baseUrl.replace(/\/$/, '') + '/?' + params.toString();
+      params.set('embedView', trafegoSection);
+      const navSrc = trafegoFrameBase.baseUrl.replace(/\/$/, '') + '/?' + params.toString();
       $('#trafegoTelaFrame').style.height = '';
-      $('#trafegoTelaFrame').src = navSrc + '&' + platformParams.slice(1);
-      const section = TRAFEGO_SECTIONS.find((s) => s.id === sectionId) || {};
-      const brandLabel = (TRAFEGO_BRANDS.find((b) => b.id === trafegoBrand) || {}).label || trafegoBrand;
-      $('#trafegoTelaTitle').textContent = `${section.label || ''} — ${brandLabel}`;
-      showView('trafego-tela');
+      $('#trafegoTelaFrame').src = navSrc + '&' + trafegoFrameBase.platformParams.slice(1);
     } catch (e) {
       alert(e.message);
     }
   }
 
-  $('#trafegoTelaBack').onclick = () => openTrafegoHub();
+  $('#trafegoAuditBtn').onclick = () => {
+    trafegoSection = TRAFEGO_AUDIT_SECTION;
+    renderTrafegoTabs();
+    loadTrafegoFrame();
+  };
 
   // ---------- Ações Sazonais + Expositores Especiais (30ª rodada) ----------
   // Mesmo tratamento de hub nativo dado a Mídias/Tráfego: uma central com

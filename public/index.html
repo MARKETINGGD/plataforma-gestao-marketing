@@ -840,15 +840,23 @@
            nativo da Papoi com um card por secao do painel de origem
            (Planejamento, Resultados, etc.), e cada uma abre deep-linkada,
            ja na marca/aba certa, com a barra de abas do painel escondida. -->
+      <!-- 110ª rodada: hub de cards substituido por UMA tela so, com abas
+           de verdade (pedido da Raquel: "sem essas janelas quadradinhas...
+           devem ser uma tela mesma, normal"). O seletor de marca
+           (GhelPlus/De Bacco) continua aqui em cima; o Historico de
+           alteracoes saiu da lista de abas principais (nao estava na lista
+           que a Raquel pediu) mas continua acessivel por um botao proprio,
+           pra nao perder esse acesso (inclusive no link externo, que
+           continua dando acesso a TODAS as secoes). -->
       <section id="view-trafego-hub" class="view" hidden>
         <div class="view-toolbar">
           <h2>Gerenciamento de Tráfego Pago</h2>
           <div class="view-toolbar-actions" style="align-items:center;">
             <div id="trafegoBrandSwitch" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+            <button class="btn-secondary" id="trafegoAuditBtn">Histórico de alterações</button>
             <button class="btn-secondary" id="trafegoHubPublicLinkBtn">Link externo</button>
           </div>
         </div>
-        <p class="muted">Escolha uma seção do painel de Tráfego Pago pra abrir.</p>
 
         <!-- Link externo do hub de Tráfego Pago (28ª rodada) -- dá acesso a
              TODAS as seções, incluindo Histórico de alterações (pedido
@@ -867,16 +875,8 @@
           <button class="btn-primary" id="trafegoGenLinkBtn">Gerar link externo</button>
         </div>
 
-        <div id="trafegoHubGroups"></div>
-      </section>
+        <div class="tabs" id="trafegoTabs"></div>
 
-      <section id="view-trafego-tela" class="view" hidden>
-        <div class="view-toolbar">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <button class="btn-secondary" id="trafegoTelaBack">◀ Voltar</button>
-            <h2 id="trafegoTelaTitle"></h2>
-          </div>
-        </div>
         <div class="iframe-wrap">
           <iframe id="trafegoTelaFrame" title="Gerenciamento de Tráfego Pago"></iframe>
         </div>

@@ -216,6 +216,11 @@ function sharedStateForNewSibling(sourceSocialPostId) {
   const representative = siblings.slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
   return {
     status: representative.status,
+    // 106ª rodada: uma pessoa NOVA entrando num grupo que já está em
+    // "pessoal" (alguém moveu antes dela entrar) nasce já em pessoal,
+    // igual ao resto do grupo -- mesma lógica de "sempre as mesmas
+    // informações" aplicada a visibility.
+    visibility: representative.visibility === 'pessoal' ? 'pessoal' : 'geral',
     color: representative.color || null,
     link: representative.link || null,
     checklistTitle: representative.checklistTitle || 'Checklist',

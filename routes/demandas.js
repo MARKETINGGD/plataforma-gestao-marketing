@@ -1155,7 +1155,16 @@ router.put('/:id', requireAuth, (req, res) => {
   // "intocável": se outra do mesmo grupo mudar, ela acompanha.
   if (demanda.sourceSocialPostId) {
     const mirrorFields = {};
-    ['title', 'description', 'dueDate', 'status', 'color', 'link', 'checklistTitle', 'labelIds', 'network', 'brands', 'responsibleId', 'archived', 'lastCompletedAt', 'lastCompletedDueDate', 'recurrence', 'recurring'].forEach((key) => {
+    // 106ª rodada, pedido da Raquel: "o card que sai do pessoal e vai p
+    // geral e vice versa, quando ele tem um card irmão, tudo que aconetce
+    // em um card deve acontecer no outro, inclusive ir de pessoal p
+    // privado, mas sempre na lista da pessoa maracda" -- `visibility`
+    // entra no mirror igual aos outros campos; NÃO precisa (e não deve)
+    // tocar em `personalPlacements` aqui -- cada demanda-irmã já resolve
+    // sua própria lista pessoal via personalListIdFor()/ensureDefaultPersonalList(),
+    // usando a pessoa marcada NAQUELA demanda-irmã especificamente, então
+    // "sempre na lista da pessoa marcada" já sai de graça.
+    ['title', 'description', 'dueDate', 'status', 'color', 'link', 'checklistTitle', 'labelIds', 'network', 'brands', 'responsibleId', 'archived', 'lastCompletedAt', 'lastCompletedDueDate', 'recurrence', 'recurring', 'visibility'].forEach((key) => {
       if (updates[key] !== undefined) mirrorFields[key] = updates[key];
     });
     if (Object.keys(mirrorFields).length > 0) {

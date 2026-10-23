@@ -41,11 +41,27 @@ function canViewConfiguracoes(req) {
   return access === 'visualizar' || access === 'editor' || access === 'admin';
 }
 
-const TIPOS = ['ferias', 'afastamento', 'saida'];
-const TIPO_LABEL = { ferias: 'Férias', afastamento: 'Afastamento', saida: 'Saída fora do horário' };
+// 106ª rodada, pedido da Raquel: novo tipo "Viagem a trabalho" -- mesmo
+// comportamento de período (início/fim) que Férias/Afastamento já têm
+// (só "Saída fora do horário" é sempre de 1 dia só, ver mais abaixo) --
+// e novo tipo "Jornada Incompleta" (dia único, igual Saída, mas com até
+// 3 horários opcionais: chegou/saiu/retornou), pedido literal: "adicione
+// 'Jornada Incompleta', por que isso será usado quando a pessoa precisou
+// sair mais cedo ou chegar mais tarde no trabalho. Então deve ter a
+// opção de marcar, chegou tal hora ou saiu tal hora e caso tenha
+// retornado, retornou tal hora (isso no mesmo cadastro de ausência)."
+const TIPOS = ['ferias', 'afastamento', 'viagem', 'jornada_incompleta', 'saida'];
+const TIPO_LABEL = { ferias: 'Férias', afastamento: 'Afastamento', viagem: 'Viagem a trabalho', jornada_incompleta: 'Jornada Incompleta', saida: 'Saída fora do horário' };
+// Tipos de 1 dia só (a data final sempre acompanha a de início, campo
+// "Data fim" nem aparece na tela -- ver updateAusenciaFimVisibility em
+// app.js). Férias/Afastamento/Viagem continuam sendo um período.
+const TIPOS_UM_DIA = ['saida', 'jornada_incompleta'];
 
 function str(v) { return (v || '').toString().trim(); }
 function validDate(v) { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; }
+// Horário (106ª rodada): "HH:MM", 24h. Usado só por "Jornada Incompleta"
+// (chegou/saiu/retornou) -- os outros tipos nunca gravam nada aqui.
+function validTime(v) { return typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : null; }
 function fmtDateBR(dateStr) {
   if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-');
@@ -55,7 +71,10 @@ function fmtDateBR(dateStr) {
 function serialize(a) {
   return Object.assign({}, a, {
     userName: resolveUserName(a.userId, a.userName),
-    userPhoto: resolveUserPhoto(a.userId)
+    userPhoto: resolveUserPhoto(a.userId),
+    horaChegada: a.horaChegada || null,
+    horaSaida: a.horaSaida || null,
+    horaRetorno: a.horaRetorno || null
   });
 }
 
@@ -64,16 +83,52 @@ function serialize(a) {
 // aprovação/publicação (ver routes/recados.js), endereçado a TODA a
 // equipe (não só a quem é afetado), pra funcionar como um mural de aviso
 // geral mesmo.
+// 106ª rodada, pedido da Raquel: "o aviso de férias deve ser estará,
+// quando as férias são no futuro ou ainda estão acontecendo, e esteve
+// quando já acabaram as férias" -- antes o comunicado sempre usava o
+// futuro ("estará"/"vai sair"), mesmo pra uma ausência cadastrada DEPOIS
+// de já ter acabado (ex.: lançar um período antigo pra manter o
+// histórico). Compara a data final (ou a única data, pra tipos de 1
+// dia) com HOJE, no momento em que a ausência é cadastrada -- se já
+// passou, usa o passado.
+function jaAcabou(ausencia) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  return (ausencia.dataFim || ausencia.dataInicio) < hoje;
+}
+
+// Monta "(chegou às 10:00, saiu às 15:00 e retornou às 16:30)" com só os
+// horários que foram de fato preenchidos -- "Jornada Incompleta" aceita
+// qualquer combinação (só saída cedo, só chegada tarde, ou os 2 + volta).
+function horaDetalhes(ausencia) {
+  const partes = [];
+  if (ausencia.horaChegada) partes.push(`chegou às ${ausencia.horaChegada}`);
+  if (ausencia.horaSaida) partes.push(`saiu às ${ausencia.horaSaida}`);
+  if (ausencia.horaRetorno) partes.push(`retornou às ${ausencia.horaRetorno}`);
+  if (partes.length === 0) return '';
+  if (partes.length === 1) return ` (${partes[0]})`;
+  return ` (${partes.slice(0, -1).join(', ')} e ${partes[partes.length - 1]})`;
+}
+
 function anunciarAusencia(ausencia) {
   const nome = resolveUserName(ausencia.userId, ausencia.userName);
   const primeiroNome = String(nome || '').trim().split(/\s+/)[0] || nome;
+  const acabou = jaAcabou(ausencia);
   let texto;
   if (ausencia.tipo === 'saida') {
-    texto = `🕐 ${primeiroNome} vai sair mais cedo / fora do horário no dia ${fmtDateBR(ausencia.dataInicio)}.`;
+    texto = acabou
+      ? `🕐 ${primeiroNome} saiu mais cedo / fora do horário no dia ${fmtDateBR(ausencia.dataInicio)}.`
+      : `🕐 ${primeiroNome} vai sair mais cedo / fora do horário no dia ${fmtDateBR(ausencia.dataInicio)}.`;
+  } else if (ausencia.tipo === 'jornada_incompleta') {
+    const detalhes = horaDetalhes(ausencia);
+    texto = acabou
+      ? `⏰ ${primeiroNome} teve jornada incompleta no dia ${fmtDateBR(ausencia.dataInicio)}${detalhes}.`
+      : `⏰ ${primeiroNome} vai ter jornada incompleta no dia ${fmtDateBR(ausencia.dataInicio)}${detalhes}.`;
   } else if (ausencia.tipo === 'afastamento') {
-    texto = `😷 ${primeiroNome} estará afastado(a) de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
+    texto = `😷 ${primeiroNome} ${acabou ? 'esteve' : 'estará'} afastado(a) de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
+  } else if (ausencia.tipo === 'viagem') {
+    texto = `✈️ ${primeiroNome} ${acabou ? 'esteve' : 'estará'} em viagem a trabalho de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
   } else {
-    texto = `🏖️ ${primeiroNome} estará de férias de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
+    texto = `🏖️ ${primeiroNome} ${acabou ? 'esteve' : 'estará'} de férias de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
   }
   const allUserIds = db.get('users').value().map((u) => u.id);
   if (allUserIds.length === 0) return;
@@ -111,11 +166,23 @@ router.post('/', requireAuth, requireSuperAdmin, (req, res) => {
   if (!tipo) return res.status(400).json({ error: 'Escolha o tipo da ausência.' });
   const dataInicio = validDate(b.dataInicio);
   if (!dataInicio) return res.status(400).json({ error: 'Informe a data de início.' });
-  // "Saída fora do horário" é sempre de 1 dia só -- a data final some
-  // sozinha na tela (ver $('#ausenciaFormTipo').onchange em app.js), mas
-  // confere aqui também (nunca confiar só na tela).
-  const dataFim = tipo === 'saida' ? dataInicio : (validDate(b.dataFim) || dataInicio);
+  // "Saída fora do horário" e "Jornada Incompleta" são sempre de 1 dia só
+  // -- a data final some sozinha na tela (ver
+  // $('#ausenciaFormTipo').onchange em app.js), mas confere aqui também
+  // (nunca confiar só na tela).
+  const dataFim = TIPOS_UM_DIA.includes(tipo) ? dataInicio : (validDate(b.dataFim) || dataInicio);
   if (dataFim < dataInicio) return res.status(400).json({ error: 'A data final não pode ser antes da data de início.' });
+  // Horários (106ª rodada) -- só "Jornada Incompleta" usa; os outros
+  // tipos nunca gravam nada aqui, mesmo que venha algo no corpo.
+  let horaChegada = null, horaSaida = null, horaRetorno = null;
+  if (tipo === 'jornada_incompleta') {
+    horaChegada = validTime(b.horaChegada);
+    horaSaida = validTime(b.horaSaida);
+    horaRetorno = validTime(b.horaRetorno);
+    if (!horaChegada && !horaSaida) {
+      return res.status(400).json({ error: 'Informe pelo menos o horário de chegada ou de saída.' });
+    }
+  }
   const now = new Date().toISOString();
   const ausencia = {
     id: nanoid(),
@@ -124,6 +191,9 @@ router.post('/', requireAuth, requireSuperAdmin, (req, res) => {
     tipo,
     dataInicio,
     dataFim,
+    horaChegada,
+    horaSaida,
+    horaRetorno,
     observacoes: str(b.observacoes),
     createdAt: now,
     createdBy: req.user.id,
@@ -156,7 +226,7 @@ router.put('/:id', requireAuth, requireSuperAdmin, (req, res) => {
     if (!d) return res.status(400).json({ error: 'Informe a data de início.' });
     updates.dataInicio = d;
   }
-  if (effectiveTipo === 'saida') {
+  if (TIPOS_UM_DIA.includes(effectiveTipo)) {
     updates.dataFim = updates.dataInicio || existing.dataInicio;
   } else if (b.dataFim !== undefined) {
     const d = validDate(b.dataFim);
@@ -165,6 +235,23 @@ router.put('/:id', requireAuth, requireSuperAdmin, (req, res) => {
   const effectiveInicio = updates.dataInicio || existing.dataInicio;
   const effectiveFim = updates.dataFim || existing.dataFim;
   if (effectiveFim < effectiveInicio) return res.status(400).json({ error: 'A data final não pode ser antes da data de início.' });
+  // Horários (106ª rodada): só valem pra "Jornada Incompleta" -- virando
+  // outro tipo, qualquer horário que já existisse é limpo (não faz
+  // sentido um "Afastamento" guardar hora de chegada, por exemplo).
+  if (effectiveTipo === 'jornada_incompleta') {
+    const horaChegada = b.horaChegada !== undefined ? validTime(b.horaChegada) : (existing.horaChegada || null);
+    const horaSaida = b.horaSaida !== undefined ? validTime(b.horaSaida) : (existing.horaSaida || null);
+    if (!horaChegada && !horaSaida) {
+      return res.status(400).json({ error: 'Informe pelo menos o horário de chegada ou de saída.' });
+    }
+    updates.horaChegada = horaChegada;
+    updates.horaSaida = horaSaida;
+    updates.horaRetorno = b.horaRetorno !== undefined ? validTime(b.horaRetorno) : (existing.horaRetorno || null);
+  } else if (updates.tipo !== undefined) {
+    updates.horaChegada = null;
+    updates.horaSaida = null;
+    updates.horaRetorno = null;
+  }
   if (b.observacoes !== undefined) updates.observacoes = str(b.observacoes);
   updates.updatedAt = new Date().toISOString();
   updates.updatedBy = req.user.id;

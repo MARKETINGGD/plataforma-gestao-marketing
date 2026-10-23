@@ -5088,7 +5088,9 @@
   function ausenciaBadgeLabel(a) {
     if (!a) return '';
     if (a.tipo === 'saida') return '🕐 Saída';
+    if (a.tipo === 'jornada_incompleta') return '⏰ Jornada Incompleta';
     if (a.tipo === 'afastamento') return '😷 Afastado(a)';
+    if (a.tipo === 'viagem') return '✈️ Viagem';
     return '🏖️ Férias';
   }
 
@@ -5264,7 +5266,7 @@
       // nomeáveis, sem usuário por trás.
       const ausenciaAgora = !isPessoal ? ausenciaEm(member.id) : null;
       const ausenciaBadgeHtml = ausenciaAgora
-        ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaAgora.tipo === 'saida' ? 'Saída fora do horário hoje' : (ausenciaAgora.tipo === 'afastamento' ? 'Afastado(a)' : 'Férias') + ' até ' + fmtDate(ausenciaAgora.dataFim))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
+        ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaTipoLabel(ausenciaAgora.tipo) + (ausenciaAgora.tipo === 'saida' || ausenciaAgora.tipo === 'jornada_incompleta' ? ' hoje' : ' até ' + fmtDate(ausenciaAgora.dataFim)))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
         : '';
       colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${escapeHtml(member.name)}</span>${ausenciaBadgeHtml}<button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button>${extraHeaderBtnsHtml}<span class="kanban-count">${items.length}</span></div>`;
       colEl.querySelector('.kanban-sort-date-btn').onclick = (e) => {
@@ -5405,6 +5407,23 @@
             ${(d.files || []).length > 0 ? `<span class="badge">📎 ${d.files.length}</span>` : ''}
             ${d.link ? '<span class="badge" title="Tem link">🔗</span>' : ''}
           </div>
+          ${(() => {
+            // 106ª rodada, bug reportado pela Raquel: "Por que alguns cards
+            // não estão mostrando as figurinhas das pessoas participantes
+            // dessa demanda?" -- o stack de avatares só estava ligado pra
+            // `alsoInvolvedPeople` (demandas-irmãs vindas de agendamento,
+            // cada uma com só 1 assigneeId); uma demanda normal com VÁRIOS
+            // assigneeIds só mostrava o badge de texto "N pessoas" acima,
+            // nunca as figurinhas de fato. As duas fontes nunca coincidem
+            // (demanda-irmã sempre tem exatamente 1 assigneeId), então dá
+            // pra mostrar as duas sem conflito.
+            const assignedPeople = (d.assigneeIds || []).length > 1
+              ? (d.assigneeIds || []).map((id) => teamMembers.find((m) => m.id === id)).filter(Boolean)
+              : [];
+            return assignedPeople.length > 0
+              ? `<div class="kanban-card-also-involved" title="Marcados: ${assignedPeople.map((p) => p.name).join(', ')}">${avatarStackHtml(assignedPeople, 18)}</div>`
+              : '';
+          })()}
           ${(d.alsoInvolvedPeople || []).length > 0 ? `<div class="kanban-card-also-involved" title="Também marcado(a) no mesmo agendamento: ${(d.alsoInvolvedNames || []).join(', ')}">${avatarStackHtml(d.alsoInvolvedPeople, 18)}</div>` : ''}
           ${d.createdByName ? `<div class="kanban-card-creator">Criado por: ${d.createdByName}</div>` : ''}
         `;
@@ -6003,7 +6022,7 @@
           const u = teamMembers.find((m) => m.id === x.id);
           const nome = u ? u.name : 'Essa pessoa';
           const a = x.ausencia;
-          const periodo = a.tipo === 'saida' ? `no dia ${fmtDate(a.dataInicio)}` : `de ${fmtDate(a.dataInicio)} a ${fmtDate(a.dataFim)}`;
+          const periodo = (a.tipo === 'saida' || a.tipo === 'jornada_incompleta') ? `no dia ${fmtDate(a.dataInicio)}` : `de ${fmtDate(a.dataInicio)} a ${fmtDate(a.dataFim)}`;
           return `${nome} (${ausenciaBadgeLabel(a)} ${periodo})`;
         }).join('; ');
         if (!confirm(`Atenção: a data de entrega cai durante a ausência de ${nomes}. Deseja salvar mesmo assim?`)) {
@@ -11331,8 +11350,23 @@
     $('#ausenciaFormUser').innerHTML = teamMembers.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('');
   }
 
+  // Espelha routes/ausencias.js#horaDetalhes -- texto curto pra tabela de
+  // administração (coluna "Horário"), só preenchido pra Jornada Incompleta.
+  function ausenciaHoraResumo(a) {
+    if (!a || a.tipo !== 'jornada_incompleta') return '';
+    const partes = [];
+    if (a.horaChegada) partes.push(`Chegou ${a.horaChegada}`);
+    if (a.horaSaida) partes.push(`Saiu ${a.horaSaida}`);
+    if (a.horaRetorno) partes.push(`Retornou ${a.horaRetorno}`);
+    return partes.join(' / ');
+  }
+
   function ausenciaTipoLabel(tipo) {
-    return tipo === 'saida' ? 'Saída fora do horário' : (tipo === 'afastamento' ? 'Afastamento' : 'Férias');
+    if (tipo === 'saida') return 'Saída fora do horário';
+    if (tipo === 'jornada_incompleta') return 'Jornada Incompleta';
+    if (tipo === 'afastamento') return 'Afastamento';
+    if (tipo === 'viagem') return 'Viagem a trabalho';
+    return 'Férias';
   }
 
   // Recarrega a listagem enxuta usada em Demandas (ausenciasPublicas), sem
@@ -11419,6 +11453,7 @@
         <td>${ausenciaTipoLabel(a.tipo)}</td>
         <td>${fmtDate(a.dataInicio)}</td>
         <td>${fmtDate(a.dataFim)}</td>
+        <td>${escapeHtml(ausenciaHoraResumo(a))}</td>
         <td>${escapeHtml(a.observacoes || '')}</td>
         <td></td>
       `;
@@ -11447,6 +11482,9 @@
     $('#ausenciaFormTipo').value = ausencia ? ausencia.tipo : 'ferias';
     $('#ausenciaFormInicio').value = ausencia ? ausencia.dataInicio : '';
     $('#ausenciaFormFim').value = ausencia ? ausencia.dataFim : '';
+    $('#ausenciaFormHoraChegada').value = ausencia ? (ausencia.horaChegada || '') : '';
+    $('#ausenciaFormHoraSaida').value = ausencia ? (ausencia.horaSaida || '') : '';
+    $('#ausenciaFormHoraRetorno').value = ausencia ? (ausencia.horaRetorno || '') : '';
     $('#ausenciaFormObs').value = ausencia ? (ausencia.observacoes || '') : '';
     $('#ausenciaFormError').hidden = true;
     $('#ausenciaFormDelete').hidden = !ausencia || !currentUser.isSuperAdmin;
@@ -11454,16 +11492,21 @@
     $('#ausenciaFormWrap').hidden = false;
   }
 
-  // "Saída fora do horário" é sempre de 1 dia só -- esconde o campo Data
-  // fim (o backend também trava isso, nunca confia só na tela).
+  // "Saída fora do horário" e "Jornada Incompleta" são sempre de 1 dia só
+  // -- esconde o campo Data fim (o backend também trava isso, nunca confia
+  // só na tela). Jornada Incompleta também mostra os 3 campos de horário
+  // (chegou/saiu/retornou), escondidos pra qualquer outro tipo.
   function updateAusenciaFimVisibility() {
-    const isSaida = $('#ausenciaFormTipo').value === 'saida';
-    $('#ausenciaFormFimWrap').hidden = isSaida;
-    if (isSaida) $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
+    const tipo = $('#ausenciaFormTipo').value;
+    const isUmDia = tipo === 'saida' || tipo === 'jornada_incompleta';
+    $('#ausenciaFormFimWrap').hidden = isUmDia;
+    if (isUmDia) $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
+    $('#ausenciaFormHorasWrap').hidden = tipo !== 'jornada_incompleta';
   }
   $('#ausenciaFormTipo').onchange = updateAusenciaFimVisibility;
   $('#ausenciaFormInicio').onchange = () => {
-    if ($('#ausenciaFormTipo').value === 'saida') $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
+    const tipo = $('#ausenciaFormTipo').value;
+    if (tipo === 'saida' || tipo === 'jornada_incompleta') $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
   };
 
   $('#ausenciaNewBtn').onclick = () => openAusenciaForm(null);
@@ -11473,7 +11516,10 @@
       userId: $('#ausenciaFormUser').value,
       tipo: $('#ausenciaFormTipo').value,
       dataInicio: $('#ausenciaFormInicio').value,
-      dataFim: $('#ausenciaFormTipo').value === 'saida' ? $('#ausenciaFormInicio').value : $('#ausenciaFormFim').value,
+      dataFim: ($('#ausenciaFormTipo').value === 'saida' || $('#ausenciaFormTipo').value === 'jornada_incompleta') ? $('#ausenciaFormInicio').value : $('#ausenciaFormFim').value,
+      horaChegada: $('#ausenciaFormHoraChegada').value || null,
+      horaSaida: $('#ausenciaFormHoraSaida').value || null,
+      horaRetorno: $('#ausenciaFormHoraRetorno').value || null,
       observacoes: $('#ausenciaFormObs').value.trim()
     };
     if (!payload.dataInicio) {

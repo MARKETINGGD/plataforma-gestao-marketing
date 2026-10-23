@@ -3181,6 +3181,8 @@
                 <select id="ausenciaFormTipo">
                   <option value="ferias">Férias</option>
                   <option value="afastamento">Afastamento</option>
+                  <option value="viagem">Viagem a trabalho</option>
+                  <option value="jornada_incompleta">Jornada Incompleta</option>
                   <option value="saida">Saída fora do horário</option>
                 </select>
               </div>
@@ -3193,6 +3195,20 @@
               <div id="ausenciaFormFimWrap">
                 <label>Data fim</label>
                 <input id="ausenciaFormFim" type="date">
+              </div>
+            </div>
+            <div id="ausenciaFormHorasWrap" class="form-row" hidden>
+              <div>
+                <label>Chegou às</label>
+                <input id="ausenciaFormHoraChegada" type="time">
+              </div>
+              <div>
+                <label>Saiu às</label>
+                <input id="ausenciaFormHoraSaida" type="time">
+              </div>
+              <div>
+                <label>Retornou às</label>
+                <input id="ausenciaFormHoraRetorno" type="time">
               </div>
             </div>
             <label>Observações</label>
@@ -3214,7 +3230,7 @@
 
           <table class="data-table" id="ausenciasTable" style="margin-top:20px;">
             <thead>
-              <tr><th></th><th>Colaborador(a)</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Observações</th><th></th></tr>
+              <tr><th></th><th>Colaborador(a)</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Horário</th><th>Observações</th><th></th></tr>
             </thead>
             <tbody id="ausenciasTableBody"></tbody>
           </table>

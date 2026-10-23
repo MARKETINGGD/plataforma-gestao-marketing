@@ -311,7 +311,10 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
       title,
       description,
       status: shared ? shared.status : 'a_fazer',
-      visibility: 'geral',
+      // 106ª rodada: mesma lógica de herdar o estado do grupo -- se o
+      // grupo já está em "pessoal" (alguém moveu antes), a pessoa nova
+      // nasce já em pessoal também.
+      visibility: shared ? shared.visibility : 'geral',
       archived: shared ? shared.archived : false,
       dueDate: post.scheduledDate || null,
       assigneeIds: [userId],

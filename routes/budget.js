@@ -169,7 +169,7 @@ router.delete('/public-link', requireAuth, requireBudgetEdit, (req, res) => {
 });
 
 router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
-  const { brand, category, year, month, planejado, realizado, notes, fornecedor, tituloCompra, quantidade } = req.body || {};
+  const { brand, category, year, month, planejado, realizado, notes, fornecedor, tituloCompra, quantidade, recorrente } = req.body || {};
   if (!brand || !category || !year || !month) {
     return res.status(400).json({ error: 'Preencha marca, categoria, ano e mês.' });
   }
@@ -185,6 +185,10 @@ router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
     fornecedor: fornecedor || '',
     tituloCompra: tituloCompra || '',
     quantidade: quantidade === '' || quantidade === undefined ? null : Number(quantidade),
+    // 112ª rodada, pedido da Raquel: lançamento "recorrente" (compra que se
+    // repete todo ano) pode ser puxado automaticamente pro ano seguinte via
+    // POST /api/budget/pull-recurring, logo abaixo.
+    recorrente: recorrente === true || recorrente === 'true',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     updatedBy: req.user.name,
@@ -204,10 +208,69 @@ router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
   res.json({ entry });
 });
 
+// 112ª rodada, pedido da Raquel: "tem compras que vao se repetir de um ano
+// pro outro... tem como marcar algumas pra que elas apareçam novamente na
+// planilha do ano seguinte?" -- puxa pro ano de destino (toYear) todo
+// lançamento marcado recorrente:true no ano de origem (fromYear), da mesma
+// marca, repetindo fluxo/fornecedor/título/mês/quantidade/planejado. O
+// Realizado sempre nasce zerado (ainda não foi gasto nada no ano novo).
+// Dedup: não duplica se já existir lançamento com o mesmo
+// fluxo+fornecedor+título+mês no ano de destino (permite clicar de novo
+// sem duplicar linhas já puxadas, ou puxar depois de editar alguma coisa).
+router.post('/pull-recurring', requireAuth, requireBudgetEdit, (req, res) => {
+  const { brand, fromYear, toYear } = req.body || {};
+  if (!brand || !fromYear || !toYear) {
+    return res.status(400).json({ error: 'Informe marca, ano de origem e ano de destino.' });
+  }
+  const fy = Number(fromYear);
+  const ty = Number(toYear);
+  if (!fy || !ty || fy === ty) {
+    return res.status(400).json({ error: 'Ano de origem e ano de destino precisam ser diferentes.' });
+  }
+  const all = db.get('budgetEntries').value();
+  const source = all.filter((e) => e.brand === brand && Number(e.year) === fy && e.recorrente === true);
+  const existingInTargetYear = all.filter((e) => e.brand === brand && Number(e.year) === ty);
+  function jaExiste(e) {
+    return existingInTargetYear.some((x) =>
+      x.category === e.category &&
+      Number(x.month) === Number(e.month) &&
+      (x.fornecedor || '') === (e.fornecedor || '') &&
+      (x.tituloCompra || '') === (e.tituloCompra || '')
+    );
+  }
+  const created = [];
+  source.forEach((e) => {
+    if (jaExiste(e)) return;
+    const entry = {
+      id: nanoid(),
+      brand: e.brand,
+      category: e.category,
+      year: ty,
+      month: Number(e.month),
+      planejado: e.planejado === null || e.planejado === undefined ? null : Number(e.planejado),
+      realizado: null,
+      notes: e.notes || '',
+      fornecedor: e.fornecedor || '',
+      tituloCompra: e.tituloCompra || '',
+      quantidade: e.quantidade === null || e.quantidade === undefined ? null : Number(e.quantidade),
+      recorrente: true,
+      pulledFromEntryId: e.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      updatedBy: req.user.name,
+      updatedById: req.user.id
+    };
+    db.get('budgetEntries').push(entry).write();
+    created.push(entry);
+  });
+  logAudit({ user: req.user, entityType: 'budgetEntry', entityId: `${brand}:${fy}->${ty}`, entityLabel: `${brand} · recorrentes ${fy} -> ${ty}`, action: 'pull_recurring' });
+  res.json({ created: created.length, skipped: source.length - created.length, entries: created });
+});
+
 router.put('/:id', requireAuth, requireBudgetEdit, (req, res) => {
   const existing = db.get('budgetEntries').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Lançamento não encontrado.' });
-  const { brand, category, year, month, planejado, realizado, notes, fornecedor, tituloCompra, quantidade } = req.body || {};
+  const { brand, category, year, month, planejado, realizado, notes, fornecedor, tituloCompra, quantidade, recorrente } = req.body || {};
   const updates = {
     updatedAt: new Date().toISOString(),
     updatedBy: req.user.name,
@@ -223,6 +286,7 @@ router.put('/:id', requireAuth, requireBudgetEdit, (req, res) => {
   if (fornecedor !== undefined) updates.fornecedor = fornecedor;
   if (tituloCompra !== undefined) updates.tituloCompra = tituloCompra;
   if (quantidade !== undefined) updates.quantidade = quantidade === '' ? null : Number(quantidade);
+  if (recorrente !== undefined) updates.recorrente = recorrente === true || recorrente === 'true';
   db.get('budgetEntries').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'budgetEntry', entityId: existing.id, entityLabel: `${existing.brand} · ${existing.category} · ${existing.month}/${existing.year}`, action: 'update' });
   res.json({ entry: db.get('budgetEntries').find({ id: req.params.id }).value() });

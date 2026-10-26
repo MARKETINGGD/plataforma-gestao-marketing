@@ -1430,6 +1430,7 @@
 
         <div class="toolbar budget-filter-bar" id="budgetFilterBar">
           <select id="budgetFilterYear"></select>
+          <button id="budgetPullRecurringBtn" class="btn-secondary" type="button" hidden>🔁 Puxar recorrentes do ano anterior</button>
           <select id="budgetSearchFluxo"><option value="">Todos os fluxos</option></select>
           <select id="budgetSearchMonth"><option value="">Todos os meses</option></select>
           <input id="budgetSearchFornecedor" type="text" placeholder="Buscar fornecedor">
@@ -1527,6 +1528,7 @@
               <input id="budgetFormRealizado" type="number" step="0.01">
             </div>
           </div>
+          <label class="budget-recorrente-label"><input id="budgetFormRecorrente" type="checkbox"> 🔁 Recorrente (repete todo ano — pode ser puxado automaticamente pro ano seguinte)</label>
           <label>Observações</label>
           <input id="budgetFormNotes" type="text">
           <div id="budgetFormError" class="error" hidden></div>

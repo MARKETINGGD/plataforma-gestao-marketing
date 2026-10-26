@@ -4584,6 +4584,7 @@
   async function loadBudget() {
     const canEdit = budgetAccess === 'editor' || budgetAccess === 'admin';
     $('#budgetNewBtn').hidden = !canEdit;
+    $('#budgetPullRecurringBtn').hidden = !canEdit;
     if (budgetAccess === 'none') {
       $('#budgetTableBody').innerHTML = '';
       $('#budgetEmpty').hidden = false;
@@ -4677,10 +4678,11 @@
       if (e[field] === null || e[field] === undefined) return;
       const key = `${e.category}\u0000${e.fornecedor || ''}\u0000${e.tituloCompra || ''}`;
       if (!groups[key]) {
-        groups[key] = { category: e.category, fornecedor: e.fornecedor || '', tituloCompra: e.tituloCompra || '', quantidade: null, meses: {} };
+        groups[key] = { category: e.category, fornecedor: e.fornecedor || '', tituloCompra: e.tituloCompra || '', quantidade: null, recorrente: false, meses: {} };
       }
       const g = groups[key];
       if (g.quantidade === null && e.quantidade !== null && e.quantidade !== undefined) g.quantidade = e.quantidade;
+      if (e.recorrente) g.recorrente = true;
       g.meses[e.month] = { value: Number(e[field]) || 0, entryId: e.id };
     });
 
@@ -4728,7 +4730,7 @@
         tr.innerHTML = `
           <td class="num">${g.quantidade === null ? '' : g.quantidade}</td>
           <td>${escapeHtml(g.fornecedor)}</td>
-          <td>${escapeHtml(g.tituloCompra)}</td>
+          <td>${g.recorrente ? '🔁 ' : ''}${escapeHtml(g.tituloCompra)}</td>
           ${monthCells.join('')}
           <td class="num"><strong>${fmtMoney(rowTotal)}</strong></td>
           <td></td>
@@ -4826,7 +4828,7 @@
           <td>${e.category}</td>
           <td>${MONTHS[e.month - 1] || e.month}/${e.year}</td>
           <td>${e.fornecedor || ''}</td>
-          <td>${e.tituloCompra || ''}</td>
+          <td>${e.recorrente ? '🔁 ' : ''}${e.tituloCompra || ''}</td>
           <td class="num">${e.quantidade === null || e.quantidade === undefined ? '' : e.quantidade}</td>
           <td class="num">${fmtMoney(e.planejado)}</td>
           <td class="num">${realizadoHtml}</td>
@@ -4979,11 +4981,29 @@
     $('#budgetFormFornecedor').value = entry ? entry.fornecedor || '' : '';
     $('#budgetFormTitulo').value = entry ? entry.tituloCompra || '' : '';
     $('#budgetFormQuantidade').value = entry && entry.quantidade !== null && entry.quantidade !== undefined ? entry.quantidade : '';
+    $('#budgetFormRecorrente').checked = !!(entry && entry.recorrente);
     $('#budgetFormNotes').value = entry ? entry.notes || '' : '';
     $('#budgetFormError').hidden = true;
     $('#budgetFormWrap').hidden = false;
   }
   $('#budgetNewBtn').onclick = () => openBudgetForm(null);
+  // 112ª rodada, pedido da Raquel: puxa pro ano selecionado no filtro todo
+  // lançamento recorrente do ano anterior (ver POST /api/budget/pull-recurring
+  // em routes/budget.js). Não duplica se já tiver sido puxado antes.
+  $('#budgetPullRecurringBtn').onclick = async () => {
+    const toYear = Number($('#budgetFilterYear').value) || new Date().getFullYear();
+    const fromYear = toYear - 1;
+    if (!confirm(`Puxar lançamentos recorrentes de ${fromYear} para ${toYear}?`)) return;
+    try {
+      const result = await api('/api/budget/pull-recurring', { method: 'POST', body: JSON.stringify({ brand: currentBudgetBrand, fromYear, toYear }) });
+      await loadBudget();
+      alert(result.created > 0
+        ? `${result.created} lançamento(s) recorrente(s) trazido(s) de ${fromYear} para ${toYear}.`
+        : 'Nenhum lançamento novo pra trazer (ou já foram trazidos antes).');
+    } catch (e) {
+      alert(e.message);
+    }
+  };
   // Exportar (65ª rodada) -- exporta exatamente as linhas visíveis na
   // tela (já filtradas pela aba/busca ativa), não o Budget inteiro.
   $('#budgetExportExcelBtn').onclick = () => {
@@ -5020,6 +5040,7 @@
       fornecedor: $('#budgetFormFornecedor').value.trim(),
       tituloCompra: $('#budgetFormTitulo').value.trim(),
       quantidade: $('#budgetFormQuantidade').value,
+      recorrente: $('#budgetFormRecorrente').checked,
       notes: $('#budgetFormNotes').value.trim()
     };
     try {

@@ -632,7 +632,13 @@
           <select id="socialFilterPlatform"><option value="">Todas as redes</option></select>
           <select id="socialFilterType"><option value="">Todos os tipos</option></select>
           <input id="socialFilterSubject" type="text" placeholder="Buscar por assunto">
-          <input id="socialFilterDate" type="date">
+          <!-- 111a rodada, pedido literal da Raquel: "Agora em agendamento,
+               colocar filtro para buscar agendamentos dentro de um
+               determinado período." -- troca o filtro de data única por um
+               período (de/até), mesmo padrão do filtro de período já usado
+               no Acompanhamento Equipe (acompanhamentoFilterFrom/To). -->
+          <input id="socialFilterDateFrom" type="date" title="Agendado a partir de">
+          <input id="socialFilterDateTo" type="date" title="Agendado até">
           <button id="socialFilterClear" class="btn-secondary" type="button">Limpar filtros</button>
         </div>
 
@@ -898,8 +904,6 @@
             <button class="btn-secondary" id="acoesHubPublicLinkBtn">Link externo</button>
           </div>
         </div>
-        <p class="muted">Escolha uma seção do painel de Ações Sazonais pra abrir.</p>
-
         <div id="acoesPublicLinkPanel" class="form-card" hidden>
           <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link acessa todas as seções do Gerenciamento de Ações Sazonais (inclusive Expositores Especiais), mesmo sem estar logada na plataforma.</p>
           <div id="acoesPublicLinkActive" hidden>
@@ -913,7 +917,11 @@
           <button class="btn-primary" id="acoesGenLinkBtn">Gerar link externo</button>
         </div>
 
-        <div id="acoesHubGroups"></div>
+        <div class="tabs" id="acoesTabs"></div>
+
+        <div class="iframe-wrap">
+          <iframe id="acoesTelaFrame" title="Gerenciamento de Ações Sazonais"></iframe>
+        </div>
       </section>
 
       <!-- Acompanhamento Equipe (77ª rodada), pedido literal da Raquel:
@@ -970,18 +978,6 @@
           <tbody id="acompanhamentoDetalheBody"></tbody>
         </table>
         <p id="acompanhamentoEmpty" class="muted" hidden>Nenhuma demanda encontrada com esses filtros.</p>
-      </section>
-
-      <section id="view-acoes-tela" class="view" hidden>
-        <div class="view-toolbar">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <button class="btn-secondary" id="acoesTelaBack">◀ Voltar</button>
-            <h2 id="acoesTelaTitle"></h2>
-          </div>
-        </div>
-        <div class="iframe-wrap">
-          <iframe id="acoesTelaFrame" title="Gerenciamento de Ações Sazonais"></iframe>
-        </div>
       </section>
 
       <!-- Expositores Especiais (30ª rodada, pedido da Raquel: "quero que

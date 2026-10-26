@@ -4355,18 +4355,24 @@
     { id: 'debacco', label: 'De Bacco' },
     { id: 'all', label: 'Todas as marcas' }
   ];
-  const ACOES_SECTIONS = [
-    { id: 'dashboard', label: 'Dashboard Ações', desc: 'Visão geral das ações sazonais e resultados.' },
-    { id: 'acoes', label: 'Ações', desc: 'Cadastro, edição e relatórios de cada ação.' },
-    { id: 'historico', label: 'Histórico', desc: 'Quem criou, editou ou removeu cada registro.' },
-    { id: 'usuarios', label: 'Usuários', desc: 'Contas com acesso ao painel de Ações Sazonais.', adminOnly: true },
-    { id: 'link_publico', label: 'Link Público (do painel)', desc: 'Link de leitura própio do painel de Ações Sazonais, com estatísticas de acesso.', adminOnly: true }
+  // 111a rodada (pedido da Raquel): "uma tela unificada, sem esses
+  // botões" -- vira abas (igual ao Tráfego Pago na 110a rodada) em vez de
+  // central de cards. Ordem exata pedida: Visão Geral, Resultados de
+  // Vendas e Meta, Ações, Histórico e Usuários.
+  const ACOES_TABS = [
+    { id: 'dashboard', label: 'Visão Geral' },
+    { id: 'vendas_meta', label: 'Resultados de Vendas e Meta' },
+    { id: 'acoes', label: 'Ações' },
+    { id: 'historico', label: 'Histórico' },
+    { id: 'usuarios', label: 'Usuários', adminOnly: true }
   ];
   const EXPOSITORES_SECTIONS = [
     { id: 'dashboard_showroom', label: 'Dashboard Expositores Especiais', desc: 'Visão geral dos expositores especiais e investimentos.' },
     { id: 'showroom', label: 'Expositores Especiais', desc: 'Cadastro e acompanhamento de expositores especiais.' }
   ];
   let acoesBrand = 'ghelplus';
+  let acoesSection = ACOES_TABS[0].id;
+  let acoesFrameBase = null; // cache { baseUrl, platformParams } -- evita re-assinar o token a cada clique de aba/marca
   let expositoresBrand = 'ghelplus';
 
   // Só mostra Usuários/Link Público do painel pra quem tem acesso admin
@@ -4380,56 +4386,60 @@
     showView('acoes-hub');
     $('#acoesHubPublicLinkBtn').hidden = !!dashboardPublicToken;
     if (dashboardPublicToken) $('#acoesPublicLinkPanel').hidden = true;
+    acoesFrameBase = null;
     renderAcoesBrandSwitch();
-    renderAcoesHubBody();
+    renderAcoesTabs();
+    loadAcoesFrame();
   }
 
   function renderAcoesBrandSwitch() {
     const wrap = $('#acoesBrandSwitch');
     wrap.innerHTML = ACOES_BRANDS.map((b) => `<button class="btn-secondary${b.id === acoesBrand ? ' active' : ''}" data-acoes-brand="${b.id}">${b.label}</button>`).join('');
     wrap.querySelectorAll('[data-acoes-brand]').forEach((btn) => {
-      btn.onclick = () => { acoesBrand = btn.dataset.acoesBrand; renderAcoesBrandSwitch(); };
+      btn.onclick = () => {
+        if (acoesBrand === btn.dataset.acoesBrand) return;
+        acoesBrand = btn.dataset.acoesBrand;
+        renderAcoesBrandSwitch();
+        loadAcoesFrame();
+      };
     });
   }
 
-  function renderAcoesHubBody() {
+  function renderAcoesTabs() {
     const access = acoesSazonaisAccess();
-    const sections = ACOES_SECTIONS.filter((s) => !s.adminOnly || access === 'admin');
-    $('#acoesHubGroups').innerHTML = `
-      <div class="card-grid">
-        ${sections.map((s) => `
-          <div class="dash-card" data-open-acoes-section="${s.id}">
-            <h3>${s.label}</h3>
-            <p>${s.desc}</p>
-            <button>Abrir →</button>
-          </div>`).join('')}
-      </div>`;
-    $all('[data-open-acoes-section]').forEach((card) => {
-      card.querySelector('button').onclick = () => openAcoesSection(card.dataset.openAcoesSection);
+    const tabs = ACOES_TABS.filter((t) => !t.adminOnly || access === 'admin');
+    $('#acoesTabs').innerHTML = tabs.map((t) => `<button class="tab-btn${t.id === acoesSection ? ' active' : ''}" data-acoes-tab="${t.id}">${t.label}</button>`).join('');
+    $all('[data-acoes-tab]').forEach((btn) => {
+      btn.onclick = () => {
+        if (acoesSection === btn.dataset.acoesTab) return;
+        acoesSection = btn.dataset.acoesTab;
+        renderAcoesTabs();
+        loadAcoesFrame();
+      };
     });
   }
 
-  async function openAcoesSection(sectionId) {
+  // Monta (ou reaproveita, se já montada nesta visita ao hub) a URL de
+  // login único do painel de Ações Sazonais, e aponta o iframe pra marca +
+  // aba atuais -- chamada tanto ao abrir o hub quanto ao trocar de
+  // aba/marca. Mesmo padrão do loadTrafegoFrame() (28a/110a rodada).
+  async function loadAcoesFrame() {
     try {
-      const data = await dashboardLaunch('acoesSazonais');
-      const url = new URL(data.url);
-      const baseUrl = url.origin;
-      const platformParams = url.search;
+      if (!acoesFrameBase) {
+        const data = await dashboardLaunch('acoesSazonais');
+        const url = new URL(data.url);
+        acoesFrameBase = { baseUrl: url.origin, platformParams: url.search };
+      }
       const params = new URLSearchParams();
       params.set('embedBrand', acoesBrand);
-      params.set('embedView', sectionId);
-      const navSrc = baseUrl.replace(/\/$/, '') + '/?' + params.toString();
+      params.set('embedView', acoesSection);
+      const navSrc = acoesFrameBase.baseUrl.replace(/\/$/, '') + '/?' + params.toString();
       $('#acoesTelaFrame').style.height = '';
-      $('#acoesTelaFrame').src = navSrc + '&' + platformParams.slice(1);
-      const section = ACOES_SECTIONS.find((s) => s.id === sectionId) || {};
-      const brandLabel = (ACOES_BRANDS.find((b) => b.id === acoesBrand) || {}).label || acoesBrand;
-      $('#acoesTelaTitle').textContent = `${section.label || ''} — ${brandLabel}`;
-      showView('acoes-tela');
+      $('#acoesTelaFrame').src = navSrc + '&' + acoesFrameBase.platformParams.slice(1);
     } catch (e) {
       alert(e.message);
     }
   }
-  $('#acoesTelaBack').onclick = () => openAcoesSazonaisHub();
 
   function openExpositoresHub() {
     showView('expositores-hub');
@@ -6647,9 +6657,10 @@
     $('#socialFilterPlatform').value = '';
     $('#socialFilterType').value = '';
     $('#socialFilterSubject').value = '';
-    $('#socialFilterDate').value = '';
+    $('#socialFilterDateFrom').value = '';
+    $('#socialFilterDateTo').value = '';
   }
-  ['#socialFilterPlatform', '#socialFilterType', '#socialFilterSubject', '#socialFilterDate'].forEach((sel) => {
+  ['#socialFilterPlatform', '#socialFilterType', '#socialFilterSubject', '#socialFilterDateFrom', '#socialFilterDateTo'].forEach((sel) => {
     $(sel).addEventListener('input', renderSocialPosts);
   });
   $('#socialFilterClear').onclick = () => { clearSocialFilters(); renderSocialPosts(); };
@@ -6658,11 +6669,16 @@
     const platform = $('#socialFilterPlatform').value;
     const type = $('#socialFilterType').value;
     const subject = $('#socialFilterSubject').value.trim().toLowerCase();
-    const date = $('#socialFilterDate').value;
+    // 111a rodada: filtro de período (de/até) em vez de data única --
+    // comparação de string funciona direto porque scheduledDate é sempre
+    // "YYYY-MM-DD" (mesmo formato do <input type="date">).
+    const dateFrom = $('#socialFilterDateFrom').value;
+    const dateTo = $('#socialFilterDateTo').value;
     if (platform && p.platform !== platform) return false;
     if (type && p.postType !== type) return false;
     if (subject && !(p.subject || '').toLowerCase().includes(subject)) return false;
-    if (date && p.scheduledDate !== date) return false;
+    if (dateFrom && (!p.scheduledDate || p.scheduledDate < dateFrom)) return false;
+    if (dateTo && (!p.scheduledDate || p.scheduledDate > dateTo)) return false;
     return true;
   }
 

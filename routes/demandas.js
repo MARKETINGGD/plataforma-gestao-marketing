@@ -416,6 +416,24 @@ function describeChanges(before, updates) {
     if (added.length) parts.push(`responsável(is) adicionado(s): ${added.map((id) => resolveUserName(id, '?')).join(', ')}`);
     if (removed.length) parts.push(`responsável(is) removido(s): ${removed.map((id) => resolveUserName(id, '?')).join(', ')}`);
   }
+  // Correção: histórico não descrevia mudança de rede, marca ou responsável
+  // (campos que já existiam no card, só não tinham frase nenhuma aqui) --
+  // mesmo padrão das comparações acima (before x updates).
+  if (updates.network !== undefined && updates.network !== (before.network || null)) {
+    parts.push(`rede: ${before.network || 'nenhuma'} → ${updates.network || 'nenhuma'}`);
+  }
+  if (updates.brands !== undefined) {
+    const beforeBrands = brandsOf(before);
+    const addedBrands = updates.brands.filter((b) => !beforeBrands.includes(b));
+    const removedBrands = beforeBrands.filter((b) => !updates.brands.includes(b));
+    if (addedBrands.length) parts.push(`marca(s) adicionada(s): ${addedBrands.join(', ')}`);
+    if (removedBrands.length) parts.push(`marca(s) removida(s): ${removedBrands.join(', ')}`);
+  }
+  if (updates.responsibleId !== undefined && updates.responsibleId !== (before.responsibleId || null)) {
+    const fromName = before.responsibleId ? resolveUserName(before.responsibleId, '?') : 'nenhum';
+    const toName = updates.responsibleId ? resolveUserName(updates.responsibleId, '?') : 'nenhum';
+    parts.push(`responsável: ${fromName} → ${toName}`);
+  }
   if (updates.labelIds !== undefined) {
     const beforeIds = before.labelIds || [];
     const changed = updates.labelIds.length !== beforeIds.length || updates.labelIds.some((id) => !beforeIds.includes(id));
@@ -752,6 +770,13 @@ router.get('/team-report', requireAuth, (req, res) => {
   const teamUsers = db.get('users').value().filter((u) => !managementIds.has(u.id));
 
   const allDemandas = db.get('demandas').value();
+  // Correção (privacidade): demanda da Área Pessoal (visibility 'pessoal')
+  // não pode entrar neste relatório -- mesma exclusão já aplicada em TODOS
+  // os outros endpoints deste arquivo (GET /, GET /reis-do-marketing, etc.,
+  // ver comentário "78ª rodada" em GET /reis-do-marketing acima). Usada
+  // tanto no resumo por pessoa (`mine`, abaixo) quanto na lista detalhada
+  // (`detail`, mais abaixo).
+  const allDemandasVisiveis = allDemandas.filter((d) => d.visibility !== 'pessoal');
 
   // Período (`from`/`to`) e marca filtram tanto o resumo por pessoa quanto
   // a lista detalhada -- são "qual fatia de tempo/marca estamos olhando".
@@ -784,14 +809,21 @@ router.get('/team-report', requireAuth, (req, res) => {
   // Usuários → Ausências, que já tem sua própria regra de acesso mais
   // restrita (`configuracoes`).
   function matchesAbsencePeriod(a) {
-    if (from && (a.dataFim || a.dataInicio) < from) return false;
+    // Correção: ausência em curso (sem `dataFim` -- afastamento sem data de
+    // retorno definida) não pode ser descartada aqui comparando `from` com
+    // `dataInicio` -- isso fazia uma ausência AINDA ATIVA (começada antes do
+    // período, mas sem fim nenhum) sumir do relatório como se já tivesse
+    // terminado antes do período escolhido. Só aplica essa exclusão quando
+    // existe mesmo uma `dataFim` definida (ausência já encerrada) e ela cai
+    // antes de `from`.
+    if (from && a.dataFim && a.dataFim < from) return false;
     if (to && (a.dataInicio || a.dataFim) > to) return false;
     return true;
   }
   const allAusencias = db.get('ausencias').value();
 
   const team = teamUsers.map((u) => {
-    const mine = allDemandas.filter((d) => (d.assigneeIds || []).includes(u.id) && matchesPeriodAndBrand(d));
+    const mine = allDemandasVisiveis.filter((d) => (d.assigneeIds || []).includes(u.id) && matchesPeriodAndBrand(d));
     const totals = { total: mine.length, a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, aprovado: 0, concluida: 0, atrasada: 0 };
     mine.forEach((d) => { const k = teamReportStatusKey(d); totals[k] = (totals[k] || 0) + 1; });
 
@@ -814,7 +846,7 @@ router.get('/team-report', requireAuth, (req, res) => {
     return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, ausenciasResumo, ausencias };
   });
 
-  let detail = allDemandas.filter(matchesPeriodAndBrand);
+  let detail = allDemandasVisiveis.filter(matchesPeriodAndBrand);
   if (userId) {
     detail = detail.filter((d) => (d.assigneeIds || []).includes(userId));
   } else {
@@ -847,7 +879,7 @@ router.post('/', requireAuth, (req, res) => {
   // mande só o booleano.
   const finalRecurrence = validRecurrence(recurrence) || (recurring ? 'mensal' : 'none');
   if (finalRecurrence !== 'none' && !dueDate) return res.status(400).json({ error: 'Defina uma data de entrega para usar recorrência.' });
-  const finalAssigneeIds = validUserIds(assigneeIds);
+  let finalAssigneeIds = validUserIds(assigneeIds);
   // 78ª rodada, pedido explícito da Raquel: "toda ação, demanda e afins
   // sempre deve ter um responsável" -- nenhuma demanda pode ser criada
   // sem alguém marcado com a estrela, não importa de onde ela nasça.
@@ -866,12 +898,22 @@ router.post('/', requireAuth, (req, res) => {
   } else if (!responsibleId || !finalAssigneeIds.includes(responsibleId)) {
     return res.status(400).json({ error: 'Marque um responsável (estrela) para esta demanda.' });
   }
+  // Correção: card do Quadro Geral (visibility 'geral', padrão) criado sem
+  // ninguém em `assigneeIds` ficava "invisível" no quadro -- não existe
+  // mais coluna "Sem responsável" (105ª rodada) e o quadro só lista o card
+  // pela coluna de quem está em `assigneeIds`; `finalResponsibleId` (acima)
+  // nunca entrava sozinho nesse array. Garante que, nesse caso específico,
+  // quem vira responsável sozinho também entra em `assigneeIds`.
+  const finalVisibility = VISIBILITIES.includes(visibility) ? visibility : 'geral';
+  if (finalVisibility === 'geral' && finalAssigneeIds.length === 0) {
+    finalAssigneeIds = [finalResponsibleId || req.user.id];
+  }
   const demanda = {
     id: nanoid(),
     title: title.trim(),
     description: description || '',
     status: STATUSES.includes(status) ? status : 'a_fazer',
-    visibility: VISIBILITIES.includes(visibility) ? visibility : 'geral',
+    visibility: finalVisibility,
     archived: false,
     dueDate: dueDate || null,
     recurrence: finalRecurrence,
@@ -1051,6 +1093,14 @@ router.put('/:id', requireAuth, (req, res) => {
   // chamada (a checagem antiga olhava só `demanda.visibility`, de ANTES
   // desta gravação).
   const effectiveVisibility = updates.visibility !== undefined ? updates.visibility : demanda.visibility;
+  // Correção: `assigneeIds` precisa estar normalizado (validUserIds) ANTES
+  // do bloco "geral sem ninguém marcado" logo abaixo -- antes essa
+  // validação só acontecia mais adiante (perto de `status`), e por isso
+  // `effectiveAssigneeIds` ali embaixo sempre lia o valor ANTIGO
+  // (`demanda.assigneeIds`), nunca o array novo enviado nesta mesma
+  // requisição (ex.: alguém removendo o último marcado de um card 'geral'
+  // no mesmo PUT) -- a proteção nunca disparava nesse caso.
+  if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
   // 105ª rodada: no Quadro Geral o card só aparece na coluna de quem está
   // marcado (não existe mais coluna "Sem responsável", ver comentário
   // mais acima) -- uma demanda da Área Pessoal sem ninguém marcado (caso
@@ -1092,7 +1142,6 @@ router.put('/:id', requireAuth, (req, res) => {
     manualDueDateValue = novaDueDate;
   }
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
-  if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
   // Responsável geral (30ª rodada): valida contra os marcados que vão valer
   // DEPOIS dessa atualização (novos assigneeIds, se vieram junto; senão os
   // que a demanda já tinha) — pra não perder a marcação por engano quando o
@@ -1616,7 +1665,17 @@ router.delete('/:id/checklist/:itemId', requireAuth, (req, res) => {
 // ---------- arquivos ----------
 router.post('/:id/files', requireAuth, upload.single('file'), (req, res) => {
   const demanda = findOr404(req, res);
-  if (!demanda) return;
+  if (!demanda) {
+    // Correção: o multer (diskStorage definido acima) já grava o arquivo em
+    // disco ANTES deste handler rodar -- se a demanda não existe ou a
+    // pessoa não tem acesso (404/403, já respondidos por findOr404 acima),
+    // o arquivo ficaria órfão pra sempre na pasta de uploads. Apaga esse
+    // arquivo aqui, sem reestruturar o multer.
+    if (req.file && req.file.path) {
+      try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ }
+    }
+    return;
+  }
   if (!req.file) return res.status(400).json({ error: 'Selecione um arquivo.' });
   const fileMeta = {
     id: nanoid(),

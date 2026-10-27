@@ -1077,12 +1077,19 @@ router.put('/:id', requireAuth, (req, res) => {
   }
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
+  // 116ª rodada, pedido da Raquel: data de entrega editada MANUALMENTE
+  // aqui (não pelo avanço automático de recorrência, capturado ANTES
+  // desse bloco poder ser sobrescrito mais abaixo) precisa voltar pro
+  // Agendamento de origem também -- ver bloco de sincronização no fim
+  // desta rota.
+  let manualDueDateValue;
   if (dueDate !== undefined) {
     const novaDueDate = dueDate || null;
     if (novaDueDate !== (demanda.dueDate || null) && !canChangeDueDate(req)) {
       return res.status(403).json({ error: 'Só admin, gerente ou coordenador(a) podem alterar a data de entrega.' });
     }
     updates.dueDate = novaDueDate;
+    manualDueDateValue = novaDueDate;
   }
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
   if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
@@ -1151,7 +1158,13 @@ router.put('/:id', requireAuth, (req, res) => {
   if (brands !== undefined || brand !== undefined) {
     updates.brands = validBrands(brands !== undefined ? brands : brand);
   }
-  if (network !== undefined) updates.network = validNetwork(network);
+  // 116ª rodada, pedido da Raquel: mesma lógica da data -- rede editada
+  // manualmente aqui também volta pro Agendamento de origem.
+  let manualNetworkValue;
+  if (network !== undefined) {
+    updates.network = validNetwork(network);
+    manualNetworkValue = updates.network;
+  }
 
   // Recorrência (15ª rodada): se essa demanda é (ou está virando) recorrente,
   // precisa de data de entrega (é ela que define o "dia do mês"). Se o
@@ -1297,6 +1310,52 @@ router.put('/:id', requireAuth, (req, res) => {
       const linkedPost = db.get('socialPosts').find({ id: demanda.sourceSocialPostId }).value();
       if (linkedPost && linkedPost.sourceInfluencerPostId) {
         markSocialPostPublished(demanda.sourceSocialPostId, req);
+      }
+    }
+  }
+  // 116ª rodada, pedido explícito da Raquel: "quando tem alterações na
+  // demanda em relação a data e rede social, muda no card e cards irmãos
+  // e tbm na data de postagem do agendamento... essas informações tem
+  // nos dois locais". Até aqui, data de entrega/rede só sincronizavam
+  // entre as demandas-irmãs (bloco acima) -- nunca voltavam pro próprio
+  // Agendamento, que ficava com a informação antiga (e, por tabela, o
+  // Cronograma também, já que só lê os dados do Agendamento). Só dispara
+  // numa edição MANUAL de verdade (`manualDueDateValue`/
+  // `manualNetworkValue`, capturados ANTES do bloco de recorrência lá
+  // em cima, que pode reescrever `updates.dueDate` sozinho) -- confirmado
+  // com a Raquel que o avanço automático de data de demanda recorrente
+  // NUNCA deve mexer no Agendamento ("demandas recorrentes não entram
+  // nessa regra, até pq n temos agendamentos que se tornam recorrentes").
+  // Escrita direta no banco (mesmo padrão já usado pra sincronizar as
+  // demandas-irmãs entre si) -- não chama a rota cheia de
+  // routes/socialPosts.js de propósito, pra não disparar de novo toda a
+  // lógica dela (tentativa de publicação automática, espelho
+  // Instagram->Facebook, etc.) só por causa de uma edição de data/rede
+  // vinda de um card de Demanda.
+  if (demanda.sourceSocialPostId) {
+    const linkedPostForDateNetworkSync = db.get('socialPosts').find({ id: demanda.sourceSocialPostId }).value();
+    if (linkedPostForDateNetworkSync) {
+      const postUpdates = {};
+      // Só propaga data/rede preenchidas -- limpar a data ou a rede na
+      // Demanda é uma divergência aceitável do card (nunca deixa o
+      // Agendamento sem uma das duas, o que quebraria ele).
+      if (manualDueDateValue && manualDueDateValue !== (linkedPostForDateNetworkSync.scheduledDate || null)) {
+        postUpdates.scheduledDate = manualDueDateValue;
+      }
+      if (manualNetworkValue && manualNetworkValue !== (linkedPostForDateNetworkSync.platform || null)) {
+        postUpdates.platform = manualNetworkValue;
+      }
+      if (Object.keys(postUpdates).length > 0) {
+        postUpdates.updatedAt = new Date().toISOString();
+        db.get('socialPosts').find({ id: linkedPostForDateNetworkSync.id }).assign(postUpdates).write();
+        logAudit({
+          user: req.user,
+          entityType: 'socialPost',
+          entityId: linkedPostForDateNetworkSync.id,
+          entityLabel: `${postUpdates.platform || linkedPostForDateNetworkSync.platform} ${postUpdates.scheduledDate || linkedPostForDateNetworkSync.scheduledDate}`,
+          action: 'update',
+          details: 'Atualizado automaticamente: data de entrega/rede foi alterada direto numa demanda deste agendamento.'
+        });
       }
     }
   }

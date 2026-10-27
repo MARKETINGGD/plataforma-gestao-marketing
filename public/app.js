@@ -6004,6 +6004,8 @@
     $('#demCardTitle').value = demanda ? demanda.title : '';
     $('#demCardStatus').value = demanda ? demanda.status : 'a_fazer';
     $('#demCardDueDate').value = demanda ? (demanda.dueDate || '') : '';
+    $('#demCardDueDate').disabled = !!demanda && !canChangeDueDate();
+    $('#demCardDueDate').title = (!!demanda && !canChangeDueDate()) ? 'Só admin, gerente ou coordenador(a) podem alterar a data de entrega.' : '';
     // Marca (37ª rodada, pedido da Raquel): opcional -- mostra o ícone da
     // marca no início do título do card. Demanda vinda de Agendamento/
     // Influencer já chega com isso preenchido sozinho; quem cria direto
@@ -7570,6 +7572,17 @@
   // conveniência -- a API (GET /api/demandas/team-report) já recusa com
   // 403 pra quem não tem essa permissão, então nunca é a única trava.
   function canViewTeamReport() {
+    return !!currentUser && (currentUser.isSuperAdmin || currentUser.cargo === 'gerente' || currentUser.cargo === 'coordenador');
+  }
+
+  // 112ª rodada, pedido da Raquel: "em demandas, só quem pode trocar a
+  // data de entrega é o admin, coordenador ou gerente." Mesma regra de
+  // acesso de sempre. Só desabilita o CAMPO aqui, como conveniência -- a
+  // API (PUT /api/demandas/:id, ver canChangeDueDate em routes/
+  // demandas.js) já recusa com 403 quem não tem essa permissão, então
+  // nunca é a única trava. Não vale pra CRIAR um card novo (só pra
+  // trocar a data de um já existente).
+  function canChangeDueDate() {
     return !!currentUser && (currentUser.isSuperAdmin || currentUser.cargo === 'gerente' || currentUser.cargo === 'coordenador');
   }
 

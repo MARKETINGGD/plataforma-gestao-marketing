@@ -707,6 +707,22 @@ function canViewTeamReport(req) {
   return !!user && (user.cargo === 'gerente' || user.cargo === 'coordenador');
 }
 
+// 112ª rodada, pedido da Raquel: "em demandas, só quem pode trocar a data
+// de entrega é o admin, coordenador ou gerente." Mesma regra de acesso já
+// usada em canViewTeamReport/canApprove (admin da Plataforma OU cargo
+// gerente/coordenador) -- duplicada aqui (não reaproveitada) pelo mesmo
+// motivo de sempre nesta base: evitar acoplar checagens de pontos
+// diferentes do arquivo. Vale só pra TROCAR manualmente a data de entrega
+// de um card já existente (PUT /:id) -- não restringe definir a data na
+// CRIAÇÃO do card (POST), nem o avanço automático de `dueDate` quando um
+// card recorrente é concluído (isso é o sistema empurrando a data
+// sozinho, não alguém "trocando" ela).
+function canChangeDueDate(req) {
+  if (req.user.role === 'super_admin') return true;
+  const user = db.get('users').find({ id: req.user.id }).value();
+  return !!user && (user.cargo === 'gerente' || user.cargo === 'coordenador');
+}
+
 const TEAM_REPORT_STATUS_VALUES = STATUSES.concat(['atrasada']);
 
 // "Atrasada" tem prioridade sobre o status de verdade do card pra fins
@@ -1061,7 +1077,13 @@ router.put('/:id', requireAuth, (req, res) => {
   }
   if (title !== undefined) updates.title = title.trim();
   if (description !== undefined) updates.description = description;
-  if (dueDate !== undefined) updates.dueDate = dueDate || null;
+  if (dueDate !== undefined) {
+    const novaDueDate = dueDate || null;
+    if (novaDueDate !== (demanda.dueDate || null) && !canChangeDueDate(req)) {
+      return res.status(403).json({ error: 'Só admin, gerente ou coordenador(a) podem alterar a data de entrega.' });
+    }
+    updates.dueDate = novaDueDate;
+  }
   if (status !== undefined && STATUSES.includes(status)) updates.status = status;
   if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
   // Responsável geral (30ª rodada): valida contra os marcados que vão valer

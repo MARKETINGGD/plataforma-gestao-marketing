@@ -589,6 +589,16 @@ router.post('/', requireAuth, (req, res) => {
   if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca (De Bacco, GhelPlus, Duranox ou Boutique Inox).' });
   if (!scheduledDate) return res.status(400).json({ error: 'Escolha a data do post.' });
   const finalInvolvedIds = validInvolvedIds(involvedUserIds);
+  // 112ª rodada, correção de bugs reais: diferente do PUT /:id (que só
+  // aceita status:'publicado' se realmente publicar de verdade, ou com
+  // manualOverride explícito -- ver "11ª melhoria" mais abaixo), a
+  // criação aceitava qualquer `status` vindo do corpo da requisição,
+  // incluindo 'publicado' direto, sem nunca tentar publicar de verdade.
+  // Pedir 'publicado' já na criação cai pra 'agendado' -- o ciclo
+  // automático (ou uma confirmação manual depois, que aí sim passa pela
+  // salvaguarda do PUT) cuida da publicação de verdade.
+  const requestedStatus = STATUSES.includes(status) ? status : 'rascunho';
+  const finalStatus = requestedStatus === 'publicado' ? 'agendado' : requestedStatus;
   // 78ª rodada, pedido explícito da Raquel: "ao criar o agendamento, deve
   // ser obrigatorio colocar o responsável (estrelinha)". Agendamento
   // criado automaticamente a partir de uma ação de Influencer
@@ -605,7 +615,7 @@ router.post('/', requireAuth, (req, res) => {
     scheduledTime: scheduledTime || '',
     caption: caption || '',
     subject: subject || '',
-    status: STATUSES.includes(status) ? status : 'rascunho',
+    status: finalStatus,
     postType: POST_TYPES.includes(postType) ? postType : 'estatico',
     carouselBriefings: validCarouselBriefings(carouselBriefings),
     involvedUserIds: finalInvolvedIds,
@@ -879,7 +889,14 @@ router.put('/:id', requireAuth, async (req, res) => {
     brand: updates.brand !== undefined ? updates.brand : post.brand
   };
   const wantsMarkPublished = updates.status === 'publicado' && previousStatus !== 'publicado';
-  const alreadyHandledByMeta = post.publishStatus === 'published' || post.publishStatus === 'publishing';
+  // 112ª rodada, correção de bugs reais: 'publishing' SEM 'publishingStartedAt'
+  // reconsiderado (ver isEligible de cada utils/*Publisher.js) podia ficar
+  // travado pra sempre -- tratar 'publishing' como "já publicado de
+  // verdade" aqui pulava a tentativa real pra sempre nesse caso, e
+  // marcava 'publicado' silenciosamente sem nunca ter saído no ar. Só
+  // 'published' (publicação real confirmada) conta como já tratado pela
+  // Meta/LinkedIn/TikTok/Pinterest/YouTube.
+  const alreadyHandledByMeta = post.publishStatus === 'published';
   // 79ª rodada, pedido da Raquel: "o status de postagem, deve ter a opção
   // de mudar manualmente (em casos que ainda n tem integração ou em casos
   // que acontece algum problema, deixe essa possibilidade)" -- a trava da
@@ -1045,6 +1062,30 @@ router.put('/:id', requireAuth, async (req, res) => {
       if (updates.status === 'publicado' && infPost.status !== 'publicada') infUpdates.status = 'publicada';
       if (Object.keys(infUpdates).length > 0) {
         db.get('influencerPosts').find({ id: infPost.id }).assign(infUpdates).write();
+      }
+    }
+  }
+  // 112ª rodada, correção de bugs reais: o espelho automático Instagram ->
+  // Facebook (ver createFacebookMirror acima) só copiava o conteúdo na
+  // CRIAÇÃO -- uma edição feita DEPOIS (legenda, assunto, data/hora, link,
+  // tipo do post, responsável, envolvidos) nunca chegava no espelho, que
+  // ficava pra sempre com o conteúdo antigo. Propaga só os MESMOS campos
+  // que createFacebookMirror copia na criação, e só os que de fato
+  // mudaram nesta edição (updates[field] !== undefined) -- edição
+  // conservadora, sem disparar a cascata de criação de novo nem duplicar
+  // nada (mesmo espírito do bloco acima, que já escreve de volta na ação
+  // de influencer de origem).
+  if (fresh.mirroredToPostId) {
+    const mirrorPost = db.get('socialPosts').find({ id: fresh.mirroredToPostId }).value();
+    if (mirrorPost) {
+      const MIRROR_SYNC_FIELDS = ['caption', 'subject', 'scheduledDate', 'scheduledTime', 'link', 'postType', 'responsibleId', 'involvedUserIds'];
+      const mirrorUpdates = {};
+      MIRROR_SYNC_FIELDS.forEach((field) => {
+        if (updates[field] !== undefined) mirrorUpdates[field] = fresh[field];
+      });
+      if (Object.keys(mirrorUpdates).length > 0) {
+        mirrorUpdates.updatedAt = new Date().toISOString();
+        db.get('socialPosts').find({ id: mirrorPost.id }).assign(mirrorUpdates).write();
       }
     }
   }
@@ -1311,6 +1352,42 @@ router.delete('/:id', requireAuth, (req, res) => {
         logAudit({ user: req.user, entityType: 'demanda', entityId: d.id, entityLabel: d.title, action: 'update', details: 'Arquivada automaticamente: o agendamento de redes sociais de origem foi excluído.', meta: { visibility: d.visibility } });
       });
   }
+  // 112ª rodada, correção de bugs reais: excluir um post que tem espelho
+  // (Instagram <-> Facebook, ver createFacebookMirror acima) sem tratar o
+  // outro lado deixava ele órfão -- apontando pra um post que não existe
+  // mais -- e, se ainda não tivesse sido publicado de verdade, continuava
+  // "agendado" e elegível pra publicação automática sozinho. Nunca exclui
+  // o outro lado (mesmo padrão de sempre desta base, igual à demanda
+  // arquivada quando o agendamento de origem é excluído, ver bloco acima)
+  // -- só limpa a referência cruzada dos dois lados e, se ainda não tinha
+  // sido publicado de verdade, volta pra Rascunho (status que, depois da
+  // correção que faz isEligible exigir status 'agendado', já não entra
+  // mais no ciclo automático nem pode ser confundido com "pronto pra
+  // publicar"), com uma nota no Histórico explicando o motivo.
+  const mirrorPartnerId = post.mirroredToPostId || post.mirroredFromPostId;
+  if (mirrorPartnerId) {
+    const partner = db.get('socialPosts').find({ id: mirrorPartnerId }).value();
+    if (partner) {
+      const partnerUpdates = { updatedAt: new Date().toISOString() };
+      if (partner.mirroredFromPostId === post.id) partnerUpdates.mirroredFromPostId = null;
+      if (partner.mirroredToPostId === post.id) partnerUpdates.mirroredToPostId = null;
+      const partnerJaPublicado = partner.status === 'publicado' || partner.publishStatus === 'published';
+      if (!partnerJaPublicado) {
+        partnerUpdates.status = 'rascunho';
+      }
+      db.get('socialPosts').find({ id: partner.id }).assign(partnerUpdates).write();
+      logAudit({
+        user: req.user,
+        entityType: 'socialPost',
+        entityId: partner.id,
+        entityLabel: `${partner.platform} ${partner.scheduledDate}`,
+        action: 'update',
+        details: partnerJaPublicado
+          ? 'Referência ao post espelhado removida: o outro lado do espelho foi excluído.'
+          : 'Voltado para Rascunho automaticamente: o outro lado do espelho (post ligado) foi excluído -- revise e reagende manualmente se este post ainda deve ser publicado.'
+      });
+    }
+  }
   db.get('socialPosts').remove({ id: req.params.id }).write();
   const dir = path.join(uploadsRoot, req.params.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
@@ -1477,4 +1554,13 @@ router.delete('/:id/thumbnail-file', requireAuth, (req, res) => {
 // cria um agendamento vinculado -- mesma função, mesmo comportamento,
 // sem duplicar código.
 router.createDemandCardsForNewInvolved = createDemandCardsForNewInvolved;
+// 112ª rodada, correção de bugs reais: exportado pra utils/tripleSync.js
+// poder checar (sem duplicar a lista das 5 redes/marcas suportadas) se uma
+// combinação rede+tipo+marca tem publicação automática real disponível,
+// antes de gravar `status:'publicado'` direto num post vinculado a uma
+// ação de Influencer (ver syncInfluencerActionToSocialPost/
+// markSocialPostPublished em utils/tripleSync.js) -- mesmo padrão de
+// reaproveitar via propriedade do router (em vez de criar um require
+// circular) já usado por createDemandCardsForNewInvolved acima.
+router.resolveAutoPublisher = resolveAutoPublisher;
 module.exports = router;

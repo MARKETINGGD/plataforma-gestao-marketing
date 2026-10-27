@@ -71,9 +71,52 @@ function isVideoFile(file) {
   return VIDEO_FILE_EXTENSIONS.includes(ext);
 }
 
+// 112ª rodada, correção de bugs reais (auditoria pedida pela Raquel):
+// `publishStatus:'publishing'` é gravado ANTES de tentar publicar de
+// verdade (ver publishOne) -- se o processo cair/reiniciar nesse meio
+// tempo, o post ficava preso em 'publishing' pra sempre (isEligible
+// sempre excluía qualquer post com publishStatus preenchido, e nada
+// nunca resetava isso). Reconsidera (e reseta) um post travado em
+// 'publishing' há mais de 15 minutos -- tempo generoso o bastante pra
+// qualquer tentativa real (upload de vídeo incluso) terminar sozinha.
+// Post sem `publishingStartedAt` (travado ANTES desta correção existir)
+// também conta como travado -- é exatamente o cenário que motivou a
+// correção.
+const STUCK_PUBLISHING_MS = 15 * 60 * 1000;
+function resetIfStuckPublishing(post) {
+  if (post.publishStatus !== 'publishing') return;
+  const startedAt = post.publishingStartedAt ? new Date(post.publishingStartedAt).getTime() : NaN;
+  const stuckMs = Number.isNaN(startedAt) ? Infinity : Date.now() - startedAt;
+  if (stuckMs < STUCK_PUBLISHING_MS) return;
+  db.get('socialPosts').find({ id: post.id }).assign({ publishStatus: null, publishingStartedAt: null }).write();
+}
+
+// Token da conta expirado/prestes a expirar (112ª rodada) -- o YouTube não
+// guarda `tokenExpiresAt` (renova o access token a cada publicação, ver
+// attemptPublish abaixo) -- esta checagem fica de fora de propósito nenhum
+// pra essa rede (nunca acha `tokenExpiresAt` definido), só existe aqui pra
+// manter a MESMA checagem/mensagem nos 5 publicadores, caso a conta ganhe
+// esse campo no futuro.
+const TOKEN_EXPIRY_BUFFER_MS = 60 * 60 * 1000; // 1 hora de folga
+function isAccountTokenExpiredOrExpiringSoon(account) {
+  if (!account.tokenExpiresAt) return false;
+  const expiresAt = new Date(account.tokenExpiresAt).getTime();
+  if (Number.isNaN(expiresAt)) return false;
+  return (expiresAt - Date.now()) <= TOKEN_EXPIRY_BUFFER_MS;
+}
+
 function isEligible(post) {
+  resetIfStuckPublishing(post);
   if (post.publishStatus) return false;
   if (!isYouTubeAutoPublishSupported(post)) return false;
+  // 112ª rodada: nunca publica sozinho um post ainda em Rascunho (só
+  // 'agendado' quer dizer "pronto, só falta a hora chegar") nem um que já
+  // foi explicitamente Reprovado na Prévia do Feed -- a aprovação em si
+  // continua OPCIONAL (post que nunca passou por aprovação --
+  // approvalStatus 'pendente', o padrão -- publica normalmente, sem
+  // exigir aprovação de ninguém).
+  if (post.status !== 'agendado') return false;
+  if (post.approvalStatus === 'reprovado') return false;
   // Assunto preenchido vira o TÍTULO do vídeo no YouTube — a própria API
   // exige um título não-vazio, então isso também é o critério de "pronto
   // pra publicar" (mesmo espírito da legenda obrigatória na Meta/LinkedIn).
@@ -102,7 +145,64 @@ function mimeTypeForVideo(file) {
   return ext === '.mov' ? 'video/quicktime' : 'video/mp4';
 }
 
+// Confirmação de processamento (112ª rodada) -- o upload binário só
+// devolve o `id` do vídeo; isso NÃO quer dizer que o YouTube já terminou
+// de processar o arquivo (`status.uploadStatus` começa em 'uploaded', só
+// vira 'processed' quando termina de verdade, ou 'failed'/'rejected' se
+// der errado). Faz um polling curto, mesmo espírito (não os mesmos
+// valores) do polling de status já usado pela TikTok (ver
+// waitForPublishComplete em utils/tiktokClient.js) -- timeout bem mais
+// curto que o da TikTok de propósito: vídeo do YouTube pode legitimamente
+// demorar bem mais que isso pra sair de 'uploaded' (processamento
+// bem mais pesado), então o timeout aqui NÃO é tratado como falha --
+// só vira um aviso, pra não travar o post pra sempre nem bloquear a fila
+// (o publicador roda de 2 em 2 minutos) por um processamento que pode
+// legitimamente continuar rolando por mais tempo do lado do YouTube.
+const VIDEO_STATUS_POLL_INTERVAL_MS = 5000;
+const VIDEO_STATUS_POLL_TIMEOUT_MS = 90 * 1000; // 1min30s
+// `failureReason` e `rejectionReason` são campos DIFERENTES da API do
+// YouTube (enums próprios cada um) -- junta os dois num dicionário só
+// porque só um dos dois vem preenchido por vez (ver getVideoStatus em
+// utils/youtubeClient.js), nunca os dois juntos.
+const FAILURE_REASON_LABEL_PT = {
+  // status.failureReason (erro técnico processando o arquivo)
+  codec: 'codec de vídeo/áudio não suportado',
+  conversion: 'erro convertendo o arquivo',
+  emptyFile: 'arquivo vazio',
+  invalidFile: 'arquivo inválido/corrompido',
+  tooSmall: 'arquivo pequeno demais',
+  uploadAborted: 'o upload foi interrompido antes de terminar',
+  // status.rejectionReason (recusado por política/conteúdo)
+  claim: 'reivindicação de direitos autorais sobre o conteúdo',
+  copyright: 'violação de direitos autorais',
+  duplicate: 'vídeo duplicado',
+  inappropriate: 'conteúdo considerado inadequado',
+  legal: 'motivo legal',
+  length: 'duração do vídeo fora do permitido',
+  termsOfUse: 'violação dos termos de uso do YouTube',
+  trademark: 'violação de marca registrada',
+  uploaderAccountClosed: 'a conta do canal foi fechada',
+  uploaderAccountSuspended: 'a conta do canal foi suspensa'
+};
+async function waitForVideoProcessed({ accessToken, videoId, pollIntervalMs = VIDEO_STATUS_POLL_INTERVAL_MS, timeoutMs = VIDEO_STATUS_POLL_TIMEOUT_MS }) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  for (;;) {
+    last = await youtubeClient.getVideoStatus({ accessToken, videoId });
+    const uploadStatus = last && last.uploadStatus;
+    // 'uploaded' é o único status "ainda processando" -- qualquer outra
+    // coisa (processed/failed/rejected/deleted, ou nulo se a consulta não
+    // achou o vídeo) já é uma resposta final, sai do polling.
+    if (uploadStatus !== 'uploaded') return { ...(last || {}), timedOut: false };
+    if (Date.now() >= deadline) return { ...(last || {}), timedOut: true };
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+}
+
 async function attemptPublish(post, account) {
+  if (isAccountTokenExpiredOrExpiringSoon(account)) {
+    throw new youtubeClient.YouTubeApiError('Token da conta expirado ou prestes a expirar -- reconecte a conta em Integrações.');
+  }
   const accessToken = await youtubeClient.refreshAccessToken({
     clientId: YOUTUBE_CLIENT_ID,
     clientSecret: YOUTUBE_CLIENT_SECRET,
@@ -144,8 +244,24 @@ async function attemptPublish(post, account) {
     }
   }
 
+  // 112ª rodada: só marca como publicado de verdade depois do YouTube
+  // confirmar que o processamento terminou -- ver waitForVideoProcessed
+  // acima. Falha/rejeição de verdade vira erro (mesmo tratamento de
+  // qualquer outra falha de publicação); timeout do polling NÃO trava o
+  // fluxo, só vira um aviso junto com o recado de sucesso (o vídeo pode
+  // legitimamente ainda estar processando do lado do YouTube).
+  const processedStatus = await waitForVideoProcessed({ accessToken, videoId });
+  let processingWarning = null;
+  if (processedStatus.uploadStatus === 'failed' || processedStatus.uploadStatus === 'rejected') {
+    const motivo = FAILURE_REASON_LABEL_PT[processedStatus.failureReason] || FAILURE_REASON_LABEL_PT[processedStatus.rejectionReason] || processedStatus.failureReason || processedStatus.rejectionReason || 'motivo não informado';
+    throw new youtubeClient.YouTubeApiError(`O YouTube recusou o vídeo depois do upload (status: ${processedStatus.uploadStatus}, motivo: ${motivo}). Confira o arquivo/conta e edite o agendamento para tentar de novo.`);
+  }
+  if (processedStatus.timedOut) {
+    processingWarning = `o YouTube ainda estava processando o vídeo depois de ${Math.round(VIDEO_STATUS_POLL_TIMEOUT_MS / 1000)}s -- pode levar mais tempo pra ficar disponível publicamente, confira novamente em alguns minutos.`;
+  }
+
   const externalPermalink = youtubeClient.buildPermalink(videoId);
-  return { externalPostId: videoId, externalPermalink };
+  return { externalPostId: videoId, externalPermalink, processingWarning };
 }
 
 // "Quem avisar" de FALHA/SUCESSO -- duplicado (não importado) de
@@ -177,12 +293,13 @@ function notifyPublishFailure(post, message) {
   });
 }
 
-function notifyPublishSuccess(post, externalUrl) {
+function notifyPublishSuccess(post, externalUrl, warning) {
   const label = `YouTube · ${BRAND_LABEL_PT[post.brand] || post.brand}`;
   const linkPart = externalUrl ? ' Clique aqui pra ver o vídeo no ar.' : ' (não consegui montar o link direto dessa vez, mas publicou certinho.)';
+  const warningPart = warning ? ` Aviso: ${warning}` : '';
   createAutoRecado({
     recipientIds: publishSuccessRecipientIds(post),
-    text: `Papoi: o vídeo de ${label} (${post.scheduledDate}) foi publicado com sucesso!${linkPart}`,
+    text: `Papoi: o vídeo de ${label} (${post.scheduledDate}) foi publicado com sucesso!${linkPart}${warningPart}`,
     postTitle: post.subject || label,
     postBrand: post.brand,
     postNetwork: post.platform,
@@ -196,9 +313,9 @@ async function publishOne(post) {
   const account = findConnectedAccount(post.brand);
   if (!account) return;
 
-  db.get('socialPosts').find({ id: post.id }).assign({ publishStatus: 'publishing' }).write();
+  db.get('socialPosts').find({ id: post.id }).assign({ publishStatus: 'publishing', publishingStartedAt: new Date().toISOString() }).write();
   try {
-    const { externalPostId, externalPermalink } = await attemptPublish(post, account);
+    const { externalPostId, externalPermalink, processingWarning } = await attemptPublish(post, account);
     const updates = {
       publishStatus: 'published',
       externalPostId,
@@ -212,7 +329,7 @@ async function publishOne(post) {
       const { cascadeCompleteDemandas } = require('./demandCascade');
       cascadeCompleteDemandas(post.id, null, null);
     }
-    notifyPublishSuccess(post, externalPermalink);
+    notifyPublishSuccess(post, externalPermalink, processingWarning);
   } catch (e) {
     const message = e instanceof youtubeClient.YouTubeApiError ? e.message : (e.message || 'Erro inesperado ao publicar.');
     db.get('socialPosts').find({ id: post.id }).assign({

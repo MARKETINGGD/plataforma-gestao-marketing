@@ -64,9 +64,51 @@ function isImageFile(file) {
   return IMAGE_FILE_EXTENSIONS.includes(ext);
 }
 
+// 112ª rodada, correção de bugs reais (auditoria pedida pela Raquel):
+// `publishStatus:'publishing'` é gravado ANTES de tentar publicar de
+// verdade (ver publishOne) -- se o processo cair/reiniciar nesse meio
+// tempo, o post ficava preso em 'publishing' pra sempre (isEligible
+// sempre excluía qualquer post com publishStatus preenchido, e nada
+// nunca resetava isso). Reconsidera (e reseta) um post travado em
+// 'publishing' há mais de 15 minutos -- tempo generoso o bastante pra
+// qualquer tentativa real terminar sozinha. Post sem
+// `publishingStartedAt` (travado ANTES desta correção existir) também
+// conta como travado -- é exatamente o cenário que motivou a correção.
+const STUCK_PUBLISHING_MS = 15 * 60 * 1000;
+function resetIfStuckPublishing(post) {
+  if (post.publishStatus !== 'publishing') return;
+  const startedAt = post.publishingStartedAt ? new Date(post.publishingStartedAt).getTime() : NaN;
+  const stuckMs = Number.isNaN(startedAt) ? Infinity : Date.now() - startedAt;
+  if (stuckMs < STUCK_PUBLISHING_MS) return;
+  db.get('socialPosts').find({ id: post.id }).assign({ publishStatus: null, publishingStartedAt: null }).write();
+}
+
+// Token da conta expirado/prestes a expirar (112ª rodada) -- o Pinterest
+// não guarda `tokenExpiresAt` (renova o access token a cada publicação,
+// ver attemptPublish abaixo) -- esta checagem fica de fora de propósito
+// nenhum pra essa rede (nunca acha `tokenExpiresAt` definido), só existe
+// aqui pra manter a MESMA checagem/mensagem nos 5 publicadores, caso a
+// conta ganhe esse campo no futuro.
+const TOKEN_EXPIRY_BUFFER_MS = 60 * 60 * 1000; // 1 hora de folga
+function isAccountTokenExpiredOrExpiringSoon(account) {
+  if (!account.tokenExpiresAt) return false;
+  const expiresAt = new Date(account.tokenExpiresAt).getTime();
+  if (Number.isNaN(expiresAt)) return false;
+  return (expiresAt - Date.now()) <= TOKEN_EXPIRY_BUFFER_MS;
+}
+
 function isEligible(post) {
+  resetIfStuckPublishing(post);
   if (post.publishStatus) return false;
   if (!isPinterestAutoPublishSupported(post)) return false;
+  // 112ª rodada: nunca publica sozinho um post ainda em Rascunho (só
+  // 'agendado' quer dizer "pronto, só falta a hora chegar") nem um que já
+  // foi explicitamente Reprovado na Prévia do Feed -- a aprovação em si
+  // continua OPCIONAL (post que nunca passou por aprovação --
+  // approvalStatus 'pendente', o padrão -- publica normalmente, sem
+  // exigir aprovação de ninguém).
+  if (post.status !== 'agendado') return false;
+  if (post.approvalStatus === 'reprovado') return false;
   // Assunto preenchido vira o TÍTULO do Pin -- mesmo espírito da legenda
   // obrigatória na Meta/YouTube, usado como critério de "pronto pra
   // publicar".
@@ -85,6 +127,9 @@ function findConnectedAccount(brand) {
 }
 
 async function attemptPublish(post, account) {
+  if (isAccountTokenExpiredOrExpiringSoon(account)) {
+    throw new pinterestClient.PinterestApiError('Token da conta expirado ou prestes a expirar -- reconecte a conta em Integrações.');
+  }
   const accessToken = await pinterestClient.refreshAccessToken({
     clientId: PINTEREST_CLIENT_ID,
     clientSecret: PINTEREST_CLIENT_SECRET,
@@ -158,7 +203,7 @@ async function publishOne(post) {
   const account = findConnectedAccount(post.brand);
   if (!account) return;
 
-  db.get('socialPosts').find({ id: post.id }).assign({ publishStatus: 'publishing' }).write();
+  db.get('socialPosts').find({ id: post.id }).assign({ publishStatus: 'publishing', publishingStartedAt: new Date().toISOString() }).write();
   try {
     const { externalPostId, externalPermalink } = await attemptPublish(post, account);
     const updates = {

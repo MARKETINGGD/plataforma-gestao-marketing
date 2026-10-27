@@ -1,6 +1,38 @@
 const db = require('../db');
 const { logAudit } = require('./audit');
 
+// 112ª rodada, correção de bugs reais (auditoria pedida pela Raquel): esta
+// migração roda em TODO boot do servidor (ver server.js, fora do escopo
+// desta correção) sem nenhuma trava de "já rodei" -- diferente de outras
+// migrações desta base (ex.: migrateLastCompletedAt.js/
+// migrateDemandaBrand.js), que são naturalmente idempotentes (só mexem em
+// quem ainda não tem um campo), ESTA migração reconcilia demandas-irmãs
+// IGUALANDO campos de valor único (incluindo `archived`) pelo valor mais
+// recente do grupo -- o que desfaz, a cada reinício, uma divergência que
+// passou a ser INTENCIONAL depois da 1ª reconciliação (ex.: alguém
+// arquivar manualmente só a própria demanda-irmã). Acrescenta uma trava
+// de "rodou uma vez só" (nenhuma migração desta base tinha esse padrão
+// até aqui -- as outras são naturalmente idempotentes por checarem o
+// próprio dado, o que não serve aqui, ver comentário acima) -- sem
+// precisar mexer em db.js (fora do escopo desta correção): inicializa a
+// coleção `oneTimeMigrationsCompleted` na própria migração, se ainda não
+// existir.
+const MIGRATION_NAME = 'reconcileSiblingDemandas99';
+function ensureOneTimeMigrationsCollection() {
+  // lowdb aceita chamar defaults() de novo a qualquer momento -- só
+  // preenche a chave que ainda não existir, nunca sobrescreve um array já
+  // gravado por uma migração anterior.
+  db.defaults({ oneTimeMigrationsCompleted: [] }).write();
+}
+function hasOneTimeMigrationRun(name) {
+  ensureOneTimeMigrationsCollection();
+  return !!db.get('oneTimeMigrationsCompleted').find({ name }).value();
+}
+function markOneTimeMigrationRun(name) {
+  ensureOneTimeMigrationsCollection();
+  db.get('oneTimeMigrationsCompleted').push({ name, completedAt: new Date().toISOString() }).write();
+}
+
 // 99ª rodada, pedido explícito da Raquel: "certifique-se de que todos os
 // cards irmãos atualizados nas ultimas 2 semanas, estejam ok" -- antes
 // desta rodada, demandas-irmãs (mesmo sourceSocialPostId, uma por pessoa
@@ -56,6 +88,7 @@ function mergeFiles(siblings) {
 }
 
 function migrateReconcileSiblingDemandas99() {
+  if (hasOneTimeMigrationRun(MIGRATION_NAME)) return;
   const all = db.get('demandas').value();
   const groups = new Map();
   all.forEach((d) => {
@@ -117,6 +150,7 @@ function migrateReconcileSiblingDemandas99() {
   if (groupsFixed > 0) {
     console.log(`[migrateReconcileSiblingDemandas99] ${groupsFixed} grupo(s) de demandas-irmãs estavam divergentes e foram reconciliados (${demandasTocadas} demanda(s) atualizadas, nenhuma informação perdida).`);
   }
+  markOneTimeMigrationRun(MIGRATION_NAME);
 }
 
 module.exports = { migrateReconcileSiblingDemandas99 };

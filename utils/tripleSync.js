@@ -112,10 +112,39 @@ function syncInfluencerActionToSocialPost(infPost, updates, req) {
   // ligado -- "tudo se altera junto", mesmo espírito de sempre.
   if (updates.responsibleId !== undefined) postUpdates.responsibleId = updates.responsibleId;
   let willPublish = false;
+  let blockedAutoPublishNote = null;
   if (updates.status !== undefined) {
     if (updates.status === 'publicada' && post.status !== 'publicado') {
-      postUpdates.status = 'publicado';
-      willPublish = true;
+      // 112ª rodada, correção de bugs reais (auditoria pedida pela
+      // Raquel): marcar a ação de influencer como publicada gravava
+      // `status:'publicado'` direto no agendamento ligado, sem passar
+      // pela mesma salvaguarda que routes/socialPosts.js aplica no PUT
+      // /:id (que tenta publicar de VERDADE antes de aceitar
+      // 'publicado', pra combinação rede+tipo+marca com publicação
+      // automática real -- ver "11ª melhoria" naquele arquivo). Combinação
+      // SEM publicador automático (a maioria dos casos de Influencer,
+      // normalmente `platform: 'influencer'`): comportamento de sempre,
+      // sem mudança. Combinação COM publicador automático real: em vez de
+      // arriscar publicar incorretamente por este caminho (que não é
+      // assíncrono e não tem como aguardar/relatar uma publicação de
+      // verdade com segurança), bloqueia só esta transição -- o post
+      // continua como estava (ainda 'agendado', já que isso aqui nunca
+      // chega a gravar 'publicado') e o ciclo automático de 2 em 2
+      // minutos (já rodando sozinho, ver server.js) publica de verdade e
+      // grava 'publicado'/completa as demandas sozinho quando realmente
+      // sair no ar.
+      const effectivePostForAutoPublish = {
+        platform: postUpdates.platform !== undefined ? postUpdates.platform : post.platform,
+        postType: post.postType,
+        brand: post.brand
+      };
+      const autoPublisher = socialPostsRouter.resolveAutoPublisher(effectivePostForAutoPublish);
+      if (autoPublisher) {
+        blockedAutoPublishNote = 'Ação de influencer marcada como publicada, mas este agendamento tem publicação automática real disponível -- aguardando o ciclo automático confirmar a publicação de verdade antes de marcar como "Publicado" (nenhuma tentativa de publicar foi feita por este caminho).';
+      } else {
+        postUpdates.status = 'publicado';
+        willPublish = true;
+      }
     } else if (updates.status !== 'publicada' && post.status === 'publicado') {
       // Voltou pra "a publicar"/"cancelada" -- não desfaz publicação já
       // feita no agendamento (evita reabrir algo que já saiu no ar).
@@ -130,6 +159,16 @@ function syncInfluencerActionToSocialPost(infPost, updates, req) {
   if (willPublish) {
     cascadeCompleteDemandas(fresh.id, null, req);
   }
+  if (blockedAutoPublishNote) {
+    logAudit({
+      user: (req && req.user) || { id: 'system', name: 'Sistema' },
+      entityType: 'socialPost',
+      entityId: fresh.id,
+      entityLabel: `${fresh.platform} ${fresh.scheduledDate || ''}`,
+      action: 'update',
+      details: blockedAutoPublishNote
+    });
+  }
 }
 
 // Propaga o status "publicado" de um socialPost pra cima -- usada tanto
@@ -142,6 +181,29 @@ function markSocialPostPublished(postId, req) {
   const post = db.get('socialPosts').find({ id: postId }).value();
   if (!post) return;
   if (post.status !== 'publicado') {
+    // 112ª rodada, correção de bugs reais: mesma salvaguarda aplicada em
+    // syncInfluencerActionToSocialPost acima (ver comentário completo lá)
+    // -- concluir a demanda ligada a este post nunca pode gravar
+    // 'publicado' direto quando a combinação rede+tipo+marca tem
+    // publicação automática real disponível. Bloqueia a transição inteira
+    // (nem marca o post como publicado, nem completa as demandas-irmãs,
+    // nem propaga pra ação de influencer) até o ciclo automático publicar
+    // de verdade e fazer tudo isso sozinho (ver publishOne em cada
+    // utils/*Publisher.js) -- evita destravar demandas/ação como
+    // concluídas antes do material realmente estar no ar.
+    const effectivePostForAutoPublish = { platform: post.platform, postType: post.postType, brand: post.brand };
+    const autoPublisher = socialPostsRouter.resolveAutoPublisher(effectivePostForAutoPublish);
+    if (autoPublisher) {
+      logAudit({
+        user: (req && req.user) || { id: 'system', name: 'Sistema' },
+        entityType: 'socialPost',
+        entityId: post.id,
+        entityLabel: `${post.platform} ${post.scheduledDate || ''}`,
+        action: 'update',
+        details: 'Demanda ligada concluída, mas este agendamento tem publicação automática real disponível -- aguardando o ciclo automático confirmar a publicação de verdade antes de marcar como "Publicado" (nenhuma tentativa de publicar foi feita por este caminho, e as demandas-irmãs/ação de influencer não foram completadas ainda).'
+      });
+      return;
+    }
     db.get('socialPosts').find({ id: postId }).assign({ status: 'publicado', updatedAt: new Date().toISOString() }).write();
   }
   cascadeCompleteDemandas(postId, null, req);

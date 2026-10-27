@@ -168,6 +168,36 @@ async function uploadVideo({ accessToken, buffer, mimeType, title, description, 
   return body.id; // ID do vídeo criado
 }
 
+// ---------- Status de processamento do vídeo (112ª rodada) ----------
+// O upload binário só devolve o `id` do vídeo (ver uploadVideo acima) --
+// isso NÃO quer dizer que o YouTube já terminou de processar o arquivo
+// (o `status.uploadStatus` começa em 'uploaded', e só vira 'processed'
+// depois que o YouTube termina de verdade; pode virar 'failed'/'rejected'
+// se o processamento der errado). Antes desta correção, o publicador
+// (utils/youtubePublisher.js) marcava o post como publicado assim que o
+// upload retornava um id, sem nunca confirmar esse status -- esta função
+// consulta `videos.list?part=status` pra permitir essa confirmação (ver
+// waitForVideoProcessed em utils/youtubePublisher.js, mesmo espírito do
+// polling de status já usado pela TikTok em utils/tiktokClient.js).
+async function getVideoStatus({ accessToken, videoId }) {
+  const qs = new URLSearchParams({ part: 'status', id: videoId });
+  const res = await fetch(`${API_BASE}/videos?${qs.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new YouTubeApiError((body.error && body.error.message) || `Erro ${res.status} consultando o status do vídeo no YouTube.`, body);
+  }
+  const item = (body.items || [])[0];
+  if (!item) return null;
+  const status = item.status || {};
+  return {
+    uploadStatus: status.uploadStatus || null,
+    failureReason: status.failureReason || null,
+    rejectionReason: status.rejectionReason || null
+  };
+}
+
 // ---------- Capa/thumbnail (arquivo separado do vídeo em si) ----------
 async function setThumbnail({ accessToken, videoId, buffer, mimeType }) {
   const qs = new URLSearchParams({ videoId });
@@ -193,6 +223,7 @@ module.exports = {
   refreshAccessToken,
   getMyChannel,
   uploadVideo,
+  getVideoStatus,
   setThumbnail,
   buildPermalink
 };

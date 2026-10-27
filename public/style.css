@@ -294,6 +294,15 @@ button{font-weight:700;}
 .navlink-group{display:flex;flex-direction:column;}
 .navlink-submenu{display:flex;flex-direction:column;gap:7px;padding-left:14px;margin-top:5px;}
 .navlink-sub{font-size:14px;padding:11px 12px;}
+/* Correção de bug (pedido da Raquel): os botões que abrem submenu
+   (Influencers, Produtos, Expositores, Brindes, Budget, Pagamentos, APP
+   Externos, Relatórios, Configurações) não tinham NENHUMA pista visual
+   de que abrem uma lista -- pareciam um link normal igual aos outros.
+   Reaproveita o mesmo .navlink de sempre, só acrescenta uma setinha
+   (▸) à direita via ::after, no mesmo tom claro/translúcido do texto. */
+.navlink-parent{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.navlink-parent::after{content:'▸';font-size:12px;opacity:.55;flex:none;}
+.navlink-parent:hover::after,.navlink-parent.active::after{opacity:.9;}
 .sidebar-footer{padding:14px 18px;border-top:1px solid rgba(255,255,255,.08);}
 .sidebar-user{display:flex;flex-direction:column;gap:6px;font-size:13px;}
 .sidebar-user-name{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -589,6 +598,12 @@ button{font-weight:700;}
 .budget-diff{font-size:12.5px;font-weight:700;margin:2px 0 0;}
 .budget-diff-over{color:var(--danger);}
 .budget-diff-under{color:#2ea043;}
+/* Correção de bug (pedido da Raquel): o checkbox "Recorrente" do
+   formulário de Budget ficava espremido ao lado de um texto bem longo
+   (~90 caracteres) dentro do mesmo <label> -- sem flex, o texto quebrava
+   de um jeito que o checkbox ficava desalinhado do próprio texto. */
+.budget-recorrente-label{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.4;cursor:pointer;}
+.budget-recorrente-label input{margin-top:3px;flex:none;}
 
 /* Brindes com estoque baixo — card da Início (20ª rodada, no lugar dos
    resumos de Tráfego Pago/Mídias Sociais que a Raquel pediu pra tirar). */
@@ -702,6 +717,21 @@ button{font-weight:700;}
 /* 36ª rodada: fotinhos de quem mais está no card, vindo do mesmo agendamento. */
 .kanban-card-also-involved{margin-top:6px;}
 .badge{background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted);}
+/* Correção de bug (pedido da Raquel): os anexos (Assinaturas, Pagamentos,
+   Terceirizados, Compras de Brinde, Campanha Cooperada) usavam a classe
+   .file-chip mas ela nunca tinha regra nenhuma -- o link do arquivo
+   ficava solto, colado no botão "✕" de remover, sem parecer uma etiqueta
+   clicável. Mesmo visual de "pill" do .badge acima (fundo var(--bg),
+   borda var(--border), cantos bem arredondados), só que com um pouco
+   mais de respiro pro link + botão caberem dentro confortavelmente. */
+.file-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--bg);border:1px solid var(--border);border-radius:999px;
+  padding:3px 10px;margin:2px 4px 2px 0;font-size:12px;
+}
+.file-chip a{color:var(--text);text-decoration:none;}
+.file-chip a:hover{text-decoration:underline;}
+.file-chip .btn-link{padding:0;font-size:12px;}
 .badge-danger{background:#fdecea;border-color:#f3c6c0;color:var(--danger);}
 /* Selo "Sim" verde (43ª rodada, Campanha Cooperada: aprovado/cobrança
    enviada/finalizado) — mesmo tratamento visual do badge-danger, só que

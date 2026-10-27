@@ -301,6 +301,24 @@
     faixaEtaria1317: 'analiseFormFaixaEtaria1317', faixaEtaria1824: 'analiseFormFaixaEtaria1824', faixaEtaria25Mais: 'analiseFormFaixaEtaria25Mais',
     generoAudienciaMulheres: 'analiseFormGeneroAudienciaMulheres', generoAudienciaHomens: 'analiseFormGeneroAudienciaHomens'
   };
+  // Utilitário de data (correção de bug de fuso horário, pedido da
+  // Raquel): "hoje" tem que ser o dia em Brasília, não em UTC -- entre
+  // ~21h e meia-noite horário local, UTC já virou o dia seguinte, então
+  // `new Date().toISOString().slice(0, 10)` dava a data errada nesse
+  // intervalo. Usada em todo lugar que precisa saber "qual é o dia de
+  // hoje" (ver todayStr() mais abaixo, que agora chama essa função).
+  function todaySaoPauloStr(date) {
+    try {
+      const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      });
+      return fmt.format(date || new Date());
+    } catch (e) {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
+
   function analiseFieldInputId(key) {
     return ANALISE_FORM_ID[key] || ('analiseForm' + key.charAt(0).toUpperCase() + key.slice(1));
   }
@@ -1513,7 +1531,7 @@
         <h3 style="margin-top:0;">Registrar saída</h3>
         <div class="form-row">
           <div><label>Seu nome <span class="muted" style="font-weight:400;">(obrigatório -- fica registrado quem lançou)</span></label><input type="text" id="sharePublicSaidasNome"></div>
-          <div><label>Data</label><input type="date" id="sharePublicSaidasDate" value="${new Date().toISOString().slice(0, 10)}"></div>
+          <div><label>Data</label><input type="date" id="sharePublicSaidasDate" value="${todaySaoPauloStr()}"></div>
         </div>
         <div class="form-row">
           <div><label>Representante</label><input type="text" id="sharePublicSaidasRepresentante"></div>
@@ -3799,7 +3817,7 @@
     const linkHtml = r.externalUrl
       ? `<div class="recado-card-external-link"><a href="${r.externalUrl}" target="_blank" rel="noopener" data-stop-card-click>Ver post publicado ↗</a></div>`
       : '';
-    return `<div class="recado-card-post">${icons ? `<span class="recado-card-post-icons">${icons}</span> ` : ''}<b>${r.postTitle}</b></div>${linkHtml}`;
+    return `<div class="recado-card-post">${icons ? `<span class="recado-card-post-icons">${icons}</span> ` : ''}<b>${escapeHtml(r.postTitle)}</b></div>${linkHtml}`;
   }
 
   async function loadRecados() {
@@ -3853,7 +3871,7 @@
         <div class="recado-card-row">
           <input type="checkbox" class="recado-card-checkbox" ${selectedRecadoIds.has(r.id) ? 'checked' : ''}>
           ${avatarHtml({ name: r.createdByName, photoUrl: r.createdByPhoto }, 28)}
-          <div class="recado-card-text">${recadoPostNoticeHtml(r)}${r.text}<span class="recado-card-meta">de ${r.createdByName}</span></div>
+          <div class="recado-card-text">${recadoPostNoticeHtml(r)}${escapeHtml(r.text)}<span class="recado-card-meta">de ${escapeHtml(r.createdByName)}</span></div>
         </div>
       `;
       const checkbox = card.querySelector('.recado-card-checkbox');
@@ -3943,9 +3961,9 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span class="label-color-dot" style="background:${r.color}"></span></td>
-        <td>${recadoPostNoticeHtml(r)}${r.text}</td>
-        <td><div style="display:flex;align-items:center;gap:6px;">${avatarHtml({ name: r.createdByName, photoUrl: r.createdByPhoto }, 22)}${r.createdByName}</div></td>
-        <td>${targets.join(', ')}</td>
+        <td>${recadoPostNoticeHtml(r)}${escapeHtml(r.text)}</td>
+        <td><div style="display:flex;align-items:center;gap:6px;">${avatarHtml({ name: r.createdByName, photoUrl: r.createdByPhoto }, 22)}${escapeHtml(r.createdByName)}</div></td>
+        <td>${targets.map(escapeHtml).join(', ')}</td>
         <td>${readCount}/${targets.length}</td>
         <td></td>
       `;
@@ -4593,8 +4611,13 @@
     }
     const params = new URLSearchParams({ brand: currentBudgetBrand });
     if ($('#budgetFilterYear').value) params.set('year', $('#budgetFilterYear').value);
-    const data = await api('/api/budget?' + params.toString());
-    budgetEntries = data.entries.sort((a, b) => (a.year - b.year) || (a.month - b.month) || a.category.localeCompare(b.category));
+    try {
+      const data = await api('/api/budget?' + params.toString());
+      budgetEntries = data.entries.sort((a, b) => (a.year - b.year) || (a.month - b.month) || a.category.localeCompare(b.category));
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar o Budget.');
+      return;
+    }
     renderBudget();
   }
 
@@ -5226,7 +5249,7 @@
   // entrega ($('#demCardSave').onclick). `dateStr` default é hoje; passar
   // uma data de entrega checa "essa pessoa vai estar ausente NAQUELE dia",
   // não necessariamente hoje.
-  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function todayStr() { return todaySaoPauloStr(); }
   function ausenciaEm(userId, dateStr) {
     dateStr = dateStr || todayStr();
     return ausenciasPublicas.find((a) => a.userId === userId && a.dataInicio <= dateStr && dateStr <= a.dataFim) || null;
@@ -7478,7 +7501,7 @@
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
     const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todaySaoPauloStr();
 
     for (let i = 0; i < totalCells; i++) {
       const dayOffset = i - firstWeekday + 1;
@@ -8060,11 +8083,15 @@
 
   // ---- Controle de Assinaturas ----
   async function loadAssinaturas() {
-    const data = await api('/api/pagamentos/assinaturas');
-    assinaturasCache = data.items;
-    assinaturasCanEdit = data.canEdit;
-    $('#assinaturaNewBtn').hidden = !assinaturasCanEdit;
-    renderAssinaturas();
+    try {
+      const data = await api('/api/pagamentos/assinaturas');
+      assinaturasCache = data.items;
+      assinaturasCanEdit = data.canEdit;
+      $('#assinaturaNewBtn').hidden = !assinaturasCanEdit;
+      renderAssinaturas();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar as assinaturas.');
+    }
   }
   function renderAssinaturas() {
     const body = $('#assinaturasBody');
@@ -8091,8 +8118,12 @@
     $all('[data-del-assinatura]').forEach((b) => {
       b.onclick = async () => {
         if (!confirm('Excluir esta assinatura?')) return;
-        await api('/api/pagamentos/assinaturas/' + b.dataset.delAssinatura, { method: 'DELETE' });
-        await loadAssinaturas();
+        try {
+          await api('/api/pagamentos/assinaturas/' + b.dataset.delAssinatura, { method: 'DELETE' });
+          await loadAssinaturas();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir a assinatura.');
+        }
       };
     });
     $all('[data-upload-assinatura]').forEach((input) => {
@@ -8107,10 +8138,16 @@
       };
     });
     $all('[data-del-assinatura-arquivo]').forEach((b) => {
-      const assinaturaId = assinaturasCache.find((a) => (a.arquivos || []).some((f) => f.id === b.dataset.delAssinaturaArquivo)).id;
+      const assinatura = assinaturasCache.find((a) => (a.arquivos || []).some((f) => f.id === b.dataset.delAssinaturaArquivo));
+      if (!assinatura) { b.disabled = true; return; }
+      const assinaturaId = assinatura.id;
       b.onclick = async () => {
-        await api(`/api/pagamentos/assinaturas/${assinaturaId}/arquivos/${b.dataset.delAssinaturaArquivo}`, { method: 'DELETE' });
-        await loadAssinaturas();
+        try {
+          await api(`/api/pagamentos/assinaturas/${assinaturaId}/arquivos/${b.dataset.delAssinaturaArquivo}`, { method: 'DELETE' });
+          await loadAssinaturas();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir o arquivo.');
+        }
       };
     });
   }
@@ -8160,11 +8197,15 @@
     };
   });
   async function loadPagamentos() {
-    const data = await api('/api/pagamentos/pagamentos?aba=' + pagamentosAbaAtiva);
-    pagamentosCache = data.items;
-    pagamentosCanEdit = data.canEdit;
-    $('#pagamentoNewBtn').hidden = !pagamentosCanEdit;
-    renderPagamentos();
+    try {
+      const data = await api('/api/pagamentos/pagamentos?aba=' + pagamentosAbaAtiva);
+      pagamentosCache = data.items;
+      pagamentosCanEdit = data.canEdit;
+      $('#pagamentoNewBtn').hidden = !pagamentosCanEdit;
+      renderPagamentos();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar os pagamentos.');
+    }
   }
   function renderPagamentos() {
     const body = $('#pagamentosBody');
@@ -8195,8 +8236,12 @@
     $all('[data-del-pagamento]').forEach((b) => {
       b.onclick = async () => {
         if (!confirm('Excluir este lançamento?')) return;
-        await api('/api/pagamentos/pagamentos/' + b.dataset.delPagamento, { method: 'DELETE' });
-        await loadPagamentos();
+        try {
+          await api('/api/pagamentos/pagamentos/' + b.dataset.delPagamento, { method: 'DELETE' });
+          await loadPagamentos();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir o pagamento.');
+        }
       };
     });
     $all('[data-toggle-pago]').forEach((cb) => {
@@ -8219,10 +8264,16 @@
       };
     });
     $all('[data-del-pagamento-arquivo]').forEach((b) => {
-      const pagamentoId = pagamentosCache.find((p) => (p.arquivos || []).some((f) => f.id === b.dataset.delPagamentoArquivo)).id;
+      const pagamento = pagamentosCache.find((p) => (p.arquivos || []).some((f) => f.id === b.dataset.delPagamentoArquivo));
+      if (!pagamento) { b.disabled = true; return; }
+      const pagamentoId = pagamento.id;
       b.onclick = async () => {
-        await api(`/api/pagamentos/pagamentos/${pagamentoId}/arquivos/${b.dataset.delPagamentoArquivo}`, { method: 'DELETE' });
-        await loadPagamentos();
+        try {
+          await api(`/api/pagamentos/pagamentos/${pagamentoId}/arquivos/${b.dataset.delPagamentoArquivo}`, { method: 'DELETE' });
+          await loadPagamentos();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir o arquivo.');
+        }
       };
     });
   }
@@ -8288,12 +8339,16 @@
 
   // ---- Terceirizados ----
   async function loadTerceirizados() {
-    const data = await api('/api/pagamentos/terceirizados');
-    terceirizadosCache = data.items;
-    terceirizadosCanEdit = data.canEdit;
-    $('#terceirizadoNewBtn').hidden = !terceirizadosCanEdit;
-    renderTerceirizados();
-    if (terceirizadoSelecionadoId) renderTerceirizadoDetail();
+    try {
+      const data = await api('/api/pagamentos/terceirizados');
+      terceirizadosCache = data.items;
+      terceirizadosCanEdit = data.canEdit;
+      $('#terceirizadoNewBtn').hidden = !terceirizadosCanEdit;
+      renderTerceirizados();
+      if (terceirizadoSelecionadoId) renderTerceirizadoDetail();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar os terceirizados.');
+    }
   }
   function renderTerceirizados() {
     const body = $('#terceirizadosBody');
@@ -8315,9 +8370,13 @@
     $all('[data-del-terceirizado]').forEach((b) => {
       b.onclick = async () => {
         if (!confirm('Excluir este terceirizado?')) return;
-        await api('/api/pagamentos/terceirizados/' + b.dataset.delTerceirizado, { method: 'DELETE' });
-        if (terceirizadoSelecionadoId === b.dataset.delTerceirizado) { terceirizadoSelecionadoId = null; $('#terceirizadoDetailWrap').hidden = true; }
-        await loadTerceirizados();
+        try {
+          await api('/api/pagamentos/terceirizados/' + b.dataset.delTerceirizado, { method: 'DELETE' });
+          if (terceirizadoSelecionadoId === b.dataset.delTerceirizado) { terceirizadoSelecionadoId = null; $('#terceirizadoDetailWrap').hidden = true; }
+          await loadTerceirizados();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir o terceirizado.');
+        }
       };
     });
     $all('[data-abrir-terceirizado]').forEach((b) => {
@@ -8385,19 +8444,32 @@
       $('#terceirizadoChecklistAddBtn').onclick = async () => {
         const text = $('#terceirizadoChecklistNovoTexto').value.trim();
         if (!text) return;
-        await api(`/api/pagamentos/terceirizados/${t.id}/checklist`, { method: 'POST', body: JSON.stringify({ text }) });
-        await loadTerceirizados();
+        try {
+          await api(`/api/pagamentos/terceirizados/${t.id}/checklist`, { method: 'POST', body: JSON.stringify({ text }) });
+          await loadTerceirizados();
+        } catch (e) {
+          alert(e.message || 'Não foi possível adicionar o item do checklist.');
+        }
       };
       $all('[data-check-item]').forEach((cb) => {
         cb.onchange = async () => {
-          await api(`/api/pagamentos/terceirizados/${t.id}/checklist/${cb.dataset.checkItem}`, { method: 'PUT', body: JSON.stringify({ done: cb.checked }) });
-          await loadTerceirizados();
+          try {
+            await api(`/api/pagamentos/terceirizados/${t.id}/checklist/${cb.dataset.checkItem}`, { method: 'PUT', body: JSON.stringify({ done: cb.checked }) });
+            await loadTerceirizados();
+          } catch (e) {
+            alert(e.message || 'Não foi possível atualizar o checklist.');
+            cb.checked = !cb.checked;
+          }
         };
       });
       $all('[data-del-check-item]').forEach((b) => {
         b.onclick = async () => {
-          await api(`/api/pagamentos/terceirizados/${t.id}/checklist/${b.dataset.delCheckItem}`, { method: 'DELETE' });
-          await loadTerceirizados();
+          try {
+            await api(`/api/pagamentos/terceirizados/${t.id}/checklist/${b.dataset.delCheckItem}`, { method: 'DELETE' });
+            await loadTerceirizados();
+          } catch (e) {
+            alert(e.message || 'Não foi possível excluir o item do checklist.');
+          }
         };
       });
     }
@@ -8413,8 +8485,12 @@
       };
       $all('[data-del-doc-arquivo]').forEach((b) => {
         b.onclick = async () => {
-          await api(`/api/pagamentos/terceirizados/${t.id}/documentos/${secao}/arquivos/${b.dataset.delDocArquivo}`, { method: 'DELETE' });
-          await loadTerceirizados();
+          try {
+            await api(`/api/pagamentos/terceirizados/${t.id}/documentos/${secao}/arquivos/${b.dataset.delDocArquivo}`, { method: 'DELETE' });
+            await loadTerceirizados();
+          } catch (e) {
+            alert(e.message || 'Não foi possível excluir o arquivo.');
+          }
         };
       });
     }
@@ -8435,17 +8511,21 @@
     const params = new URLSearchParams();
     if (fornecedoresFilters.nome) params.set('nome', fornecedoresFilters.nome);
     if (fornecedoresFilters.tipo) params.set('tipo', fornecedoresFilters.tipo);
-    const data = await api('/api/fornecedores' + (params.toString() ? '?' + params.toString() : ''));
-    fornecedoresCache = data.items;
-    fornecedoresCanEdit = data.canEdit;
-    fornecedoresTiposUsados = data.tiposUsados || [];
-    $('#fornecedorNewBtn').hidden = !fornecedoresCanEdit;
-    $('#fornecedorTipoOptions').innerHTML = fornecedoresTiposUsados.map((t) => `<option value="${escapeHtml(t)}"></option>`).join('');
-    const tipoSelect = $('#fornecedoresFilterTipo');
-    const tipoAtual = tipoSelect.value;
-    tipoSelect.innerHTML = '<option value="">Todos os tipos</option>' + fornecedoresTiposUsados.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-    tipoSelect.value = tipoAtual;
-    renderFornecedores();
+    try {
+      const data = await api('/api/fornecedores' + (params.toString() ? '?' + params.toString() : ''));
+      fornecedoresCache = data.items;
+      fornecedoresCanEdit = data.canEdit;
+      fornecedoresTiposUsados = data.tiposUsados || [];
+      $('#fornecedorNewBtn').hidden = !fornecedoresCanEdit;
+      $('#fornecedorTipoOptions').innerHTML = fornecedoresTiposUsados.map((t) => `<option value="${escapeHtml(t)}"></option>`).join('');
+      const tipoSelect = $('#fornecedoresFilterTipo');
+      const tipoAtual = tipoSelect.value;
+      tipoSelect.innerHTML = '<option value="">Todos os tipos</option>' + fornecedoresTiposUsados.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+      tipoSelect.value = tipoAtual;
+      renderFornecedores();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar os fornecedores.');
+    }
   }
 
   function renderFornecedores() {
@@ -8472,8 +8552,12 @@
     $all('[data-del-fornecedor]').forEach((b) => {
       b.onclick = async () => {
         if (!confirm('Excluir este fornecedor?')) return;
-        await api('/api/fornecedores/' + b.dataset.delFornecedor, { method: 'DELETE' });
-        await loadFornecedores();
+        try {
+          await api('/api/fornecedores/' + b.dataset.delFornecedor, { method: 'DELETE' });
+          await loadFornecedores();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir o fornecedor.');
+        }
       };
     });
     $all('[data-ver-pedidos-fornecedor]').forEach((b) => { b.onclick = () => openFornecedorPedidos(b.dataset.verPedidosFornecedor); });
@@ -8591,16 +8675,20 @@
   });
 
   async function loadBrindes() {
-    const [catDebacco, catGhel, log] = await Promise.all([
-      api('/api/brindes/catalog?brand=debacco'),
-      api('/api/brindes/catalog?brand=ghelplus'),
-      api('/api/brindes/log')
-    ]);
-    brindesCatalog = catDebacco.items.concat(catGhel.items);
-    brindesLog = log.items;
-    $('#brindesCatalogNewBtn').hidden = !canEditBrindes();
-    $('#brindesLogNewBtn').hidden = !canEditBrindes();
-    renderBrindes();
+    try {
+      const [catDebacco, catGhel, log] = await Promise.all([
+        api('/api/brindes/catalog?brand=debacco'),
+        api('/api/brindes/catalog?brand=ghelplus'),
+        api('/api/brindes/log')
+      ]);
+      brindesCatalog = catDebacco.items.concat(catGhel.items);
+      brindesLog = log.items;
+      $('#brindesCatalogNewBtn').hidden = !canEditBrindes();
+      $('#brindesLogNewBtn').hidden = !canEditBrindes();
+      renderBrindes();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar os brindes.');
+    }
   }
 
   function renderBrindes() {
@@ -8677,8 +8765,12 @@
         delBtn.className = 'danger';
         delBtn.onclick = async () => {
           if (!confirm('Excluir este item do catálogo?')) return;
-          await api('/api/brindes/catalog/' + r.id, { method: 'DELETE' });
-          await loadBrindes();
+          try {
+            await api('/api/brindes/catalog/' + r.id, { method: 'DELETE' });
+            await loadBrindes();
+          } catch (e) {
+            alert(e.message || 'Não foi possível excluir o item do catálogo.');
+          }
         };
         actionsTd.appendChild(editBtn);
         actionsTd.appendChild(delBtn);
@@ -8731,8 +8823,12 @@
         delBtn.className = 'danger';
         delBtn.onclick = async () => {
           if (!confirm('Excluir este registro?')) return;
-          await api('/api/brindes/log/' + r.id, { method: 'DELETE' });
-          await loadBrindes();
+          try {
+            await api('/api/brindes/log/' + r.id, { method: 'DELETE' });
+            await loadBrindes();
+          } catch (e) {
+            alert(e.message || 'Não foi possível excluir o registro.');
+          }
         };
         actionsTd.appendChild(editBtn);
         actionsTd.appendChild(delBtn);
@@ -8870,7 +8966,7 @@
     editingBrindeLogId = row ? row.id : null;
     $('#brindeLogFormTitle').textContent = row ? 'Editar saída' : 'Registrar saída';
     $('#brindeLogFormItemBrand').value = 'debacco';
-    $('#brindeLogFormDate').value = row ? row.date : new Date().toISOString().slice(0, 10);
+    $('#brindeLogFormDate').value = row ? row.date : todaySaoPauloStr();
     $('#brindeLogFormRepresentante').value = row ? (row.representante || '') : '';
     $('#brindeLogFormEstado').value = row ? (row.estado || '') : '';
     $('#brindeLogFormCliente').value = row ? (row.cliente || '') : '';
@@ -8952,11 +9048,15 @@
   const ORCAMENTO_STATUS_LABEL = { pendente: 'Pendente', aprovado: 'Aprovado', reprovado: 'Reprovado' };
 
   async function loadBrindesOrcamentos() {
-    const data = await api('/api/brindes/orcamentos');
-    brindesOrcamentosCache = data.items;
-    brindesOrcamentosCanEdit = data.canEdit;
-    $('#brindesOrcamentoNewBtn').hidden = !brindesOrcamentosCanEdit;
-    renderBrindesOrcamentos();
+    try {
+      const data = await api('/api/brindes/orcamentos');
+      brindesOrcamentosCache = data.items;
+      brindesOrcamentosCanEdit = data.canEdit;
+      $('#brindesOrcamentoNewBtn').hidden = !brindesOrcamentosCanEdit;
+      renderBrindesOrcamentos();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar os orçamentos de brinde.');
+    }
   }
 
   function renderBrindesOrcamentos() {
@@ -9006,8 +9106,12 @@
     $all('[data-del-orcamento]').forEach((b) => {
       b.onclick = async () => {
         if (!confirm('Excluir este orçamento?')) return;
-        await api('/api/brindes/orcamentos/' + b.dataset.delOrcamento, { method: 'DELETE' });
-        await loadBrindesOrcamentos();
+        try {
+          await api('/api/brindes/orcamentos/' + b.dataset.delOrcamento, { method: 'DELETE' });
+          await loadBrindesOrcamentos();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir o orçamento.');
+        }
       };
     });
     $all('[data-upload-orcamento]').forEach((input) => {
@@ -9022,10 +9126,16 @@
       };
     });
     $all('[data-del-orcamento-arquivo]').forEach((b) => {
-      const orcamentoId = brindesOrcamentosCache.find((o) => (o.arquivos || []).some((f) => f.id === b.dataset.delOrcamentoArquivo)).id;
+      const orcamento = brindesOrcamentosCache.find((o) => (o.arquivos || []).some((f) => f.id === b.dataset.delOrcamentoArquivo));
+      if (!orcamento) { b.disabled = true; return; }
+      const orcamentoId = orcamento.id;
       b.onclick = async () => {
-        await api(`/api/brindes/orcamentos/${orcamentoId}/arquivos/${b.dataset.delOrcamentoArquivo}`, { method: 'DELETE' });
-        await loadBrindesOrcamentos();
+        try {
+          await api(`/api/brindes/orcamentos/${orcamentoId}/arquivos/${b.dataset.delOrcamentoArquivo}`, { method: 'DELETE' });
+          await loadBrindesOrcamentos();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir o arquivo.');
+        }
       };
     });
   }
@@ -9039,7 +9149,7 @@
     $('#brindesOrcamentoFormQuantidade').value = row && row.quantidade != null ? row.quantidade : '';
     $('#brindesOrcamentoFormValorUnitario').value = row && row.valorUnitario != null ? row.valorUnitario : '';
     $('#brindesOrcamentoFormQuemPediu').value = row ? (row.quemPediu || '') : (currentUser ? currentUser.name : '');
-    $('#brindesOrcamentoFormData').value = row ? (row.dataOrcamento || '') : new Date().toISOString().slice(0, 10);
+    $('#brindesOrcamentoFormData').value = row ? (row.dataOrcamento || '') : todaySaoPauloStr();
     $('#brindesOrcamentoFormObs').value = row ? (row.observacoes || '') : '';
     $('#brindesOrcamentoFormError').hidden = true;
     $('#brindesOrcamentoFormWrap').hidden = false;
@@ -9076,11 +9186,15 @@
   };
 
   async function loadBrindesCompras() {
-    const data = await api('/api/brindes/compras');
-    brindesComprasCache = data.items;
-    brindesComprasCanEdit = data.canEdit;
-    $('#brindesCompraNewBtn').hidden = !brindesComprasCanEdit;
-    renderBrindesCompras();
+    try {
+      const data = await api('/api/brindes/compras');
+      brindesComprasCache = data.items;
+      brindesComprasCanEdit = data.canEdit;
+      $('#brindesCompraNewBtn').hidden = !brindesComprasCanEdit;
+      renderBrindesCompras();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar as compras de brinde.');
+    }
   }
 
   function renderBrindesCompras() {
@@ -9108,8 +9222,12 @@
     $all('[data-del-compra]').forEach((b) => {
       b.onclick = async () => {
         if (!confirm('Excluir esta compra?')) return;
-        await api('/api/brindes/compras/' + b.dataset.delCompra, { method: 'DELETE' });
-        await loadBrindesCompras();
+        try {
+          await api('/api/brindes/compras/' + b.dataset.delCompra, { method: 'DELETE' });
+          await loadBrindesCompras();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir a compra.');
+        }
       };
     });
     $all('[data-upload-compra]').forEach((input) => {
@@ -9124,10 +9242,16 @@
       };
     });
     $all('[data-del-compra-arquivo]').forEach((b) => {
-      const compraId = brindesComprasCache.find((c) => (c.arquivos || []).some((f) => f.id === b.dataset.delCompraArquivo)).id;
+      const compra = brindesComprasCache.find((c) => (c.arquivos || []).some((f) => f.id === b.dataset.delCompraArquivo));
+      if (!compra) { b.disabled = true; return; }
+      const compraId = compra.id;
       b.onclick = async () => {
-        await api(`/api/brindes/compras/${compraId}/arquivos/${b.dataset.delCompraArquivo}`, { method: 'DELETE' });
-        await loadBrindesCompras();
+        try {
+          await api(`/api/brindes/compras/${compraId}/arquivos/${b.dataset.delCompraArquivo}`, { method: 'DELETE' });
+          await loadBrindesCompras();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir o arquivo.');
+        }
       };
     });
   }
@@ -9143,7 +9267,7 @@
     $('#brindesCompraFormFormaPagamento').value = row ? (row.formaPagamento || '') : '';
     $('#brindesCompraFormQuemPediu').value = row ? (row.quemPediu || '') : (currentUser ? currentUser.name : '');
     $('#brindesCompraFormQuemAutorizou').value = row ? (row.quemAutorizou || '') : '';
-    $('#brindesCompraFormDataCompra').value = row ? (row.dataCompra || '') : new Date().toISOString().slice(0, 10);
+    $('#brindesCompraFormDataCompra').value = row ? (row.dataCompra || '') : todaySaoPauloStr();
     $('#brindesCompraFormDataEntrega').value = row ? (row.dataEntrega || '') : '';
     $('#brindesCompraFormConferencia').checked = row ? !!row.conferencia : false;
     $('#brindesCompraFormObs').value = row ? (row.observacoes || '') : '';
@@ -9220,13 +9344,17 @@
   async function loadRetiradas() {
     $('#retiradasNewBtn').hidden = !canEditRetiradasInternas();
     $all('.tab-btn[data-retiradas-brand]').forEach((b) => b.classList.toggle('active', b.dataset.retiradasBrand === retiradasBrand));
-    const [retiradasRes, catalogRes] = await Promise.all([
-      api('/api/retiradas-internas?brand=' + retiradasBrand),
-      api('/api/brindes/catalog?brand=' + retiradasBrand)
-    ]);
-    retiradasItems = retiradasRes.items;
-    retiradasCatalog = catalogRes.items;
-    renderRetiradas();
+    try {
+      const [retiradasRes, catalogRes] = await Promise.all([
+        api('/api/retiradas-internas?brand=' + retiradasBrand),
+        api('/api/brindes/catalog?brand=' + retiradasBrand)
+      ]);
+      retiradasItems = retiradasRes.items;
+      retiradasCatalog = catalogRes.items;
+      renderRetiradas();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar as retiradas internas.');
+    }
   }
 
   // Texto com todos os itens de uma retirada, pra mostrar na tabela/
@@ -9273,8 +9401,12 @@
         delBtn.className = 'danger';
         delBtn.onclick = async () => {
           if (!confirm('Excluir esta retirada?')) return;
-          await api('/api/retiradas-internas/' + r.id, { method: 'DELETE' });
-          await loadRetiradas();
+          try {
+            await api('/api/retiradas-internas/' + r.id, { method: 'DELETE' });
+            await loadRetiradas();
+          } catch (e) {
+            alert(e.message || 'Não foi possível excluir a retirada.');
+          }
         };
         actionsTd.appendChild(delBtn);
       }
@@ -9337,7 +9469,7 @@
   }
 
   function openRetiradaForm() {
-    $('#retiradaFormDate').value = new Date().toISOString().slice(0, 10);
+    $('#retiradaFormDate').value = todaySaoPauloStr();
     $('#retiradaFormUser').value = '';
     $('#retiradaFormProdutoSelect').innerHTML = retiradaProdutoOptionsHTML();
     $('#retiradaFormProdutoSelect').value = '';
@@ -9449,9 +9581,13 @@
   }
 
   async function loadCampanhasCooperadas() {
-    const data = await api('/api/campanha-cooperada');
-    campanhaCooperadaItems = data.items || [];
-    renderCampanhasCooperadas();
+    try {
+      const data = await api('/api/campanha-cooperada');
+      campanhaCooperadaItems = data.items || [];
+      renderCampanhasCooperadas();
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar as campanhas cooperadas.');
+    }
   }
 
   function simNaoBadge(value) {
@@ -9508,8 +9644,12 @@
     $all('[data-del-campanha-cooperada]').forEach((b) => {
       b.onclick = async () => {
         if (!confirm('Excluir esta campanha cooperada?')) return;
-        await api('/api/campanha-cooperada/' + b.dataset.delCampanhaCooperada, { method: 'DELETE' });
-        await loadCampanhasCooperadas();
+        try {
+          await api('/api/campanha-cooperada/' + b.dataset.delCampanhaCooperada, { method: 'DELETE' });
+          await loadCampanhasCooperadas();
+        } catch (e) {
+          alert(e.message || 'Não foi possível excluir a campanha cooperada.');
+        }
       };
     });
   }
@@ -11224,8 +11364,13 @@
 
   async function feirasFluxosFor(brand) {
     if (feirasFluxosCache[brand]) return feirasFluxosCache[brand];
-    const data = await api('/api/feiras/meta?brand=' + brand);
-    feirasFluxosCache[brand] = data.fluxos || [];
+    try {
+      const data = await api('/api/feiras/meta?brand=' + brand);
+      feirasFluxosCache[brand] = data.fluxos || [];
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar os fluxos da feira.');
+      return [];
+    }
     return feirasFluxosCache[brand];
   }
 
@@ -11475,10 +11620,20 @@
     $('#usersTabUsuarios').hidden = usersTab !== 'usuarios';
     $('#usersTabAusencias').hidden = usersTab !== 'ausencias';
     if (usersTab === 'ausencias') {
-      await loadAusenciasAdmin();
+      try {
+        await loadAusenciasAdmin();
+      } catch (e) {
+        alert(e.message || 'Não foi possível carregar as ausências.');
+      }
       return;
     }
-    const data = await api('/api/auth/users');
+    let data;
+    try {
+      data = await api('/api/auth/users');
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar os usuários.');
+      return;
+    }
     const body = $('#usersTableBody');
     body.innerHTML = '';
     data.users.forEach((u) => {
@@ -11788,7 +11943,13 @@
     }
     $('#integracoesAccessDenied').hidden = true;
     $('#integracoesContent').hidden = false;
-    const data = await api('/api/social-accounts');
+    let data;
+    try {
+      data = await api('/api/social-accounts');
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar as integrações.');
+      return;
+    }
     $('#integracoesMetaWarning').hidden = !!data.metaConfigured;
     const list = $('#integracoesList');
     list.innerHTML = '';

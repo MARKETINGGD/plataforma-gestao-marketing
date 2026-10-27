@@ -6,6 +6,7 @@ const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { createAutoRecado } = require('./recados');
 const shareLinks = require('../utils/shareLinks');
+const { todaySaoPauloStr } = require('../utils/dateSaoPaulo');
 
 const router = express.Router();
 
@@ -111,7 +112,13 @@ function serialize(a) {
 // dia) com HOJE, no momento em que a ausência é cadastrada -- se já
 // passou, usa o passado.
 function jaAcabou(ausencia) {
-  const hoje = new Date().toISOString().slice(0, 10);
+  // 110ª rodada, correção de bug: usava UTC pra saber "qual é o dia de
+  // hoje" (`new Date().toISOString().slice(0, 10)`) -- perto da virada do
+  // dia (a partir das 21h, horário de Brasília), o UTC já é o dia
+  // seguinte, o que podia fazer o comunicado automático usar "esteve"
+  // (passado) pra uma ausência que ainda não tinha acabado no horário de
+  // Brasília. Trocado por `todaySaoPauloStr()` (utils/dateSaoPaulo.js).
+  const hoje = todaySaoPauloStr();
   return (ausencia.dataFim || ausencia.dataInicio) < hoje;
 }
 

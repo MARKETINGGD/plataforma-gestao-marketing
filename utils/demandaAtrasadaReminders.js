@@ -26,13 +26,20 @@
 const db = require('../db');
 const { sendEmailToUsers } = require('./mailer');
 const { nowSaoPaulo } = require('./pontoReminders');
+const { todaySaoPauloStr } = require('./dateSaoPaulo');
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const FIRED_LOG_RETENTION_DAYS = 3;
 
 function isOverdue(demanda) {
   if (!demanda.dueDate || demanda.status === 'concluida' || demanda.archived) return false;
-  const today = new Date().toISOString().slice(0, 10);
+  // 110ª rodada, correção de bug: usava UTC pra saber "qual é o dia de
+  // hoje" (`new Date().toISOString().slice(0, 10)`), o que fazia o e-mail
+  // de "demanda atrasada" disparar ~3h antes do prazo realmente vencer no
+  // horário de Brasília (entre 21h e meia-noite, horário de Brasília, o
+  // UTC já virou o dia seguinte). Trocado por `todaySaoPauloStr()`
+  // (utils/dateSaoPaulo.js), que calcula "hoje" no fuso America/Sao_Paulo.
+  const today = todaySaoPauloStr();
   return demanda.dueDate < today;
 }
 

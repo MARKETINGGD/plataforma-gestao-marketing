@@ -42,7 +42,32 @@ router.get('/export', requireAuth, requireSuperAdmin, (req, res) => {
   archive.on('error', (err) => {
     falhou = true;
     console.error('[backup] erro ao gerar o zip:', err);
-    if (!res.headersSent) res.status(500).json({ error: 'Não foi possível gerar o backup.' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Não foi possível gerar o backup.' });
+      return;
+    }
+    // 110ª rodada, correção de bug: se o erro acontece DEPOIS que os
+    // headers (e já parte do stream do zip) foram enviados, não dá mais
+    // pra responder com um JSON de erro -- antes isso simplesmente cortava
+    // a conexão no meio, sem avisar ninguém, entregando (com HTTP 200) um
+    // .zip corrompido/incompleto, sem nenhum rastro de que algo deu
+    // errado. Agora fica registrado no histórico de auditoria (mesmo que a
+    // causa raiz -- disco/memória -- não seja corrigida por isso) e a
+    // conexão é encerrada de forma explícita, em vez de cair sem mais
+    // nada.
+    try {
+      logAudit({
+        user: req.user,
+        entityType: 'sistema',
+        entityId: 'backup',
+        entityLabel: 'Backup completo (banco + arquivos)',
+        action: 'export_failed',
+        details: `Backup falhou no meio da geração do zip: ${err && err.message} -- o arquivo baixado pode estar corrompido.`
+      });
+    } catch (auditErr) {
+      console.error('[backup] falha ao gravar log de auditoria do erro de backup:', auditErr);
+    }
+    res.destroy(err);
   });
   archive.pipe(res);
 

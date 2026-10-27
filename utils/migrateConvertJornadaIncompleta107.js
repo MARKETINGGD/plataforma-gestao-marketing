@@ -22,7 +22,7 @@ function migrateConvertJornadaIncompleta107() {
   antigos.forEach((a) => {
     db.get('ausencias').find({ id: a.id }).assign({ tipo: 'saida' }).write();
     logAudit({
-      user: { id: 'system', name: 'Sistema (manutenção 107ª rodada)' },
+      user: { id: 'system', name: 'Sistema (manutenção 107ª rodada)', username: 'sistema' },
       entityType: 'ausencia',
       entityId: a.id,
       entityLabel: `Saída fora do horário - ${a.userName || a.userId}`,

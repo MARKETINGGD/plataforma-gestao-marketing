@@ -153,7 +153,7 @@ function seedIfEmpty() {
     item('ghelplus', '30.04.00617', 'Tampo Exp. GP Gav. Superior 03464 - 1195x755x15-Preto', '10.08.03464', 'Expositor GP Gav. Cubas/Válvulas/Pias 1305x800x1140-Preto', 118, 18, 0, 0, 5, 13, 0, 0, 5, -5, 0, 10, 1, 20, 1, 10, 10),
     item('ghelplus', '30.04.00569', 'Tampo Exp. GP 03464/03465 Sem Furo - 1195x535mm-Preto', '10.08.03464', 'Expositor GP Gav. Cubas/Válvulas/Pias 1305x800x1140-Preto', 71, 98, 0, 31, 40, 58, 0, 0, 40, -9, 21, 40, 1, 20, 1, 80, 80),
     item('ghelplus', '30.04.00569', 'Tampo Exp. GP 03464/03465 Sem Furo - 1195x535mm-Preto', '10.08.03465', 'Expositor GP Gav. Cubas/Pias-Preto', 71, 98, 0, 31, 40, 58, 0, 0, 40, -9, 21, 40, 1, 20, 1, 80, 80),
-    item('ghelplus', '30.04.00618', 'Exp. GP Gav. Cubas/Pias-Preto', '10.08.03465', 'Expositor GP Gav. Cubas/Pias-Preto', 1095, 32, 0, 0, 10, 0, 0, 0, 10, -10, 7, 15, 1, 20, 1, 20, 20),
+    item('ghelplus', '30.04.00618', 'Exp. GP Gav. Cubas/Pias-Preto', '10.08.03465', 'Expositor GP Gav. Cubas/Pias-Preto', 1095, 10, 0, 0, 10, 0, 0, 0, 10, -10, 7, 15, 1, 20, 1, 20, 20),
     item('ghelplus', '30.04.00590', 'Exp. GP TQ Monobloco-Preto', '10.08.03453', 'Expositor GP TQ Monobloco-Preto', 625, 30, 0, 0, 10, 20, 0, 0, 5, -5, 1, 10, 1, 20, 1, 15, 15),
     item('ghelplus', '30.04.00619', 'Tampo Exp. GP TQ Monobloco Sem Furo - 790x530mm-Preto', '10.08.03453', 'Expositor GP TQ Monobloco-Preto', 72.5, 21, 0, 4, 10, 11, 0, 0, 5, -1, 0, 10, 1, 20, 1, 15, 15),
     item('ghelplus', '30.04.00620', 'Tampo Exp. GP TQ Monobloco Sem Furo - 790x585mm-Preto', '10.08.03453', 'Expositor GP TQ Monobloco-Preto', 78.8, 22, 0, 4, 10, 12, 0, 0, 5, -1, 0, 10, 1, 20, 1, 15, 15),

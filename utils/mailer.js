@@ -42,6 +42,7 @@ try {
 }
 
 const db = require('../db');
+const { logAudit } = require('./audit');
 
 let transporter = null;
 let warned = false;
@@ -105,6 +106,25 @@ function sendEmailToUsers(userIds, { subject, text, html } = {}) {
         html: html || `<p>${String(text || '').replace(/\n/g, '<br>')}</p>`
       }).catch((err) => {
         console.warn(`[mailer] falha ao enviar e-mail pra ${r.email}:`, err && err.message);
+        // 110ª rodada, correção de bug: antes essa falha só ficava no log
+        // do servidor (console.warn), que ninguém monitora -- se a senha
+        // de app do Gmail expirasse ou o SMTP bloqueasse o envio, todos os
+        // e-mails automáticos passavam a falhar silenciosamente pra
+        // sempre, sem ninguém perceber. Agora também fica um rastro no
+        // próprio histórico de auditoria da Papoi (visível pra quem olhar
+        // o histórico/auditoria), sem implementar nenhum alerta novo.
+        try {
+          logAudit({
+            user: null,
+            entityType: 'email',
+            entityId: r.id || r.email,
+            entityLabel: subject || 'Notificação',
+            action: 'send_failed',
+            details: `Falha ao enviar e-mail automático: ${subject || 'Notificação'} -- ${(err && err.message) || 'erro desconhecido'}`
+          });
+        } catch (auditErr) {
+          console.warn('[mailer] falha ao gravar log de auditoria da falha de e-mail:', auditErr && auditErr.message);
+        }
       });
     });
   } catch (e) {

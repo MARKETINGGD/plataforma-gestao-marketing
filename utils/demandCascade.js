@@ -230,7 +230,17 @@ function sharedStateForNewSibling(sourceSocialPostId) {
     checklist: representative.checklist || [],
     files: representative.files || [],
     lastCompletedAt: representative.lastCompletedAt || null,
-    lastCompletedDueDate: representative.lastCompletedDueDate !== undefined ? representative.lastCompletedDueDate : null
+    lastCompletedDueDate: representative.lastCompletedDueDate !== undefined ? representative.lastCompletedDueDate : null,
+    // 114ª rodada, bug encontrado em auditoria (pedido da Raquel: "conserte
+    // esses bugs"): dueDate/recurrence/recurring também precisam ser
+    // herdados de quem já está no grupo -- sem isso, se o grupo já tinha
+    // sido alterado (nova data combinada, virou recorrente) depois de
+    // criado, a pessoa que entra depois nascia com a data antiga/fixa
+    // calculada direto do agendamento, quebrando "todos com as mesmas
+    // informações" pros campos que o grupo já havia customizado.
+    dueDate: representative.dueDate !== undefined ? representative.dueDate : null,
+    recurrence: representative.recurrence !== undefined ? representative.recurrence : null,
+    recurring: !!representative.recurring
   };
 }
 

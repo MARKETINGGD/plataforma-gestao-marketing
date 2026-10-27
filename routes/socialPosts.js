@@ -7,7 +7,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
-const { cascadeCompleteDemandas, syncLinkedDemandas, sharedStateForNewSibling } = require('../utils/demandCascade');
+const { cascadeCompleteDemandas, syncLinkedDemandas, sharedStateForNewSibling, getSiblings } = require('../utils/demandCascade');
 const { createAutoRecado, updateAutoRecadosForPost } = require('./recados');
 const metaPublisher = require('../utils/metaPublisher');
 const linkedinPublisher = require('../utils/linkedinPublisher');
@@ -317,6 +317,16 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
   // cai nos padrões de sempre.
   const shared = sharedStateForNewSibling(post.id);
   newIds.forEach((userId) => {
+    // 114ª rodada, bug encontrado em auditoria (pedido da Raquel: "conserte
+    // esses bugs"): janela de corrida estreita em que duas chamadas quase
+    // simultâneas (2 edições do mesmo agendamento chegando próximas uma da
+    // outra) podiam criar 2 cards de demanda pra mesma pessoa no mesmo
+    // agendamento -- confere se já existe um card (mesmo sourceSocialPostId
+    // + mesma pessoa em assigneeIds) antes de criar outro.
+    const alreadyExists = db.get('demandas').value().some((d) =>
+      d.sourceSocialPostId === post.id && (d.assigneeIds || []).includes(userId)
+    );
+    if (alreadyExists) return;
     const demanda = {
       id: nanoid(),
       title,
@@ -327,7 +337,17 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
       // nasce já em pessoal também.
       visibility: shared ? shared.visibility : 'geral',
       archived: shared ? shared.archived : false,
-      dueDate: post.scheduledDate || null,
+      // 114ª rodada, bug encontrado em auditoria: antes, dueDate/recurrence/
+      // recurring eram SEMPRE recalculados do próprio agendamento, mesmo
+      // quando o grupo já tinha divergido (alguém já tinha mudado a data ou
+      // ligado recorrência direto numa demanda-irmã) -- quem entrava depois
+      // nascia com a data "oficial" do agendamento, não com a combinada
+      // pelo grupo, quebrando "todos com as mesmas informações". Agora
+      // herda do grupo (shared) igual aos outros campos editáveis; grupo
+      // novo continua calculando do agendamento, como sempre.
+      dueDate: shared ? shared.dueDate : (post.scheduledDate || null),
+      recurrence: shared ? shared.recurrence : 'none',
+      recurring: shared ? !!shared.recurring : false,
       assigneeIds: [userId],
       // 78ª rodada, pedido da Raquel: "toda demanda deve ter um
       // responsável marcado, não importa de onde veio". 99ª rodada: se o
@@ -928,6 +948,25 @@ router.put('/:id', requireAuth, async (req, res) => {
   if (updates.involvedUserIds !== undefined) {
     const newIds = updates.involvedUserIds.filter((id) => !previousInvolvedIds.includes(id));
     createDemandCardsForNewInvolved(fresh, newIds, req);
+    // 114ª rodada, bug encontrado em auditoria (pedido da Raquel: "conserte
+    // esses bugs"): quando alguém é REMOVIDO da lista de envolvidos
+    // (desmarcado no agendamento), o card de demanda dela (criado só pra
+    // ela, sourceSocialPostId === fresh.id) continuava ativo pra sempre,
+    // mesmo a pessoa não tendo mais nada a ver com o material. Nunca
+    // exclui o card (perderia o histórico) -- só arquiva, com uma nota no
+    // Histórico explicando o motivo, igual ao padrão já usado quando o
+    // próprio agendamento é concluído/excluído (ver cascadeCompleteDemandas
+    // acima e o DELETE /:id abaixo).
+    const removedIds = previousInvolvedIds.filter((id) => !updates.involvedUserIds.includes(id));
+    if (removedIds.length > 0) {
+      const now = new Date().toISOString();
+      getSiblings(fresh.id, null)
+        .filter((d) => !d.archived && (d.assigneeIds || []).some((id) => removedIds.includes(id)))
+        .forEach((d) => {
+          db.get('demandas').find({ id: d.id }).assign({ archived: true, updatedAt: now }).write();
+          logAudit({ user: req.user, entityType: 'demanda', entityId: d.id, entityLabel: d.title, action: 'update', details: 'Arquivada automaticamente: a pessoa foi removida da lista de envolvidos no agendamento de origem.', meta: { visibility: d.visibility } });
+        });
+    }
   }
   // 98ª rodada, bug reportado pela Raquel: "quando altero data de postagem
   // lá no agendamento, não esta alterando na demanda criada por ele" --
@@ -1254,6 +1293,23 @@ router.delete('/:id', requireAuth, (req, res) => {
       }
       logAudit({ user: req.user, entityType: 'influencerPost', entityId: infPost.id, entityLabel: infPost.formato, action: 'delete', details: 'Excluída automaticamente junto com o agendamento/demandas ligados a ela.' });
     }
+  } else {
+    // 114ª rodada, bug encontrado em auditoria (pedido da Raquel: "conserte
+    // esses bugs"): agendamento comum (sem vínculo de influencer) sendo
+    // excluído não tocava em NADA nas demandas-irmãs ligadas a ele --
+    // ficavam pra sempre ativas na lista de Demandas, apontando pra um
+    // agendamento que não existe mais. Nunca exclui a demanda em si
+    // (perderia o histórico de quem fez o quê) -- só arquiva (mesmo campo
+    // usado quando uma demanda é concluída), com uma nota no Histórico de
+    // cada uma, pra quem abrir o card entender por que ela saiu da lista
+    // ativa.
+    const now = new Date().toISOString();
+    getSiblings(post.id, null)
+      .filter((d) => !d.archived)
+      .forEach((d) => {
+        db.get('demandas').find({ id: d.id }).assign({ archived: true, updatedAt: now }).write();
+        logAudit({ user: req.user, entityType: 'demanda', entityId: d.id, entityLabel: d.title, action: 'update', details: 'Arquivada automaticamente: o agendamento de redes sociais de origem foi excluído.', meta: { visibility: d.visibility } });
+      });
   }
   db.get('socialPosts').remove({ id: req.params.id }).write();
   const dir = path.join(uploadsRoot, req.params.id);

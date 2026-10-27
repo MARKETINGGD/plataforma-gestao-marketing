@@ -8,7 +8,7 @@ const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName } = require('../utils/names');
 const { parseMoneyLabel } = require('../utils/moneyParse');
-const { syncPagamentoParaBudget } = require('../utils/pagamentosBudgetSync');
+const { syncPagamentoParaBudget, removeBudgetEntriesForPagamento, updateBudgetEntriesValorPagamento } = require('../utils/pagamentosBudgetSync');
 
 const router = express.Router();
 
@@ -235,8 +235,28 @@ router.put('/pagamentos/:id', requireAuth, requirePagamentosEdit, (req, res) => 
   if (b.pago !== undefined) updates.pago = !!b.pago;
   if (b.aprovada !== undefined) updates.aprovada = !!b.aprovada;
   if (b.dividirFluxo !== undefined) updates.dividirFluxo = !!b.dividirFluxo;
+  // Desmarcar "Pago" de um lançamento que já tinha sido sincronizado com o
+  // Budget precisa desfazer o que foi criado lá -- senão o Budget fica com
+  // um lançamento "fantasma" (ver utils/pagamentosBudgetSync.js). Detecta
+  // ANTES de gravar, com base no estado anterior (`existing`), e já zera
+  // budgetSynced/budgetEntryIds no mesmo write pra não deixar o pagamento
+  // num estado intermediário inconsistente.
+  const desfazendoSync = existing.pago === true && existing.budgetSynced === true && updates.pago === false;
+  if (desfazendoSync) {
+    updates.budgetSynced = false;
+    updates.budgetEntryIds = [];
+  }
+  // Editar o `valor` de um pagamento que já está sincronizado precisa
+  // atualizar o(s) lançamento(s) já criados no Budget (ver
+  // utils/pagamentosBudgetSync.js) -- senão eles ficam com o valor antigo
+  // pra sempre. Não dispara junto com `desfazendoSync` (nesse caso os
+  // lançamentos já estão sendo removidos, não faz sentido atualizar antes).
+  const valorMudou = b.valor !== undefined && Number(updates.valor) !== Number(existing.valor);
+  const atualizandoValorSincronizado = !desfazendoSync && existing.budgetSynced === true && valorMudou;
   db.get('pagamentos').find({ id: existing.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'pagamento', entityId: existing.id, entityLabel: updates.fornecedor || existing.fornecedor, action: 'update' });
+  if (desfazendoSync) removeBudgetEntriesForPagamento(existing, req);
+  if (atualizandoValorSincronizado) updateBudgetEntriesValorPagamento(existing, existing.valor, updates.valor, req);
   const atualizado = db.get('pagamentos').find({ id: existing.id }).value();
   // Sincronização com o Budget (100ª rodada) -- só dispara ao marcar "Pago"
   // de um lançamento que ainda não tinha sido sincronizado (ver

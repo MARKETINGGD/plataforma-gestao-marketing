@@ -173,6 +173,28 @@ router.post('/', requireAuth, requireBudgetEdit, (req, res) => {
   if (!brand || !category || !year || !month) {
     return res.status(400).json({ error: 'Preencha marca, categoria, ano e mês.' });
   }
+  // Proteção simples contra duplo clique / reenvio de rede: se já existe um
+  // lançamento IDÊNTICO (mesma marca, categoria, ano, mês, título e valores
+  // de planejado/realizado) criado há poucos segundos, rejeita em vez de
+  // criar outro igual.
+  const novoPlanejadoCheck = planejado === '' || planejado === undefined ? null : Number(planejado);
+  const novoRealizadoCheck = realizado === '' || realizado === undefined ? null : Number(realizado);
+  const novoTituloCheck = tituloCompra || '';
+  const agora = Date.now();
+  const possivelDuplicado = db.get('budgetEntries').value().find((e) =>
+    e.brand === brand &&
+    e.category === category &&
+    Number(e.year) === Number(year) &&
+    Number(e.month) === Number(month) &&
+    (e.tituloCompra || '') === novoTituloCheck &&
+    e.planejado === novoPlanejadoCheck &&
+    e.realizado === novoRealizadoCheck &&
+    e.createdAt &&
+    (agora - new Date(e.createdAt).getTime()) < 5000
+  );
+  if (possivelDuplicado) {
+    return res.status(409).json({ error: 'Esse lançamento parece ter sido enviado duas vezes — já existe um idêntico criado agora há pouco.' });
+  }
   const entry = {
     id: nanoid(),
     brand,
@@ -262,6 +284,12 @@ router.post('/pull-recurring', requireAuth, requireBudgetEdit, (req, res) => {
     };
     db.get('budgetEntries').push(entry).write();
     created.push(entry);
+    // Marca este lançamento recém-criado como "já existente" pra checagem de
+    // duplicidade da PRÓXIMA iteração deste mesmo loop -- sem isso, duas
+    // linhas "iguais" (mesma categoria+mês+fornecedor+título) no `source`
+    // passavam as duas pela checagem (calculada uma única vez antes do
+    // forEach) e duplicavam o lançamento no ano de destino.
+    existingInTargetYear.push(entry);
   });
   logAudit({ user: req.user, entityType: 'budgetEntry', entityId: `${brand}:${fy}->${ty}`, entityLabel: `${brand} · recorrentes ${fy} -> ${ty}`, action: 'pull_recurring' });
   res.json({ created: created.length, skipped: source.length - created.length, entries: created });

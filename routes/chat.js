@@ -26,7 +26,17 @@ const router = express.Router();
 const groupPhotosRoot = path.join(__dirname, '..', 'data', 'uploads', 'chat-group-photos');
 const groupPhotoStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(groupPhotosRoot, req.params.id);
+    // Auditoria (27/10/2026): mesmo problema de path traversal encontrado
+    // em routes/auth.js (avatarStorage) -- req.params.id vem direto da URL
+    // (POST /conversations/:id/photo) sem validação de formato. Ids reais
+    // (ver utils/id.js: nanoid) só usam letras, números, '-' e '_'.
+    const convId = req.params.id;
+    if (!convId || !/^[A-Za-z0-9_-]+$/.test(convId)) {
+      const err = new Error('Identificador de conversa inválido.');
+      err.isUploadValidationError = true;
+      return cb(err);
+    }
+    const dir = path.join(groupPhotosRoot, convId);
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
@@ -39,7 +49,14 @@ const uploadGroupPhoto = multer({
   storage: groupPhotoStorage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB — suficiente pra uma foto de grupo
   fileFilter: (req, file, cb) => {
-    if (!/^image\//.test(file.mimetype)) return cb(new Error('Envie uma imagem (JPG, PNG, etc.).'));
+    // Auditoria (27/10/2026): mesmo ajuste de routes/auth.js (avatarStorage)
+    // -- exclui SVG (pode conter <script>, risco de XSS persistente).
+    const tiposPermitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!tiposPermitidos.includes(file.mimetype)) {
+      const err = new Error('Envie uma imagem (JPG, PNG, GIF ou WEBP).');
+      err.isUploadValidationError = true;
+      return cb(err);
+    }
     cb(null, true);
   }
 });
@@ -304,10 +321,19 @@ router.post('/conversations', requireAuth, (req, res) => {
 // Foto do grupo (42ª rodada) — só pra grupo (não faz sentido em DM/Geral),
 // e só quem participa do grupo pode trocar a foto dele.
 router.post('/conversations/:id/photo', requireAuth, uploadGroupPhoto.single('photo'), (req, res) => {
+  // Auditoria (27/10/2026): o multer já grava o arquivo em disco antes
+  // deste handler rodar -- se qualquer checagem abaixo falhar, o arquivo
+  // ficaria órfão em data/uploads/chat-group-photos/. Helper local só pra
+  // não repetir o try/catch em cada `return` early.
+  const limparArquivoOrfao = () => {
+    if (req.file && req.file.path) {
+      try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ }
+    }
+  };
   const conv = getConversation(req.params.id);
-  if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
-  if (conv.type !== 'group') return res.status(400).json({ error: 'Só grupos têm foto própria.' });
-  if (!isParticipant(conv, req.user.id)) return res.status(403).json({ error: 'Você não participa desse grupo.' });
+  if (!conv) { limparArquivoOrfao(); return res.status(404).json({ error: 'Conversa não encontrada.' }); }
+  if (conv.type !== 'group') { limparArquivoOrfao(); return res.status(400).json({ error: 'Só grupos têm foto própria.' }); }
+  if (!isParticipant(conv, req.user.id)) { limparArquivoOrfao(); return res.status(403).json({ error: 'Você não participa desse grupo.' }); }
   if (!req.file) return res.status(400).json({ error: 'Selecione uma imagem.' });
   const photoUrl = `/uploads/chat-group-photos/${req.params.id}/${req.file.filename}`;
   db.get('chatConversations').find({ id: req.params.id }).assign({ photoUrl }).write();

@@ -224,6 +224,13 @@ app.use((err, req, res, next) => {
     }
     return res.status(400).json({ error: 'Não foi possível enviar o arquivo: ' + err.message });
   }
+  // Auditoria (27/10/2026): erros de validação de upload de foto (id
+  // inválido / tipo de arquivo não permitido -- ver routes/auth.js e
+  // routes/chat.js) não são instâncias de multer.MulterError, então caíam
+  // no 500 genérico abaixo em vez de devolver a mensagem clara pro usuário.
+  if (err && err.isUploadValidationError) {
+    return res.status(400).json({ error: err.message });
+  }
   if (err) {
     console.error(err);
     return res.status(500).json({ error: 'Erro inesperado no servidor.' });

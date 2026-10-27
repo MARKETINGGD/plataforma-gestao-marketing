@@ -15,6 +15,20 @@ if (!process.env.JWT_SECRET) {
   console.warn('\n⚠️  ATENÇÃO: JWT_SECRET não está configurado nas variáveis de ambiente — '
     + 'usando o valor padrão de desenvolvimento, que não é seguro em produção. '
     + 'Configure JWT_SECRET nas Variables do Railway o quanto antes.\n');
+
+  // Auditoria (27/10/2026): além do aviso, se o servidor estiver rodando com
+  // NODE_ENV=production e ainda assim sem JWT_SECRET configurado, isso é
+  // tratado como erro fatal — o servidor recusa a subir usando a chave fraca
+  // de desenvolvimento em produção (qualquer pessoa poderia forjar login).
+  // Em desenvolvimento/testes locais (NODE_ENV não é "production") o
+  // comportamento de sempre é mantido, sem travar nada.
+  if (process.env.NODE_ENV === 'production') {
+    console.error('\n🛑 ERRO FATAL: NODE_ENV=production e JWT_SECRET não configurado. '
+      + 'Por segurança, o servidor NÃO vai iniciar com a chave padrão de desenvolvimento '
+      + 'em produção. Configure JWT_SECRET nas Variables do Railway (mesmo valor nos 4 '
+      + 'projetos) e reinicie.\n');
+    throw new Error('JWT_SECRET ausente em produção (NODE_ENV=production). Configure a variável de ambiente antes de iniciar o servidor.');
+  }
 }
 
 function requireAuth(req, res, next) {

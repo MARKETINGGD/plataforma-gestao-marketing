@@ -8,7 +8,31 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const adapter = new FileSync(path.join(dataDir, 'db.json'));
+// Adaptador com escrita atomica: o FileSync padrao do lowdb faz
+// fs.writeFileSync diretamente sobre data/db.json, o que NAO e atomico.
+// Se o processo for encerrado/crashar no meio da escrita, o arquivo inteiro
+// (com todas as ~50 colecoes) pode ficar truncado/corrompido. Para evitar
+// isso, escrevemos em um arquivo temporario e so entao fazemos um rename
+// (operacao atomica no mesmo filesystem) para o arquivo final.
+class AtomicFileSync extends FileSync {
+  write(data) {
+    const tmpPath = `${this.source}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      fs.writeFileSync(tmpPath, this.serialize(data));
+      fs.renameSync(tmpPath, this.source);
+    } finally {
+      // Se o rename falhou e o temp ainda existir, tenta limpar (nao deve
+      // deixar lixo acumulando na pasta data/).
+      try {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      } catch (e) {
+        // ignora erro de limpeza
+      }
+    }
+  }
+}
+
+const adapter = new AtomicFileSync(path.join(dataDir, 'db.json'));
 const db = low(adapter);
 
 db.defaults({

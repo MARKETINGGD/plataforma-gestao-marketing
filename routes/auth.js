@@ -24,6 +24,16 @@ const avatarStorage = multer.diskStorage({
     // req.params.id existe em POST /users/:id/photo (admin); em POST
     // /me/photo (autoatendimento) usa o id de quem está logado.
     const userId = req.params.id || (req.user && req.user.id);
+    // Auditoria (27/10/2026): o id vem direto da URL (POST /users/:id/photo)
+    // -- sem validar o formato, alguém podia mandar algo tipo ".." e sair
+    // escrevendo fora de data/uploads/avatars/ (path traversal). Os ids
+    // reais (ver utils/id.js: nanoid) só usam letras, números, '-' e '_',
+    // então qualquer outra coisa é rejeitada aqui antes de montar o caminho.
+    if (!userId || !/^[A-Za-z0-9_-]+$/.test(userId)) {
+      const err = new Error('Identificador de usuário inválido.');
+      err.isUploadValidationError = true;
+      return cb(err);
+    }
     const dir = path.join(avatarsRoot, userId);
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
@@ -37,7 +47,17 @@ const uploadAvatar = multer({
   storage: avatarStorage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB — suficiente pra uma foto de perfil
   fileFilter: (req, file, cb) => {
-    if (!/^image\//.test(file.mimetype)) return cb(new Error('Envie uma imagem (JPG, PNG, etc.).'));
+    // Auditoria (27/10/2026): mimetype vem do cliente (não é confiável
+    // sozinho), mas antes isso aceitava QUALQUER "image/*", inclusive SVG
+    // -- um SVG pode conter <script> e abrir XSS persistente quando a foto
+    // é exibida depois. Lista fechada dos formatos de foto que fazem
+    // sentido aqui; SVG e qualquer outro tipo ficam de fora.
+    const tiposPermitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!tiposPermitidos.includes(file.mimetype)) {
+      const err = new Error('Envie uma imagem (JPG, PNG, GIF ou WEBP).');
+      err.isUploadValidationError = true;
+      return cb(err);
+    }
     cb(null, true);
   }
 });
@@ -488,9 +508,18 @@ router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
   if (typeof isSuperAdmin === 'boolean') updates.isSuperAdmin = isSuperAdmin;
   if (cargo !== undefined) updates.cargo = CARGOS.includes(cargo) ? cargo : '';
   if (pontoSchedule !== undefined) updates.pontoSchedule = sanitizePontoSchedule(pontoSchedule);
+  // Auditoria (27/10/2026): se alguém era super admin (permissions =
+  // FULL_PERMISSIONS no banco) e é rebaixado (isSuperAdmin: false) sem o
+  // caller mandar um novo `permissions` no corpo da requisição, o `||`
+  // abaixo caía pra `target.permissions` -- que pra um ex-super-admin É o
+  // próprio FULL_PERMISSIONS, então a pessoa continuava com admin em tudo
+  // mesmo "rebaixada". Ao detectar esse rebaixamento sem permissions
+  // explícito, o padrão seguro é zerar tudo (EMPTY_PERMISSIONS) -- quem
+  // rebaixou decide depois, explicitamente, o que liberar de novo.
+  const sendoRebaixado = target.isSuperAdmin === true && updates.isSuperAdmin === false;
   updates.permissions = updates.isSuperAdmin || (updates.isSuperAdmin === undefined && target.isSuperAdmin)
     ? FULL_PERMISSIONS
-    : sanitizePermissions(permissions || target.permissions);
+    : sanitizePermissions(permissions || (sendoRebaixado ? EMPTY_PERMISSIONS : target.permissions));
   if (password) {
     if (password.length < 6) return res.status(400).json({ error: 'A senha precisa ter pelo menos 6 caracteres.' });
     updates.passwordHash = bcrypt.hashSync(password, 10);
@@ -505,7 +534,15 @@ router.put('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
 // destino pelo multer configurado acima.
 router.post('/users/:id/photo', requireAuth, requireSuperAdmin, uploadAvatar.single('photo'), (req, res) => {
   const target = db.get('users').find({ id: req.params.id }).value();
-  if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  if (!target) {
+    // Auditoria (27/10/2026): o multer já escreveu o arquivo em disco antes
+    // deste handler rodar -- se o usuário não existe, não faz sentido
+    // deixar o arquivo órfão espalhado em data/uploads/avatars/.
+    if (req.file && req.file.path) {
+      try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ }
+    }
+    return res.status(404).json({ error: 'Usuário não encontrado.' });
+  }
   if (!req.file) return res.status(400).json({ error: 'Envie uma imagem.' });
   const photoUrl = `/uploads/avatars/${req.params.id}/${req.file.filename}`;
   db.get('users').find({ id: req.params.id }).assign({ photoUrl }).write();

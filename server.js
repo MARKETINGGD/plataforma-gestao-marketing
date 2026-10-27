@@ -172,6 +172,13 @@ require('./utils/demandaAtrasadaReminders').startDemandaAtrasadaReminderSchedule
 // (ver utils/aprovacaoPendenteReminders.js).
 require('./utils/aprovacaoPendenteReminders').startAprovacaoPendenteReminderScheduler();
 
+// 112ª rodada, pedido da Raquel sobre o Budget recorrente: o Realizado de
+// um lançamento marcado `recorrente:true` se preenche sozinho (copiando o
+// Planejado) assim que o mês dele chega, contanto que o Realizado ainda
+// esteja vazio -- checa de hora em hora (ver
+// utils/budgetRecorrenteRealizado.js).
+require('./utils/budgetRecorrenteRealizado').startBudgetRecorrenteRealizadoScheduler();
+
 // Evita o navegador servir um index.html/app.js antigo depois de um deploy
 // (mesmo ajuste já usado no dashboard de Ações Sazonais).
 app.use((req, res, next) => {

@@ -29,14 +29,30 @@ const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus' };
 // `dataNascimento` vem como 'YYYY-MM-DD' (ver personalFields em
 // routes/influencers.js) -- só o mês/dia importam pra calcular o
 // aniversário, o ano de nascimento em si não entra na conta.
+// Ano bissexto: divisível por 4, e se também divisível por 100 só conta
+// se divisível por 400 (ex.: 2000 é bissexto, 1900 não é).
+function isLeapYear(year) {
+  return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+}
+
 function daysUntilNextBirthday(dataNascimento, todayStr) {
   const partes = String(dataNascimento || '').split('-');
   if (partes.length !== 3) return null;
   const [, mm, dd] = partes;
   const today = new Date(todayStr + 'T00:00:00');
-  let next = new Date(`${today.getFullYear()}-${mm}-${dd}T00:00:00`);
+  // 29/02 num ano não bissexto: o construtor Date "rola" silenciosamente
+  // pra 1º de março (nunca vira Invalid Date), então sem esse ajuste quem
+  // nasceu em 29/02 nunca teria o aniversário calculado certo nos anos em
+  // que o ano corrente não é bissexto. Usa 28 só pra ESTE cálculo
+  // específico (o aniversário recorrente normal continua usando 29 nos
+  // anos em que o ano for bissexto).
+  function ddForYear(year) {
+    if (mm === '02' && dd === '29' && !isLeapYear(year)) return '28';
+    return dd;
+  }
+  let next = new Date(`${today.getFullYear()}-${mm}-${ddForYear(today.getFullYear())}T00:00:00`);
   if (isNaN(next.getTime())) return null; // data inválida -- não deixa quebrar o resto da checagem
-  if (next < today) next = new Date(`${today.getFullYear() + 1}-${mm}-${dd}T00:00:00`);
+  if (next < today) next = new Date(`${today.getFullYear() + 1}-${mm}-${ddForYear(today.getFullYear() + 1)}T00:00:00`);
   return Math.round((next - today) / (1000 * 60 * 60 * 24));
 }
 

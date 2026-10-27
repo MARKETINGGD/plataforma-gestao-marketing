@@ -224,7 +224,13 @@ router.put('/:id', requireAuth, requireFeirasEdit, (req, res) => {
   if (fluxo !== undefined) updates.fluxo = fluxoValido(brandFinal, fluxo);
   db.get('feiras').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'feira', entityId: existing.id, entityLabel: `${updates.nome || existing.nome} ${updates.ano || existing.ano}`, action: 'update', details: 'Feira atualizada' });
-  res.json({ feira: serializeFeira(db.get('feiras').find({ id: req.params.id }).value()) });
+  const updatedFeira = db.get('feiras').find({ id: req.params.id }).value();
+  // Editar a feira (nome/ano/marca) também precisa atualizar a Ação
+  // espelhada em Ações Sazonais -- mesmo "sync-feira" best-effort já usado
+  // na criação (ver POST / acima); sem isso a Ação ficava com nome/ano
+  // antigos no outro dashboard (corrigido nesta rodada).
+  notifyAcoesSazonais('sync-feira', { brand: updatedFeira.brand, nome: updatedFeira.nome, ano: updatedFeira.ano, sourceFeiraId: updatedFeira.id });
+  res.json({ feira: serializeFeira(updatedFeira) });
 });
 
 router.delete('/:id', requireAuth, requireFeirasEdit, (req, res) => {
@@ -233,6 +239,13 @@ router.delete('/:id', requireAuth, requireFeirasEdit, (req, res) => {
   (existing.itens || []).forEach((it) => removeBudgetEntriesForItem(it));
   db.get('feiras').remove({ id: req.params.id }).write();
   logAudit({ user: req.user, entityType: 'feira', entityId: existing.id, entityLabel: `${existing.nome} ${existing.ano}`, action: 'delete', details: `Feira excluída: "${existing.nome} ${existing.ano}"` });
+  // Excluir a feira também precisa avisar Ações Sazonais -- não existe um
+  // evento de exclusão separado em utils/acoesSazonaisSync.js, então
+  // reaproveita o mesmo "sync-feira" marcando `deleted: true` no payload,
+  // pra o outro dashboard saber que a feira de origem sumiu (best-effort,
+  // mesmo padrão "nunca trava a resposta" de sempre; corrigido nesta
+  // rodada -- antes a Ação ficava apontando pra uma feira inexistente).
+  notifyAcoesSazonais('sync-feira', { brand: existing.brand, nome: existing.nome, ano: existing.ano, sourceFeiraId: existing.id, deleted: true });
   res.json({ ok: true });
 });
 
@@ -257,10 +270,15 @@ router.put('/:id/itens/:itemId', requireAuth, requireFeirasEdit, (req, res) => {
   if (!existingItem) return res.status(404).json({ error: 'Item não encontrado.' });
   const item = sanitizeItem(req.body, existingItem);
   // Item importado do histórico continua marcado como "import" (não passa a
-  // duplicar em budgetEntries só por ter sido editado) — a menos que ele
-  // nunca tenha tido lançamento nenhum (segurança extra, não deveria
-  // acontecer no fluxo normal).
-  if (item.origem !== 'import' || !item.budgetEntryIds || item.budgetEntryIds.length === 0) {
+  // duplicar em budgetEntries só por ter sido editado) — mesmo que
+  // budgetEntryIds esteja vazio: TODO item importado nasce de propósito com
+  // budgetEntryIds: [] (o gasto já foi lançado via importação granular
+  // separada, ver utils/seedFeirasGhelplus2025_2026.js e
+  // utils/seedFeirasExporevestirDebacco2025_2026.js), então nunca deve
+  // gerar lançamento novo aqui — a checagem de "segurança extra" antiga
+  // disparava pra todo item importado assim que editado, duplicando o
+  // lançamento no Budget (corrigido nesta rodada).
+  if (item.origem !== 'import') {
     syncItemToBudget(feira, item, req);
   } else {
     // Mantém os lançamentos existentes intactos; só atualiza os campos do

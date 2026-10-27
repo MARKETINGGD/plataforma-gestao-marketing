@@ -236,7 +236,25 @@ router.put('/:id', requireAuth, (req, res) => {
 router.delete('/:id', requireAuth, (req, res) => {
   const inf = findInfluencerOr404(req, res);
   if (!inf) return;
-  db.get('influencerPosts').remove({ influencerId: inf.id }).write();
+  // Excluir o influencer precisa primeiro desfazer, pra CADA ação dele, o
+  // mesmo trio (ação + agendamento ligado em Redes Sociais + demandas
+  // ligadas) que já é desfeito corretamente quando uma ação é excluída
+  // isolada (ver deleteInfluencerTriad, usado em DELETE /:id/posts/:postId
+  // abaixo) -- removendo influencerPosts direto como antes, o Agendamento
+  // e as Demandas ligadas ficavam órfãos, apontando pra uma ação que não
+  // existe mais (corrigido nesta rodada).
+  const posts = db.get('influencerPosts').filter({ influencerId: inf.id }).value();
+  posts.forEach((post) => {
+    deleteInfluencerTriad({ influencerPostId: post.id }, req);
+  });
+  // Limpa a referência em Análise de Influencer (quando este influencer
+  // nasceu de uma análise aprovada), sem apagar o registro da análise em
+  // si -- só desfaz o vínculo quebrado, preservando o histórico (corrigido
+  // nesta rodada).
+  const linkedAnalises = db.get('influencerAnalises').filter({ influencerId: inf.id }).value();
+  linkedAnalises.forEach((a) => {
+    db.get('influencerAnalises').find({ id: a.id }).assign({ influencerId: null }).write();
+  });
   db.get('influencers').remove({ id: inf.id }).write();
   const dir = path.join(__dirname, '..', 'data', 'uploads', 'influencers', inf.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
@@ -391,7 +409,19 @@ router.post('/:id/posts', requireAuth, (req, res) => {
     createdAt: new Date().toISOString()
   };
   db.get('influencerPosts').push(post).write();
-  const linkedPost = createLinkedSocialPost(inf, post, req);
+  let linkedPost;
+  try {
+    linkedPost = createLinkedSocialPost(inf, post, req);
+  } catch (e) {
+    // Toda ação nova precisa nascer já com um agendamento ligado (36ª
+    // rodada) -- se isso falhar, não pode deixar a linha de
+    // influencerPosts já gravada acima órfã pra sempre (com
+    // linkedSocialPostId: null): desfaz a gravação e devolve um erro claro
+    // pro cliente, em vez de salvar pela metade (corrigido nesta rodada).
+    db.get('influencerPosts').remove({ id: post.id }).write();
+    console.error('[influencers] Falha ao criar agendamento ligado à ação:', e.message);
+    return res.status(500).json({ error: 'Não foi possível criar o agendamento ligado a esta ação. A ação não foi salva — tente novamente.' });
+  }
   db.get('influencerPosts').find({ id: post.id }).assign({ linkedSocialPostId: linkedPost.id }).write();
   logAudit({ user: req.user, entityType: 'influencerPost', entityId: post.id, entityLabel: `${inf.name} · ${post.formato}`, action: 'create' });
   res.json({ post: db.get('influencerPosts').find({ id: post.id }).value() });

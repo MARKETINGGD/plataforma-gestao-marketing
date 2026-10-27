@@ -44,7 +44,15 @@ function makeCatalogFileRouter(opts) {
       cb(null, Date.now() + '-' + safe);
     }
   });
-  const upload = multer({ storage, limits: { fileSize: 200 * 1024 * 1024 } }); // 200MB — arquivo de catálogo (PDF/imagens), não vídeo
+  // Correção (auditoria): não havia fileFilter, aceitando qualquer tipo de
+  // arquivo (inclusive .html, risco de XSS armazenado se servido depois).
+  // Catálogo de Produtos/Expositores aqui é imagem de exibição -- aceita só
+  // image/*, rejeita o resto com um erro claro.
+  function imagemFileFilter(req, file, cb) {
+    if (file.mimetype && file.mimetype.startsWith('image/')) return cb(null, true);
+    cb(new Error('Tipo de arquivo não permitido -- envie apenas imagens.'));
+  }
+  const upload = multer({ storage, limits: { fileSize: 200 * 1024 * 1024 }, fileFilter: imagemFileFilter }); // 200MB — arquivo de catálogo (imagem de exibição)
 
   function serialize(row) {
     if (!row) return null;

@@ -86,4 +86,35 @@ function pedidosDoFornecedor(nomeFornecedor) {
   return brindes.slice().sort((a, b) => (b.data || '').localeCompare(a.data || ''));
 }
 
-module.exports = { upsertUltimaCompra, findFornecedorByNome, pedidosDoFornecedor };
+// Correção (auditoria): fornecedor é referenciado por NOME em texto livre em
+// brindesCompras.fornecedor/brindesOrcamentos.fornecedor (nunca por id) --
+// renomear um fornecedor (routes/fornecedores.js, PUT /:id) sem atualizar
+// esses registros antigos fazia `pedidosDoFornecedor` (acima) parar de
+// achar o histórico anterior ao rename. Em vez de migrar toda a base pra
+// ids (mudança grande e arriscada), fazemos uma cascata simples: toda vez
+// que o nome mudar, os registros que ainda tinham o nome ANTIGO gravado
+// passam a ter o nome NOVO -- preserva o modelo "por nome" já existente,
+// só garante que ele fique sincronizado depois de um rename.
+function renameFornecedorInRegistros(nomeAntigo, nomeNovo) {
+  const antigo = normalizeNome(nomeAntigo).toLowerCase();
+  const novo = normalizeNome(nomeNovo);
+  if (!antigo || !novo || antigo === novo.toLowerCase()) return { compras: 0, orcamentos: 0 };
+  const now = new Date().toISOString();
+  let comprasAtualizadas = 0;
+  db.get('brindesCompras').value().forEach((c) => {
+    if (normalizeNome(c.fornecedor).toLowerCase() === antigo) {
+      db.get('brindesCompras').find({ id: c.id }).assign({ fornecedor: novo, updatedAt: now }).write();
+      comprasAtualizadas++;
+    }
+  });
+  let orcamentosAtualizados = 0;
+  db.get('brindesOrcamentos').value().forEach((o) => {
+    if (normalizeNome(o.fornecedor).toLowerCase() === antigo) {
+      db.get('brindesOrcamentos').find({ id: o.id }).assign({ fornecedor: novo, updatedAt: now }).write();
+      orcamentosAtualizados++;
+    }
+  });
+  return { compras: comprasAtualizadas, orcamentos: orcamentosAtualizados };
+}
+
+module.exports = { upsertUltimaCompra, findFornecedorByNome, pedidosDoFornecedor, renameFornecedorInRegistros };

@@ -123,6 +123,12 @@ function restoreCatalogStock(catalogItemId, deduction) {
 
 function catalogItem(brand, group, code, item, multiplo, valor, pr, sp, pe, status, obs, creator) {
   const now = new Date().toISOString();
+  // Correcao (auditoria): nunca deixar o estoque nascer negativo (mesmo
+  // cuidado aplicado no PUT /catalog/:id e no PUT /public/:token/catalog/:id
+  // logo abaixo).
+  const prN = Math.max(0, Number(pr) || 0);
+  const spN = Math.max(0, Number(sp) || 0);
+  const peN = Math.max(0, Number(pe) || 0);
   return {
     id: nanoid(),
     brand,
@@ -131,10 +137,10 @@ function catalogItem(brand, group, code, item, multiplo, valor, pr, sp, pe, stat
     item,
     multiplo: multiplo || '',
     valor: valor === null || valor === undefined ? null : Number(valor),
-    estoquePR: Number(pr) || 0,
-    estoqueSP: Number(sp) || 0,
-    estoquePE: Number(pe) || 0,
-    estoqueTotal: sumStock(pr, sp, pe),
+    estoquePR: prN,
+    estoqueSP: spN,
+    estoquePE: peN,
+    estoqueTotal: sumStock(prN, spN, peN),
     status: status || '',
     obs: obs || '',
     updatedAt: now,
@@ -251,7 +257,7 @@ router.put('/catalog/:id', requireAuth, requireBrindesEdit, (req, res) => {
   // carimbo de uma praça que nem foi tocada nessa edição.
   ['estoquePR', 'estoqueSP', 'estoquePE'].forEach((k) => {
     if (b[k] === undefined) return;
-    const novo = Number(b[k]) || 0;
+    const novo = Math.max(0, Number(b[k]) || 0);
     updates[k] = novo;
     if (novo !== (Number(existing[k]) || 0)) {
       updates[k + 'UpdatedAt'] = new Date().toISOString();
@@ -343,11 +349,12 @@ function toQuantidadeLog(value) {
 // Valida a lista de itens da saída -- pelo menos 1, cada um vinculado a
 // um item de verdade do catálogo (sem opção de "avulso" aqui, diferente
 // de Retiradas Internas) e com quantidade válida (mínimo 1).
-function validateLogItems(rawItems) {
+function validateLogItems(rawItems, existingItemsForEdit) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return { error: 'Adicione pelo menos um item na saída.' };
   }
   const items = [];
+  const demandByItemId = new Map();
   for (const raw of rawItems) {
     const catalogItemId = (raw && raw.catalogItemId) || null;
     const catalogRow = catalogItemId ? db.get('brindesCatalog').find({ id: catalogItemId }).value() : null;
@@ -358,6 +365,33 @@ function validateLogItems(rawItems) {
     // catálogo escolhido) -- é isso que permite misturar marcas
     // diferentes numa mesma saída.
     items.push({ catalogItemId, item: catalogRow.item, quantidade, brand: catalogRow.brand });
+    demandByItemId.set(catalogItemId, (demandByItemId.get(catalogItemId) || 0) + quantidade);
+  }
+  // Correção (auditoria): antes de aceitar a saída, confere se o estoque
+  // somado (PR+SP+PE) de cada item é suficiente pra atender a quantidade
+  // pedida -- a baixa em cascata (decrementCatalogStock, acima) nunca
+  // deixa uma praça ficar negativa, mas sem checar ANTES ela simplesmente
+  // parava de descontar quando o estoque acabava, aplicando uma baixa
+  // PARCIAL silenciosa (pediu 100, só tinha 60, descontava 60 e ninguém
+  // percebia que faltaram 40). Agora rejeita a operação INTEIRA antes de
+  // descontar qualquer coisa. Soma por catalogItemId (não por linha), pra
+  // cobrir o caso do mesmo item aparecer em mais de uma linha da mesma
+  // saída.
+  const releasedByItemId = new Map();
+  (existingItemsForEdit || []).forEach((it) => {
+    if (!it.catalogItemId) return;
+    releasedByItemId.set(it.catalogItemId, (releasedByItemId.get(it.catalogItemId) || 0) + (Number(it.quantidade) || 0));
+  });
+  for (const [catalogItemId, quantidadeTotal] of demandByItemId) {
+    const catalogRow = db.get('brindesCatalog').find({ id: catalogItemId }).value();
+    // `existingItemsForEdit` (só passado pelo PUT /log/:id) representa a
+    // dedução do PRÓPRIO registro sendo editado -- como ela é desfeita e
+    // refeita do zero nessa edição, esse valor volta a ficar "disponível"
+    // e entra na conta do que tem pra validar a lista nova.
+    const disponivel = sumStock(catalogRow.estoquePR, catalogRow.estoqueSP, catalogRow.estoquePE) + (releasedByItemId.get(catalogItemId) || 0);
+    if (quantidadeTotal > disponivel) {
+      return { error: `Estoque insuficiente para "${catalogRow.item}": disponível ${disponivel}, pedido ${quantidadeTotal}.` };
+    }
   }
   return { items };
 }
@@ -560,7 +594,7 @@ router.put('/log/:id', requireAuth, requireBrindesEdit, (req, res) => {
   // recalculados a partir dos itens novos (podem mudar se a edição trocar
   // a marca de algum item, ou misturar/deixar de misturar marcas).
   if (b.items !== undefined) {
-    const validated = validateLogItems(b.items);
+    const validated = validateLogItems(b.items, existing.items);
     if (validated.error) return res.status(400).json({ error: validated.error });
     restoreLogItemsDeduction(existing.items);
     const finalItems = applyLogItemsDeduction(validated.items);
@@ -634,7 +668,7 @@ router.put('/public/:token/catalog/:id', (req, res) => {
   const updates = { updatedAt: new Date().toISOString(), updatedBy: null, updatedByName: `${nomeTrim} (via link externo)` };
   [['estoquePR', estoquePR], ['estoqueSP', estoqueSP], ['estoquePE', estoquePE]].forEach(([k, v]) => {
     if (v === undefined) return;
-    const novo = Number(v) || 0;
+    const novo = Math.max(0, Number(v) || 0);
     updates[k] = novo;
     if (novo !== (Number(existing[k]) || 0)) {
       updates[k + 'UpdatedAt'] = new Date().toISOString();
@@ -722,7 +756,16 @@ const orcamentoStorage = multer.diskStorage({
     cb(null, Date.now() + '-' + safe);
   }
 });
-const uploadOrcamentoFile = multer({ storage: orcamentoStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+// Correção (auditoria): nenhum multer config definia fileFilter, aceitando
+// qualquer tipo de arquivo (inclusive .html, risco de XSS armazenado se
+// servido depois). Anexos de Orçamento/Compra são documentos/comprovantes
+// -- aceita imagem ou PDF, rejeita o resto com um erro claro.
+function documentoOuImagemFileFilter(req, file, cb) {
+  const tipoOk = (file.mimetype && file.mimetype.startsWith('image/')) || file.mimetype === 'application/pdf';
+  if (tipoOk) return cb(null, true);
+  cb(new Error('Tipo de arquivo não permitido -- envie apenas imagens ou PDF.'));
+}
+const uploadOrcamentoFile = multer({ storage: orcamentoStorage, limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: documentoOuImagemFileFilter });
 
 const compraUploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'brindes-compras');
 const compraStorage = multer.diskStorage({
@@ -736,12 +779,18 @@ const compraStorage = multer.diskStorage({
     cb(null, Date.now() + '-' + safe);
   }
 });
-const uploadCompraFile = multer({ storage: compraStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+const uploadCompraFile = multer({ storage: compraStorage, limits: { fileSize: 50 * 1024 * 1024 }, fileFilter: documentoOuImagemFileFilter });
 
 function numOrNullBrinde(v) {
   if (v === '' || v === null || v === undefined) return null;
   const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  // Correção (auditoria): além de validar NaN, rejeita valores negativos --
+  // quantidade e valor unitário de Compras/Orçamentos não fazem sentido
+  // negativos, e aceitar silenciosamente (ex.: "quantidade: -5") deixava
+  // valorTotal calculado a partir daí errado sem ninguém notar. Mesmo
+  // espírito de `toQuantidadeLog`, mais acima neste arquivo, que já
+  // rejeita (retorna null) uma quantidade inválida.
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 function serializeOrcamentoBrinde(o) {
@@ -784,6 +833,7 @@ function criarCompraEAtualizarFornecedor(dados, req, origemOrcamentoId) {
     observacoes: dados.observacoes || '',
     arquivos: [],
     origemOrcamentoId: origemOrcamentoId || null,
+    cancelada: false,
     createdAt: now,
     createdBy: req.user.id,
     createdByName: req.user.name,
@@ -856,10 +906,17 @@ router.put('/orcamentos/:id', requireAuth, requireBrindesEdit, (req, res) => {
   if (b.valorUnitario !== undefined) updates.valorUnitario = numOrNullBrinde(b.valorUnitario);
 
   let compraCriada = null;
+  let compraCancelada = null;
   if (b.status !== undefined && ORCAMENTO_STATUSES.includes(b.status) && b.status !== existing.status) {
     updates.status = b.status;
     updates.dataDecisao = new Date().toISOString();
-    updates.quemAutorizou = req.user.name;
+    // Correção (auditoria): `quemAutorizou` só faz sentido quando o
+    // orçamento está sendo de fato aprovado -- setar esse campo em
+    // QUALQUER mudança de status (inclusive reprovação) deixava parecer
+    // que alguém "autorizou" um orçamento reprovado.
+    if (b.status === 'aprovado') {
+      updates.quemAutorizou = req.user.name;
+    }
     // Só cria a Compra automaticamente na TRANSIÇÃO pra "aprovado", e só
     // se esse orçamento ainda não tiver gerado uma Compra antes -- nunca
     // duplica, mesmo que alguém reprove e aprove de novo depois.
@@ -868,12 +925,41 @@ router.put('/orcamentos/:id', requireAuth, requireBrindesEdit, (req, res) => {
       compraCriada = criarCompraEAtualizarFornecedor(dadosParaCompra, req, existing.id);
       updates.compraId = compraCriada.id;
     }
+    // Correção (auditoria): reprovar (ou mudar pra qualquer outro status)
+    // um orçamento que JÁ estava aprovado e já tinha gerado uma Compra
+    // deixava a Compra "ativa" pra sempre, mesmo o orçamento de origem
+    // não valendo mais. Não excluímos a Compra (preserva o histórico) --
+    // só marcamos como cancelada e registramos o motivo. O campo "última
+    // compra" do fornecedor NÃO é revertido retroativamente aqui
+    // (arriscado se outras compras aconteceram depois) -- fica só a nota
+    // no histórico da Compra avisando que aquele valor pode estar
+    // inflado por esta compra agora cancelada.
+    if (existing.status === 'aprovado' && existing.compraId && b.status !== 'aprovado') {
+      const compraVinculada = db.get('brindesCompras').find({ id: existing.compraId }).value();
+      if (compraVinculada && !compraVinculada.cancelada) {
+        const motivo = `Compra cancelada automaticamente: o orçamento de origem (#${existing.id} -- "${existing.item}") teve o status alterado de "aprovado" para "${b.status}".`;
+        const avisoFornecedor = compraVinculada.fornecedor
+          ? ` Atenção: o campo "última compra" do fornecedor "${compraVinculada.fornecedor}" pode estar desatualizado/inflado por esta compra agora cancelada -- não foi revertido retroativamente, pois outras compras podem ter acontecido depois.`
+          : '';
+        db.get('brindesCompras').find({ id: existing.compraId }).assign({
+          cancelada: true,
+          canceladaEm: new Date().toISOString(),
+          canceladaPor: req.user.id,
+          canceladaPorName: req.user.name,
+          canceladaMotivo: motivo,
+          observacoes: (compraVinculada.observacoes ? compraVinculada.observacoes + '\n\n' : '') + `[AVISO] ${motivo}${avisoFornecedor}`
+        }).write();
+        compraCancelada = db.get('brindesCompras').find({ id: existing.compraId }).value();
+        logAudit({ user: req.user, entityType: 'brindeCompra', entityId: existing.compraId, entityLabel: compraVinculada.item, action: 'update', details: motivo });
+      }
+    }
   }
   db.get('brindesOrcamentos').find({ id: req.params.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'brindeOrcamento', entityId: existing.id, entityLabel: updates.item || existing.item, action: 'update' });
   res.json({
     item: serializeOrcamentoBrinde(db.get('brindesOrcamentos').find({ id: req.params.id }).value()),
-    compraCriada: compraCriada ? serializeCompraBrinde(compraCriada) : null
+    compraCriada: compraCriada ? serializeCompraBrinde(compraCriada) : null,
+    compraCancelada: compraCancelada ? serializeCompraBrinde(compraCancelada) : null
   });
 });
 
@@ -900,8 +986,22 @@ router.post('/orcamentos/:id/arquivos', requireAuth, requireBrindesEdit, uploadO
 router.delete('/orcamentos/:id/arquivos/:fileId', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesOrcamentos').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Orçamento não encontrado.' });
+  const target = (existing.arquivos || []).find((a) => a.id === req.params.fileId);
   const arquivos = (existing.arquivos || []).filter((a) => a.id !== req.params.fileId);
   db.get('brindesOrcamentos').find({ id: req.params.id }).assign({ arquivos, updatedAt: new Date().toISOString() }).write();
+  // Correção (auditoria): excluir o anexo só tirava a referência do banco,
+  // nunca apagava o arquivo físico do disco (mesmo padrão já certo em
+  // routes/produtos.js, DELETE /lancamentos/:id/files/:fileId). try/catch
+  // pra não quebrar a exclusão da referência se o arquivo já não existir
+  // no disco por algum motivo.
+  if (target && target.url) {
+    try {
+      fs.unlinkSync(path.join(orcamentoUploadsRoot, existing.id, path.basename(target.url)));
+    } catch (e) {
+      // arquivo já não existia no disco -- a referência já foi removida
+      // do banco de qualquer forma.
+    }
+  }
   res.json({ item: serializeOrcamentoBrinde(db.get('brindesOrcamentos').find({ id: req.params.id }).value()) });
 });
 
@@ -980,8 +1080,19 @@ router.post('/compras/:id/arquivos', requireAuth, requireBrindesEdit, uploadComp
 router.delete('/compras/:id/arquivos/:fileId', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  const target = (existing.arquivos || []).find((a) => a.id === req.params.fileId);
   const arquivos = (existing.arquivos || []).filter((a) => a.id !== req.params.fileId);
   db.get('brindesCompras').find({ id: req.params.id }).assign({ arquivos, updatedAt: new Date().toISOString() }).write();
+  // Correção (auditoria): mesma falta do DELETE de anexos de Orçamentos,
+  // acima -- apagar a referência sem apagar o arquivo físico do disco.
+  if (target && target.url) {
+    try {
+      fs.unlinkSync(path.join(compraUploadsRoot, existing.id, path.basename(target.url)));
+    } catch (e) {
+      // arquivo já não existia no disco -- a referência já foi removida
+      // do banco de qualquer forma.
+    }
+  }
   res.json({ item: serializeCompraBrinde(db.get('brindesCompras').find({ id: req.params.id }).value()) });
 });
 

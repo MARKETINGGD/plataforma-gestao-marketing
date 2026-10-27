@@ -81,7 +81,12 @@ function str(v) {
   return v === null || v === undefined ? '' : String(v).trim();
 }
 function priceOrNull(v) {
-  return v === null || v === undefined || v === '' ? null : Number(v);
+  if (v === null || v === undefined || v === '') return null;
+  // Correção (auditoria): faltava validar Number.isFinite (mesmo padrão já
+  // certo de `numOrNullBrinde`, em routes/brindes.js) -- um preço não
+  // numérico (ex. "R$ 25") virava NaN silencioso, em vez de null.
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 // 42ª rodada: normaliza a lista de concorrentes de uma análise — aceita
 // qualquer array vindo do front, sanitiza cada linha com os mesmos
@@ -465,7 +470,17 @@ const lancamentosStorage = multer.diskStorage({
     cb(null, Date.now() + '-' + safe);
   }
 });
-const uploadLancamento = multer({ storage: lancamentosStorage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB
+// Correção (auditoria): nenhum multer config definia fileFilter, aceitando
+// qualquer tipo de arquivo (inclusive .html, risco de XSS armazenado se
+// servido depois). Anexos de lançamento/comunicado/revisão de catálogo são
+// documentos/comprovantes -- aceita imagem ou PDF, rejeita o resto com um
+// erro claro.
+function documentoOuImagemFileFilter(req, file, cb) {
+  const tipoOk = (file.mimetype && file.mimetype.startsWith('image/')) || file.mimetype === 'application/pdf';
+  if (tipoOk) return cb(null, true);
+  cb(new Error('Tipo de arquivo não permitido -- envie apenas imagens ou PDF.'));
+}
+const uploadLancamento = multer({ storage: lancamentosStorage, limits: { fileSize: 1024 * 1024 * 1024 }, fileFilter: documentoOuImagemFileFilter }); // 1GB
 
 router.post('/lancamentos/:id/files', requireAuth, requireProdutosEdit, uploadLancamento.single('file'), (req, res) => {
   const existing = db.get('lancamentosProdutos').find({ id: req.params.id }).value();
@@ -580,7 +595,7 @@ const comunicadosStorage = multer.diskStorage({
     cb(null, Date.now() + '-' + safe);
   }
 });
-const uploadComunicado = multer({ storage: comunicadosStorage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB
+const uploadComunicado = multer({ storage: comunicadosStorage, limits: { fileSize: 1024 * 1024 * 1024 }, fileFilter: documentoOuImagemFileFilter }); // 1GB
 
 router.post('/comunicados/:id/file', requireAuth, requireProdutosEdit, uploadComunicado.single('file'), (req, res) => {
   const existing = db.get('produtosComunicados').find({ id: req.params.id }).value();
@@ -691,7 +706,7 @@ const catalogoRevisoesStorage = multer.diskStorage({
     cb(null, Date.now() + '-' + safe);
   }
 });
-const uploadCatalogoRevisao = multer({ storage: catalogoRevisoesStorage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB
+const uploadCatalogoRevisao = multer({ storage: catalogoRevisoesStorage, limits: { fileSize: 1024 * 1024 * 1024 }, fileFilter: documentoOuImagemFileFilter }); // 1GB
 
 router.post('/catalogo-revisoes/:id/file', requireAuth, requireProdutosEdit, uploadCatalogoRevisao.single('file'), (req, res) => {
   const existing = db.get('produtosCatalogoRevisoes').find({ id: req.params.id }).value();

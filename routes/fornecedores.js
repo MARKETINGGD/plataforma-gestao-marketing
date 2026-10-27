@@ -123,6 +123,14 @@ router.put('/:id', requireAuth, requireFornecedoresEdit, (req, res) => {
   // autoCreated), pra não ficar marcado como provisório pra sempre.
   updates.autoCreated = false;
   db.get('fornecedores').find({ id: req.params.id }).assign(updates).write();
+  // Correção (auditoria): fornecedor é referenciado por NOME em texto livre
+  // (brindesCompras.fornecedor/brindesOrcamentos.fornecedor), não por id --
+  // renomear sem atualizar esses registros antigos fazia `pedidosDoFornecedor`
+  // parar de achar o histórico anterior ao rename. Cascata simples: todo
+  // registro que ainda tinha o nome ANTIGO passa a ter o nome NOVO.
+  if (updates.nome && updates.nome.toLowerCase() !== (existing.nome || '').toLowerCase()) {
+    fornecedoresHelper.renameFornecedorInRegistros(existing.nome, updates.nome);
+  }
   logAudit({ user: req.user, entityType: 'fornecedor', entityId: existing.id, entityLabel: updates.nome || existing.nome, action: 'update' });
   res.json({ item: serializeFornecedor(db.get('fornecedores').find({ id: req.params.id }).value()) });
 });

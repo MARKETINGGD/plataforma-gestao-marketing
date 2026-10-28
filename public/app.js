@@ -5432,7 +5432,17 @@
       // mostrando que esta em férias" -- só faz sentido no Quadro Geral
       // (cada coluna É uma pessoa de verdade); a Área Pessoal tem listas
       // nomeáveis, sem usuário por trás.
-      const ausenciaAgora = !isPessoal ? ausenciaEm(member.id) : null;
+      // 129ª rodada, pedido explícito da Raquel: "o aviso que deve
+      // ter na lista da pessoa apenas quando ela esta de férias ou
+      // afastada" -- antes aparecia pra QUALQUER ausência registrada
+      // (inclusive tipo 'saida', usado pra "chegou atrasada"/saiu
+      // antes/voltou depois -- um registro pontual do dia, não uma
+      // ausência de verdade) e também 'viagem'. ausenciaEm() continua
+      // igual (ainda usada pelo aviso de conflito ao marcar entrega,
+      // mais abaixo, que deve continuar considerando qualquer tipo) --
+      // o filtro entra só aqui, no aviso do topo da lista.
+      const ausenciaAgoraRaw = !isPessoal ? ausenciaEm(member.id) : null;
+      const ausenciaAgora = (ausenciaAgoraRaw && (ausenciaAgoraRaw.tipo === 'ferias' || ausenciaAgoraRaw.tipo === 'afastamento')) ? ausenciaAgoraRaw : null;
       const ausenciaBadgeHtml = ausenciaAgora
         ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaTipoLabel(ausenciaAgora.tipo) + (ausenciaAgora.tipo === 'saida' ? ' hoje' : ' até ' + fmtDate(ausenciaAgora.dataFim)))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
         : '';

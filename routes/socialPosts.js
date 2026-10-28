@@ -713,6 +713,15 @@ async function tryPublishPostNow(postId) {
   if (fresh.publishStatus === 'published' || fresh.publishStatus === 'publishing' || fresh.status === 'publicado') {
     return { attempted: false, published: false, reason: 'já publicado' };
   }
+  // 128ª rodada, pedido explícito da Raquel: "os posts só devem se
+  // postados nas redes sociais, se tiverem sido aprovados. Essa regra deve
+  // sempre valer" -- mesma trava do isEligible/isDue de cada publicador
+  // (ver utils/*Publisher.js), repetida aqui porque este caminho (usado
+  // por espelhar-facebook pra tentar publicar NA HORA) chama publishOne()
+  // direto, sem passar pelo filtro isEligible/isDue.
+  if (fresh.approvalStatus !== 'aprovado') {
+    return { attempted: false, published: false, reason: 'ainda não foi aprovado na Prévia do Feed' };
+  }
   const effectivePost = { platform: fresh.platform, postType: fresh.postType, brand: fresh.brand };
   const autoPublisher = resolveAutoPublisher(effectivePost);
   if (!autoPublisher) return { attempted: false, published: false, reason: 'sem publicador automático pra essa combinação de rede/tipo' };
@@ -889,6 +898,18 @@ router.put('/:id', requireAuth, async (req, res) => {
     brand: updates.brand !== undefined ? updates.brand : post.brand
   };
   const wantsMarkPublished = updates.status === 'publicado' && previousStatus !== 'publicado';
+  // 128ª rodada, pedido explícito da Raquel: "os posts só devem se
+  // postados nas redes sociais, se tiverem sido aprovados. Essa regra deve
+  // sempre valer" -- trava única cobrindo tanto o caminho de publicação
+  // automática de verdade (Meta/LinkedIn/YouTube/Pinterest/TikTok, mais
+  // abaixo) quanto a confirmação 100% manual (rede sem publicador, ou
+  // manualOverride) -- antes, só o publicador automático olhava pra
+  // approvalStatus (e mesmo assim só bloqueava 'reprovado', deixando
+  // 'pendente' passar -- ver 112ª rodada); a confirmação manual não
+  // checava nada.
+  if (wantsMarkPublished && post.approvalStatus !== 'aprovado') {
+    return res.status(422).json({ error: 'Este post ainda não foi aprovado na Prévia do Feed -- aprove antes de marcar como publicado.' });
+  }
   // 112ª rodada, correção de bugs reais: 'publishing' SEM 'publishingStartedAt'
   // reconsiderado (ver isEligible de cada utils/*Publisher.js) podia ficar
   // travado pra sempre -- tratar 'publishing' como "já publicado de
@@ -1095,16 +1116,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 // ---------- aprovação (Prévia do Feed) ----------
-router.put('/:id/approval', requireAuth, (req, res) => {
-  const post = findOr404(req, res);
-  if (!post) return;
-  if (!canApprove(req)) {
-    return res.status(403).json({ error: 'Só gerente, coordenador(a) ou administrador da plataforma podem aprovar/reprovar.' });
-  }
-  const { approvalStatus, approvalNotes } = req.body || {};
-  if (!APPROVAL_STATUSES.includes(approvalStatus)) {
-    return res.status(400).json({ error: 'Status de aprovação inválido.' });
-  }
+// 128ª rodada, pedido explícito da Raquel: "quando for aprovado um post
+// que esta espelhado (que vai para mais de uma rede), ele deve aprovar o
+// espelhamento tbm, e o mesmo vale para quando for reprovado" -- a decisão
+// de aprovar/reprovar (com todo o efeito colateral de sempre: recado,
+// e-mail, avanço automático rascunho->agendado) virou esta função única,
+// pra poder ser aplicada tanto no post que a pessoa clicou quanto no
+// espelho dele (Instagram<->Facebook, ver createFacebookMirror/
+// mirroredFromPostId/mirroredToPostId acima), sem duplicar código.
+function applyApprovalDecision(post, approvalStatus, approvalNotes, req) {
   const previousStatus = post.status;
   const updates = {
     approvalStatus,
@@ -1133,9 +1153,9 @@ router.put('/:id/approval', requireAuth, (req, res) => {
   if (approvalStatus === 'aprovado' && previousStatus === 'rascunho') {
     updates.status = 'agendado';
   }
-  db.get('socialPosts').find({ id: req.params.id }).assign(updates).write();
+  db.get('socialPosts').find({ id: post.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update', details: `Aprovação: ${approvalStatus}${updates.status === 'agendado' ? ' (status avançado pra Agendado automaticamente)' : ''}` });
-  const fresh = db.get('socialPosts').find({ id: req.params.id }).value();
+  const fresh = db.get('socialPosts').find({ id: post.id }).value();
   if (approvalStatus === 'aprovado') {
     // "Aprovado por (cargo)" (63ª rodada, pedido da Raquel: "quando
     // aprovado, deve atualizar o recado da solicitação para 'aprovado por
@@ -1237,6 +1257,29 @@ router.put('/:id/approval', requireAuth, (req, res) => {
         emailRecipientIds: fresh.responsibleId ? [fresh.responsibleId] : undefined
       });
     }
+  }
+  return fresh;
+}
+
+router.put('/:id/approval', requireAuth, (req, res) => {
+  const post = findOr404(req, res);
+  if (!post) return;
+  if (!canApprove(req)) {
+    return res.status(403).json({ error: 'Só gerente, coordenador(a) ou administrador da plataforma podem aprovar/reprovar.' });
+  }
+  const { approvalStatus, approvalNotes } = req.body || {};
+  if (!APPROVAL_STATUSES.includes(approvalStatus)) {
+    return res.status(400).json({ error: 'Status de aprovação inválido.' });
+  }
+  const fresh = applyApprovalDecision(post, approvalStatus, approvalNotes, req);
+  // 128ª rodada: propaga a MESMA decisão pro outro lado do espelho
+  // Instagram<->Facebook, se este post tiver um -- funciona nos dois
+  // sentidos (aprovar/reprovar o Instagram propaga pro Facebook espelhado,
+  // e vice-versa).
+  const mirrorId = fresh.mirroredToPostId || fresh.mirroredFromPostId;
+  if (mirrorId) {
+    const mirrorPost = db.get('socialPosts').find({ id: mirrorId }).value();
+    if (mirrorPost) applyApprovalDecision(mirrorPost, approvalStatus, approvalNotes, req);
   }
   res.json({ post: serialize(fresh) });
 });

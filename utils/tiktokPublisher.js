@@ -117,13 +117,16 @@ function isEligible(post) {
   if (post.publishStatus) return false;
   if (!isTikTokAutoPublishSupported(post)) return false;
   // 112ª rodada: nunca publica sozinho um post ainda em Rascunho (só
-  // 'agendado' quer dizer "pronto, só falta a hora chegar") nem um que já
-  // foi explicitamente Reprovado na Prévia do Feed -- a aprovação em si
-  // continua OPCIONAL (post que nunca passou por aprovação --
-  // approvalStatus 'pendente', o padrão -- publica normalmente, sem
-  // exigir aprovação de ninguém).
+  // 'agendado' quer dizer "pronto, só falta a hora chegar".
+  // 128ª rodada, pedido explícito da Raquel: "os posts só devem se
+  // postados nas redes sociais, se tiverem sido aprovados. Essa regra deve
+  // sempre valer" -- reverte a decisão da 112ª rodada (que deixava a
+  // aprovação OPCIONAL, publicando normalmente um post que nunca passou
+  // por revisão nenhuma). Agora só publica sozinho um post com
+  // approvalStatus 'aprovado' de verdade -- 'pendente' (nunca revisado) e
+  // 'reprovado' ficam os dois de fora.
   if (post.status !== 'agendado') return false;
-  if (post.approvalStatus === 'reprovado') return false;
+  if (post.approvalStatus !== 'aprovado') return false;
   // Legenda preenchida como confirmação de que o post está pronto --
   // mesmo critério já usado pela Meta/LinkedIn/Pinterest (o texto vira o
   // `title` do post na TikTok, com hashtags/menções inclusas).

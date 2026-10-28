@@ -141,6 +141,15 @@ function syncInfluencerActionToSocialPost(infPost, updates, req) {
       const autoPublisher = socialPostsRouter.resolveAutoPublisher(effectivePostForAutoPublish);
       if (autoPublisher) {
         blockedAutoPublishNote = 'Ação de influencer marcada como publicada, mas este agendamento tem publicação automática real disponível -- aguardando o ciclo automático confirmar a publicação de verdade antes de marcar como "Publicado" (nenhuma tentativa de publicar foi feita por este caminho).';
+      } else if (post.approvalStatus !== 'aprovado') {
+        // 128ª rodada, pedido explícito da Raquel: "os posts só devem se
+        // postados nas redes sociais, se tiverem sido aprovados. Essa
+        // regra deve sempre valer" -- mesma trava agora também neste
+        // caminho (marcar a ação de influencer como publicada nunca pode
+        // marcar o agendamento ligado como publicado sem aprovação na
+        // Prévia do Feed, mesmo numa combinação sem publicador
+        // automático).
+        blockedAutoPublishNote = 'Ação de influencer marcada como publicada, mas este agendamento ainda não foi aprovado na Prévia do Feed -- aguardando aprovação antes de marcar como "Publicado" (nenhuma tentativa de publicar foi feita por este caminho).';
       } else {
         postUpdates.status = 'publicado';
         willPublish = true;
@@ -201,6 +210,23 @@ function markSocialPostPublished(postId, req) {
         entityLabel: `${post.platform} ${post.scheduledDate || ''}`,
         action: 'update',
         details: 'Demanda ligada concluída, mas este agendamento tem publicação automática real disponível -- aguardando o ciclo automático confirmar a publicação de verdade antes de marcar como "Publicado" (nenhuma tentativa de publicar foi feita por este caminho, e as demandas-irmãs/ação de influencer não foram completadas ainda).'
+      });
+      return;
+    }
+    // 128ª rodada, pedido explícito da Raquel: "os posts só devem se
+    // postados nas redes sociais, se tiverem sido aprovados. Essa regra
+    // deve sempre valer" -- mesma trava agora também neste caminho
+    // (concluir uma demanda do trio de Influencer nunca pode marcar o
+    // post como publicado sem aprovação na Prévia do Feed, mesmo quando
+    // a combinação rede+tipo+marca não tem publicador automático nenhum).
+    if (post.approvalStatus !== 'aprovado') {
+      logAudit({
+        user: (req && req.user) || { id: 'system', name: 'Sistema' },
+        entityType: 'socialPost',
+        entityId: post.id,
+        entityLabel: `${post.platform} ${post.scheduledDate || ''}`,
+        action: 'update',
+        details: 'Demanda ligada concluída, mas este agendamento ainda não foi aprovado na Prévia do Feed -- aguardando aprovação antes de marcar como "Publicado" (nenhuma publicação foi feita por este caminho, e as demandas-irmãs/ação de influencer não foram completadas ainda).'
       });
       return;
     }

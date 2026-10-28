@@ -1107,6 +1107,37 @@ router.put('/:id', requireAuth, async (req, res) => {
       if (Object.keys(mirrorUpdates).length > 0) {
         mirrorUpdates.updatedAt = new Date().toISOString();
         db.get('socialPosts').find({ id: mirrorPost.id }).assign(mirrorUpdates).write();
+        // 130ª rodada, bug reportado pela Raquel: "quando altera alguma
+        // coisa em agendamento, não esta atualizando isso em demandas...
+        // digo isso em relação a data de entrega, mudamos no agendamento e
+        // n mudou na demanda" -- o espelho (Facebook) tem seu PRÓPRIO grupo
+        // de demandas-irmãs (sourceSocialPostId === mirrorPost.id, criadas
+        // em createFacebookMirror/espelhar-facebook), separado do grupo do
+        // post ORIGINAL (Instagram). O bloco acima grava a mudança direto
+        // no banco do espelho, sem passar pelo PUT /:id dele -- que é o
+        // único lugar que chamava syncLinkedDemandas (ver bloco logo
+        // acima, pro post original). Resultado: editar o post ORIGINAL
+        // atualizava a data/assunto/legenda no Agendamento dos dois lados
+        // (Instagram e Facebook), mas as demandas do lado do ESPELHO nunca
+        // recebiam essa atualização -- ficavam paradas com a data antiga
+        // pra sempre. (Não tem nada a ver com a regra de "só admin/
+        // gerente/coordenador(a) podem trocar a data de entrega" de uma
+        // demanda -- canChangeDueDate, em routes/demandas.js -- essa regra
+        // só vale pra edição MANUAL direto no card da demanda; esta
+        // sincronização automática nunca passou por ela, nem antes nem
+        // depois deste conserto.)
+        if (['scheduledDate', 'subject', 'caption', 'postType'].some((k) => mirrorUpdates[k] !== undefined)) {
+          const freshMirror = db.get('socialPosts').find({ id: mirrorPost.id }).value();
+          const { title: mirrorTitle, description: mirrorDescription } = demandTitleAndDescriptionForPost(freshMirror);
+          syncLinkedDemandas(freshMirror.id, {
+            title: mirrorTitle,
+            description: mirrorDescription,
+            dueDate: freshMirror.scheduledDate || null,
+            network: freshMirror.platform || null,
+            brand: freshMirror.brand || null,
+            brands: freshMirror.brand ? [freshMirror.brand] : []
+          }, req, null, 'Atualizada automaticamente: o agendamento de redes sociais de origem (post espelhado no Instagram) foi editado (data/assunto/legenda).');
+        }
       }
     }
   }

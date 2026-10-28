@@ -325,6 +325,18 @@ function cardOrder(d) {
 // histórico (22ª rodada) — mesmos valores de STATUSES acima.
 const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', aprovado: 'Aprovado', concluida: 'Concluída' };
 
+// 126ª rodada, pedido da Raquel: "quem faz as aprovações de tudo, é
+// sempre a gerente, coordenadora e admin" -- mesmo público já usado em
+// `canApprove` (routes/socialPosts.js) e em `approverIds()`
+// (utils/aprovacaoPendenteReminders.js); duplicado aqui (não importado)
+// pelo mesmo motivo já documentado nesses outros lugares -- são arquivos
+// pequenos e independentes, sem relação de require entre eles.
+function demandaApproverIds() {
+  return db.get('users').value()
+    .filter((u) => u.isSuperAdmin || u.cargo === 'gerente' || u.cargo === 'coordenador')
+    .map((u) => u.id);
+}
+
 // Ordem do checklist dentro do card (125ª rodada, pedido da Raquel: "os check
 // list dentro dos cards, precisam sempre ficar em ordem crescente, da data
 // de entrega mais próxima para a mais distante"). Compara pela `dueDate` de
@@ -1293,23 +1305,72 @@ router.put('/:id', requireAuth, (req, res) => {
     updates.archived = true;
   }
 
-  // 109ª rodada, pedido explícito da Raquel: "pedido de ajuste (somente
-  // para quem ajusta)" -- dispara só na TRANSIÇÃO de verdade pro status
-  // "Em Refação" (pedido de ajuste), igual ao padrão já usado na
-  // reprovação de post (routes/socialPosts.js). Vai pro(s) assignee(s)
-  // atual(is) do card (`effectiveAssigneeIdsForResp`, já calculado acima,
-  // reflete os assignees FINAIS desta gravação) -- "quem ajusta" -- e o
-  // e-mail (emailSubject) vai pra essa mesma lista, já que aqui (diferente
-  // de post) não existe uma "gerência" separada recebendo o recado.
-  if (updates.status === 'em_refacao' && demanda.status !== 'em_refacao') {
-    if (effectiveAssigneeIdsForResp.length > 0) {
-      const demandaTitle = updates.title !== undefined ? updates.title : demanda.title;
-      createAutoRecado({
-        recipientIds: effectiveAssigneeIdsForResp,
-        text: `Aviso Papoi: a demanda "${demandaTitle}" foi marcada como "Em Refação" -- pedido de ajuste.`,
-        kind: 'demanda_ajuste',
-        emailSubject: `Pedido de ajuste -- ${demandaTitle}`
-      });
+  // 126ª rodada, pedido explícito da Raquel: "quem faz as aprovações de
+  // tudo, é sempre a gerente, coordenadora e admin" -- recados automáticos
+  // nas 4 transições de status do quadro de Demandas que envolvem
+  // aprovação/revisão (Em Aprovação, Aprovado, Em Refação, Em Revisão).
+  // Só pra demanda que NÃO vem de Agendamento/Cronograma
+  // (`!isSiblingGroup`) -- a própria Raquel pediu assim, porque uma
+  // demanda-irmã de Agendamento já tem a própria regra de aviso/aprovação
+  // (a aprovação de verdade acontece no POST, na Prévia do Feed -- ver
+  // `canApprove`/`PUT /:id/approval` em routes/socialPosts.js -- e dispara
+  // os próprios recados de lá; repetir aqui duplicaria aviso). O cálculo
+  // de "quem é o responsável desta gravação" (`effectiveResponsibleId`)
+  // segue exatamente a mesma fórmula já usada acima (linha ~1211) pra
+  // validar a obrigatoriedade do responsável.
+  const effectiveResponsibleId = updates.responsibleId !== undefined ? updates.responsibleId : demanda.responsibleId;
+  if (!isSiblingGroup) {
+    const demandaTitle = updates.title !== undefined ? updates.title : demanda.title;
+    // 1) Entrou em "Em Aprovação" -- aviso pra quem aprova (admin, gerente
+    // e coordenador(a)), pedindo a aprovação.
+    if (updates.status === 'aprovacao' && demanda.status !== 'aprovacao') {
+      const approvers = demandaApproverIds();
+      if (approvers.length > 0) {
+        createAutoRecado({
+          recipientIds: approvers,
+          text: `Aviso Papoi: a demanda "${demandaTitle}" está em "Em Aprovação" e precisa da sua aprovação.`,
+          kind: 'demanda_aprovacao_pendente'
+        });
+      }
+    }
+    // 2) Entrou em "Aprovado" -- aviso só pra pessoa responsável
+    // (estrelinha): já pode concluir.
+    if (updates.status === 'aprovado' && demanda.status !== 'aprovado') {
+      if (effectiveResponsibleId) {
+        createAutoRecado({
+          recipientIds: [effectiveResponsibleId],
+          text: `Aviso Papoi: a demanda "${demandaTitle}" foi aprovada e já pode ser concluída.`,
+          kind: 'demanda_aprovada'
+        });
+      }
+    }
+    // 3) Entrou em "Em Refação" -- aviso só pra pessoa responsável
+    // (estrelinha): precisa refazer algo. Substitui, a partir desta
+    // rodada, o aviso da 109ª que ia pra TODOS os marcados no card --
+    // pedido explícito da Raquel agora foi "um recado para a pessoa
+    // responsavel pela demanda, aquela que tem a estrela" (o e-mail
+    // continua indo pra essa mesma pessoa, já que o responsável sempre é
+    // um dos marcados -- ver validação acima).
+    if (updates.status === 'em_refacao' && demanda.status !== 'em_refacao') {
+      if (effectiveResponsibleId) {
+        createAutoRecado({
+          recipientIds: [effectiveResponsibleId],
+          text: `Aviso Papoi: a demanda "${demandaTitle}" foi marcada como "Em Refação" -- você precisa refazer algo nela.`,
+          kind: 'demanda_ajuste',
+          emailSubject: `Pedido de ajuste -- ${demandaTitle}`
+        });
+      }
+    }
+    // 4) Entrou em "Em Revisão" -- aviso só pra pessoa responsável
+    // (estrelinha): a demanda está sendo analisada.
+    if (updates.status === 'em_revisao' && demanda.status !== 'em_revisao') {
+      if (effectiveResponsibleId) {
+        createAutoRecado({
+          recipientIds: [effectiveResponsibleId],
+          text: `Aviso Papoi: a demanda "${demandaTitle}" está em "Em Revisão" -- está sendo analisada.`,
+          kind: 'demanda_em_revisao'
+        });
+      }
     }
   }
 

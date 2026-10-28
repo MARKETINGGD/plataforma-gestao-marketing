@@ -325,6 +325,24 @@ function cardOrder(d) {
 // histórico (22ª rodada) — mesmos valores de STATUSES acima.
 const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', aprovado: 'Aprovado', concluida: 'Concluída' };
 
+// Ordem do checklist dentro do card (125ª rodada, pedido da Raquel: "os check
+// list dentro dos cards, precisam sempre ficar em ordem crescente, da data
+// de entrega mais próxima para a mais distante"). Compara pela `dueDate` de
+// cada item (string "AAAA-MM-DD" do <input type="date">, comparável direto
+// como texto). Item sem data de entrega não tem "mais próxima" nenhuma --
+// fica sempre depois de todo item com data, mantendo entre si a ordem de
+// sempre (criação). `Array.prototype.sort` é estável no Node usado aqui, por
+// isso dois itens com a mesma data (ou os dois sem data) não trocam de
+// posição entre si.
+function compareChecklistByDueDate(a, b) {
+  const dueA = (a || {}).dueDate || null;
+  const dueB = (b || {}).dueDate || null;
+  if (dueA && dueB) return dueA < dueB ? -1 : dueA > dueB ? 1 : 0;
+  if (dueA && !dueB) return -1;
+  if (!dueA && dueB) return 1;
+  return 0;
+}
+
 function serialize(d, viewerId) {
   // Quando a demanda veio de um agendamento de redes sociais (uma por
   // pessoa marcada como envolvida, ver createDemandCardsForNewInvolved em
@@ -355,8 +373,14 @@ function serialize(d, viewerId) {
     network: d.network || null,
     // Marca de cada item do checklist (79ª rodada) -- normaliza pra null
     // item que nunca teve esse campo gravado (checklist criado antes desta
-    // rodada).
-    checklist: (d.checklist || []).map((it) => Object.assign({}, it, { brand: it.brand || null })),
+    // rodada). Sempre devolvido em ordem crescente de data de entrega (125ª
+    // rodada, pedido da Raquel) -- ver compareChecklistByDueDate acima. A
+    // ordem gravada no banco continua sendo a de criação (inclusive na
+    // cópia espelhada em cada demanda-irmã, via mirrorArrayField); é só
+    // esta função, chamada em toda resposta da API, que devolve o checklist
+    // já ordenado -- então a tela sempre mostra ordenado, de qualquer
+    // demanda do grupo.
+    checklist: (d.checklist || []).map((it) => Object.assign({}, it, { brand: it.brand || null })).sort(compareChecklistByDueDate),
     // Responsável geral (30ª rodada, marcação passou a pontuar na 32ª):
     // pontua igual a qualquer outro marcado na demanda — ver GET
     // /reis-do-marketing abaixo.

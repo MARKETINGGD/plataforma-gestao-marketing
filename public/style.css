@@ -395,6 +395,23 @@ button{font-weight:700;}
 .compare-card-body-multi{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;}
 .compare-card-body-multi>.compare-col{flex:1 1 200px;min-width:190px;}
 .compare-card-body-multi>.compare-vs{padding-top:24px;flex:0 0 auto;}
+/* 127ª rodada, pedido explícito da Raquel: "a foto do produto nosso
+   (Ghel, De Bacco), deve aparecer no canto esquerdo ao lado do
+   comparativo" -- fica FORA do .compare-card-body-multi (que já é a
+   lista de colunas nossa x concorrentes), num flex que põe a foto à
+   esquerda de todo o bloco comparativo. */
+.compare-card-with-photo{display:flex;gap:20px;align-items:flex-start;}
+.compare-card-with-photo>.compare-card-body-multi{flex:1 1 auto;min-width:0;}
+.compare-card-foto-nossa{flex:0 0 auto;width:96px;}
+.compare-card-foto-nossa img{width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid var(--border);display:block;}
+/* foto de cada concorrente, dentro da própria coluna dele */
+.compare-col-foto{margin-bottom:8px;}
+.compare-col-foto img{width:100%;max-width:140px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block;}
+/* thumbnails pequenos usados dentro do FORM de edição (nossa foto e
+   foto de cada concorrente) -- mesmo tamanho do padrão já usado em
+   Orçamento (.orcamento-file-thumb), ver acima. */
+.concorrencia-foto-thumb{width:72px;height:72px;margin-bottom:6px;}
+.concorrencia-foto-thumb img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block;}
 /* 78ª rodada: Orçamentos de Expositores. */
 .orcamento-details{margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
 .orcamento-files-row{display:flex;flex-wrap:wrap;gap:24px;}
@@ -1176,6 +1193,9 @@ button{font-weight:700;}
   .form-row{grid-template-columns:1fr;}
   .compare-row,.compare-card-body{grid-template-columns:1fr;}
   .compare-card-body-multi{flex-direction:column;}
+  .compare-card-with-photo{flex-direction:column;}
+  .compare-card-foto-nossa{width:100%;max-width:140px;}
+  .compare-card-foto-nossa img{width:100%;max-width:140px;height:auto;aspect-ratio:1/1;}
   .compare-vs{padding-top:0;}
   .modal-row{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
   .kanban-col{width:220px;flex-basis:220px;}

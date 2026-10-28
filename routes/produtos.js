@@ -92,27 +92,39 @@ function priceOrNull(v) {
 // qualquer array vindo do front, sanitiza cada linha com os mesmos
 // helpers de sempre (str/priceOrNull) e descarta linha sem nome de
 // concorrente (linha "em branco" que sobrou no formulário, por ex.).
-function sanitizeConcorrentes(arr) {
+function sanitizeConcorrentes(arr, existingList) {
   if (!Array.isArray(arr)) return [];
+  // 127ª rodada, pedido explícito da Raquel: "tudo que esta cadastrado
+  // deve permanecer, não podemos perder nenhuma informação" -- a foto
+  // de cada concorrente NUNCA vem deste PUT/POST de texto (só é alterada
+  // pelas rotas dedicadas de upload/remoção, mais abaixo); preserva pelo
+  // id quem já tinha foto, pra uma edição de texto nunca apagar a foto
+  // sem querer.
+  const existingById = new Map((existingList || []).map((c) => [c.id, c]));
   return arr
-    .map((c) => ({
-      id: (c && str(c.id)) || nanoid(),
-      nome: str(c && c.nome),
-      produto: str(c && c.produto),
-      preco: priceOrNull(c && c.preco),
-      diferenciais: str(c && c.diferenciais),
-      observacoes: str(c && c.observacoes),
-      // 78ª rodada, pedido explícito da Raquel: "link de pagina de venda,
-      // deve ter em todas as marcas concorrentes, menos na nossa. Link de
-      // referencia, deve ter em todas as marcas, inclusive na nossa" --
-      // antes só existia 1 campo `link` genérico por concorrente. Agora
-      // são 2 campos -- `link` continua gravado, igual à `linkReferencia`,
-      // só por compatibilidade com quem ainda lê esse campo direto (ex.:
-      // exportação em Excel, análise criada antes desta rodada).
-      linkReferencia: str(c && (c.linkReferencia !== undefined ? c.linkReferencia : c.link)) || null,
-      linkPaginaVenda: str(c && c.linkPaginaVenda) || null,
-      link: str(c && (c.linkReferencia !== undefined ? c.linkReferencia : c.link)) || null
-    }))
+    .map((c) => {
+      const id = (c && str(c.id)) || nanoid();
+      const existing = existingById.get(id);
+      return {
+        id,
+        nome: str(c && c.nome),
+        produto: str(c && c.produto),
+        preco: priceOrNull(c && c.preco),
+        diferenciais: str(c && c.diferenciais),
+        observacoes: str(c && c.observacoes),
+        // 78ª rodada, pedido explícito da Raquel: "link de pagina de venda,
+        // deve ter em todas as marcas concorrentes, menos na nossa. Link de
+        // referencia, deve ter em todas as marcas, inclusive na nossa" --
+        // antes só existia 1 campo `link` genérico por concorrente. Agora
+        // são 2 campos -- `link` continua gravado, igual à `linkReferencia`,
+        // só por compatibilidade com quem ainda lê esse campo direto (ex.:
+        // exportação em Excel, análise criada antes desta rodada).
+        linkReferencia: str(c && (c.linkReferencia !== undefined ? c.linkReferencia : c.link)) || null,
+        linkPaginaVenda: str(c && c.linkPaginaVenda) || null,
+        link: str(c && (c.linkReferencia !== undefined ? c.linkReferencia : c.link)) || null,
+        foto: existing ? (existing.foto || null) : null
+      };
+    })
     .filter((c) => c.nome);
 }
 
@@ -228,6 +240,10 @@ router.post('/concorrencia', requireAuth, requireProdutosEdit, (req, res) => {
     nossasObservacoes: str(nossasObservacoes),
     nossoLink: str(nossoLink) || null,
     nossoLinkVenda: str(nossoLinkVenda) || null,
+    // 127ª rodada: foto do nosso produto (Ghel/De Bacco) -- só é
+    // preenchida depois, pela rota dedicada de upload (POST
+    // /concorrencia/:id/foto), nunca por este POST de texto.
+    nossaFoto: null,
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
     updatedAt: new Date().toISOString()
@@ -250,7 +266,7 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
   if (titulo !== undefined) updates.titulo = str(titulo);
   if (data !== undefined) updates.data = data || null;
   if (concorrentes !== undefined) {
-    const list = sanitizeConcorrentes(concorrentes);
+    const list = sanitizeConcorrentes(concorrentes, existing.concorrentes);
     if (list.length === 0) return res.status(400).json({ error: 'Informe ao menos um concorrente.' });
     updates.concorrentes = list;
     updates.concorrente = list[0].nome;
@@ -261,7 +277,7 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
     updates.link = list[0].link;
   } else if (concorrente !== undefined) {
     // compat: PUT antigo mandando só os campos soltos de 1 concorrente
-    const list = sanitizeConcorrentes([{ nome: concorrente, produto, preco, diferenciais, observacoes, link }]);
+    const list = sanitizeConcorrentes([{ nome: concorrente, produto, preco, diferenciais, observacoes, link }], existing.concorrentes);
     if (list.length) {
       updates.concorrentes = list;
       updates.concorrente = list[0].nome;
@@ -286,8 +302,148 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
 router.delete('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => {
   const target = db.get('concorrencia').find({ id: req.params.id }).value();
   db.get('concorrencia').remove({ id: req.params.id }).write();
-  if (target) logAudit({ user: req.user, entityType: 'concorrencia', entityId: target.id, entityLabel: target.titulo || target.concorrente, action: 'delete', details: `Análise de concorrência excluída: "${target.titulo || target.concorrente}"` });
+  if (target) {
+    // 127ª rodada: limpa também as fotos (nossa + concorrentes) desta
+    // análise -- mesmo padrão já usado em Comunicados (routes acima).
+    const dir = path.join(__dirname, '..', 'data', 'uploads', 'concorrencia', req.params.id);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    logAudit({ user: req.user, entityType: 'concorrencia', entityId: target.id, entityLabel: target.titulo || target.concorrente, action: 'delete', details: `Análise de concorrência excluída: "${target.titulo || target.concorrente}"` });
+  }
   res.json({ ok: true });
+});
+
+// ---------- Análise de concorrência → fotos (127ª rodada) ----------
+// Pedido explícito da Raquel: "adicione a opção de colocar uma foto do
+// produto que esta sendo citado, e dos concorrentes tbm, a foto do
+// produto nosso (Ghel, De Bacco), deve aparecer no canto esquerdo ao
+// lado do comparativo." -- 2 fotos possíveis por análise: a nossa
+// (1 por análise, campo `nossaFoto`) e a de cada concorrente da lista
+// (1 por item de `concorrentes[]`, campo `foto`). Mesmo padrão de
+// upload de foto já usado em Usuários (avatar, 20ª rodada) e Chat (foto
+// de grupo, 42ª rodada): upload novo substitui o anterior (apaga o
+// arquivo físico antigo), lista fechada de formatos de imagem (sem
+// SVG, pelo mesmo motivo de risco de XSS armazenado da auditoria de
+// 27/10/2026 em routes/auth.js).
+const concorrenciaFotosRoot = path.join(__dirname, '..', 'data', 'uploads', 'concorrencia');
+function idSeguroConcorrencia(v) {
+  return typeof v === 'string' && /^[A-Za-z0-9_-]+$/.test(v);
+}
+function fotoConcorrenciaFileFilter(req, file, cb) {
+  const tiposPermitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  if (!tiposPermitidos.includes(file.mimetype)) {
+    const err = new Error('Envie uma imagem (JPG, PNG, GIF ou WEBP).');
+    err.isUploadValidationError = true;
+    return cb(err);
+  }
+  cb(null, true);
+}
+
+// ---- nossa foto (1 por análise) ----
+const nossaFotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!idSeguroConcorrencia(req.params.id)) {
+      const err = new Error('Identificador inválido.');
+      err.isUploadValidationError = true;
+      return cb(err);
+    }
+    const dir = path.join(concorrenciaFotosRoot, req.params.id);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, 'nossa-' + Date.now() + '-' + safe);
+  }
+});
+const uploadNossaFoto = multer({ storage: nossaFotoStorage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: fotoConcorrenciaFileFilter });
+
+router.post('/concorrencia/:id/foto', requireAuth, requireProdutosEdit, uploadNossaFoto.single('foto'), (req, res) => {
+  const existing = db.get('concorrencia').find({ id: req.params.id }).value();
+  if (!existing) {
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    return res.status(404).json({ error: 'Registro não encontrado.' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Selecione uma imagem.' });
+  if (existing.nossaFoto) {
+    const oldPath = path.join(concorrenciaFotosRoot, req.params.id, path.basename(existing.nossaFoto));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  const nossaFoto = `/uploads/concorrencia/${req.params.id}/${req.file.filename}`;
+  db.get('concorrencia').find({ id: req.params.id }).assign({ nossaFoto, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'concorrencia', entityId: existing.id, entityLabel: existing.titulo, action: 'update', details: 'Foto do nosso produto atualizada' });
+  res.json({ item: db.get('concorrencia').find({ id: req.params.id }).value() });
+});
+
+router.delete('/concorrencia/:id/foto', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('concorrencia').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
+  if (existing.nossaFoto) {
+    const oldPath = path.join(concorrenciaFotosRoot, req.params.id, path.basename(existing.nossaFoto));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  db.get('concorrencia').find({ id: req.params.id }).assign({ nossaFoto: null, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'concorrencia', entityId: existing.id, entityLabel: existing.titulo, action: 'update', details: 'Foto do nosso produto removida' });
+  res.json({ item: db.get('concorrencia').find({ id: req.params.id }).value() });
+});
+
+// ---- foto de cada concorrente ----
+const concorrenteFotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!idSeguroConcorrencia(req.params.id) || !idSeguroConcorrencia(req.params.concorrenteId)) {
+      const err = new Error('Identificador inválido.');
+      err.isUploadValidationError = true;
+      return cb(err);
+    }
+    const dir = path.join(concorrenciaFotosRoot, req.params.id, 'concorrentes', req.params.concorrenteId);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadConcorrenteFoto = multer({ storage: concorrenteFotoStorage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: fotoConcorrenciaFileFilter });
+
+router.post('/concorrencia/:id/concorrentes/:concorrenteId/foto', requireAuth, requireProdutosEdit, uploadConcorrenteFoto.single('foto'), (req, res) => {
+  const existing = db.get('concorrencia').find({ id: req.params.id }).value();
+  if (!existing) {
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    return res.status(404).json({ error: 'Registro não encontrado.' });
+  }
+  const concorrentes = existing.concorrentes || [];
+  const idx = concorrentes.findIndex((c) => c.id === req.params.concorrenteId);
+  if (idx === -1) {
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    return res.status(404).json({ error: 'Concorrente não encontrado nesta análise.' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Selecione uma imagem.' });
+  if (concorrentes[idx].foto) {
+    const oldPath = path.join(concorrenciaFotosRoot, req.params.id, 'concorrentes', req.params.concorrenteId, path.basename(concorrentes[idx].foto));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  const novaLista = concorrentes.slice();
+  novaLista[idx] = Object.assign({}, novaLista[idx], { foto: `/uploads/concorrencia/${req.params.id}/concorrentes/${req.params.concorrenteId}/${req.file.filename}` });
+  db.get('concorrencia').find({ id: req.params.id }).assign({ concorrentes: novaLista, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'concorrencia', entityId: existing.id, entityLabel: existing.titulo, action: 'update', details: `Foto do concorrente "${novaLista[idx].nome}" atualizada` });
+  res.json({ item: db.get('concorrencia').find({ id: req.params.id }).value() });
+});
+
+router.delete('/concorrencia/:id/concorrentes/:concorrenteId/foto', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('concorrencia').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
+  const concorrentes = existing.concorrentes || [];
+  const idx = concorrentes.findIndex((c) => c.id === req.params.concorrenteId);
+  if (idx === -1) return res.status(404).json({ error: 'Concorrente não encontrado nesta análise.' });
+  if (concorrentes[idx].foto) {
+    const oldPath = path.join(concorrenciaFotosRoot, req.params.id, 'concorrentes', req.params.concorrenteId, path.basename(concorrentes[idx].foto));
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  const novaLista = concorrentes.slice();
+  novaLista[idx] = Object.assign({}, novaLista[idx], { foto: null });
+  db.get('concorrencia').find({ id: req.params.id }).assign({ concorrentes: novaLista, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'concorrencia', entityId: existing.id, entityLabel: existing.titulo, action: 'update', details: `Foto do concorrente "${novaLista[idx].nome}" removida` });
+  res.json({ item: db.get('concorrencia').find({ id: req.params.id }).value() });
 });
 
 // ---------- Checklist de Processos do Lançamento (96ª rodada) ----------

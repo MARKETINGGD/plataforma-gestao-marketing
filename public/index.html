@@ -2520,6 +2520,19 @@
             <div class="compare-row">
               <div class="compare-col">
                 <h4 id="concorrenciaFormNossaMarcaLabel">Nossa marca</h4>
+                <!-- 127ª rodada, pedido explícito da Raquel: "a foto do
+                     produto nosso (Ghel, De Bacco)" -- só aparece depois
+                     de salvar a análise (precisa do id), mesmo padrão já
+                     usado em Comunicados/Lançamentos de Produtos. -->
+                <div id="concorrenciaFormNossaFotoSection" hidden style="margin-bottom:10px;">
+                  <label>Foto do produto</label>
+                  <div id="concorrenciaFormNossaFotoAtual"></div>
+                  <input type="file" id="concorrenciaFormNossaFotoInput" accept="image/*">
+                  <div style="display:flex;gap:8px;margin-top:4px;">
+                    <button type="button" class="btn-secondary" id="concorrenciaFormNossaFotoUpload">Enviar foto</button>
+                    <button type="button" class="btn-link danger" id="concorrenciaFormNossaFotoRemove" hidden>Remover foto</button>
+                  </div>
+                </div>
                 <label>Produto</label><input id="concorrenciaFormNossoProduto" type="text">
                 <label>Preço (R$)</label><input id="concorrenciaFormNossoPreco" type="number" step="0.01">
                 <label>Diferenciais</label><textarea id="concorrenciaFormNossoDiferenciais" rows="2"></textarea>

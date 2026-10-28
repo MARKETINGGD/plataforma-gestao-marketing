@@ -9914,34 +9914,43 @@
           </div>
           ${editable ? `<span><button class="btn-link" data-edit-concorrencia="${it.id}">Editar</button> <button class="btn-link danger" data-del-concorrencia="${it.id}">Excluir</button> <button class="btn-link" data-share-concorrencia="${it.id}">🔗 Compartilhar</button></span>` : (actionsHtml || '')}
         </div>
-        <div class="compare-card-body-multi">
-          <!-- 78ª rodada, pedido explícito da Raquel: "deixe padrão em
-               analise de concorrência a nossa marca primeiro e muda para
-               o nome da marca (GhelPlus/De Bacco)" -- nossa marca vem
-               ANTES do(s) concorrente(s) agora, com o nome de verdade. -->
-          <div class="compare-col">
-            <h4>${BRAND_LABEL[it.brand] || it.brand}</h4>
-            ${campo('Produto', it.nossoProduto || '—')}
-            ${campo('Preço', concorrenciaPrecoTxt(it.nossoPreco))}
-            ${campo('Diferenciais', it.nossoDiferenciais || '—')}
-            ${campo('Observações', it.nossasObservacoes || '—')}
-            <!-- 78ª rodada: "link de referencia, deve ter em todas as
-                 marcas, inclusive na nossa" -- "página de venda" saiu do
-                 nosso lado, ficou só nos concorrentes (ver abaixo). -->
-            ${campo('Link de referência', concorrenciaLinkTxt(it.nossoLink))}
-          </div>
-          <div class="compare-vs">×</div>
-          ${concorrentes.map((c) => `
+        <!-- 127ª rodada, pedido explícito da Raquel: "a foto do
+             produto nosso (Ghel, De Bacco), deve aparecer no canto
+             esquerdo ao lado do comparativo" -- fica FORA das colunas
+             (não é só mais um campo da coluna "Nossa marca"), à
+             esquerda do bloco inteiro de comparação. -->
+        <div class="compare-card-with-photo">
+          ${it.nossaFoto ? `<div class="compare-card-foto-nossa"><img src="${it.nossaFoto}" alt="Foto do produto ${escapeHtml(BRAND_LABEL[it.brand] || it.brand)}"></div>` : ''}
+          <div class="compare-card-body-multi">
+            <!-- 78ª rodada, pedido explícito da Raquel: "deixe padrão em
+                 analise de concorrência a nossa marca primeiro e muda para
+                 o nome da marca (GhelPlus/De Bacco)" -- nossa marca vem
+                 ANTES do(s) concorrente(s) agora, com o nome de verdade. -->
             <div class="compare-col">
-              <h4>${c.nome || '—'}</h4>
-              ${campo('Produto', c.produto || '—')}
-              ${campo('Preço', concorrenciaPrecoTxt(c.preco))}
-              ${campo('Diferenciais', c.diferenciais || '—')}
-              ${campo('Observações', c.observacoes || '—')}
-              ${campo('Link de referência', concorrenciaLinkTxt(c.linkReferencia !== undefined ? c.linkReferencia : c.link))}
-              ${campo('Link de página de venda', concorrenciaLinkTxt(c.linkPaginaVenda))}
+              <h4>${BRAND_LABEL[it.brand] || it.brand}</h4>
+              ${campo('Produto', it.nossoProduto || '—')}
+              ${campo('Preço', concorrenciaPrecoTxt(it.nossoPreco))}
+              ${campo('Diferenciais', it.nossoDiferenciais || '—')}
+              ${campo('Observações', it.nossasObservacoes || '—')}
+              <!-- 78ª rodada: "link de referencia, deve ter em todas as
+                   marcas, inclusive na nossa" -- "página de venda" saiu do
+                   nosso lado, ficou só nos concorrentes (ver abaixo). -->
+              ${campo('Link de referência', concorrenciaLinkTxt(it.nossoLink))}
             </div>
-          `).join('')}
+            <div class="compare-vs">×</div>
+            ${concorrentes.map((c) => `
+              <div class="compare-col">
+                <h4>${c.nome || '—'}</h4>
+                ${c.foto ? `<div class="compare-col-foto"><img src="${c.foto}" alt="Foto do produto ${escapeHtml(c.nome || '')}"></div>` : ''}
+                ${campo('Produto', c.produto || '—')}
+                ${campo('Preço', concorrenciaPrecoTxt(c.preco))}
+                ${campo('Diferenciais', c.diferenciais || '—')}
+                ${campo('Observações', c.observacoes || '—')}
+                ${campo('Link de referência', concorrenciaLinkTxt(c.linkReferencia !== undefined ? c.linkReferencia : c.link))}
+                ${campo('Link de página de venda', concorrenciaLinkTxt(c.linkPaginaVenda))}
+              </div>
+            `).join('')}
+          </div>
         </div>
       </div>
     `;
@@ -9999,6 +10008,17 @@
         <label>Observações</label><textarea rows="2" data-crow="observacoes"></textarea>
         <label>Link de referência</label><input type="text" data-crow="linkReferencia" placeholder="https://...">
         <label>Link de página de venda</label><input type="text" data-crow="linkPaginaVenda" placeholder="https://...">
+        ${editingConcorrenciaId && row.id ? `
+          <div class="concorrente-foto-section" style="margin-top:8px;">
+            <label>Foto do produto</label>
+            ${row.foto ? `<div class="concorrencia-foto-thumb"><img src="${row.foto}" alt=""></div>` : '<div class="muted">Nenhuma foto enviada ainda.</div>'}
+            <input type="file" data-crow-foto-input="${idx}" accept="image/*">
+            <div style="display:flex;gap:8px;margin-top:4px;">
+              <button type="button" class="btn-secondary" data-crow-foto-upload="${idx}">Enviar foto</button>
+              ${row.foto ? `<button type="button" class="btn-link danger" data-crow-foto-remove="${idx}">Remover foto</button>` : ''}
+            </div>
+          </div>
+        ` : ''}
       </div>
     `).join('');
     $all('#concorrenciaConcorrentesRows .concorrente-form-row').forEach((rowEl, idx) => {
@@ -10020,11 +10040,53 @@
         renderConcorrenciaRows();
       };
     });
+    // 127ª rodada: upload/remoção da foto de cada concorrente -- só
+    // existe pra linha que já tem `id` (concorrente já salvo no
+    // servidor), ver condição no template acima.
+    $all('[data-crow-foto-upload]').forEach((b) => {
+      b.onclick = async () => {
+        const idx = Number(b.dataset.crowFotoUpload);
+        const row = concorrenciaFormRows[idx];
+        const input = $(`[data-crow-foto-input="${idx}"]`);
+        const file = input && input.files[0];
+        if (!file || !editingConcorrenciaId || !row || !row.id) return;
+        syncConcorrenciaRowsFromDOM();
+        const fd = new FormData();
+        fd.append('foto', file);
+        try {
+          await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/concorrentes/${row.id}/foto`, { method: 'POST', body: fd });
+          await loadConcorrencia();
+          openConcorrenciaForm(concorrenciaItems.find((it) => it.id === editingConcorrenciaId));
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    });
+    $all('[data-crow-foto-remove]').forEach((b) => {
+      b.onclick = async () => {
+        const idx = Number(b.dataset.crowFotoRemove);
+        const row = concorrenciaFormRows[idx];
+        if (!editingConcorrenciaId || !row || !row.id) return;
+        if (!confirm('Remover a foto deste concorrente?')) return;
+        try {
+          await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/concorrentes/${row.id}/foto`, { method: 'DELETE' });
+          await loadConcorrencia();
+          openConcorrenciaForm(concorrenciaItems.find((it) => it.id === editingConcorrenciaId));
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    });
   }
   function syncConcorrenciaRowsFromDOM() {
     $all('#concorrenciaConcorrentesRows .concorrente-form-row').forEach((rowEl, idx) => {
       if (!concorrenciaFormRows[idx]) return;
-      concorrenciaFormRows[idx] = {
+      // Correção (127ª rodada): isto SUBSTITUÍA o objeto da linha inteiro
+      // só com os valores do DOM, descartando silenciosamente `id`/`foto`
+      // (que não têm input no formulário) -- cada sync apagava o vínculo
+      // com a foto já enviada. Agora faz merge, preservando o que não
+      // vem do DOM.
+      concorrenciaFormRows[idx] = Object.assign({}, concorrenciaFormRows[idx], {
         nome: rowEl.querySelector('[data-crow="nome"]').value,
         produto: rowEl.querySelector('[data-crow="produto"]').value,
         preco: rowEl.querySelector('[data-crow="preco"]').value,
@@ -10032,7 +10094,7 @@
         observacoes: rowEl.querySelector('[data-crow="observacoes"]').value,
         linkReferencia: rowEl.querySelector('[data-crow="linkReferencia"]').value,
         linkPaginaVenda: rowEl.querySelector('[data-crow="linkPaginaVenda"]').value
-      };
+      });
     });
   }
   $('#concorrenciaAddConcorrenteBtn').onclick = () => {
@@ -10065,6 +10127,16 @@
     $('#concorrenciaFormNossasObservacoes').value = item ? (item.nossasObservacoes || '') : '';
     // 78ª rodada: "Nossa marca" mostra o nome de verdade da marca escolhida.
     $('#concorrenciaFormNossaMarcaLabel').textContent = BRAND_LABEL[$('#concorrenciaFormBrand').value] || 'Nossa marca';
+    // 127ª rodada, pedido explícito da Raquel: "a foto do produto
+    // nosso (Ghel, De Bacco)" -- upload só aparece depois de salvar
+    // (precisa do id na URL), mesmo padrão já usado em Comunicados/
+    // Lançamentos de Produtos.
+    $('#concorrenciaFormNossaFotoSection').hidden = !item;
+    $('#concorrenciaFormNossaFotoInput').value = '';
+    $('#concorrenciaFormNossaFotoAtual').innerHTML = item && item.nossaFoto
+      ? `<div class="concorrencia-foto-thumb"><img src="${item.nossaFoto}" alt=""></div>`
+      : '<div class="muted">Nenhuma foto enviada ainda.</div>';
+    $('#concorrenciaFormNossaFotoRemove').hidden = !(item && item.nossaFoto);
     $('#concorrenciaFormError').hidden = true;
     $('#concorrenciaFormWrap').hidden = false;
   }
@@ -10074,10 +10146,42 @@
   $('#concorrenciaFormBrand').onchange = () => {
     $('#concorrenciaFormNossaMarcaLabel').textContent = BRAND_LABEL[$('#concorrenciaFormBrand').value] || 'Nossa marca';
   };
+  // 127ª rodada: upload/remoção da foto do nosso produto -- mesmo
+  // padrão de FormData+api() já usado em Comunicados.
+  $('#concorrenciaFormNossaFotoUpload').onclick = async () => {
+    const file = $('#concorrenciaFormNossaFotoInput').files[0];
+    if (!file || !editingConcorrenciaId) return;
+    const fd = new FormData();
+    fd.append('foto', file);
+    try {
+      await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/foto`, { method: 'POST', body: fd });
+      await loadConcorrencia();
+      openConcorrenciaForm(concorrenciaItems.find((it) => it.id === editingConcorrenciaId));
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  $('#concorrenciaFormNossaFotoRemove').onclick = async () => {
+    if (!editingConcorrenciaId) return;
+    if (!confirm('Remover a foto do nosso produto?')) return;
+    try {
+      await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/foto`, { method: 'DELETE' });
+      await loadConcorrencia();
+      openConcorrenciaForm(concorrenciaItems.find((it) => it.id === editingConcorrenciaId));
+    } catch (e) {
+      alert(e.message);
+    }
+  };
   $('#concorrenciaFormSave').onclick = async () => {
     syncConcorrenciaRowsFromDOM();
     const concorrentes = concorrenciaFormRows
       .map((r) => ({
+        // Correção (127ª rodada): faltava mandar o `id` de volta -- sem
+        // ele, CADA salvamento gerava ids novos pra todo mundo (o
+        // backend só preserva o resto por id -- ver sanitizeConcorrentes
+        // em routes/produtos.js), o que quebraria o vínculo com a foto
+        // já enviada pra aquele concorrente a cada edição de texto.
+        id: r.id || undefined,
         nome: (r.nome || '').trim(),
         produto: (r.produto || '').trim(),
         preco: r.preco === '' || r.preco === null || r.preco === undefined ? null : r.preco,
@@ -10118,13 +10222,23 @@
       return;
     }
     try {
+      let savedId = editingConcorrenciaId;
       if (editingConcorrenciaId) {
         await api('/api/produtos/concorrencia/' + editingConcorrenciaId, { method: 'PUT', body: JSON.stringify(payload) });
       } else {
-        await api('/api/produtos/concorrencia', { method: 'POST', body: JSON.stringify(payload) });
+        const created = await api('/api/produtos/concorrencia', { method: 'POST', body: JSON.stringify(payload) });
+        savedId = created.item.id;
       }
-      $('#concorrenciaFormWrap').hidden = true;
       await loadConcorrencia();
+      // 127ª rodada: se acabou de criar, reabre já em modo edição pra
+      // liberar o upload de foto (nossa + de cada concorrente) --
+      // mesmo comportamento usado em Lançamentos de Produtos/
+      // Comunicados (precisa do id salvo pra montar a URL do upload).
+      if (!editingConcorrenciaId && savedId) {
+        openConcorrenciaForm(concorrenciaItems.find((it) => it.id === savedId));
+      } else {
+        $('#concorrenciaFormWrap').hidden = true;
+      }
     } catch (e) {
       $('#concorrenciaFormError').textContent = e.message;
       $('#concorrenciaFormError').hidden = false;

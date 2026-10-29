@@ -463,6 +463,21 @@
     const btn = $('#themeToggleBtn');
     if (btn) btn.textContent = t === 'dark' ? '☀️ Tema claro' : '🌙 Tema escuro';
   }
+
+  // Som das notificações (133ª rodada, pedido explícito da Raquel:
+  // "preciso que tenha a opção de desativar o som das notificações da
+  // plataforma") -- preferência pessoal salva no perfil (ver
+  // PUT /me/notification-sound em routes/auth.js), mesmo espírito do
+  // tema escuro acima. Sem usuário logado ainda (tela de login/setup),
+  // conta como ligado -- nunca silencia sem a pessoa pedir.
+  function soundEnabled() {
+    return !currentUser || currentUser.notificationSoundEnabled !== false;
+  }
+  function updateSoundBtn() {
+    const btn = $('#soundToggleBtn');
+    if (!btn) return;
+    btn.textContent = soundEnabled() ? '🔊 Som das notificações ativado' : '🔇 Som das notificações desativado';
+  }
   let localTheme = 'light';
   try { localTheme = localStorage.getItem('papoiTheme') || 'light'; } catch (e) { /* ignora */ }
   applyTheme(localTheme);
@@ -486,6 +501,7 @@
     else btn.textContent = '🔔 Ativar notificações do sistema';
   }
   updateOsNotifBtn();
+  updateSoundBtn();
 
   // Dispara uma notificação de verdade do sistema operacional -- só
   // quando a pessoa tem certeza que quer (permissão concedida) E não
@@ -1944,6 +1960,7 @@
     // qualquer coisa que já tinha sido aplicada só a partir do
     // localStorage antes do login terminar.
     applyTheme(currentUser.theme);
+    updateSoundBtn();
     showScreen('app');
     // 68ª rodada: `showView('home')` mostrava a tela Início só depois de
     // várias chamadas assíncronas aqui embaixo (team/labels/loadHome) --
@@ -2055,6 +2072,18 @@
     try {
       await api('/api/auth/me/theme', { method: 'PUT', body: JSON.stringify({ theme: next }) });
     } catch (e) { /* falha de rede pontual -- o tema já mudou na tela, só não persistiu; tenta salvar nas próximas trocas */ }
+  };
+
+  // Som das notificações (133ª rodada) -- mesmo padrão do tema escuro
+  // acima: alterna na hora (sem esperar o servidor confirmar) e persiste
+  // no perfil pra sincronizar entre aparelhos.
+  $('#soundToggleBtn').onclick = async () => {
+    const next = !soundEnabled();
+    currentUser.notificationSoundEnabled = next;
+    updateSoundBtn();
+    try {
+      await api('/api/auth/me/notification-sound', { method: 'PUT', body: JSON.stringify({ enabled: next }) });
+    } catch (e) { /* falha de rede pontual -- já mudou na tela, só não persistiu; tenta salvar na próxima troca */ }
   };
 
   // Notificações do sistema operacional (15ª melhoria) -- pedir permissão
@@ -2537,6 +2566,7 @@
   // novo assume, ou desempata sozinho), toca o aviso.
   const reisAudio = new Audio('/sounds/reis.mp3');
   function playReisSound() {
+    if (!soundEnabled()) return;
     try {
       reisAudio.currentTime = 0;
       reisAudio.play().catch(() => { /* autoplay bloqueado até a pessoa interagir com a página */ });
@@ -2701,6 +2731,7 @@
   let notificationSoundTimer = null;
   const recadoAudio = new Audio('/sounds/recado.mp3');
   function playRecadoSound() {
+    if (!soundEnabled()) return;
     try {
       recadoAudio.currentTime = 0;
       recadoAudio.play().catch(() => { /* autoplay bloqueado ou arquivo ainda não enviado */ });
@@ -3030,6 +3061,7 @@
   // chamou a atenção" -- antes só quem recebia ouvia).
   const nudgeAudio = new Audio('/sounds/nudge.mp3');
   function playNudgeSound() {
+    if (!soundEnabled()) return;
     try {
       nudgeAudio.currentTime = 0;
       nudgeAudio.play().catch(() => { /* autoplay bloqueado até a pessoa interagir com a página */ });
@@ -3501,6 +3533,7 @@
   // janelinha funcionar em paralelo com a tela cheia sem se atrapalharem.
   const chatAudio = new Audio('/sounds/chat.mp3');
   function playChatSound() {
+    if (!soundEnabled()) return;
     try {
       chatAudio.currentTime = 0;
       chatAudio.play().catch(() => { /* autoplay bloqueado até a pessoa interagir com a página */ });

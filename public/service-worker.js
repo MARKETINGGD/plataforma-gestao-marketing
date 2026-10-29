@@ -115,7 +115,12 @@ self.addEventListener('push', (event) => {
         icon,
         badge: icon,
         tag: data.tag || ('papoi-push-' + Date.now()),
-        data: { url: data.url || '/' }
+        data: { url: data.url || '/' },
+        // 133ª rodada: respeita a preferância de som da pessoa (calculada
+        // no servidor, ver sendPushToUsers em utils/webPush.js -- o
+        // service worker não tem acesso ao perfil salvo, só ao que
+        // já vem pronto no payload).
+        silent: !!data.silent
       });
     })
   );

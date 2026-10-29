@@ -179,6 +179,13 @@ function publicUser(u) {
     email: u.email || '',
     columnColor: u.columnColor || null,
     homeColor: u.homeColor || null,
+    // Som das notificações (133ª rodada, pedido explícito da Raquel:
+    // "preciso que tenha a opção de desativar o som das notificações da
+    // plataforma") -- preferência pessoal, mesmo espírito do homeColor/
+    // theme (cada um escolhe o próprio, sincroniza entre aparelhos). Liga
+    // sozinho (`!== false`) pra quem nunca tocou nisso -- nunca silencia
+    // ninguém sem pedir.
+    notificationSoundEnabled: u.notificationSoundEnabled !== false,
     // Tema escuro (14ª melhoria, 24/09/2026, pedido da Raquel: "deixe a
     // possibilidade de deixar o tema escuro") -- preferência pessoal,
     // mesmo espírito do homeColor (cada um escolhe o próprio, não afeta
@@ -357,6 +364,17 @@ router.put('/me/theme', requireAuth, (req, res) => {
   const theme = (req.body || {}).theme === 'dark' ? 'dark' : 'light';
   db.get('users').find({ id: req.user.id }).assign({ theme }).write();
   res.json({ ok: true, theme });
+});
+
+// Som das notificações (133ª rodada) -- mesmo padrão do tema escuro
+// acima: preferência pessoal, salva no perfil, sincroniza entre
+// aparelhos. `enabled: false` desativa; qualquer outro valor (inclusive
+// ausente) liga -- nunca guarda lixo no banco, e o padrão pra quem nunca
+// tocou nisso é sempre ligado (ver publicUser() acima).
+router.put('/me/notification-sound', requireAuth, (req, res) => {
+  const enabled = (req.body || {}).enabled !== false;
+  db.get('users').find({ id: req.user.id }).assign({ notificationSoundEnabled: enabled }).write();
+  res.json({ ok: true, notificationSoundEnabled: enabled });
 });
 
 // Ordem pessoal das colunas do quadro de Demandas (17ª rodada): a Raquel

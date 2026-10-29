@@ -75,13 +75,24 @@ function sendPushToUsers(userIds, { title, body, tag, url }) {
   if (ids.length === 0) return;
   const subs = db.get('pushSubscriptions').filter((s) => ids.includes(s.userId)).value();
   if (subs.length === 0) return;
-  const payload = JSON.stringify({
-    title: title || 'Papoi',
-    body: body || '',
-    tag: tag || 'papoi-push-' + Date.now(),
-    url: url || '/'
-  });
+  // 133ª rodada, pedido explicito da Raquel: "preciso que tenha a
+  // opcao de desativar o som das notificacoes da plataforma" -- a
+  // notificacao nativa do sistema (push, usada quando a Papoi esta
+  // fechada/em segundo plano -- ver service-worker.js) tambem respeita
+  // essa preferencia, ligando o campo `silent` quando a PESSOA DONA da
+  // inscricao desativou o som (cada inscricao pertence a 1 usuario so,
+  // via `sub.userId` -- diferente do payload de texto, que e o mesmo
+  // pra todo mundo, o `silent` precisa ser calculado por inscricao).
   subs.forEach((sub) => {
+    const owner = db.get('users').find({ id: sub.userId }).value();
+    const silent = !!(owner && owner.notificationSoundEnabled === false);
+    const payload = JSON.stringify({
+      title: title || 'Papoi',
+      body: body || '',
+      tag: tag || 'papoi-push-' + Date.now(),
+      url: url || '/',
+      silent
+    });
     const pushSubscription = { endpoint: sub.endpoint, keys: sub.keys };
     webpush.sendNotification(pushSubscription, payload).catch((err) => {
       const statusCode = err && err.statusCode;

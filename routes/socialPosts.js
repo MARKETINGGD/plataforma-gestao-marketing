@@ -387,6 +387,69 @@ function createDemandCardsForNewInvolved(post, newIds, req) {
   });
 }
 
+// 131ª rodada, pedido explícito da Raquel em cima do conserto da 130ª
+// ("replicar pro espelho a parte de pessoas entrando/saindo do post, e o
+// sentido contrário, faça isso também"): função única de propagação
+// entre um post e seu parceiro espelhado (Instagram<->Facebook),
+// reaproveitada nos dois sentidos -- só um dos 2 campos
+// (mirroredToPostId/mirroredFromPostId) é preenchido por post, então só
+// um dos 2 lados chama esta função por edição.
+// (1) replica a entrada/saída de `involvedUserIds` pro grupo de demandas
+//     do PARCEIRO (criar card pra quem entrou, arquivar de quem saiu) --
+//     antes disso, a lista de envolvidos do espelho era atualizada direto
+//     no banco (MIRROR_SYNC_FIELDS já incluía `involvedUserIds`), mas sem
+//     nunca criar/arquivar os cards de demanda correspondentes.
+// (2) sincroniza o título/dueDate/rede/marca das demandas do grupo do
+//     PARCEIRO quando data/assunto/legenda/tipo mudam (130ª rodada,
+//     ampliada aqui pra funcionar também no sentido espelho -> original,
+//     que antes nunca disparava nada -- editar o espelho ficava sem
+//     nenhum efeito sobre o post original).
+function propagateToMirrorPartner(fresh, updates, partnerId, req) {
+  const partner = db.get('socialPosts').find({ id: partnerId }).value();
+  if (!partner) return;
+  const MIRROR_SYNC_FIELDS = ['caption', 'subject', 'scheduledDate', 'scheduledTime', 'link', 'postType', 'responsibleId', 'involvedUserIds'];
+  const partnerUpdates = {};
+  MIRROR_SYNC_FIELDS.forEach((field) => {
+    if (updates[field] !== undefined) partnerUpdates[field] = fresh[field];
+  });
+  if (Object.keys(partnerUpdates).length === 0) return;
+  const previousPartnerInvolvedIds = partner.involvedUserIds || [];
+  partnerUpdates.updatedAt = new Date().toISOString();
+  db.get('socialPosts').find({ id: partner.id }).assign(partnerUpdates).write();
+  const freshPartner = db.get('socialPosts').find({ id: partner.id }).value();
+
+  // (1) entrada/saída de envolvidos -- mesma lógica já usada pro grupo do
+  // post editado direto (ver bloco do próprio `updates.involvedUserIds`
+  // mais acima no PUT /:id).
+  if (partnerUpdates.involvedUserIds !== undefined) {
+    const newPartnerIds = partnerUpdates.involvedUserIds.filter((id) => !previousPartnerInvolvedIds.includes(id));
+    createDemandCardsForNewInvolved(freshPartner, newPartnerIds, req);
+    const removedPartnerIds = previousPartnerInvolvedIds.filter((id) => !partnerUpdates.involvedUserIds.includes(id));
+    if (removedPartnerIds.length > 0) {
+      const now = new Date().toISOString();
+      getSiblings(partner.id, null)
+        .filter((d) => !d.archived && (d.assigneeIds || []).some((id) => removedPartnerIds.includes(id)))
+        .forEach((d) => {
+          db.get('demandas').find({ id: d.id }).assign({ archived: true, updatedAt: now }).write();
+          logAudit({ user: req.user, entityType: 'demanda', entityId: d.id, entityLabel: d.title, action: 'update', details: 'Arquivada automaticamente: a pessoa foi removida da lista de envolvidos no agendamento de origem (post espelhado Instagram/Facebook).', meta: { visibility: d.visibility } });
+        });
+    }
+  }
+
+  // (2) título/dueDate/rede/marca das demandas do grupo do parceiro.
+  if (['scheduledDate', 'subject', 'caption', 'postType'].some((k) => partnerUpdates[k] !== undefined)) {
+    const { title: partnerTitle, description: partnerDescription } = demandTitleAndDescriptionForPost(freshPartner);
+    syncLinkedDemandas(freshPartner.id, {
+      title: partnerTitle,
+      description: partnerDescription,
+      dueDate: freshPartner.scheduledDate || null,
+      network: freshPartner.platform || null,
+      brand: freshPartner.brand || null,
+      brands: freshPartner.brand ? [freshPartner.brand] : []
+    }, req, null, 'Atualizada automaticamente: o post espelhado (Instagram/Facebook) foi editado (data/assunto/legenda).');
+  }
+}
+
 const uploadsRoot = path.join(__dirname, '..', 'data', 'uploads', 'social');
 
 // Fábrica de instâncias do multer — cada "tipo" de anexo (criativo final,
@@ -1096,51 +1159,17 @@ router.put('/:id', requireAuth, async (req, res) => {
   // conservadora, sem disparar a cascata de criação de novo nem duplicar
   // nada (mesmo espírito do bloco acima, que já escreve de volta na ação
   // de influencer de origem).
-  if (fresh.mirroredToPostId) {
-    const mirrorPost = db.get('socialPosts').find({ id: fresh.mirroredToPostId }).value();
-    if (mirrorPost) {
-      const MIRROR_SYNC_FIELDS = ['caption', 'subject', 'scheduledDate', 'scheduledTime', 'link', 'postType', 'responsibleId', 'involvedUserIds'];
-      const mirrorUpdates = {};
-      MIRROR_SYNC_FIELDS.forEach((field) => {
-        if (updates[field] !== undefined) mirrorUpdates[field] = fresh[field];
-      });
-      if (Object.keys(mirrorUpdates).length > 0) {
-        mirrorUpdates.updatedAt = new Date().toISOString();
-        db.get('socialPosts').find({ id: mirrorPost.id }).assign(mirrorUpdates).write();
-        // 130ª rodada, bug reportado pela Raquel: "quando altera alguma
-        // coisa em agendamento, não esta atualizando isso em demandas...
-        // digo isso em relação a data de entrega, mudamos no agendamento e
-        // n mudou na demanda" -- o espelho (Facebook) tem seu PRÓPRIO grupo
-        // de demandas-irmãs (sourceSocialPostId === mirrorPost.id, criadas
-        // em createFacebookMirror/espelhar-facebook), separado do grupo do
-        // post ORIGINAL (Instagram). O bloco acima grava a mudança direto
-        // no banco do espelho, sem passar pelo PUT /:id dele -- que é o
-        // único lugar que chamava syncLinkedDemandas (ver bloco logo
-        // acima, pro post original). Resultado: editar o post ORIGINAL
-        // atualizava a data/assunto/legenda no Agendamento dos dois lados
-        // (Instagram e Facebook), mas as demandas do lado do ESPELHO nunca
-        // recebiam essa atualização -- ficavam paradas com a data antiga
-        // pra sempre. (Não tem nada a ver com a regra de "só admin/
-        // gerente/coordenador(a) podem trocar a data de entrega" de uma
-        // demanda -- canChangeDueDate, em routes/demandas.js -- essa regra
-        // só vale pra edição MANUAL direto no card da demanda; esta
-        // sincronização automática nunca passou por ela, nem antes nem
-        // depois deste conserto.)
-        if (['scheduledDate', 'subject', 'caption', 'postType'].some((k) => mirrorUpdates[k] !== undefined)) {
-          const freshMirror = db.get('socialPosts').find({ id: mirrorPost.id }).value();
-          const { title: mirrorTitle, description: mirrorDescription } = demandTitleAndDescriptionForPost(freshMirror);
-          syncLinkedDemandas(freshMirror.id, {
-            title: mirrorTitle,
-            description: mirrorDescription,
-            dueDate: freshMirror.scheduledDate || null,
-            network: freshMirror.platform || null,
-            brand: freshMirror.brand || null,
-            brands: freshMirror.brand ? [freshMirror.brand] : []
-          }, req, null, 'Atualizada automaticamente: o agendamento de redes sociais de origem (post espelhado no Instagram) foi editado (data/assunto/legenda).');
-        }
-      }
-    }
-  }
+  // 130ª rodada: post ORIGINAL (Instagram) editado propaga pro grupo de
+  // demandas do ESPELHO (Facebook) -- antes disso, o espelho era
+  // atualizado direto no banco, sem nunca passar por syncLinkedDemandas.
+  // 131ª rodada, pedido explícito da Raquel: o mesmo preciso valer nos
+  // 2 sentidos (editar o espelho agora também atualiza o original) e
+  // também pra entrada/saída de pessoas envolvidas (não só data/assunto/
+  // legenda) -- ver propagateToMirrorPartner() acima. Só um dos 2 ifs
+  // abaixo de fato executa por post (mirroredToPostId/mirroredFromPostId
+  // nunca vêm preenchidos juntos no mesmo post).
+  if (fresh.mirroredToPostId) propagateToMirrorPartner(fresh, updates, fresh.mirroredToPostId, req);
+  if (fresh.mirroredFromPostId) propagateToMirrorPartner(fresh, updates, fresh.mirroredFromPostId, req);
   logAudit({ user: req.user, entityType: 'socialPost', entityId: post.id, entityLabel: `${post.platform} ${post.scheduledDate}`, action: 'update' });
   notifyReadyForApproval(fresh);
   res.json({ post: serialize(fresh) });

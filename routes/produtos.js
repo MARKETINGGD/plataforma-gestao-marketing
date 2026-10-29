@@ -128,6 +128,38 @@ function sanitizeConcorrentes(arr, existingList) {
     .filter((c) => c.nome);
 }
 
+// 134ª rodada — bug real reportado pela Raquel: "tem dados que foram
+// cadastrados e estão sumindo" em Análise de Concorrência. Causa
+// confirmada: o formulário de edição manda a lista `concorrentes[]`
+// INTEIRA que ele tinha na tela no momento em que foi aberto -- se a
+// Raquel (ou outra pessoa da equipe) tiver esse formulário aberto
+// enquanto ALGUÉM adiciona um concorrente novo na MESMA análise (noutra
+// aba, noutro computador, ou só porque a tela ficou aberta tempo demais),
+// salvar o formulário antigo SUBSTITUÍA a lista inteira pela versão
+// desatualizada que ele tinha na tela, apagando silenciosamente o
+// concorrente que a outra pessoa tinha acabado de cadastrar.
+//
+// Corrigido com uma junção (merge) por `id`, nunca mais uma substituição
+// cega da lista inteira: qualquer concorrente que já existia no banco e
+// não foi explicitamente removido (ver `removedConcorrenteIds` abaixo)
+// SOBREVIVE, mesmo que o formulário que está salvando não soubesse que
+// ele existia. Remover um concorrente de verdade continua funcionando --
+// só que agora precisa vir marcado explicitamente em
+// `removedConcorrenteIds` (o botão "Remover" do formulário, do lado do
+// front, passou a registrar isso), nunca só por "não aparecer na lista
+// enviada".
+function mergeConcorrentes(submittedArr, existingList, removedIds) {
+  const existing = Array.isArray(existingList) ? existingList : [];
+  const removed = new Set((Array.isArray(removedIds) ? removedIds : []).map((v) => str(v)).filter(Boolean));
+  const sanitizedSubmitted = sanitizeConcorrentes(submittedArr, existing);
+  const submittedIds = new Set(sanitizedSubmitted.map((c) => c.id));
+  // Concorrente que já existia, não veio na lista enviada por este
+  // salvamento E não foi marcado pra remoção -- preserva como estava,
+  // sem precisar que o formulário desatualizado soubesse dele.
+  const preservedFromExisting = existing.filter((c) => !submittedIds.has(c.id) && !removed.has(c.id));
+  return sanitizedSubmitted.concat(preservedFromExisting);
+}
+
 // ---------- Análise de concorrência ----------
 router.get('/concorrencia', requireAuth, (req, res) => {
   res.json({ items: db.get('concorrencia').value() });
@@ -257,7 +289,7 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
   const existing = db.get('concorrencia').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Registro não encontrado.' });
   const {
-    brand, titulo, data, concorrentes,
+    brand, titulo, data, concorrentes, removedConcorrenteIds,
     concorrente, produto, preco, diferenciais, link, observacoes,
     nossoProduto, nossoPreco, nossoDiferenciais, nossoLink, nossasObservacoes, nossoLinkVenda
   } = req.body || {};
@@ -266,7 +298,9 @@ router.put('/concorrencia/:id', requireAuth, requireProdutosEdit, (req, res) => 
   if (titulo !== undefined) updates.titulo = str(titulo);
   if (data !== undefined) updates.data = data || null;
   if (concorrentes !== undefined) {
-    const list = sanitizeConcorrentes(concorrentes, existing.concorrentes);
+    // 134ª rodada: junção por id (preserva concorrente cadastrado por
+    // outra edição concorrente), não mais substituição cega da lista.
+    const list = mergeConcorrentes(concorrentes, existing.concorrentes, removedConcorrenteIds);
     if (list.length === 0) return res.status(400).json({ error: 'Informe ao menos um concorrente.' });
     updates.concorrentes = list;
     updates.concorrente = list[0].nome;

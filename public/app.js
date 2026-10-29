@@ -9875,6 +9875,14 @@
   // em memória e só lidas do DOM na hora de salvar/adicionar/remover linha
   // (ver renderConcorrenciaRows/syncConcorrenciaRowsFromDOM).
   let concorrenciaFormRows = [];
+  // 134ª rodada — correção de bug real: salvar o formulário só com a lista
+  // de concorrentes que ele tinha na tela apagava silenciosamente qualquer
+  // concorrente cadastrado por outra edição enquanto esse formulário estava
+  // aberto (ver mergeConcorrentes() em routes/produtos.js). Agora, remover
+  // uma linha de verdade precisa ficar registrado aqui -- é o único jeito
+  // confiável do backend saber "isso foi removido de propósito", em vez de
+  // só "não apareceu na lista enviada".
+  let concorrenciaFormRemovedIds = [];
   let editingLancamentoId = null;
   // 39ª rodada, pedido da Raquel: status trocou pro fluxo de lançamento
   // físico (era planejado/em_andamento/lançado). Lançamento antigo com um
@@ -10069,7 +10077,14 @@
     $all('[data-remove-concorrente-row]').forEach((b) => {
       b.onclick = () => {
         syncConcorrenciaRowsFromDOM();
-        concorrenciaFormRows.splice(Number(b.dataset.removeConcorrenteRow), 1);
+        const idx = Number(b.dataset.removeConcorrenteRow);
+        const removedRow = concorrenciaFormRows[idx];
+        // 134ª rodada: só concorrente JÁ SALVO no servidor (tem `id`)
+        // precisa ser marcado pra remoção -- uma linha em branco que a
+        // pessoa só tinha acabado de adicionar no formulário (sem `id`
+        // ainda) nunca existiu no banco, não há nada pra remover lá.
+        if (removedRow && removedRow.id) concorrenciaFormRemovedIds.push(removedRow.id);
+        concorrenciaFormRows.splice(idx, 1);
         renderConcorrenciaRows();
       };
     });
@@ -10138,6 +10153,7 @@
 
   function openConcorrenciaForm(item) {
     editingConcorrenciaId = item ? item.id : null;
+    concorrenciaFormRemovedIds = []; // 134ª rodada
     $('#concorrenciaFormTitle').textContent = item ? 'Editar análise' : 'Nova análise';
     $('#concorrenciaFormBrand').value = item ? item.brand : 'debacco';
     $('#concorrenciaFormTitulo').value = item ? (item.titulo || '') : '';
@@ -10237,7 +10253,12 @@
       // 78ª rodada: "página de venda" saiu do nosso lado -- só ficou o
       // link de referência aqui.
       nossoLink: $('#concorrenciaFormNossoLink').value.trim(),
-      nossasObservacoes: $('#concorrenciaFormNossasObservacoes').value.trim()
+      nossasObservacoes: $('#concorrenciaFormNossasObservacoes').value.trim(),
+      // 134ª rodada: diz ao backend quais concorrentes foram removidos DE
+      // VERDADE por esta edição -- sem isso, ele não tem como distinguir
+      // "a pessoa removeu" de "o formulário estava desatualizado e nunca
+      // chegou a saber desse concorrente".
+      removedConcorrenteIds: concorrenciaFormRemovedIds
     };
     if (!payload.titulo) {
       $('#concorrenciaFormError').textContent = 'Informe o título da análise.';

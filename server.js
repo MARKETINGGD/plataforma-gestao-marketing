@@ -117,6 +117,13 @@ require('./utils/migratePontoScheduleInicial').migratePontoScheduleInicial();
 require('./utils/migrateConvertJornadaIncompleta107').migrateConvertJornadaIncompleta107();
 require('./utils/migrateFixAusenciaTense107').migrateFixAusenciaTense107();
 
+// 140ª rodada, pedido da Raquel: importa, uma única vez, os gastos de
+// "ExpoRevestir 2027" (De Bacco) que já estavam lançados no Budget mas
+// nunca viraram item na tela de Feiras (ver
+// utils/migrateImportExpoRevestirFeiraItems140.js) -- nunca move/apaga o
+// lançamento original do Budget, só copia os valores.
+require('./utils/migrateImportExpoRevestirFeiraItems140').migrateImportExpoRevestirFeiraItems140();
+
 // 47ª rodada: lembretes automáticos de bater o ponto (5 min antes/depois
 // de cada horário cadastrado por pessoa, só dias úteis) — primeiro recurso
 // da Plataforma que precisa de um temporizador de verdade rodando sozinho

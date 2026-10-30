@@ -1479,12 +1479,40 @@ router.put('/:id', requireAuth, (req, res) => {
         'Atualizada automaticamente: outra demanda do mesmo agendamento de redes sociais foi alterada.'
       );
     }
+    const linkedPost = db.get('socialPosts').find({ id: demanda.sourceSocialPostId }).value();
+    // 139ª rodada, pedido da Raquel: "quando eu mudo uma demanda que veio
+    // do agendamento e tem insta e face, as duas deveriam mudar juntas" --
+    // até aqui, o bloco acima só sincronizava entre demandas-irmãs do
+    // MESMO post; quando esse post tem um espelho Instagram<->Facebook
+    // (79ª/130ª/131ª rodada), o grupo de demandas DO ESPELHO nunca
+    // recebia nada por essa via -- só editando o Agendamento direto
+    // (routes/socialPosts.js, propagateToMirrorPartner) é que isso já
+    // acontecia. Replica os mesmos campos pro grupo do parceiro, menos
+    // `network` -- cada lado sempre mantém a própria rede (a demanda do
+    // lado Instagram nunca deve virar "Facebook" e vice-versa).
+    if (linkedPost) {
+      const mirrorPartnerPostId = linkedPost.mirroredToPostId || linkedPost.mirroredFromPostId;
+      if (mirrorPartnerPostId && Object.keys(mirrorFields).length > 0) {
+        const partnerMirrorFields = {};
+        Object.keys(mirrorFields).forEach((key) => {
+          if (key !== 'network') partnerMirrorFields[key] = mirrorFields[key];
+        });
+        if (Object.keys(partnerMirrorFields).length > 0) {
+          syncLinkedDemandas(
+            mirrorPartnerPostId,
+            partnerMirrorFields,
+            req,
+            null,
+            'Atualizada automaticamente: uma demanda do post espelhado (Instagram/Facebook) foi alterada.'
+          );
+        }
+      }
+    }
     // 36ª rodada (mantido): se o agendamento de origem veio de uma ação da
     // planilha de influencers, concluir a demanda aqui também publica o
     // agendamento e a ação de influencer ligados -- "tudo se altera
     // junto", pedido da Raquel.
     if (updates.status === 'concluida') {
-      const linkedPost = db.get('socialPosts').find({ id: demanda.sourceSocialPostId }).value();
       if (linkedPost && linkedPost.sourceInfluencerPostId) {
         markSocialPostPublished(demanda.sourceSocialPostId, req);
       }
@@ -1533,6 +1561,27 @@ router.put('/:id', requireAuth, (req, res) => {
           action: 'update',
           details: 'Atualizado automaticamente: data de entrega/rede foi alterada direto numa demanda deste agendamento.'
         });
+        // 139ª rodada: a DATA (não a rede, que é fixa por lado) também
+        // precisa valer pro Agendamento do post espelhado (Instagram<->
+        // Facebook), senão o Cronograma ficaria com datas divergentes
+        // entre os dois lados do mesmo espelhamento.
+        if (postUpdates.scheduledDate !== undefined) {
+          const mirrorPartnerIdForDate = linkedPostForDateNetworkSync.mirroredToPostId || linkedPostForDateNetworkSync.mirroredFromPostId;
+          if (mirrorPartnerIdForDate) {
+            const mirrorPartnerPost = db.get('socialPosts').find({ id: mirrorPartnerIdForDate }).value();
+            if (mirrorPartnerPost && mirrorPartnerPost.scheduledDate !== postUpdates.scheduledDate) {
+              db.get('socialPosts').find({ id: mirrorPartnerIdForDate }).assign({ scheduledDate: postUpdates.scheduledDate, updatedAt: new Date().toISOString() }).write();
+              logAudit({
+                user: req.user,
+                entityType: 'socialPost',
+                entityId: mirrorPartnerIdForDate,
+                entityLabel: `${mirrorPartnerPost.platform} ${postUpdates.scheduledDate}`,
+                action: 'update',
+                details: 'Atualizado automaticamente: data de postagem alterada no post espelhado (Instagram/Facebook) por uma edição de demanda.'
+              });
+            }
+          }
+        }
       }
     }
   }

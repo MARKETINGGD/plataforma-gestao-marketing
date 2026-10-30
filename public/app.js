@@ -6182,6 +6182,25 @@
       network: $('#demCardNetwork').value || null,
       visibility: demandasScope
     };
+    // 136ª rodada: em vez de confiar na lista `assigneeIds`/`labelIds`
+    // inteira acima (que pode estar desatualizada, se o card foi editado
+    // por outra pessoa -- ou por "Sair do card" -- enquanto este
+    // formulário estava aberto), manda também só a DIFERENÇA desta edição
+    // (quem foi marcado/desmarcado comparado com o que a tela tinha
+    // quando foi aberta, em `openDemandaCache`) -- o servidor aplica essa
+    // diferença em cima do estado mais atual do banco, nunca da lista
+    // acima. Só faz sentido numa edição de card já existente (`editingDemandaId`
+    // setado); num card novo não existe "o que a tela tinha antes", então
+    // os arrays saem vazios e o servidor usa o caminho antigo (lista
+    // inteira), que é exatamente certo pra uma criação.
+    if (editingDemandaId) {
+      const originalAssigneeIds = openDemandaCache ? (openDemandaCache.assigneeIds || []) : [];
+      const originalLabelIds = openDemandaCache ? (openDemandaCache.labelIds || []) : [];
+      payload.addedAssigneeIds = payload.assigneeIds.filter((id) => !originalAssigneeIds.includes(id));
+      payload.removedAssigneeIds = originalAssigneeIds.filter((id) => !payload.assigneeIds.includes(id));
+      payload.addedLabelIds = payload.labelIds.filter((id) => !originalLabelIds.includes(id));
+      payload.removedLabelIds = originalLabelIds.filter((id) => !payload.labelIds.includes(id));
+    }
     // 78ª rodada: em qual lista pessoal o card fica -- só manda esse campo
     // dentro da Área Pessoal (no quadro Geral não existe lista nomeável).
     if (demandasScope === 'pessoal') {

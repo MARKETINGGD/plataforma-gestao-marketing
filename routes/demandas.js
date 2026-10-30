@@ -251,6 +251,41 @@ function validLabelIds(ids) {
   return ids.filter((id) => labels.some((l) => l.id === id));
 }
 
+// 136ª rodada, pedido da Raquel pra verificar o mesmo padrão de perda de
+// dado por formulário desatualizado (134ª rodada, Análise de
+// Concorrência) em outras telas -- achado em Demandas: o formulário
+// principal de edição do card mandava `assigneeIds`/`labelIds` INTEIROS,
+// com base no que a tela tinha carregado quando foi ABERTA. Isso tinha um
+// efeito diferente do de Concorrência (lá, uma ADIÇÃO feita por outra
+// pessoa podia se perder; aqui, era uma REMOÇÃO -- por exemplo, alguém
+// clicando em "Sair do card", ver `/:id/leave` abaixo -- podendo ser
+// DESFEITA por um salvamento desatualizado de outra pessoa com o
+// formulário ainda aberto, fazendo a pessoa que saiu "reaparecer" no
+// card). A correção por junção usada na 134ª rodada (preservar o que já
+// existe e não foi explicitamente marcado pra remover) não resolve esse
+// caso -- ali o problema é uma ADIÇÃO se perder; aqui é uma REMOÇÃO
+// concorrente sendo desfeita por alguém que nem sabia que ela tinha
+// acontecido.
+//
+// Em vez de mandar a lista inteira, o formulário agora manda só a
+// DIFERENÇA desta edição (quem foi marcado/desmarcado NESTA sessão de
+// edição, calculado no front comparando com o que a tela tinha quando foi
+// aberta) -- `addedXxxIds`/`removedXxxIds`. O servidor aplica essa
+// diferença em cima do estado MAIS ATUAL do banco (nunca da lista que o
+// formulário mandou), então: uma adição concorrente de outra pessoa nunca
+// se perde (ela não está em `removedIds`, então sobrevive), e uma remoção
+// concorrente de outra pessoa (ex.: "Sair do card") nunca é desfeita por
+// engano (quem saiu não está no `currentArr` vivo do banco, e como esta
+// edição não marcou essa pessoa como `added`, ela não volta).
+function applyIdDelta(currentArr, addedArr, removedArr) {
+  const current = Array.isArray(currentArr) ? currentArr : [];
+  const added = (Array.isArray(addedArr) ? addedArr : []).map((v) => String(v)).filter(Boolean);
+  const removed = new Set((Array.isArray(removedArr) ? removedArr : []).map((v) => String(v)).filter(Boolean));
+  const base = current.filter((id) => !removed.has(id));
+  added.forEach((id) => { if (!base.includes(id)) base.push(id); });
+  return base;
+}
+
 // Cor de fundo opcional do card (pedido da Raquel, 12ª rodada) — mesma ideia
 // das etiquetas coloridas, mas aplicada ao card inteiro em vez de uma tag.
 // null/vazio = sem cor (visual padrão de sempre).
@@ -1104,7 +1139,7 @@ router.put('/:id/personal-list', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { title, description, dueDate, assigneeIds, labelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, brands, network, personalListId, visibility } = req.body || {};
+  const { title, description, dueDate, assigneeIds, addedAssigneeIds, removedAssigneeIds, labelIds, addedLabelIds, removedLabelIds, status, color, recurring, recurrence, link, checklistTitle, responsibleId, brand, brands, network, personalListId, visibility } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
   // 105ª rodada, pedido da Raquel: "deixe a possibilidade de quando
   // quiser, tirar o card da área pessoal, e por na geral ou vice e
@@ -1136,7 +1171,11 @@ router.put('/:id', requireAuth, (req, res) => {
   // (`demanda.assigneeIds`), nunca o array novo enviado nesta mesma
   // requisição (ex.: alguém removendo o último marcado de um card 'geral'
   // no mesmo PUT) -- a proteção nunca disparava nesse caso.
-  if (assigneeIds !== undefined) updates.assigneeIds = validUserIds(assigneeIds);
+  if (addedAssigneeIds !== undefined || removedAssigneeIds !== undefined) {
+    updates.assigneeIds = validUserIds(applyIdDelta(demanda.assigneeIds, addedAssigneeIds, removedAssigneeIds));
+  } else if (assigneeIds !== undefined) {
+    updates.assigneeIds = validUserIds(assigneeIds);
+  }
   // 105ª rodada: no Quadro Geral o card só aparece na coluna de quem está
   // marcado (não existe mais coluna "Sem responsável", ver comentário
   // mais acima) -- uma demanda da Área Pessoal sem ninguém marcado (caso
@@ -1225,7 +1264,11 @@ router.put('/:id', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'Toda demanda precisa de um responsável (estrela) marcado -- escolha um antes de salvar.' });
     }
   }
-  if (labelIds !== undefined) updates.labelIds = validLabelIds(labelIds);
+  if (addedLabelIds !== undefined || removedLabelIds !== undefined) {
+    updates.labelIds = validLabelIds(applyIdDelta(demanda.labelIds, addedLabelIds, removedLabelIds));
+  } else if (labelIds !== undefined) {
+    updates.labelIds = validLabelIds(labelIds);
+  }
   if (color !== undefined) updates.color = validColor(color);
   // recurrence (campo novo) tem prioridade; recurring (booleano antigo)
   // continua aceito por compatibilidade, mapeado pra 'mensal'/'none'.

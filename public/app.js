@@ -10110,6 +10110,19 @@
     // 127ª rodada: upload/remoção da foto de cada concorrente -- só
     // existe pra linha que já tem `id` (concorrente já salvo no
     // servidor), ver condição no template acima.
+    // Correção (138ª rodada): antes, depois do upload/remoção da foto,
+    // o código recarregava a análise inteira do servidor e reabria o
+    // formulário do zero (`openConcorrenciaForm`) -- isso descartava
+    // silenciosamente QUALQUER texto já digitado em qualquer campo do
+    // formulário (deste concorrente, de outro, ou da "nossa ficha") que
+    // ainda não tivesse sido salvo pelo botão "Salvar" principal, já
+    // que o formulário inteiro era reconstruído a partir do que já
+    // estava gravado no banco (sem a edição em andamento). Agora só a
+    // foto deste concorrente é atualizada no estado local do
+    // formulário (`concorrenciaFormRows`, já sincronizado com o DOM
+    // antes do upload) e as linhas são re-renderizadas a partir dele --
+    // nunca a partir do servidor -- preservando tudo que já estava
+    // digitado, mesmo ainda não salvo.
     $all('[data-crow-foto-upload]').forEach((b) => {
       b.onclick = async () => {
         const idx = Number(b.dataset.crowFotoUpload);
@@ -10121,9 +10134,13 @@
         const fd = new FormData();
         fd.append('foto', file);
         try {
-          await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/concorrentes/${row.id}/foto`, { method: 'POST', body: fd });
-          await loadConcorrencia();
-          openConcorrenciaForm(concorrenciaItems.find((it) => it.id === editingConcorrenciaId));
+          const data = await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/concorrentes/${row.id}/foto`, { method: 'POST', body: fd });
+          const updated = data.item && Array.isArray(data.item.concorrentes)
+            ? data.item.concorrentes.find((c) => c.id === row.id)
+            : null;
+          if (updated) concorrenciaFormRows[idx] = Object.assign({}, concorrenciaFormRows[idx], { foto: updated.foto });
+          renderConcorrenciaRows();
+          await loadConcorrencia(); // atualiza a lista de fora em segundo plano, sem mexer no formulário aberto
         } catch (e) {
           alert(e.message);
         }
@@ -10135,10 +10152,12 @@
         const row = concorrenciaFormRows[idx];
         if (!editingConcorrenciaId || !row || !row.id) return;
         if (!confirm('Remover a foto deste concorrente?')) return;
+        syncConcorrenciaRowsFromDOM();
         try {
           await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/concorrentes/${row.id}/foto`, { method: 'DELETE' });
-          await loadConcorrencia();
-          openConcorrenciaForm(concorrenciaItems.find((it) => it.id === editingConcorrenciaId));
+          concorrenciaFormRows[idx] = Object.assign({}, concorrenciaFormRows[idx], { foto: null });
+          renderConcorrenciaRows();
+          await loadConcorrencia(); // atualiza a lista de fora em segundo plano, sem mexer no formulário aberto
         } catch (e) {
           alert(e.message);
         }
@@ -10216,15 +10235,27 @@
   };
   // 127ª rodada: upload/remoção da foto do nosso produto -- mesmo
   // padrão de FormData+api() já usado em Comunicados.
+  // Correção (138ª rodada): igual ao conserto da foto de concorrente
+  // acima -- antes, o upload/remoção da nossa foto reabria o
+  // formulário inteiro a partir do servidor (`openConcorrenciaForm`),
+  // apagando qualquer texto digitado e ainda não salvo em QUALQUER
+  // campo do formulário (nosso produto/preço/diferenciais/observações/
+  // link, e também os concorrentes). Agora só a prévia da foto (e o
+  // botão de remover) são atualizados, sem tocar em mais nada do
+  // formulário aberto.
   $('#concorrenciaFormNossaFotoUpload').onclick = async () => {
     const file = $('#concorrenciaFormNossaFotoInput').files[0];
     if (!file || !editingConcorrenciaId) return;
     const fd = new FormData();
     fd.append('foto', file);
     try {
-      await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/foto`, { method: 'POST', body: fd });
-      await loadConcorrencia();
-      openConcorrenciaForm(concorrenciaItems.find((it) => it.id === editingConcorrenciaId));
+      const data = await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/foto`, { method: 'POST', body: fd });
+      $('#concorrenciaFormNossaFotoInput').value = '';
+      $('#concorrenciaFormNossaFotoAtual').innerHTML = data.item && data.item.nossaFoto
+        ? `<div class="concorrencia-foto-thumb"><img src="${data.item.nossaFoto}" alt=""></div>`
+        : '<div class="muted">Nenhuma foto enviada ainda.</div>';
+      $('#concorrenciaFormNossaFotoRemove').hidden = !(data.item && data.item.nossaFoto);
+      await loadConcorrencia(); // atualiza a lista de fora em segundo plano, sem mexer no formulário aberto
     } catch (e) {
       alert(e.message);
     }
@@ -10234,8 +10265,9 @@
     if (!confirm('Remover a foto do nosso produto?')) return;
     try {
       await api(`/api/produtos/concorrencia/${editingConcorrenciaId}/foto`, { method: 'DELETE' });
-      await loadConcorrencia();
-      openConcorrenciaForm(concorrenciaItems.find((it) => it.id === editingConcorrenciaId));
+      $('#concorrenciaFormNossaFotoAtual').innerHTML = '<div class="muted">Nenhuma foto enviada ainda.</div>';
+      $('#concorrenciaFormNossaFotoRemove').hidden = true;
+      await loadConcorrencia(); // atualiza a lista de fora em segundo plano, sem mexer no formulário aberto
     } catch (e) {
       alert(e.message);
     }

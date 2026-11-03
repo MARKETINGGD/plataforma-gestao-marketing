@@ -1888,6 +1888,13 @@
         await openMidiasHub();
       } else if (body.key === 'trafegoPago') {
         openTrafegoHub();
+      } else if (body.key === 'acoesSazonais') {
+        // 154ª rodada, pedido da Raquel: "esse link externo das ações, n esta
+        // funcionando" -- faltava este branch. O resto do fluxo pro hub de
+        // Ações Sazonais (openAcoesSazonaisHub/loadAcoesFrame/dashboardLaunch)
+        // já era 100% compatível com o modo público (mesmo padrão do Mídias e
+        // do Tráfego Pago) -- só faltava abrir o hub certo aqui.
+        openAcoesSazonaisHub();
       } else {
         throw new Error('Este link externo ainda não é compatível com esta tela.');
       }

@@ -124,6 +124,14 @@ require('./utils/migrateFixAusenciaTense107').migrateFixAusenciaTense107();
 // lançamento original do Budget, só copia os valores.
 require('./utils/migrateImportExpoRevestirFeiraItems140').migrateImportExpoRevestirFeiraItems140();
 
+// 141ª rodada: correção da 140ª rodada acima -- ela não achou nenhum
+// lançamento pra importar (filtrava por `year === 2027`, mas os
+// lançamentos de "ExpoRevestir 2027" foram importados com `year: 2026`,
+// o ano orçamentário, não o ano do evento citado no título) e tinha se
+// marcado como concluída mesmo sem importar nada. Esta roda de novo com o
+// filtro corrigido (ver utils/migrateImportExpoRevestirFeiraItems141.js).
+require('./utils/migrateImportExpoRevestirFeiraItems141').migrateImportExpoRevestirFeiraItems141();
+
 // 47ª rodada: lembretes automáticos de bater o ponto (5 min antes/depois
 // de cada horário cadastrado por pessoa, só dias úteis) — primeiro recurso
 // da Plataforma que precisa de um temporizador de verdade rodando sozinho

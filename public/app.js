@@ -5770,6 +5770,14 @@
     list.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'checklist-item';
+      // 155ª rodada, pedido da Raquel: "ao clicar no quadradinho do check
+      // do check list, deve aparecer em baixo dele um espaço para colocar
+      // link ou arquivo. referente aquel check concluido" -- área extra só
+      // aparece com o item MARCADO, e só fora do rascunho (card ainda não
+      // salvo não tem id real pra receber upload). `flex:1 1 100%` força
+      // ela pra própria linha, mesmo esquema que já faz o checkbox/texto
+      // ocuparem a linha de cima (ver `.checklist-item-main` no CSS).
+      const showAttachment = item.done && !isDraft;
       row.innerHTML = `
         <label class="checklist-item-main">
           <input type="checkbox" ${item.done ? 'checked' : ''}>
@@ -5778,6 +5786,21 @@
         <input type="date" class="checklist-due-input" title="Data de entrega deste item (opcional)" value="${item.dueDate || ''}">
         <select class="checklist-assignee-select">${checklistAssigneeOptionsHTML(item.assigneeId || null)}</select>
         <select class="checklist-item-brand-select" title="De qual marca é este item" ${selectedBrandIds.size > 1 ? '' : 'hidden'}>${checklistBrandOptionsHTML(item.brand || null)}</select>
+        ${showAttachment ? `
+        <div class="checklist-item-attachment" style="flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:2px;padding:6px 8px;background:rgba(0,0,0,0.04);border-radius:6px;">
+          <input type="text" class="checklist-attachment-link-input" placeholder="Link referente a este item (opcional)" value="${escapeHtml(item.attachmentLink || '')}" style="flex:1 1 180px;min-width:140px;font-size:13px;">
+          ${item.attachmentFile ? `
+            <a href="${item.attachmentFile.url}" target="_blank" rel="noopener" style="font-size:13px;">${escapeHtml(item.attachmentFile.name)}</a>
+            <span class="muted" style="font-size:12px;">(${fmtBytes(item.attachmentFile.size)})</span>
+            <button type="button" class="btn-link checklist-attachment-file-remove" title="Remover arquivo anexado">✕</button>
+          ` : `
+            <label class="btn-secondary" style="font-size:12px;padding:3px 8px;cursor:pointer;margin:0;">
+              + Arquivo
+              <input type="file" class="checklist-attachment-file-input" style="display:none;">
+            </label>
+          `}
+        </div>
+        ` : ''}
       `;
       row.querySelector('input[type="checkbox"]').onchange = async (ev) => {
         if (isDraft) {
@@ -5826,6 +5849,45 @@
         editingDemandaId = demanda.id;
         await refreshOpenDemanda();
       };
+      // Link/arquivo do item concluído (155ª rodada) -- só existe no DOM
+      // quando showAttachment é true (item marcado, card já salvo).
+      const attachmentLinkInput = row.querySelector('.checklist-attachment-link-input');
+      if (attachmentLinkInput) {
+        const commitAttachmentLink = async () => {
+          const attachmentLink = attachmentLinkInput.value.trim();
+          if (attachmentLink === (item.attachmentLink || '')) return;
+          await api(`/api/demandas/${demanda.id}/checklist/${item.id}`, { method: 'PUT', body: JSON.stringify({ attachmentLink }) });
+          editingDemandaId = demanda.id;
+          await refreshOpenDemanda();
+        };
+        attachmentLinkInput.onblur = commitAttachmentLink;
+        attachmentLinkInput.onkeydown = (ev) => {
+          if (ev.key === 'Enter') { ev.preventDefault(); attachmentLinkInput.blur(); }
+        };
+      }
+      const attachmentFileInput = row.querySelector('.checklist-attachment-file-input');
+      if (attachmentFileInput) {
+        attachmentFileInput.onchange = async () => {
+          const file = attachmentFileInput.files[0];
+          if (!file) return;
+          const fd = new FormData();
+          fd.append('file', file);
+          try {
+            await api(`/api/demandas/${demanda.id}/checklist/${item.id}/file`, { method: 'POST', body: fd });
+            editingDemandaId = demanda.id;
+            await refreshOpenDemanda();
+          } catch (e) { alert(e.message); }
+        };
+      }
+      const attachmentFileRemoveBtn = row.querySelector('.checklist-attachment-file-remove');
+      if (attachmentFileRemoveBtn) {
+        attachmentFileRemoveBtn.onclick = async () => {
+          if (!confirm('Remover o arquivo anexado a este item?')) return;
+          await api(`/api/demandas/${demanda.id}/checklist/${item.id}/file`, { method: 'DELETE' });
+          editingDemandaId = demanda.id;
+          await refreshOpenDemanda();
+        };
+      }
       // Editar o texto do item (31ª rodada, pedido da Raquel: "a opção de
       // editar o item do check list") — troca o texto por um campo editável
       // na hora, sem precisar apagar e recriar o item.
@@ -9273,7 +9335,7 @@
     brindesComprasCache.forEach((c) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${escapeHtml(c.item)}${c.origemOrcamentoId ? ' <span class="muted" title="Criada automaticamente a partir de um orçamento aprovado">📋</span>' : ''}</td>
+        <td>${escapeHtml(c.item)}${c.brand ? ' <span class="muted">(' + escapeHtml(BRAND_LABEL[c.brand] || c.brand) + (c.fluxo ? ' — ' + escapeHtml(c.fluxo) : '') + ')</span>' : ''}${c.origemOrcamentoId ? ' <span class="muted" title="Criada automaticamente a partir de um orçamento aprovado">📋</span>' : ''}</td>
         <td>${c.quantidade != null ? c.quantidade : '—'}</td>
         <td>${c.valorTotal != null ? 'R$ ' + c.valorTotal.toFixed(2) : '—'}</td>
         <td>${escapeHtml(c.fornecedor || '—')}</td>
@@ -9325,9 +9387,115 @@
     });
   }
 
-  function openBrindesCompraForm(row) {
+  // 155ª rodada, pedido da Raquel: marca -> lista de brindes do catálogo
+  // dessa marca (pra "item comprado" virar escolha, não texto livre),
+  // lista de fluxos do Budget dessa marca (mesmo `budgetFluxosByBrand`
+  // já usado na tela de Budget), lista de fornecedores já cadastrados
+  // (datalist -- sugere, mas ainda aceita digitar um novo) e lista de
+  // quem pode ser "quem autorizou" (só coordenador(a)/gerente/admin).
+  let brindesCompraCatalogCache = {};
+  async function brindesCatalogItemsFor(brand) {
+    if (!brand) return [];
+    if (!brindesCompraCatalogCache[brand]) {
+      try {
+        const data = await api('/api/brindes/catalog?brand=' + encodeURIComponent(brand));
+        brindesCompraCatalogCache[brand] = data.items || [];
+      } catch (e) { return []; }
+    }
+    return brindesCompraCatalogCache[brand];
+  }
+  async function fillBrindesCompraFluxoSelect(brand, selected) {
+    const sel = $('#brindesCompraFormFluxo');
+    if (!brand) { sel.innerHTML = '<option value="">Escolha a marca primeiro...</option>'; return; }
+    if (!budgetFluxosByBrand[brand]) {
+      try {
+        const meta = await api('/api/budget/meta?brand=' + encodeURIComponent(brand));
+        budgetFluxosByBrand[brand] = meta.fluxos;
+      } catch (e) { /* sem acesso ao Budget dessa marca */ }
+    }
+    const fluxos = budgetFluxosByBrand[brand] || [];
+    sel.innerHTML = '<option value="">Sem fluxo ainda</option>' + fluxos.map((f) => `<option value="${escapeHtml(f)}"${f === selected ? ' selected' : ''}>${escapeHtml(f)}</option>`).join('');
+  }
+  async function fillBrindesCompraCatalogSelect(brand, selectedId) {
+    const sel = $('#brindesCompraFormCatalogItem');
+    if (!brand) { sel.innerHTML = '<option value="">Escolha a marca primeiro...</option>'; return; }
+    const items = await brindesCatalogItemsFor(brand);
+    sel.innerHTML = '<option value="">(nenhum -- item fora do catálogo)</option>' + items.map((it) =>
+      `<option value="${it.id}"${it.id === selectedId ? ' selected' : ''}>${escapeHtml(it.item)}${it.code ? ' (' + escapeHtml(it.code) + ')' : ''}</option>`
+    ).join('');
+  }
+  function fillBrindesCompraAutorizouSelect(selectedId) {
+    const sel = $('#brindesCompraFormQuemAutorizou');
+    const podem = teamMembers.filter((u) => u.isSuperAdmin || u.cargo === 'gerente' || u.cargo === 'coordenador');
+    sel.innerHTML = '<option value="">Ninguém ainda</option>' + podem.map((u) =>
+      `<option value="${u.id}"${u.id === selectedId ? ' selected' : ''}>${escapeHtml(u.name)}${u.cargo ? ' (' + (CARGO_LABEL[u.cargo] || u.cargo) + ')' : ''}</option>`
+    ).join('');
+  }
+  async function fillBrindesFornecedoresDatalist() {
+    try {
+      const data = await api('/api/fornecedores');
+      $('#brindesFornecedoresDatalist').innerHTML = (data.items || []).map((f) => `<option value="${escapeHtml(f.nome)}"></option>`).join('');
+    } catch (e) { /* datalist é só uma sugestão -- sem ela o campo continua funcionando como texto livre */ }
+  }
+
+  // ---- Parcelamento (155ª rodada) ----
+  // Só existe de verdade numa compra já salva (precisa do id real pra
+  // chamar a API de parcelas) -- mesmo cuidado já usado no anexo por item
+  // de checklist de Demandas.
+  function renderBrindesCompraParcelas(compra) {
+    const wrap = $('#brindesCompraParcelasWrap');
+    if (!editingBrindeCompraId || !compra) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    const list = $('#brindesCompraParcelasList');
+    const parcelas = compra.parcelas || [];
+    list.innerHTML = parcelas.length ? parcelas.map((p) => `
+      <div class="form-row" data-parcela-row="${p.id}" style="align-items:center;">
+        <div><input type="number" step="0.01" class="parcela-valor-input" value="${p.valor != null ? p.valor : ''}" style="max-width:120px;"></div>
+        <div><input type="date" class="parcela-data-input" value="${p.dataPagamento || ''}"></div>
+        <div><label><input type="checkbox" class="parcela-pago-input" ${p.pago ? 'checked' : ''}> Pago${p.pago && p.budgetEntryId ? ' <span class="muted" title="Já lançado no Budget">💰</span>' : ''}</label></div>
+        <div><button type="button" class="btn-link danger parcela-del-btn">✕</button></div>
+      </div>
+    `).join('') : '<p class="muted">Nenhuma parcela lançada ainda.</p>';
+    list.querySelectorAll('[data-parcela-row]').forEach((row) => {
+      const parcelaId = row.dataset.parcelaRow;
+      const commit = async () => {
+        const valor = row.querySelector('.parcela-valor-input').value;
+        const dataPagamento = row.querySelector('.parcela-data-input').value || null;
+        const pago = row.querySelector('.parcela-pago-input').checked;
+        try {
+          const data = await api(`/api/brindes/compras/${editingBrindeCompraId}/parcelas/${parcelaId}`, { method: 'PUT', body: JSON.stringify({ valor, dataPagamento, pago }) });
+          renderBrindesCompraParcelas(data.item);
+        } catch (e) { alert(e.message); }
+      };
+      row.querySelector('.parcela-valor-input').onblur = commit;
+      row.querySelector('.parcela-data-input').onchange = commit;
+      row.querySelector('.parcela-pago-input').onchange = commit;
+      row.querySelector('.parcela-del-btn').onclick = async () => {
+        if (!confirm('Excluir esta parcela? Se já estava paga, o lançamento no Budget também é removido.')) return;
+        try {
+          const data = await api(`/api/brindes/compras/${editingBrindeCompraId}/parcelas/${parcelaId}`, { method: 'DELETE' });
+          renderBrindesCompraParcelas(data.item);
+        } catch (e) { alert(e.message); }
+      };
+    });
+  }
+  $('#brindesCompraParcelaAddBtn').onclick = async () => {
+    if (!editingBrindeCompraId) return;
+    const valor = $('#brindesCompraParcelaNovoValor').value;
+    const dataPagamento = $('#brindesCompraParcelaNovaData').value || null;
+    if (!valor) { alert('Informe o valor da parcela.'); return; }
+    try {
+      const data = await api(`/api/brindes/compras/${editingBrindeCompraId}/parcelas`, { method: 'POST', body: JSON.stringify({ valor, dataPagamento }) });
+      $('#brindesCompraParcelaNovoValor').value = '';
+      $('#brindesCompraParcelaNovaData').value = '';
+      renderBrindesCompraParcelas(data.item);
+    } catch (e) { alert(e.message); }
+  };
+
+  async function openBrindesCompraForm(row) {
     editingBrindeCompraId = row ? row.id : null;
     $('#brindesCompraFormTitle').textContent = row ? 'Editar compra' : 'Nova compra';
+    $('#brindesCompraFormBrand').value = row ? (row.brand || '') : '';
     $('#brindesCompraFormItem').value = row ? row.item : '';
     $('#brindesCompraFormFornecedor').value = row ? (row.fornecedor || '') : '';
     $('#brindesCompraFormQuantidade').value = row && row.quantidade != null ? row.quantidade : '';
@@ -9335,18 +9503,36 @@
     $('#brindesCompraFormValorTotal').value = row && row.valorTotal != null ? row.valorTotal : '';
     $('#brindesCompraFormFormaPagamento').value = row ? (row.formaPagamento || '') : '';
     $('#brindesCompraFormQuemPediu').value = row ? (row.quemPediu || '') : (currentUser ? currentUser.name : '');
-    $('#brindesCompraFormQuemAutorizou').value = row ? (row.quemAutorizou || '') : '';
     $('#brindesCompraFormDataCompra').value = row ? (row.dataCompra || '') : todaySaoPauloStr();
     $('#brindesCompraFormDataEntrega').value = row ? (row.dataEntrega || '') : '';
     $('#brindesCompraFormConferencia').checked = row ? !!row.conferencia : false;
     $('#brindesCompraFormObs').value = row ? (row.observacoes || '') : '';
     $('#brindesCompraFormError').hidden = true;
+    fillBrindesCompraAutorizouSelect(row ? (row.quemAutorizouId || null) : null);
+    fillBrindesFornecedoresDatalist();
+    await fillBrindesCompraFluxoSelect(row ? (row.brand || null) : null, row ? (row.fluxo || null) : null);
+    await fillBrindesCompraCatalogSelect(row ? (row.brand || null) : null, row ? (row.catalogItemId || null) : null);
+    renderBrindesCompraParcelas(row);
     $('#brindesCompraFormWrap').hidden = false;
   }
+  $('#brindesCompraFormBrand').onchange = async (ev) => {
+    const brand = ev.target.value || null;
+    await fillBrindesCompraFluxoSelect(brand, null);
+    await fillBrindesCompraCatalogSelect(brand, null);
+  };
+  $('#brindesCompraFormCatalogItem').onchange = (ev) => {
+    const brand = $('#brindesCompraFormBrand').value;
+    const items = brindesCompraCatalogCache[brand] || [];
+    const chosen = items.find((it) => it.id === ev.target.value);
+    if (chosen) $('#brindesCompraFormItem').value = chosen.item;
+  };
   $('#brindesCompraNewBtn').onclick = () => openBrindesCompraForm(null);
   $('#brindesCompraFormCancel').onclick = () => { $('#brindesCompraFormWrap').hidden = true; };
   $('#brindesCompraFormSave').onclick = async () => {
     const payload = {
+      brand: $('#brindesCompraFormBrand').value || null,
+      catalogItemId: $('#brindesCompraFormCatalogItem').value || null,
+      fluxo: $('#brindesCompraFormFluxo').value || null,
       item: $('#brindesCompraFormItem').value.trim(),
       fornecedor: $('#brindesCompraFormFornecedor').value.trim(),
       quantidade: $('#brindesCompraFormQuantidade').value,
@@ -9354,7 +9540,7 @@
       valorTotal: $('#brindesCompraFormValorTotal').value,
       formaPagamento: $('#brindesCompraFormFormaPagamento').value.trim(),
       quemPediu: $('#brindesCompraFormQuemPediu').value.trim(),
-      quemAutorizou: $('#brindesCompraFormQuemAutorizou').value.trim(),
+      quemAutorizouId: $('#brindesCompraFormQuemAutorizou').value || null,
       dataCompra: $('#brindesCompraFormDataCompra').value,
       dataEntrega: $('#brindesCompraFormDataEntrega').value,
       conferencia: $('#brindesCompraFormConferencia').checked,
@@ -9362,6 +9548,11 @@
     };
     if (!payload.item) {
       $('#brindesCompraFormError').textContent = 'Informe o item comprado.';
+      $('#brindesCompraFormError').hidden = false;
+      return;
+    }
+    if (!editingBrindeCompraId && !payload.brand) {
+      $('#brindesCompraFormError').textContent = 'Escolha a marca.';
       $('#brindesCompraFormError').hidden = false;
       return;
     }
@@ -13079,7 +13270,105 @@
   // Dados pessoais + contrato (21ª rodada) — mesmo formulário usado tanto
   // pra cadastrar quanto pra editar depois (era só "Renomear" antes; agora
   // dá pra completar/corrigir os dados a qualquer momento).
-  function openInfluencerForm(inf) {
+  // 155ª rodada: fluxo do influencer -- reaproveita o mesmo
+  // `budgetFluxosByBrand` já usado em Budget/Feiras/Brindes Compras
+  // (cache por marca); a marca aqui já vem da aba (`influencersTab`),
+  // nunca é escolhida de novo no formulário.
+  async function fillInfluencerFluxoSelect(brand, selected) {
+    const sel = $('#influencerFormFluxo');
+    if (!budgetFluxosByBrand[brand]) {
+      try {
+        const meta = await api('/api/budget/meta?brand=' + encodeURIComponent(brand));
+        budgetFluxosByBrand[brand] = meta.fluxos;
+      } catch (e) { /* sem acesso ao Budget dessa marca */ }
+    }
+    const fluxos = budgetFluxosByBrand[brand] || [];
+    sel.innerHTML = '<option value="">Sem fluxo ainda</option>' + fluxos.map((f) => `<option value="${escapeHtml(f)}"${f === selected ? ' selected' : ''}>${escapeHtml(f)}</option>`).join('');
+  }
+
+  // ---- Parcelamento de pagamento (155ª rodada) ----
+  // Só existe de verdade num influencer já salvo (precisa do id real pra
+  // chamar a API de parcelas) -- mesmo cuidado já usado no anexo por item
+  // de checklist de Demandas e no parcelamento de Compras de Brindes.
+  function renderInfluencerParcelas(inf) {
+    const wrap = $('#influencerFormParcelasWrap');
+    const hint = $('#influencerFormParcelasHint');
+    if (!editingInfluencerId || !inf) { wrap.hidden = true; hint.hidden = false; return; }
+    wrap.hidden = false;
+    hint.hidden = true;
+    const list = $('#influencerParcelasList');
+    const parcelas = inf.parcelas || [];
+    list.innerHTML = parcelas.length ? parcelas.map((p) => `
+      <div class="form-row" data-inf-parcela-row="${p.id}" style="align-items:center;">
+        <div><input type="number" step="0.01" class="inf-parcela-valor-input" value="${p.valor != null ? p.valor : ''}" style="max-width:120px;"></div>
+        <div><input type="date" class="inf-parcela-data-input" value="${p.dataPagamento || ''}"></div>
+        <div><label><input type="checkbox" class="inf-parcela-pago-input" ${p.pago ? 'checked' : ''}> Pago${p.pago && p.budgetEntryId ? ' <span class="muted" title="Já lançado no Budget">💰</span>' : ''}</label></div>
+        <div>${p.notaFiscal
+          ? `📎 <a href="${p.notaFiscal.url}" target="_blank" rel="noopener">${escapeHtml(p.notaFiscal.name)}</a> <button type="button" class="btn-link danger inf-parcela-nf-remove">✕</button>`
+          : `<input type="file" class="inf-parcela-nf-input" title="Anexar nota fiscal">`}
+        </div>
+        <div><button type="button" class="btn-link danger inf-parcela-del-btn">✕ Excluir</button></div>
+      </div>
+    `).join('') : '<p class="muted">Nenhuma parcela lançada ainda.</p>';
+    list.querySelectorAll('[data-inf-parcela-row]').forEach((row) => {
+      const parcelaId = row.dataset.infParcelaRow;
+      const commit = async () => {
+        const valor = row.querySelector('.inf-parcela-valor-input').value;
+        const dataPagamento = row.querySelector('.inf-parcela-data-input').value || null;
+        const pago = row.querySelector('.inf-parcela-pago-input').checked;
+        try {
+          const data = await api(`/api/influencers/${editingInfluencerId}/parcelas/${parcelaId}`, { method: 'PUT', body: JSON.stringify({ valor, dataPagamento, pago }) });
+          renderInfluencerParcelas(data.influencer);
+        } catch (e) { alert(e.message); }
+      };
+      row.querySelector('.inf-parcela-valor-input').onblur = commit;
+      row.querySelector('.inf-parcela-data-input').onchange = commit;
+      row.querySelector('.inf-parcela-pago-input').onchange = commit;
+      row.querySelector('.inf-parcela-del-btn').onclick = async () => {
+        if (!confirm('Excluir esta parcela? Se já estava paga, o lançamento no Budget também é removido.')) return;
+        try {
+          const data = await api(`/api/influencers/${editingInfluencerId}/parcelas/${parcelaId}`, { method: 'DELETE' });
+          renderInfluencerParcelas(data.influencer);
+        } catch (e) { alert(e.message); }
+      };
+      const nfInput = row.querySelector('.inf-parcela-nf-input');
+      if (nfInput) {
+        nfInput.onchange = async () => {
+          const file = nfInput.files[0];
+          if (!file) return;
+          const fd = new FormData();
+          fd.append('notaFiscal', file);
+          try {
+            const data = await api(`/api/influencers/${editingInfluencerId}/parcelas/${parcelaId}/nota-fiscal`, { method: 'POST', body: fd });
+            renderInfluencerParcelas(data.influencer);
+          } catch (e) { alert(e.message); }
+        };
+      }
+      const nfRemoveBtn = row.querySelector('.inf-parcela-nf-remove');
+      if (nfRemoveBtn) {
+        nfRemoveBtn.onclick = async () => {
+          try {
+            const data = await api(`/api/influencers/${editingInfluencerId}/parcelas/${parcelaId}/nota-fiscal`, { method: 'DELETE' });
+            renderInfluencerParcelas(data.influencer);
+          } catch (e) { alert(e.message); }
+        };
+      }
+    });
+  }
+  $('#influencerParcelaAddBtn').onclick = async () => {
+    if (!editingInfluencerId) return;
+    const valor = $('#influencerParcelaNovoValor').value;
+    const dataPagamento = $('#influencerParcelaNovaData').value || null;
+    if (!valor) { alert('Informe o valor da parcela.'); return; }
+    try {
+      const data = await api(`/api/influencers/${editingInfluencerId}/parcelas`, { method: 'POST', body: JSON.stringify({ valor, dataPagamento }) });
+      $('#influencerParcelaNovoValor').value = '';
+      $('#influencerParcelaNovaData').value = '';
+      renderInfluencerParcelas(data.influencer);
+    } catch (e) { alert(e.message); }
+  };
+
+  async function openInfluencerForm(inf) {
     editingInfluencerId = inf ? inf.id : null;
     $('#influencerFormTitle').textContent = inf ? 'Editar influencer' : 'Novo influencer';
     $('#influencerFormName').value = inf ? inf.name : '';
@@ -13097,6 +13386,9 @@
     } else {
       $('#influencerFormContractCurrent').hidden = true;
     }
+    $('#influencerFormFormaPagamento').value = inf ? (inf.formaPagamento || '') : '';
+    await fillInfluencerFluxoSelect(influencersTab, inf ? (inf.fluxo || null) : null);
+    renderInfluencerParcelas(inf);
     $('#influencerFormError').hidden = true;
     // 78ª rodada: obrigatório só no cadastro novo (o texto avisa isso
     // claramente -- editar um influencer antigo sem esses dados não fica
@@ -13125,7 +13417,9 @@
       telefone: $('#influencerFormTelefone').value.trim(),
       email: $('#influencerFormEmail').value.trim(),
       dataNascimento: $('#influencerFormDataNascimento').value || '',
-      endereco: $('#influencerFormEndereco').value.trim()
+      endereco: $('#influencerFormEndereco').value.trim(),
+      formaPagamento: $('#influencerFormFormaPagamento').value.trim(),
+      fluxo: $('#influencerFormFluxo').value || null
     };
     // 78ª rodada, pedido da Raquel: "ao cadastrar a influencer, deve ser
     // obrigatório os dados pessoais" -- só barra no CADASTRO (influencer

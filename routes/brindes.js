@@ -9,6 +9,13 @@ const { logAudit } = require('../utils/audit');
 const { resolveUserName } = require('../utils/names');
 const shareLinks = require('../utils/shareLinks');
 const fornecedoresHelper = require('../utils/fornecedoresHelper');
+// 155ª rodada -- reaproveita os mesmos fluxos (nome + número) já usados no
+// Budget, mesmo padrão de routes/feiras.js/routes/expositores.js
+// (`const { FLUXOS_BY_BRAND } = require('./budget')`), pra nunca duplicar/
+// desalinhar a lista de fluxos.
+const budgetRouter = require('./budget');
+const { FLUXOS_BY_BRAND } = budgetRouter;
+const BRINDES_BRANDS = ['debacco', 'ghelplus'];
 
 const router = express.Router();
 
@@ -119,6 +126,49 @@ function restoreCatalogStock(catalogItemId, deduction) {
   updates.estoqueTotal = sumStock(updates.estoquePR, updates.estoqueSP, updates.estoquePE);
   updates.updatedAt = new Date().toISOString();
   db.get('brindesCatalog').find({ id: catalogItemId }).assign(updates).write();
+}
+
+// Reverso exato de restoreCatalogStock (acima), usado quando uma Compra de
+// Brindes desmarca "conferência feita" (ou tem a quantidade reduzida
+// depois de já ter somado no estoque) -- 155ª rodada, pedido da Raquel:
+// "após lançar essa compra e clicar em conferencia feita a quantidade
+// deve atualizar automaticamente em controle geral (mas somente após
+// clicar em cofnerencia feita)". Sempre em cima do MESMO objeto `added`
+// que foi de fato somado antes (nunca recalculado a partir da quantidade
+// ATUAL da compra), pra desfazer certinho mesmo se a quantidade tiver
+// mudado nesse meio tempo -- mesmo espírito "reversível" de
+// estoqueDeduzido/restoreCatalogStock, acima. Nunca deixa a praça ficar
+// negativa.
+function reverseCompraStockAdd(catalogItemId, added) {
+  if (!catalogItemId || !added) return;
+  const item = db.get('brindesCatalog').find({ id: catalogItemId }).value();
+  if (!item) return; // item pode ter sido excluído do catálogo nesse meio tempo
+  const updates = {
+    estoquePR: Math.max(0, (Number(item.estoquePR) || 0) - (Number(added.estoquePR) || 0)),
+    estoqueSP: Math.max(0, (Number(item.estoqueSP) || 0) - (Number(added.estoqueSP) || 0)),
+    estoquePE: Math.max(0, (Number(item.estoquePE) || 0) - (Number(added.estoquePE) || 0))
+  };
+  updates.estoqueTotal = sumStock(updates.estoquePR, updates.estoqueSP, updates.estoquePE);
+  updates.updatedAt = new Date().toISOString();
+  db.get('brindesCatalog').find({ id: catalogItemId }).assign(updates).write();
+}
+
+// "Quem autorizou" de uma Compra de Brindes (155ª rodada, pedido explícito
+// da Raquel: "onde pede quem autorizou, tem que ser somente coordenador
+// ou gerente") -- duplicado de propósito (mesmo padrão já usado em
+// canApprove de routes/socialPosts.js/routes/demandas.js), pra não criar
+// acoplamento entre arquivos de rota. Em vez de texto livre, agora exige
+// escolher uma pessoa de verdade (`quemAutorizouId`) que seja
+// coordenador(a), gerente ou admin da Plataforma.
+function nomeAutorizadorValido(body) {
+  const id = (body || {}).quemAutorizouId;
+  if (id === undefined) return { skip: true };
+  if (!id) return { id: null, nome: '' };
+  const user = db.get('users').find({ id }).value();
+  if (!user) return { error: 'Pessoa inválida em "quem autorizou".' };
+  const podeAutorizar = user.isSuperAdmin || user.cargo === 'gerente' || user.cargo === 'coordenador';
+  if (!podeAutorizar) return { error: '"Quem autorizou" só pode ser coordenador(a) ou gerente.' };
+  return { id: user.id, nome: user.name };
 }
 
 function catalogItem(brand, group, code, item, multiplo, valor, pr, sp, pe, status, obs, creator) {
@@ -801,7 +851,17 @@ function serializeOrcamentoBrinde(o) {
 }
 
 function serializeCompraBrinde(c) {
-  const out = Object.assign({}, c, { arquivos: c.arquivos || [] });
+  const out = Object.assign({}, c, {
+    arquivos: c.arquivos || [],
+    // 155ª rodada: campos novos (marca, item do catálogo, fluxo,
+    // parcelamento) -- normaliza pra null/[] em compra cadastrada antes
+    // desta rodada (nunca teve esses campos).
+    brand: c.brand || null,
+    catalogItemId: c.catalogItemId || null,
+    fluxo: c.fluxo || null,
+    quemAutorizouId: c.quemAutorizouId || null,
+    parcelas: c.parcelas || []
+  });
   if (c.createdBy) out.createdByName = resolveUserName(c.createdBy, c.createdByName || '');
   if (c.updatedBy) out.updatedByName = resolveUserName(c.updatedBy, c.updatedByName || '');
   return out;
@@ -817,21 +877,45 @@ function criarCompraEAtualizarFornecedor(dados, req, origemOrcamentoId) {
   const valorTotal = dados.valorTotal !== undefined && dados.valorTotal !== ''
     ? numOrNullBrinde(dados.valorTotal)
     : (quantidade != null && valorUnitario != null ? Math.round(quantidade * valorUnitario * 100) / 100 : null);
+  // 155ª rodada: marca + item do catálogo (pedido da Raquel: "em item
+  // comprado, deve aparecer a lista de brindes para escolher (por
+  // marca)") -- `brand` só é exigido de verdade no POST /compras direto
+  // (abaixo); aqui fica opcional pra não quebrar o fluxo de Orçamento
+  // aprovado -> Compra automática, que nunca teve marca. `catalogItemId`
+  // só é aceito se o item de catálogo existir mesmo.
+  const brand = BRINDES_BRANDS.includes(dados.brand) ? dados.brand : null;
+  const catalogItemId = dados.catalogItemId && db.get('brindesCatalog').find({ id: dados.catalogItemId }).value() ? dados.catalogItemId : null;
+  const fluxo = brand && dados.fluxo && (FLUXOS_BY_BRAND[brand] || []).includes(dados.fluxo) ? dados.fluxo : null;
   const compra = {
     id: nanoid(),
     item: (dados.item || '').trim(),
+    brand,
+    catalogItemId,
+    fluxo,
     quantidade,
     valorUnitario,
     valorTotal,
     quemPediu: (dados.quemPediu || '').trim(),
     quemAutorizou: (dados.quemAutorizou || '').trim(),
+    quemAutorizouId: dados.quemAutorizouId || null,
     fornecedor: (dados.fornecedor || '').trim(),
     dataCompra: dados.dataCompra || now.slice(0, 10),
     formaPagamento: dados.formaPagamento || '',
     dataEntrega: dados.dataEntrega || null,
     conferencia: !!dados.conferencia,
+    // Guarda exatamente o que foi somado no estoque do Catálogo quando
+    // "conferência feita" for marcada (ver PUT /compras/:id abaixo) --
+    // nasce sempre null; uma compra nunca nasce já conferida.
+    estoqueAdicionado: null,
     observacoes: dados.observacoes || '',
     arquivos: [],
+    // Parcelamento + fluxo (155ª rodada, pedido da Raquel: "o valor total
+    // deve ter a opção de colocar os parcelamentos e datas de cada
+    // pagamento... Após marcar as datas de pagamento e o valor, isso deve
+    // puxar automaticamente para o fluxo citado na compra e aparecer lá
+    // dentro de budget sempre que o pagamento for efetuado") -- ver rotas
+    // POST/PUT/DELETE /compras/:id/parcelas, mais abaixo.
+    parcelas: [],
     origemOrcamentoId: origemOrcamentoId || null,
     cancelada: false,
     createdAt: now,
@@ -1014,7 +1098,15 @@ router.get('/compras', requireAuth, (req, res) => {
 router.post('/compras', requireAuth, requireBrindesEdit, (req, res) => {
   const b = req.body || {};
   if (!(b.item || '').trim()) return res.status(400).json({ error: 'Informe o item comprado.' });
-  const compra = criarCompraEAtualizarFornecedor(b, req, null);
+  // 155ª rodada, pedido da Raquel: "deve ter que selecionar a marca" --
+  // só exigido no lançamento direto pela aba Compras (não no automático
+  // de Orçamento aprovado, que nunca teve marca -- ver
+  // criarCompraEAtualizarFornecedor).
+  if (!BRINDES_BRANDS.includes(b.brand)) return res.status(400).json({ error: 'Escolha a marca.' });
+  const autorizador = nomeAutorizadorValido(b);
+  if (autorizador.error) return res.status(400).json({ error: autorizador.error });
+  const dados = autorizador.skip ? b : Object.assign({}, b, { quemAutorizouId: autorizador.id, quemAutorizou: autorizador.nome });
+  const compra = criarCompraEAtualizarFornecedor(dados, req, null);
   res.json({ item: serializeCompraBrinde(compra) });
 });
 
@@ -1023,7 +1115,7 @@ router.put('/compras/:id', requireAuth, requireBrindesEdit, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
   const b = req.body || {};
   const updates = { updatedAt: new Date().toISOString(), updatedBy: req.user.id, updatedByName: req.user.name };
-  ['item', 'quemPediu', 'quemAutorizou', 'fornecedor', 'dataCompra', 'formaPagamento', 'dataEntrega', 'observacoes'].forEach((k) => {
+  ['item', 'quemPediu', 'fornecedor', 'dataCompra', 'formaPagamento', 'dataEntrega', 'observacoes'].forEach((k) => {
     if (b[k] !== undefined) updates[k] = typeof b[k] === 'string' ? b[k].trim() : b[k];
   });
   if (b.quantidade !== undefined) updates.quantidade = numOrNullBrinde(b.quantidade);
@@ -1031,11 +1123,75 @@ router.put('/compras/:id', requireAuth, requireBrindesEdit, (req, res) => {
   if (b.valorTotal !== undefined) updates.valorTotal = numOrNullBrinde(b.valorTotal);
   if (b.conferencia !== undefined) updates.conferencia = !!b.conferencia;
 
+  // 155ª rodada: marca -- a mesma compra nunca troca de item de catálogo
+  // enquanto já estiver conferida (ver trava mais abaixo), mas a MARCA em
+  // si pode ser corrigida livremente.
+  if (b.brand !== undefined) updates.brand = BRINDES_BRANDS.includes(b.brand) ? b.brand : null;
+  const brandFinal = updates.brand !== undefined ? updates.brand : existing.brand;
+  if (b.fluxo !== undefined) {
+    updates.fluxo = brandFinal && (FLUXOS_BY_BRAND[brandFinal] || []).includes(b.fluxo) ? b.fluxo : null;
+  }
+  // "Quem autorizou" (155ª rodada, pedido da Raquel: "onde pede quem
+  // autorizou, tem que ser somente coordenador ou gerente") -- só mexe
+  // quando `quemAutorizouId` vem na edição; valida a pessoa antes de
+  // gravar qualquer coisa.
+  const autorizador = nomeAutorizadorValido(b);
+  if (autorizador.error) return res.status(400).json({ error: autorizador.error });
+  if (!autorizador.skip) {
+    updates.quemAutorizouId = autorizador.id;
+    updates.quemAutorizou = autorizador.nome;
+  }
+
+  // Troca de item de catálogo (155ª rodada) -- só aceita item que exista
+  // de verdade, e nunca enquanto a compra já estiver conferida (evita
+  // deixar o estoque somado no item ERRADO sem ninguém notar -- quem
+  // precisar trocar, desmarca "conferência feita" primeiro).
+  if (b.catalogItemId !== undefined) {
+    const conferenciaAtual = updates.conferencia !== undefined ? updates.conferencia : existing.conferencia;
+    if (conferenciaAtual && b.catalogItemId !== existing.catalogItemId) {
+      return res.status(400).json({ error: 'Desmarque "conferência feita" antes de trocar o item do catálogo desta compra.' });
+    }
+    updates.catalogItemId = b.catalogItemId && db.get('brindesCatalog').find({ id: b.catalogItemId }).value() ? b.catalogItemId : null;
+  }
+
   // Se o fornecedor mudou nesta edição, ou a conferência acabou de ser
   // marcada agora, atualiza o cadastro do fornecedor de novo -- não
   // fica dependendo só do instante de criação da compra.
   const fornecedorMudou = updates.fornecedor !== undefined && updates.fornecedor !== existing.fornecedor;
   const conferenciaNova = b.conferencia === true && !existing.conferencia;
+
+  // 155ª rodada, pedido da Raquel: "após lançar essa compra e clicar em
+  // conferencia feita a quantidade deve atualizar automaticamente em
+  // controle geral (mas somente após clicar em cofnerencia feita)" --
+  // soma tudo na praça PR (chegada de mercadoria nova), desfaz certinho
+  // se desmarcar de novo, e ajusta a diferença se a quantidade mudar
+  // enquanto já está conferida. Só faz sentido quando a compra está
+  // ligada a um item real do catálogo.
+  const catalogItemIdFinal = updates.catalogItemId !== undefined ? updates.catalogItemId : existing.catalogItemId;
+  const conferenciaFinal = updates.conferencia !== undefined ? updates.conferencia : existing.conferencia;
+  const quantidadeFinal = updates.quantidade !== undefined ? updates.quantidade : existing.quantidade;
+  if (catalogItemIdFinal) {
+    if (conferenciaFinal && !existing.conferencia) {
+      const added = { estoquePR: Math.max(0, Math.round(Number(quantidadeFinal) || 0)), estoqueSP: 0, estoquePE: 0 };
+      if (added.estoquePR > 0) {
+        restoreCatalogStock(catalogItemIdFinal, added);
+        updates.estoqueAdicionado = added;
+      }
+    } else if (!conferenciaFinal && existing.conferencia && existing.estoqueAdicionado) {
+      reverseCompraStockAdd(existing.catalogItemId, existing.estoqueAdicionado);
+      updates.estoqueAdicionado = null;
+    } else if (conferenciaFinal && existing.conferencia && b.quantidade !== undefined && existing.estoqueAdicionado) {
+      const qtdNova = Math.max(0, Math.round(Number(quantidadeFinal) || 0));
+      const qtdAntiga = Number(existing.estoqueAdicionado.estoquePR) || 0;
+      if (qtdNova !== qtdAntiga) {
+        reverseCompraStockAdd(catalogItemIdFinal, existing.estoqueAdicionado);
+        const added = { estoquePR: qtdNova, estoqueSP: 0, estoquePE: 0 };
+        restoreCatalogStock(catalogItemIdFinal, added);
+        updates.estoqueAdicionado = qtdNova > 0 ? added : null;
+      }
+    }
+  }
+
   db.get('brindesCompras').find({ id: req.params.id }).assign(updates).write();
   const atualizado = db.get('brindesCompras').find({ id: req.params.id }).value();
   if ((fornecedorMudou || conferenciaNova) && atualizado.fornecedor) {
@@ -1051,9 +1207,122 @@ router.put('/compras/:id', requireAuth, requireBrindesEdit, (req, res) => {
   res.json({ item: serializeCompraBrinde(atualizado) });
 });
 
+// ---- parcelamento + sincronia com o Budget (155ª rodada) ----
+// Pedido da Raquel: "o valor total deve ter a opção de colocar os
+// parcelamentos e datas de cada pagamento... Após marcar as datas de
+// pagamento e o valor, isso deve puxar automaticamente para o fluxo
+// citado na compra e aparecer lá dentro de budget sempre que o pagamento
+// for efetuado. No fluxo e marca corretos." -- cada parcela só gera
+// lançamento em `budgetEntries` quando `pago` está true (nunca enquanto
+// a parcela só está "programada"). Edição/exclusão sempre remove o
+// lançamento antigo antes de recriar -- mesmo espírito delete-and-recreate
+// de syncItemToBudget em routes/feiras.js.
+function removeParcelaBudgetEntry(parcela) {
+  if (parcela && parcela.budgetEntryId) db.get('budgetEntries').remove({ id: parcela.budgetEntryId }).write();
+}
+function createParcelaBudgetEntry(compra, parcela, req) {
+  const now = new Date().toISOString();
+  const dataPag = parcela.dataPagamento ? new Date(parcela.dataPagamento + 'T00:00:00') : new Date();
+  const entry = {
+    id: nanoid(),
+    brand: compra.brand,
+    category: compra.fluxo,
+    year: dataPag.getFullYear(),
+    month: dataPag.getMonth() + 1,
+    planejado: null,
+    realizado: numOrNullBrinde(parcela.valor),
+    notes: `Parcela paga da compra de brindes "${compra.item}"${compra.fornecedor ? ' -- fornecedor ' + compra.fornecedor : ''}.`,
+    fornecedor: compra.fornecedor || '',
+    tituloCompra: compra.item,
+    quantidade: compra.quantidade,
+    sourceBrindeCompraId: compra.id,
+    sourceBrindeParcelaId: parcela.id,
+    createdAt: now,
+    updatedAt: now,
+    updatedBy: req.user.name,
+    updatedById: req.user.id
+  };
+  db.get('budgetEntries').push(entry).write();
+  return entry.id;
+}
+
+router.post('/compras/:id/parcelas', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  const { valor, dataPagamento } = req.body || {};
+  const valorNum = numOrNullBrinde(valor);
+  if (valorNum === null) return res.status(400).json({ error: 'Informe o valor da parcela.' });
+  if (!existing.brand || !existing.fluxo) return res.status(400).json({ error: 'Escolha a marca e o fluxo desta compra antes de lançar parcelas.' });
+  const now = new Date().toISOString();
+  const parcela = { id: nanoid(), valor: valorNum, dataPagamento: dataPagamento || null, pago: false, budgetEntryId: null, createdAt: now, updatedAt: now };
+  const parcelas = (existing.parcelas || []).concat([parcela]);
+  db.get('brindesCompras').find({ id: req.params.id }).assign({ parcelas, updatedAt: now }).write();
+  logAudit({ user: req.user, entityType: 'brindeCompra', entityId: existing.id, entityLabel: existing.item, action: 'update', details: 'Parcela adicionada' });
+  res.json({ item: serializeCompraBrinde(db.get('brindesCompras').find({ id: req.params.id }).value()) });
+});
+
+router.put('/compras/:id/parcelas/:parcelaId', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  const before = (existing.parcelas || []).find((p) => p.id === req.params.parcelaId);
+  if (!before) return res.status(404).json({ error: 'Parcela não encontrada.' });
+  const { valor, dataPagamento, pago } = req.body || {};
+  if (pago === true && (!existing.brand || !existing.fluxo)) {
+    return res.status(400).json({ error: 'Escolha a marca e o fluxo desta compra antes de marcar uma parcela como paga.' });
+  }
+  const now = new Date().toISOString();
+  const patch = { updatedAt: now };
+  if (valor !== undefined) patch.valor = numOrNullBrinde(valor);
+  if (dataPagamento !== undefined) patch.dataPagamento = dataPagamento || null;
+  if (pago !== undefined) patch.pago = !!pago;
+
+  let afterItem = Object.assign({}, before, patch);
+  // Qualquer mudança em valor/data/pago refaz o lançamento no Budget do
+  // zero (remove o antigo se tinha, cria um novo só se o resultado final
+  // ainda está "pago") -- nunca deixa 2 lançamentos da mesma parcela.
+  if (valor !== undefined || dataPagamento !== undefined || pago !== undefined) {
+    removeParcelaBudgetEntry(before);
+    afterItem.budgetEntryId = null;
+    if (afterItem.pago && afterItem.valor != null) {
+      afterItem.budgetEntryId = createParcelaBudgetEntry(existing, afterItem, req);
+    }
+  }
+  const parcelas = (existing.parcelas || []).map((p) => (p.id === req.params.parcelaId ? afterItem : p));
+
+  db.get('brindesCompras').find({ id: req.params.id }).assign({ parcelas, updatedAt: now }).write();
+  logAudit({
+    user: req.user,
+    entityType: 'brindeCompra',
+    entityId: existing.id,
+    entityLabel: existing.item,
+    action: 'update',
+    details: afterItem.pago && !before.pago ? 'Parcela marcada como paga -- lançada no Budget' : (!afterItem.pago && before.pago ? 'Parcela desmarcada como paga -- removida do Budget' : 'Parcela atualizada')
+  });
+  res.json({ item: serializeCompraBrinde(db.get('brindesCompras').find({ id: req.params.id }).value()) });
+});
+
+router.delete('/compras/:id/parcelas/:parcelaId', requireAuth, requireBrindesEdit, (req, res) => {
+  const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  const target = (existing.parcelas || []).find((p) => p.id === req.params.parcelaId);
+  if (!target) return res.status(404).json({ error: 'Parcela não encontrada.' });
+  removeParcelaBudgetEntry(target);
+  const parcelas = (existing.parcelas || []).filter((p) => p.id !== req.params.parcelaId);
+  db.get('brindesCompras').find({ id: req.params.id }).assign({ parcelas, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'brindeCompra', entityId: existing.id, entityLabel: existing.item, action: 'update', details: 'Parcela removida' });
+  res.json({ item: serializeCompraBrinde(db.get('brindesCompras').find({ id: req.params.id }).value()) });
+});
+
 router.delete('/compras/:id', requireAuth, requireBrindesEdit, (req, res) => {
   const existing = db.get('brindesCompras').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Compra não encontrada.' });
+  // 155ª rodada: antes de excluir, desfaz o que essa compra tinha gerado
+  // em outros lugares -- nunca pode sobrar lançamento de Budget nem
+  // estoque "fantasma" de uma compra que não existe mais.
+  if (existing.conferencia && existing.catalogItemId && existing.estoqueAdicionado) {
+    reverseCompraStockAdd(existing.catalogItemId, existing.estoqueAdicionado);
+  }
+  (existing.parcelas || []).forEach((p) => removeParcelaBudgetEntry(p));
   db.get('brindesCompras').remove({ id: req.params.id }).write();
   if (existing.origemOrcamentoId) {
     // Excluir a Compra não ressuscita o orçamento como "pendente" -- só

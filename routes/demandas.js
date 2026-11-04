@@ -427,7 +427,14 @@ function serialize(d, viewerId) {
     // esta função, chamada em toda resposta da API, que devolve o checklist
     // já ordenado -- então a tela sempre mostra ordenado, de qualquer
     // demanda do grupo.
-    checklist: (d.checklist || []).map((it) => Object.assign({}, it, { brand: it.brand || null })).sort(compareChecklistByDueDate),
+    checklist: (d.checklist || []).map((it) => Object.assign({}, it, {
+      brand: it.brand || null,
+      // 155ª rodada, pedido da Raquel: espaço pra link ou arquivo embaixo
+      // de cada item concluído do checklist -- normaliza pra null o item
+      // de checklist criado antes desta rodada (nunca teve esses campos).
+      attachmentLink: it.attachmentLink || null,
+      attachmentFile: it.attachmentFile || null
+    })).sort(compareChecklistByDueDate),
     // Responsável geral (30ª rodada, marcação passou a pontuar na 32ª):
     // pontua igual a qualquer outro marcado na demanda — ver GET
     // /reis-do-marketing abaixo.
@@ -543,6 +550,26 @@ const storage = multer.diskStorage({
 });
 // Limite alto pra caber vídeos e arquivos grandes de criativo, não só documentos.
 const upload = multer({ storage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB
+
+// Upload de arquivo por ITEM de checklist (155ª rodada, pedido da Raquel:
+// "ao clicar no quadradinho do check... deve aparecer em baixo dele um
+// espaço para colocar link ou arquivo, referente aquel check concluido")
+// -- pasta própria por item, dentro da pasta de uploads da própria
+// demanda; nunca mistura com os arquivos "do card" (`/:id/files` acima),
+// porque aqui é 1 arquivo por ITEM -- upload novo SUBSTITUI o anterior
+// desse mesmo item ("um espaço", não uma lista que só soma).
+const checklistItemStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(uploadsRoot, req.params.id, 'checklist', req.params.itemId);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadChecklistItemFile = multer({ storage: checklistItemStorage, limits: { fileSize: 1024 * 1024 * 1024 } }); // 1GB, mesmo limite do upload de arquivos do card
 
 function findOr404(req, res) {
   const demanda = db.get('demandas').find({ id: req.params.id }).value();
@@ -1376,29 +1403,33 @@ router.put('/:id', requireAuth, (req, res) => {
         });
       }
     }
-    // 2) Entrou em "Aprovado" -- aviso só pra pessoa responsável
-    // (estrelinha): já pode concluir.
+    // 2) Entrou em "Aprovado" -- aviso pra TODOS os marcados na demanda
+    // (155ª rodada, pedido explícito da Raquel: "quando um card de
+    // Demandas muda para o status 'aprovado', o sistema dispara
+    // automaticamente um recado, para todas as pessoas dentro da
+    // demanda" -- reverte, só pra esta transição, o que a 126ª rodada
+    // tinha restrito pra só a pessoa responsável/estrelinha).
     if (updates.status === 'aprovado' && demanda.status !== 'aprovado') {
-      if (effectiveResponsibleId) {
+      if (effectiveAssigneeIdsForResp.length > 0) {
         createAutoRecado({
-          recipientIds: [effectiveResponsibleId],
+          recipientIds: effectiveAssigneeIdsForResp,
           text: `Aviso Papoi: a demanda "${demandaTitle}" foi aprovada e já pode ser concluída.`,
           kind: 'demanda_aprovada'
         });
       }
     }
-    // 3) Entrou em "Em Refação" -- aviso só pra pessoa responsável
-    // (estrelinha): precisa refazer algo. Substitui, a partir desta
-    // rodada, o aviso da 109ª que ia pra TODOS os marcados no card --
-    // pedido explícito da Raquel agora foi "um recado para a pessoa
-    // responsavel pela demanda, aquela que tem a estrela" (o e-mail
-    // continua indo pra essa mesma pessoa, já que o responsável sempre é
-    // um dos marcados -- ver validação acima).
+    // 3) Entrou em "Em Refação" -- aviso pra TODOS os marcados na
+    // demanda (155ª rodada, pedido explícito da Raquel: "quando um card
+    // de Demandas muda para o status 'Em Refação', o sistema dispara
+    // automaticamente um recado, para todas as pessoas dentro da
+    // demanda" -- reverte, só pra esta transição, o que a 126ª rodada
+    // tinha restrito pra só a pessoa responsável/estrelinha; a 109ª
+    // rodada, antes da 126ª, já tinha sido "todos os marcados" uma vez).
     if (updates.status === 'em_refacao' && demanda.status !== 'em_refacao') {
-      if (effectiveResponsibleId) {
+      if (effectiveAssigneeIdsForResp.length > 0) {
         createAutoRecado({
-          recipientIds: [effectiveResponsibleId],
-          text: `Aviso Papoi: a demanda "${demandaTitle}" foi marcada como "Em Refação" -- você precisa refazer algo nela.`,
+          recipientIds: effectiveAssigneeIdsForResp,
+          text: `Aviso Papoi: a demanda "${demandaTitle}" foi marcada como "Em Refação" -- é preciso refazer algo nela.`,
           kind: 'demanda_ajuste',
           emailSubject: `Pedido de ajuste -- ${demandaTitle}`
         });
@@ -1757,7 +1788,12 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
   const dueDate = (req.body || {}).dueDate || null;
   // De qual marca é este item (79ª rodada) — opcional, aceita já na criação.
   const brand = validBrand((req.body || {}).brand);
-  const item = { id: nanoid(), text, done: false, assigneeId, doneAt: null, dueDate, brand };
+  // 155ª rodada, pedido da Raquel: "ao clicar no quadradinho do check...
+  // deve aparecer em baixo dele um espaço para colocar link ou arquivo,
+  // referente aquel check concluido" -- os 2 campos já nascem nulos, o
+  // link se preenche pelo PUT normal do item e o arquivo tem rota própria
+  // (POST/DELETE /:id/checklist/:itemId/file, mais abaixo).
+  const item = { id: nanoid(), text, done: false, assigneeId, doneAt: null, dueDate, brand, attachmentLink: null, attachmentFile: null };
   const checklist = [...(demanda.checklist || []), item];
   db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_add', details: `Item adicionado ao checklist: "${text}"`, meta: { visibility: demanda.visibility } });
@@ -1774,7 +1810,7 @@ router.post('/:id/checklist', requireAuth, (req, res) => {
 router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
-  const { text, done, assigneeId, dueDate, brand } = req.body || {};
+  const { text, done, assigneeId, dueDate, brand, attachmentLink } = req.body || {};
   const before = (demanda.checklist || []).find((it) => it.id === req.params.itemId);
   const checklist = (demanda.checklist || []).map((it) => {
     if (it.id !== req.params.itemId) return it;
@@ -1788,7 +1824,11 @@ router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
       dueDate !== undefined ? { dueDate: dueDate || null } : {},
       // De qual marca é este item (79ª rodada) — mesmo padrão de limpar com
       // string vazia/null.
-      brand !== undefined ? { brand: validBrand(brand) } : {}
+      brand !== undefined ? { brand: validBrand(brand) } : {},
+      // Link solto digitado pela pessoa (155ª rodada) -- alternativa ao
+      // arquivo enviado pela rota própria abaixo; mesmo padrão de limpar
+      // com string vazia/null.
+      attachmentLink !== undefined ? { attachmentLink: (attachmentLink || '').trim() || null } : {}
     );
     // doneAt (30ª rodada): marca o instante em que o item foi concluído —
     // é o que o REIS DO MARKETING usa pra saber se a conclusão foi NESTE
@@ -1812,6 +1852,8 @@ router.put('/:id/checklist/:itemId', requireAuth, (req, res) => {
       detail = `Item do checklist renomeado para "${after.text}"`;
     } else if (after && dueDate !== undefined && (after.dueDate || null) !== (before.dueDate || null)) {
       detail = `Data de entrega do item "${after.text}" ajustada para ${after.dueDate ? after.dueDate : 'sem data'}`;
+    } else if (after && attachmentLink !== undefined && (after.attachmentLink || null) !== (before.attachmentLink || null)) {
+      detail = after.attachmentLink ? `Link anexado ao item "${after.text}" do checklist` : `Link removido do item "${after.text}" do checklist`;
     }
     if (detail) logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_update', details: detail, meta: { visibility: demanda.visibility } });
   }
@@ -1905,6 +1947,69 @@ router.delete('/:id/files/:fileId', requireAuth, (req, res) => {
     if (demanda.sourceSocialPostId) {
       mirrorArrayField(demanda.sourceSocialPostId, demanda.id, 'files', files, req, `Arquivo removido (em outra demanda do mesmo agendamento): ${target.name}`);
     }
+  }
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
+});
+
+// ---------- arquivo/link por item do checklist (155ª rodada) ----------
+router.post('/:id/checklist/:itemId/file', requireAuth, uploadChecklistItemFile.single('file'), (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) {
+    // Mesma correção já usada em POST /:id/files acima: o multer grava o
+    // arquivo em disco ANTES deste handler rodar -- se a demanda não
+    // existe/não tem acesso, o arquivo ficaria órfão pra sempre.
+    if (req.file && req.file.path) {
+      try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ }
+    }
+    return;
+  }
+  const before = (demanda.checklist || []).find((it) => it.id === req.params.itemId);
+  if (!before) {
+    if (req.file && req.file.path) {
+      try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ }
+    }
+    return res.status(404).json({ error: 'Item do checklist não encontrado.' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Selecione um arquivo.' });
+  // Substitui o arquivo anterior desse mesmo item, se tinha (1 arquivo por
+  // item, nunca acumula) -- apaga o físico antigo pra não ficar órfão.
+  if (before.attachmentFile && before.attachmentFile.url) {
+    const oldPath = path.join(__dirname, '..', 'data', before.attachmentFile.url.replace(/^\//, ''));
+    if (fs.existsSync(oldPath)) { try { fs.unlinkSync(oldPath); } catch (e) { /* ignora */ } }
+  }
+  const fileMeta = {
+    id: nanoid(),
+    name: req.file.originalname,
+    url: `/uploads/demandas/${req.params.id}/checklist/${req.params.itemId}/${req.file.filename}`,
+    size: req.file.size,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: req.user.id,
+    uploadedByName: req.user.name
+  };
+  const checklist = (demanda.checklist || []).map((it) => (it.id === req.params.itemId ? Object.assign({}, it, { attachmentFile: fileMeta }) : it));
+  db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_update', details: `Arquivo anexado ao item "${before.text}" do checklist: ${fileMeta.name}`, meta: { visibility: demanda.visibility } });
+  // 99ª rodada (reaproveitado aqui): mesma sincronização de checklist --
+  // anexar arquivo num item replica o checklist inteiro pras demandas-irmãs.
+  if (demanda.sourceSocialPostId) {
+    mirrorArrayField(demanda.sourceSocialPostId, demanda.id, 'checklist', checklist, req, `Arquivo anexado a um item do checklist (em outra demanda do mesmo agendamento): ${fileMeta.name}`);
+  }
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
+});
+
+router.delete('/:id/checklist/:itemId/file', requireAuth, (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) return;
+  const before = (demanda.checklist || []).find((it) => it.id === req.params.itemId);
+  if (!before || !before.attachmentFile) return res.status(404).json({ error: 'Esse item não tem arquivo anexado.' });
+  const removedName = before.attachmentFile.name;
+  const filePath = path.join(__dirname, '..', 'data', before.attachmentFile.url.replace(/^\//, ''));
+  if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch (e) { /* ignora */ } }
+  const checklist = (demanda.checklist || []).map((it) => (it.id === req.params.itemId ? Object.assign({}, it, { attachmentFile: null }) : it));
+  db.get('demandas').find({ id: req.params.id }).assign({ checklist, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: 'checklist_update', details: `Arquivo removido do item "${before.text}" do checklist: ${removedName}`, meta: { visibility: demanda.visibility } });
+  if (demanda.sourceSocialPostId) {
+    mirrorArrayField(demanda.sourceSocialPostId, demanda.id, 'checklist', checklist, req, `Arquivo removido de um item do checklist (em outra demanda do mesmo agendamento): ${removedName}`);
   }
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });

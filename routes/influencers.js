@@ -8,6 +8,12 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { createLinkedSocialPost, syncInfluencerActionToSocialPost, deleteInfluencerTriad } = require('../utils/tripleSync');
+// 155ª rodada, pedido da Raquel: "em Influencers... isso deve comunicar
+// com o budget, sempre que um pagamento for efetuado" -- reaproveita os
+// mesmos fluxos (nome + número) já usados no Budget, mesmo padrão de
+// routes/feiras.js/routes/expositores.js/routes/brindes.js.
+const budgetRouter = require('./budget');
+const { FLUXOS_BY_BRAND } = budgetRouter;
 
 const router = express.Router();
 
@@ -41,6 +47,15 @@ function groupKeyBrand(key) {
 }
 
 function validColor() { return null; } // reservado — sem cor por enquanto
+
+// 155ª rodada -- mesmo padrão de numOrNullBrinde em routes/brindes.js,
+// duplicado aqui de propósito (nunca importar entre arquivos de rota por
+// convenção deste projeto).
+function numOrNull(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
 
 // Pessoas envolvidas numa ação (36ª rodada, pedido da Raquel: campo novo,
 // não existia antes -- é o que permite gerar a demanda com "as pessoas
@@ -77,6 +92,16 @@ function serializeInfluencer(inf) {
     dataNascimento: inf.dataNascimento || '',
     endereco: inf.endereco || '',
     contrato: inf.contrato || null,
+    // 155ª rodada, pedido da Raquel: "Deve ter a opção de colocar o
+    // contrato deles, forma de pagamento, parcelamento, NF, marca e
+    // fluxo, e isso deve comunicar com o budget" -- forma de pagamento e
+    // fluxo ficam direto no influencer (1 fluxo vale pra todas as
+    // parcelas dele); contrato já existia (21ª rodada). NUNCA entra em
+    // serializeInfluencerPublic, abaixo -- é informação financeira
+    // interna, mesmo cuidado já tomado com dados pessoais/contrato.
+    formaPagamento: inf.formaPagamento || '',
+    fluxo: inf.fluxo || null,
+    parcelas: inf.parcelas || [],
     createdAt: inf.createdAt,
     hasPublicLink: !!inf.publicToken
   };
@@ -214,6 +239,11 @@ router.post('/', requireAuth, (req, res) => {
     name: name.trim(),
     publicToken: null,
     contrato: null,
+    // 155ª rodada -- nasce sempre vazio; preenchido depois por PUT /:id e
+    // pelas rotas de parcela, abaixo.
+    formaPagamento: '',
+    fluxo: null,
+    parcelas: [],
     createdAt: new Date().toISOString(),
     createdBy: req.user.id
   }, personal);
@@ -225,9 +255,17 @@ router.post('/', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, (req, res) => {
   const inf = findInfluencerOr404(req, res);
   if (!inf) return;
-  const { name } = req.body || {};
+  const { name, formaPagamento, fluxo } = req.body || {};
   const updates = Object.assign({}, personalFields(req.body || {}));
   if (name && name.trim()) updates.name = name.trim();
+  // 155ª rodada: forma de pagamento (texto livre) + fluxo (validado contra
+  // os fluxos do Budget da marca DESTE influencer -- nunca aceita o fluxo
+  // de outra marca por engano).
+  if (formaPagamento !== undefined) updates.formaPagamento = (formaPagamento || '').toString().trim();
+  if (fluxo !== undefined) {
+    const lista = FLUXOS_BY_BRAND[inf.brand] || [];
+    updates.fluxo = lista.includes(fluxo) ? fluxo : null;
+  }
   db.get('influencers').find({ id: inf.id }).assign(updates).write();
   logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: updates.name || inf.name, action: 'update' });
   res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
@@ -254,6 +292,11 @@ router.delete('/:id', requireAuth, (req, res) => {
   const linkedAnalises = db.get('influencerAnalises').filter({ influencerId: inf.id }).value();
   linkedAnalises.forEach((a) => {
     db.get('influencerAnalises').find({ id: a.id }).assign({ influencerId: null }).write();
+  });
+  // 155ª rodada: nunca pode sobrar lançamento de Budget de uma parcela de
+  // pagamento cujo influencer não existe mais.
+  (inf.parcelas || []).forEach((p) => {
+    if (p.budgetEntryId) db.get('budgetEntries').remove({ id: p.budgetEntryId }).write();
   });
   db.get('influencers').remove({ id: inf.id }).write();
   const dir = path.join(__dirname, '..', 'data', 'uploads', 'influencers', inf.id);
@@ -583,6 +626,167 @@ router.delete('/:id/contract', requireAuth, (req, res) => {
   }
   db.get('influencers').find({ id: inf.id }).assign({ contrato: null }).write();
   logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Contrato removido' });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+// ---------- parcelamento + sincronia com o Budget (155ª rodada) ----------
+// Mesmo espírito de routes/brindes.js (Compras): cada parcela só gera
+// lançamento em `budgetEntries` quando `pago` está true, e qualquer
+// edição (valor/data/pago) refaz o lançamento do zero (remove o antigo,
+// cria um novo só se o resultado final ainda está "pago") -- nunca duas
+// vezes a mesma parcela, nunca lançamento órfão.
+function removeInfluencerParcelaBudgetEntry(parcela) {
+  if (parcela && parcela.budgetEntryId) db.get('budgetEntries').remove({ id: parcela.budgetEntryId }).write();
+}
+function createInfluencerParcelaBudgetEntry(inf, parcela, req) {
+  const now = new Date().toISOString();
+  const dataPag = parcela.dataPagamento ? new Date(parcela.dataPagamento + 'T00:00:00') : new Date();
+  const entry = {
+    id: nanoid(),
+    brand: inf.brand,
+    category: inf.fluxo,
+    year: dataPag.getFullYear(),
+    month: dataPag.getMonth() + 1,
+    planejado: null,
+    realizado: numOrNull(parcela.valor),
+    notes: `Pagamento ao influencer "${inf.name}".`,
+    fornecedor: inf.name,
+    tituloCompra: `Influencer -- ${inf.name}`,
+    quantidade: null,
+    sourceInfluencerId: inf.id,
+    sourceInfluencerParcelaId: parcela.id,
+    createdAt: now,
+    updatedAt: now,
+    updatedBy: req.user.name,
+    updatedById: req.user.id
+  };
+  db.get('budgetEntries').push(entry).write();
+  return entry.id;
+}
+
+router.post('/:id/parcelas', requireAuth, (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  const { valor, dataPagamento } = req.body || {};
+  const valorNum = numOrNull(valor);
+  if (valorNum === null) return res.status(400).json({ error: 'Informe o valor da parcela.' });
+  if (!inf.fluxo) return res.status(400).json({ error: 'Escolha o fluxo deste influencer antes de lançar parcelas.' });
+  const now = new Date().toISOString();
+  const parcela = { id: nanoid(), valor: valorNum, dataPagamento: dataPagamento || null, pago: false, notaFiscal: null, budgetEntryId: null, createdAt: now, updatedAt: now };
+  const parcelas = (inf.parcelas || []).concat([parcela]);
+  db.get('influencers').find({ id: inf.id }).assign({ parcelas }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Parcela de pagamento adicionada' });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+router.put('/:id/parcelas/:parcelaId', requireAuth, (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  const before = (inf.parcelas || []).find((p) => p.id === req.params.parcelaId);
+  if (!before) return res.status(404).json({ error: 'Parcela não encontrada.' });
+  const { valor, dataPagamento, pago } = req.body || {};
+  if (pago === true && !inf.fluxo) {
+    return res.status(400).json({ error: 'Escolha o fluxo deste influencer antes de marcar uma parcela como paga.' });
+  }
+  const now = new Date().toISOString();
+  const patch = { updatedAt: now };
+  if (valor !== undefined) patch.valor = numOrNull(valor);
+  if (dataPagamento !== undefined) patch.dataPagamento = dataPagamento || null;
+  if (pago !== undefined) patch.pago = !!pago;
+
+  let afterItem = Object.assign({}, before, patch);
+  if (valor !== undefined || dataPagamento !== undefined || pago !== undefined) {
+    removeInfluencerParcelaBudgetEntry(before);
+    afterItem.budgetEntryId = null;
+    if (afterItem.pago && afterItem.valor != null) {
+      afterItem.budgetEntryId = createInfluencerParcelaBudgetEntry(inf, afterItem, req);
+    }
+  }
+  const parcelas = (inf.parcelas || []).map((p) => (p.id === req.params.parcelaId ? afterItem : p));
+  db.get('influencers').find({ id: inf.id }).assign({ parcelas }).write();
+  logAudit({
+    user: req.user,
+    entityType: 'influencer',
+    entityId: inf.id,
+    entityLabel: inf.name,
+    action: 'update',
+    details: afterItem.pago && !before.pago ? 'Parcela marcada como paga -- lançada no Budget' : (!afterItem.pago && before.pago ? 'Parcela desmarcada como paga -- removida do Budget' : 'Parcela atualizada')
+  });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+router.delete('/:id/parcelas/:parcelaId', requireAuth, (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  const target = (inf.parcelas || []).find((p) => p.id === req.params.parcelaId);
+  if (!target) return res.status(404).json({ error: 'Parcela não encontrada.' });
+  removeInfluencerParcelaBudgetEntry(target);
+  if (target.notaFiscal && target.notaFiscal.url) {
+    const filePath = path.join(uploadsRoot, inf.id, 'parcelas', req.params.parcelaId, path.basename(target.notaFiscal.url));
+    if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch (e) { /* ignora */ } }
+  }
+  const parcelas = (inf.parcelas || []).filter((p) => p.id !== req.params.parcelaId);
+  db.get('influencers').find({ id: inf.id }).assign({ parcelas }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Parcela removida' });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+// ---- nota fiscal de uma parcela de pagamento (155ª rodada) ----
+// Pasta própria por parcela (uploadsRoot/<id>/parcelas/<parcelaId>/) --
+// nunca se mistura com o contrato, nem com a nota fiscal de permuta por
+// POST (22ª rodada, que é de um item da tabela, não de um pagamento).
+const parcelaNotaFiscalStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(uploadsRoot, req.params.id, 'parcelas', req.params.parcelaId);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadParcelaNotaFiscal = multer({ storage: parcelaNotaFiscalStorage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25MB, mesmo limite das outras notas fiscais deste arquivo
+
+router.post('/:id/parcelas/:parcelaId/nota-fiscal', requireAuth, uploadParcelaNotaFiscal.single('notaFiscal'), (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) {
+    if (req.file && req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ } }
+    return;
+  }
+  const parcela = (inf.parcelas || []).find((p) => p.id === req.params.parcelaId);
+  if (!parcela) {
+    if (req.file && req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ } }
+    return res.status(404).json({ error: 'Parcela não encontrada.' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Selecione um arquivo.' });
+  // Substitui a nota fiscal anterior dessa mesma parcela, se tinha (1 por
+  // parcela) -- apaga o físico antigo pra não ficar órfão.
+  if (parcela.notaFiscal && parcela.notaFiscal.url) {
+    const oldPath = path.join(__dirname, '..', 'data', parcela.notaFiscal.url.replace(/^\//, ''));
+    if (fs.existsSync(oldPath)) { try { fs.unlinkSync(oldPath); } catch (e) { /* ignora */ } }
+  }
+  const notaFiscal = {
+    url: `/uploads/influencers/${inf.id}/parcelas/${parcela.id}/${req.file.filename}`,
+    name: req.file.originalname,
+    uploadedAt: new Date().toISOString()
+  };
+  const parcelas = (inf.parcelas || []).map((p) => (p.id === parcela.id ? Object.assign({}, p, { notaFiscal }) : p));
+  db.get('influencers').find({ id: inf.id }).assign({ parcelas }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: `Nota fiscal da parcela enviada: ${notaFiscal.name}` });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+router.delete('/:id/parcelas/:parcelaId/nota-fiscal', requireAuth, (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  const parcela = (inf.parcelas || []).find((p) => p.id === req.params.parcelaId);
+  if (!parcela || !parcela.notaFiscal) return res.status(404).json({ error: 'Essa parcela não tem nota fiscal anexada.' });
+  const filePath = path.join(__dirname, '..', 'data', parcela.notaFiscal.url.replace(/^\//, ''));
+  if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch (e) { /* ignora */ } }
+  const parcelas = (inf.parcelas || []).map((p) => (p.id === parcela.id ? Object.assign({}, p, { notaFiscal: null }) : p));
+  db.get('influencers').find({ id: inf.id }).assign({ parcelas }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Nota fiscal da parcela removida' });
   res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
 });
 

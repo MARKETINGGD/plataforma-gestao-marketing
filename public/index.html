@@ -1137,6 +1137,34 @@
           <input id="influencerFormContractInput" type="file">
           <p class="muted" style="font-size:11.5px;margin-top:4px;">Só é enviado quando você salvar. Formatos comuns: PDF, imagem ou documento — até 25MB.</p>
 
+          <!-- Pagamento + parcelamento (155ª rodada, pedido da Raquel: "Deve
+               ter a opção de colocar... forma de pagamento, parcelamento,
+               NF... e fluxo, e isso deve comunicar com o budget". A marca já
+               existe (é a aba De Bacco/GhelPlus) -- só forma de pagamento,
+               fluxo e parcelamento são novos. -->
+          <p class="muted" style="margin:16px 0 4px;font-size:12px;">Pagamento</p>
+          <div class="form-row">
+            <div>
+              <label>Forma de pagamento</label>
+              <input id="influencerFormFormaPagamento" type="text" placeholder="Ex: PIX, transferência...">
+            </div>
+            <div>
+              <label>Fluxo (Budget)</label>
+              <select id="influencerFormFluxo"><option value="">Sem fluxo ainda</option></select>
+            </div>
+          </div>
+
+          <div id="influencerFormParcelasWrap" hidden style="margin-top:8px;border-top:1px solid var(--border,#ddd);padding-top:12px;">
+            <p class="muted" style="margin:0 0 8px;font-size:12px;">Parcelamento -- cada parcela marcada como paga, com o fluxo já escolhido acima, cai automaticamente no Budget do mês do pagamento.</p>
+            <div id="influencerParcelasList"></div>
+            <div class="form-row" style="margin-top:8px;">
+              <div><label>Valor da parcela (R$)</label><input id="influencerParcelaNovoValor" type="number" step="0.01"></div>
+              <div><label>Data de pagamento</label><input id="influencerParcelaNovaData" type="date"></div>
+            </div>
+            <button type="button" class="btn-secondary" id="influencerParcelaAddBtn">+ Adicionar parcela</button>
+          </div>
+          <p id="influencerFormParcelasHint" class="muted" style="font-size:11.5px;margin-top:4px;">Salve o influencer primeiro para poder lançar parcelas de pagamento.</p>
+
           <div id="influencerFormError" class="error" hidden></div>
           <div class="form-actions">
             <button class="btn-primary" id="influencerFormSave">Salvar</button>
@@ -2219,8 +2247,26 @@
         <div id="brindesCompraFormWrap" class="form-card" hidden>
           <h3 id="brindesCompraFormTitle">Nova compra</h3>
           <div class="form-row">
+            <div><label>Marca</label>
+              <select id="brindesCompraFormBrand">
+                <option value="">Escolha a marca...</option>
+                <option value="debacco">De Bacco</option>
+                <option value="ghelplus">GhelPlus</option>
+              </select>
+            </div>
+            <div><label>Fluxo (Budget)</label><select id="brindesCompraFormFluxo"><option value="">Escolha a marca primeiro...</option></select></div>
+          </div>
+          <div class="form-row">
+            <div><label>Brinde do catálogo (opcional -- escolha pra já puxar o nome e permitir a baixa automática em Controle Geral)</label>
+              <select id="brindesCompraFormCatalogItem"><option value="">Escolha a marca primeiro...</option></select>
+            </div>
+          </div>
+          <div class="form-row">
             <div><label>Item comprado</label><input id="brindesCompraFormItem" type="text"></div>
-            <div><label>Fornecedor</label><input id="brindesCompraFormFornecedor" type="text"></div>
+            <div><label>Fornecedor</label>
+              <input id="brindesCompraFormFornecedor" type="text" list="brindesFornecedoresDatalist" placeholder="Escolha um já cadastrado ou digite um novo">
+              <datalist id="brindesFornecedoresDatalist"></datalist>
+            </div>
           </div>
           <div class="form-row">
             <div><label>Quantidade</label><input id="brindesCompraFormQuantidade" type="number" min="1" step="1"></div>
@@ -2232,18 +2278,29 @@
           </div>
           <div class="form-row">
             <div><label>Quem pediu</label><input id="brindesCompraFormQuemPediu" type="text"></div>
-            <div><label>Quem autorizou</label><input id="brindesCompraFormQuemAutorizou" type="text"></div>
+            <div><label>Quem autorizou (só coordenador(a) ou gerente)</label><select id="brindesCompraFormQuemAutorizou"><option value="">Ninguém ainda</option></select></div>
           </div>
           <div class="form-row">
             <div><label>Data da compra</label><input id="brindesCompraFormDataCompra" type="date"></div>
             <div><label>Data de entrega</label><input id="brindesCompraFormDataEntrega" type="date"></div>
           </div>
-          <div><label><input type="checkbox" id="brindesCompraFormConferencia"> Conferência feita (item recebido confere com o pedido)</label></div>
+          <div><label><input type="checkbox" id="brindesCompraFormConferencia"> Conferência feita (item recebido confere com o pedido -- soma a quantidade automaticamente em Controle Geral, se um brinde do catálogo foi escolhido acima)</label></div>
           <div><label>Observações</label><textarea id="brindesCompraFormObs" rows="2"></textarea></div>
           <div id="brindesCompraFormError" class="error" hidden></div>
           <div class="form-actions">
             <button id="brindesCompraFormSave" class="btn-primary">Salvar</button>
             <button id="brindesCompraFormCancel" class="btn-secondary">Cancelar</button>
+          </div>
+
+          <div id="brindesCompraParcelasWrap" hidden style="margin-top:16px;border-top:1px solid var(--border,#ddd);padding-top:12px;">
+            <h4 style="margin:0 0 8px;">Parcelamento</h4>
+            <p class="muted" style="margin:0 0 8px;">Cada parcela marcada como paga, com marca e fluxo já escolhidos acima, cai automaticamente no Budget do mês do pagamento.</p>
+            <div id="brindesCompraParcelasList"></div>
+            <div class="form-row" style="margin-top:8px;">
+              <div><label>Valor da parcela (R$)</label><input id="brindesCompraParcelaNovoValor" type="number" step="0.01"></div>
+              <div><label>Data de pagamento</label><input id="brindesCompraParcelaNovaData" type="date"></div>
+            </div>
+            <button type="button" class="btn-secondary" id="brindesCompraParcelaAddBtn">+ Adicionar parcela</button>
           </div>
         </div>
 

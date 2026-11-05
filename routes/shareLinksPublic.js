@@ -20,6 +20,8 @@ const RESOURCE_LABEL_PT = {
   campanhaCooperada: 'Campanha Cooperada',
   // 68ª rodada
   expositoresEstoque: 'Controle de Expositores',
+  // 144ª rodada
+  expositoresTotalMensal: 'Expositores — Total Mensal',
   concorrencia: 'Análise de Concorrência',
   concorrenciaItem: 'Análise de Concorrência',
   // 108ª rodada

@@ -224,6 +224,65 @@ router.get('/estoque/public/:token', (req, res) => {
   res.json({ brand: link.scopeKey, items });
 });
 
+// 144ª rodada, pedido da Raquel: "importante ter um link externo também
+// para o total mensal" -- recurso PRÓPRIO (não reaproveita o de
+// Controle de Expositores acima), porque a aba "Total Mensal" não é por
+// marca, já soma as 2 juntas -- `scopeKey` fixo 'geral', mesmo espírito
+// de outros recursos sem separação por marca.
+function computeTotalMensalAgregado() {
+  const groups = {};
+  db.get('expositoresLancamentosMensais').value().forEach((l) => {
+    const key = l.year + '-' + l.month;
+    if (!groups[key]) groups[key] = { year: l.year, month: l.month, totalUnidades: 0, totalValor: 0 };
+    groups[key].totalUnidades += Number(l.totalUnidades) || 0;
+    groups[key].totalValor += Number(l.totalValor) || 0;
+  });
+  return Object.values(groups).sort((a, b) => (b.year - a.year) || (b.month - a.month));
+}
+router.get('/lancamentos-mensais/total-mensal/public-link', requireAuth, requireExpositoresEdit, (req, res) => {
+  const link = shareLinks.getLink('expositoresTotalMensal', 'geral');
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/lancamentos-mensais/total-mensal/public-link/generate', requireAuth, requireExpositoresEdit, (req, res) => {
+  const token = shareLinks.generateLink('expositoresTotalMensal', 'geral', req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'expositoresTotalMensal:geral', entityLabel: 'Expositores · Total Mensal', action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/lancamentos-mensais/total-mensal/public-link', requireAuth, requireExpositoresEdit, (req, res) => {
+  shareLinks.revokeLink('expositoresTotalMensal', 'geral');
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'expositoresTotalMensal:geral', entityLabel: 'Expositores · Total Mensal', action: 'revoke_public_link' });
+  res.json({ ok: true });
+});
+router.get('/lancamentos-mensais/total-mensal/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'expositoresTotalMensal') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  res.json({ items: computeTotalMensalAgregado() });
+});
+
+// 144ª rodada, pedido da Raquel: "opção de adicionar novos expositores no
+// controle" -- até aqui só existiam os itens do seed original (1x, na
+// 68ª/70ª rodada), sem nenhum jeito de cadastrar um item novo depois.
+// Mesmo conjunto de campos aceitos do PUT logo abaixo (EDITABLE_FIELDS),
+// os 4 calculados sempre saindo de computeDerived -- nunca aceitos direto
+// do formulário, mesmo cuidado de sempre.
+router.post('/estoque', requireAuth, requireExpositoresEdit, (req, res) => {
+  const b = req.body || {};
+  if (!BRANDS.includes(b.brand)) return res.status(400).json({ error: 'Escolha a marca.' });
+  if (!str(b.codigoEntrada) && !str(b.descricaoEntrada)) return res.status(400).json({ error: 'Informe ao menos o código ou a descrição de entrada.' });
+  const now = new Date().toISOString();
+  const row = { id: nanoid(), brand: b.brand, updatedAt: now };
+  // Mesma regra de conversão já usada no PUT logo abaixo -- campo vazio
+  // ou ausente vira null (nunca 0 "falso"), só os que têm número de
+  // verdade viram número.
+  EDITABLE_FIELDS.forEach((k) => {
+    row[k] = NUMERIC_FIELDS.has(k) ? (b[k] === '' || b[k] === undefined ? null : Number(b[k]) || 0) : str(b[k] || '');
+  });
+  Object.assign(row, computeDerived(row));
+  db.get('expositoresEstoque').push(row).write();
+  logAudit({ user: req.user, entityType: 'expositorEstoque', entityId: row.id, entityLabel: row.descricaoEntrada || row.codigoEntrada, action: 'create' });
+  res.json({ item: row });
+});
+
 router.put('/estoque/:id', requireAuth, requireExpositoresEdit, (req, res) => {
   const existing = db.get('expositoresEstoque').find({ id: req.params.id }).value();
   if (!existing) return res.status(404).json({ error: 'Item não encontrado.' });
@@ -345,6 +404,21 @@ router.post('/lancamentos-mensais/lancar', requireAuth, requireExpositoresEdit, 
   });
 });
 
+// 144ª rodada, pedido da Raquel: "na aba de lançamento mensal no budget,
+// deve ter a opção de excluir o lançamento total mensal também" -- até
+// aqui só dava pra lançar (criar/substituir), nunca pra tirar de vez.
+// Exclui os 2 lugares de uma vez (mesmo espírito de sempre: nunca deixar
+// lançamento "fantasma" no Budget) -- o registro de histórico aqui E o
+// budgetEntry que ele tinha gerado, se ainda existir.
+router.delete('/lancamentos-mensais/:id', requireAuth, requireExpositoresEdit, (req, res) => {
+  const existing = db.get('expositoresLancamentosMensais').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Lançamento não encontrado.' });
+  if (existing.budgetEntryId) db.get('budgetEntries').remove({ id: existing.budgetEntryId }).write();
+  db.get('expositoresLancamentosMensais').remove({ id: req.params.id }).write();
+  logAudit({ user: req.user, entityType: 'expositoresLancamentoMensal', entityId: existing.id, entityLabel: `${BRAND_LABEL_PT[existing.brand]} · ${existing.month}/${existing.year}`, action: 'delete' });
+  res.json({ ok: true });
+});
+
 // ---------- Catálogo (68ª rodada, pedido da Raquel: "adicione no sub
 // menu expositores- Catálogo... separe por marcas... a opção de colocar
 // o arquivo do catálogo atualizado de cada marca") -- mesmo módulo
@@ -420,11 +494,34 @@ function findOrcamentoOr404(req, res) {
   return orc;
 }
 
+// 144ª rodada -- cada expositor dentro do orçamento (ver comentário grande
+// mais abaixo, antes do POST /orcamentos).
+function findExpositorEnvolvidoOr404(orc, expositorId, res) {
+  const exp = (orc.expositores || []).find((e) => e.id === expositorId);
+  if (!exp) {
+    res.status(404).json({ error: 'Expositor não encontrado neste orçamento.' });
+    return null;
+  }
+  return exp;
+}
+
+function serializeExpositorEnvolvido(exp) {
+  return Object.assign({}, exp, {
+    imagens: exp.imagens || [],
+    desenhoTecnico: exp.desenhoTecnico || [],
+    fornecedores: exp.fornecedores || []
+  });
+}
+
 function serializeOrcamento(orc) {
   return Object.assign({}, orc, {
-    imagens: orc.imagens || [],
-    desenhoTecnico: orc.desenhoTecnico || [],
-    fornecedores: orc.fornecedores || []
+    expositores: (orc.expositores || []).map(serializeExpositorEnvolvido),
+    fluxo: orc.fluxo || null,
+    formaPagamento: orc.formaPagamento || '',
+    parcelas: orc.parcelas || [],
+    arquivoOrcamento: orc.arquivoOrcamento || [],
+    aprovado: !!orc.aprovado,
+    dataPrimeiroPedido: orc.dataPrimeiroPedido || null
   });
 }
 
@@ -435,39 +532,70 @@ router.get('/orcamentos', requireAuth, (req, res) => {
   res.json({ canEdit: canEdit(req), items: rows.map(serializeOrcamento) });
 });
 
+// 144ª rodada, pedido da Raquel: "em orçamentos, deve ter o fluxo,
+// fornecedor (lista puxada do menu fornecedores), arquivo do orçamento, e
+// opção de colocar mais de um tipo de expositor no mesmo orçamento...
+// Ano de lançamento, forma de pagamento e datas. Deve ter a opção de
+// marcar se o orçamento foi aprovado ou não, e aí aparece a opção de
+// colocar data do primeiro pedido. Os pedidos de orçamentos fechados não
+// devem entrar automaticamente no budget, só entram lá na fase de
+// controle" -- reestruturação grande, confirmada com a Raquel antes de
+// mexer (perguntas feitas nesta mesma rodada):
+//   - a comparação de fornecedores é POR expositor (cada expositor dentro
+//     do orçamento tem a própria lista, igual já era antes -- só que
+//     agora um orçamento pode ter mais de um expositor).
+//   - "datas" é parcelamento de verdade (lista de data+valor), só que só
+//     informativo -- NUNCA lança automaticamente no Budget (ela confirmou
+//     "os pedidos de orçamentos fechados, não devem entrar
+//     automaticamente no budget. Eles só entram lá na fase de controle"
+//     -- ou seja, continua sendo só o "Lançar no Budget" de Controle de
+//     Expositores, inalterado, que de fato sincroniza).
+// Todo orçamento continua nascendo com pelo meno 1 expositor (o nome
+// pedido na criação) -- outros entram depois por
+// POST /orcamentos/:id/expositores. Migração dos orçamentos já existentes
+// (formato antigo, 1 expositor só, direto no documento) em db.js -- nunca
+// perde orçamento real já cadastrado.
 router.post('/orcamentos', requireAuth, requireExpositoresEdit, (req, res) => {
-  const { brand, nome, anoLancamento } = req.body || {};
+  const { brand, nome, anoLancamento, fluxo, formaPagamento } = req.body || {};
   if (!BRANDS.includes(brand)) return res.status(400).json({ error: 'Escolha a marca.' });
   if (!str(nome)) return res.status(400).json({ error: 'Informe o nome do expositor.' });
+  const now = new Date().toISOString();
   const orc = {
     id: nanoid(),
     brand,
-    nome: str(nome),
     anoLancamento: numOrNull(anoLancamento),
-    imagens: [],
-    desenhoTecnico: [],
-    fornecedores: [],
-    createdAt: new Date().toISOString(),
+    fluxo: fluxo && (FLUXOS_BY_BRAND[brand] || []).includes(fluxo) ? fluxo : null,
+    formaPagamento: str(formaPagamento),
+    parcelas: [],
+    arquivoOrcamento: [],
+    aprovado: false,
+    dataPrimeiroPedido: null,
+    expositores: [{ id: nanoid(), nome: str(nome), imagens: [], desenhoTecnico: [], fornecedores: [] }],
+    createdAt: now,
     createdBy: req.user.id,
-    updatedAt: new Date().toISOString()
+    updatedAt: now
   };
   db.get('expositoresOrcamentos').push(orc).write();
-  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'create' });
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: nome, action: 'create' });
   res.json({ item: serializeOrcamento(orc) });
 });
 
+// Campos do ORÇAMENTO em si (não de um expositor específico dentro dele).
 router.put('/orcamentos/:id', requireAuth, requireExpositoresEdit, (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
-  const { nome, anoLancamento } = req.body || {};
+  const { anoLancamento, fluxo, formaPagamento, aprovado, dataPrimeiroPedido } = req.body || {};
   const updates = { updatedAt: new Date().toISOString() };
-  if (nome !== undefined) {
-    if (!str(nome)) return res.status(400).json({ error: 'Informe o nome do expositor.' });
-    updates.nome = str(nome);
-  }
   if (anoLancamento !== undefined) updates.anoLancamento = numOrNull(anoLancamento);
+  if (fluxo !== undefined) updates.fluxo = fluxo && (FLUXOS_BY_BRAND[orc.brand] || []).includes(fluxo) ? fluxo : null;
+  if (formaPagamento !== undefined) updates.formaPagamento = str(formaPagamento);
+  if (aprovado !== undefined) updates.aprovado = !!aprovado;
+  // "data do primeiro pedido" só faz sentido com o orçamento aprovado --
+  // aceita o valor de qualquer forma (nunca trava a edição por ordem de
+  // cliques), só o FRONT que só mostra o campo quando aprovado=true.
+  if (dataPrimeiroPedido !== undefined) updates.dataPrimeiroPedido = str(dataPrimeiroPedido) || null;
   db.get('expositoresOrcamentos').find({ id: orc.id }).assign(updates).write();
-  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: updates.nome || orc.nome, action: 'update' });
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: (orc.expositores || []).map((e) => e.nome).join(', '), action: 'update' });
   res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
 });
 
@@ -477,75 +605,216 @@ router.delete('/orcamentos/:id', requireAuth, requireExpositoresEdit, (req, res)
   db.get('expositoresOrcamentos').remove({ id: orc.id }).write();
   const dir = path.join(orcamentoUploadsRoot, orc.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
-  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'delete' });
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: (orc.expositores || []).map((e) => e.nome).join(', '), action: 'delete' });
   res.json({ ok: true });
 });
 
-// ---- imagens (várias, cada upload soma -- nunca substitui sozinho) ----
-router.post('/orcamentos/:id/imagens', requireAuth, requireExpositoresEdit, uploadOrcamento.array('files', 20), (req, res) => {
+// ---- lista de "tipos de expositor" dentro do mesmo orçamento (144ª
+// rodada) -- cada um com seu nome/imagens/desenho técnico/fornecedores
+// próprios. Nunca deixa ficar sem nenhum (um orçamento sempre representa
+// pelo menos 1 expositor). ----
+router.post('/orcamentos/:id/expositores', requireAuth, requireExpositoresEdit, (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
+  const { nome } = req.body || {};
+  if (!str(nome)) return res.status(400).json({ error: 'Informe o nome do expositor.' });
+  const novoExpositor = { id: nanoid(), nome: str(nome), imagens: [], desenhoTecnico: [], fornecedores: [] };
+  const expositores = (orc.expositores || []).concat([novoExpositor]);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: nome, action: 'update', details: `Expositor "${nome}" adicionado ao orçamento` });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.put('/orcamentos/:id/expositores/:expositorId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  if (!findExpositorEnvolvidoOr404(orc, req.params.expositorId, res)) return;
+  const { nome } = req.body || {};
+  if (!str(nome)) return res.status(400).json({ error: 'Informe o nome do expositor.' });
+  const expositores = (orc.expositores || []).map((e) => (e.id === req.params.expositorId ? Object.assign({}, e, { nome: str(nome) }) : e));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.delete('/orcamentos/:id/expositores/:expositorId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const alvo = findExpositorEnvolvidoOr404(orc, req.params.expositorId, res);
+  if (!alvo) return;
+  if ((orc.expositores || []).length <= 1) {
+    return res.status(400).json({ error: 'Um orçamento precisa ter pelo menos 1 expositor -- exclua o orçamento inteiro em vez disso.' });
+  }
+  const expositores = (orc.expositores || []).filter((e) => e.id !== req.params.expositorId);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
+  // imagens/desenho técnico desse expositor ficam órfãs em disco (mesma
+  // pasta do orçamento inteiro, sem separação por expositor até aqui) --
+  // removidas 1 por 1, nunca apaga a pasta toda (os outros expositores
+  // continuam com arquivos lá).
+  (alvo.imagens || []).concat(alvo.desenhoTecnico || []).forEach((f) => {
+    const diskPath = path.join(__dirname, '..', 'data', f.url.replace(/^\//, ''));
+    if (fs.existsSync(diskPath)) { try { fs.rmSync(diskPath, { force: true }); } catch (e) { /* ignora */ } }
+  });
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: alvo.nome, action: 'update', details: `Expositor "${alvo.nome}" removido do orçamento` });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+// ---- imagens (por expositor dentro do orçamento, várias, cada upload
+// soma -- nunca substitui sozinho) ----
+router.post('/orcamentos/:id/expositores/:expositorId/imagens', requireAuth, requireExpositoresEdit, uploadOrcamento.array('files', 20), (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const exp = findExpositorEnvolvidoOr404(orc, req.params.expositorId, res);
+  if (!exp) return;
   const files = (req.files || []).map((f) => ({
     id: nanoid(), name: f.originalname, url: `/uploads/expositores-orcamentos/${orc.id}/${f.filename}`
   }));
   if (files.length === 0) return res.status(400).json({ error: 'Selecione ao menos uma imagem.' });
-  const imagens = (orc.imagens || []).concat(files);
-  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ imagens, updatedAt: new Date().toISOString() }).write();
-  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'update', details: `${files.length} imagem(ns) adicionada(s)` });
+  const imagens = (exp.imagens || []).concat(files);
+  const expositores = (orc.expositores || []).map((e) => (e.id === exp.id ? Object.assign({}, e, { imagens }) : e));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: exp.nome, action: 'update', details: `${files.length} imagem(ns) adicionada(s)` });
   res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
 });
 
-router.delete('/orcamentos/:id/imagens/:fileId', requireAuth, requireExpositoresEdit, (req, res) => {
+router.delete('/orcamentos/:id/expositores/:expositorId/imagens/:fileId', requireAuth, requireExpositoresEdit, (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
-  const target = (orc.imagens || []).find((f) => f.id === req.params.fileId);
+  const exp = findExpositorEnvolvidoOr404(orc, req.params.expositorId, res);
+  if (!exp) return;
+  const target = (exp.imagens || []).find((f) => f.id === req.params.fileId);
   if (!target) return res.status(404).json({ error: 'Imagem não encontrada.' });
-  const imagens = (orc.imagens || []).filter((f) => f.id !== req.params.fileId);
-  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ imagens, updatedAt: new Date().toISOString() }).write();
+  const imagens = (exp.imagens || []).filter((f) => f.id !== req.params.fileId);
+  const expositores = (orc.expositores || []).map((e) => (e.id === exp.id ? Object.assign({}, e, { imagens }) : e));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
   const diskPath = path.join(__dirname, '..', 'data', target.url.replace(/^\//, ''));
   if (fs.existsSync(diskPath)) fs.rmSync(diskPath, { force: true });
   res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
 });
 
-// ---- desenho técnico (mesmo padrão das imagens, coleção separada) ----
-router.post('/orcamentos/:id/desenho-tecnico', requireAuth, requireExpositoresEdit, uploadOrcamento.array('files', 20), (req, res) => {
+// ---- desenho técnico (por expositor, mesmo padrão das imagens) ----
+router.post('/orcamentos/:id/expositores/:expositorId/desenho-tecnico', requireAuth, requireExpositoresEdit, uploadOrcamento.array('files', 20), (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const exp = findExpositorEnvolvidoOr404(orc, req.params.expositorId, res);
+  if (!exp) return;
+  const files = (req.files || []).map((f) => ({
+    id: nanoid(), name: f.originalname, url: `/uploads/expositores-orcamentos/${orc.id}/${f.filename}`
+  }));
+  if (files.length === 0) return res.status(400).json({ error: 'Selecione ao menos um arquivo.' });
+  const desenhoTecnico = (exp.desenhoTecnico || []).concat(files);
+  const expositores = (orc.expositores || []).map((e) => (e.id === exp.id ? Object.assign({}, e, { desenhoTecnico }) : e));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: exp.nome, action: 'update', details: `${files.length} arquivo(s) de desenho técnico adicionado(s)` });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.delete('/orcamentos/:id/expositores/:expositorId/desenho-tecnico/:fileId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const exp = findExpositorEnvolvidoOr404(orc, req.params.expositorId, res);
+  if (!exp) return;
+  const target = (exp.desenhoTecnico || []).find((f) => f.id === req.params.fileId);
+  if (!target) return res.status(404).json({ error: 'Arquivo não encontrado.' });
+  const desenhoTecnico = (exp.desenhoTecnico || []).filter((f) => f.id !== req.params.fileId);
+  const expositores = (orc.expositores || []).map((e) => (e.id === exp.id ? Object.assign({}, e, { desenhoTecnico }) : e));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
+  const diskPath = path.join(__dirname, '..', 'data', target.url.replace(/^\//, ''));
+  if (fs.existsSync(diskPath)) fs.rmSync(diskPath, { force: true });
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+// ---- arquivo do orçamento em si (144ª rodada, pedido da Raquel: "arquivo
+// do orçamento") -- NO NÍVEL DO ORÇAMENTO, não por expositor (é o
+// documento/PDF da cotação inteira, não uma imagem de um expositor
+// específico). Mesmo padrão de sempre: soma, nunca substitui sozinho. ----
+router.post('/orcamentos/:id/arquivo', requireAuth, requireExpositoresEdit, uploadOrcamento.array('files', 20), (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
   const files = (req.files || []).map((f) => ({
     id: nanoid(), name: f.originalname, url: `/uploads/expositores-orcamentos/${orc.id}/${f.filename}`
   }));
   if (files.length === 0) return res.status(400).json({ error: 'Selecione ao menos um arquivo.' });
-  const desenhoTecnico = (orc.desenhoTecnico || []).concat(files);
-  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ desenhoTecnico, updatedAt: new Date().toISOString() }).write();
-  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'update', details: `${files.length} arquivo(s) de desenho técnico adicionado(s)` });
+  const arquivoOrcamento = (orc.arquivoOrcamento || []).concat(files);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ arquivoOrcamento, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: (orc.expositores || []).map((e) => e.nome).join(', '), action: 'update', details: `${files.length} arquivo(s) do orçamento adicionado(s)` });
   res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
 });
 
-router.delete('/orcamentos/:id/desenho-tecnico/:fileId', requireAuth, requireExpositoresEdit, (req, res) => {
+router.delete('/orcamentos/:id/arquivo/:fileId', requireAuth, requireExpositoresEdit, (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
-  const target = (orc.desenhoTecnico || []).find((f) => f.id === req.params.fileId);
+  const target = (orc.arquivoOrcamento || []).find((f) => f.id === req.params.fileId);
   if (!target) return res.status(404).json({ error: 'Arquivo não encontrado.' });
-  const desenhoTecnico = (orc.desenhoTecnico || []).filter((f) => f.id !== req.params.fileId);
-  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ desenhoTecnico, updatedAt: new Date().toISOString() }).write();
+  const arquivoOrcamento = (orc.arquivoOrcamento || []).filter((f) => f.id !== req.params.fileId);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ arquivoOrcamento, updatedAt: new Date().toISOString() }).write();
   const diskPath = path.join(__dirname, '..', 'data', target.url.replace(/^\//, ''));
   if (fs.existsSync(diskPath)) fs.rmSync(diskPath, { force: true });
   res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
 });
 
-// ---- empresas orçadas ("fornecedores") -- planilha comparativa, quantas
-// forem necessárias por expositor, no máximo 1 marcada como escolhida. ----
-router.post('/orcamentos/:id/fornecedores', requireAuth, requireExpositoresEdit, (req, res) => {
+// ---- parcelamento (144ª rodada, pedido da Raquel: "forma de pagamento e
+// datas" -- confirmado com ela que é parcelamento de verdade, data+valor
+// por parcela, mas SÓ INFORMATIVO: "os pedidos de orçamentos fechados,
+// não devem entrar automaticamente no budget. Eles só entram lá na fase
+// de controle" -- diferente de Brindes Compras/Influencers (155ª rodada),
+// aqui NUNCA cria lançamento em budgetEntries. Quem sincroniza com o
+// Budget continua sendo só "Lançar no Budget" de Controle de Expositores,
+// que ela confirmou que já está OK do jeito que é. ----
+router.post('/orcamentos/:id/parcelas', requireAuth, requireExpositoresEdit, (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
+  const { valor, dataPagamento } = req.body || {};
+  const valorNum = numOrNull(valor);
+  if (valorNum === null) return res.status(400).json({ error: 'Informe o valor da parcela.' });
+  const now = new Date().toISOString();
+  const parcela = { id: nanoid(), valor: valorNum, dataPagamento: str(dataPagamento) || null, pago: false, createdAt: now, updatedAt: now };
+  const parcelas = (orc.parcelas || []).concat([parcela]);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ parcelas, updatedAt: now }).write();
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.put('/orcamentos/:id/parcelas/:parcelaId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const before = (orc.parcelas || []).find((p) => p.id === req.params.parcelaId);
+  if (!before) return res.status(404).json({ error: 'Parcela não encontrada.' });
+  const { valor, dataPagamento, pago } = req.body || {};
+  const now = new Date().toISOString();
+  const patch = { updatedAt: now };
+  if (valor !== undefined) patch.valor = numOrNull(valor);
+  if (dataPagamento !== undefined) patch.dataPagamento = str(dataPagamento) || null;
+  if (pago !== undefined) patch.pago = !!pago;
+  const parcelas = (orc.parcelas || []).map((p) => (p.id === req.params.parcelaId ? Object.assign({}, p, patch) : p));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ parcelas, updatedAt: now }).write();
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+router.delete('/orcamentos/:id/parcelas/:parcelaId', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const parcelas = (orc.parcelas || []).filter((p) => p.id !== req.params.parcelaId);
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ parcelas, updatedAt: new Date().toISOString() }).write();
+  res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
+});
+
+// ---- empresas orçadas ("fornecedores"), por expositor -- planilha
+// comparativa, quantas forem necessárias, no máximo 1 marcada como
+// escolhida. Confirmado com a Raquel que fica POR expositor (não 1 lista
+// só pro orçamento inteiro). O campo `fornecedor` continua texto livre
+// (nunca referência rígida a um cadastro) -- o FRONT sugere os já
+// cadastrados em Fornecedores (datalist, GET /api/fornecedores), mesmo
+// padrão já usado em Brindes Compras (155ª rodada), mas sempre aceita
+// digitar um nome novo também. ----
+router.post('/orcamentos/:id/expositores/:expositorId/fornecedores', requireAuth, requireExpositoresEdit, (req, res) => {
+  const orc = findOrcamentoOr404(req, res);
+  if (!orc) return;
+  const exp = findExpositorEnvolvidoOr404(orc, req.params.expositorId, res);
+  if (!exp) return;
   const { fornecedor, valor, material, prazoEntrega, pedidoMinimo, data } = req.body || {};
   if (!str(fornecedor)) return res.status(400).json({ error: 'Informe o nome do fornecedor.' });
   const linha = {
     id: nanoid(),
     fornecedor: str(fornecedor),
-    // 79ª rodada, pedido da Raquel: "coloque filtro tbm, modelo, data,
-    // fornecedor, status" -- data da cotação desse fornecedor (não
-    // existia nenhum campo de data em Orçamentos antes).
     data: str(data) || null,
     valor: numOrNull(valor),
     material: str(material),
@@ -554,29 +823,22 @@ router.post('/orcamentos/:id/fornecedores', requireAuth, requireExpositoresEdit,
     escolhido: false,
     createdAt: new Date().toISOString()
   };
-  const fornecedores = (orc.fornecedores || []).concat([linha]);
-  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ fornecedores, updatedAt: new Date().toISOString() }).write();
-  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: orc.nome, action: 'update', details: `Fornecedor adicionado: ${linha.fornecedor}` });
+  const fornecedores = (exp.fornecedores || []).concat([linha]);
+  const expositores = (orc.expositores || []).map((e) => (e.id === exp.id ? Object.assign({}, e, { fornecedores }) : e));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'expositorOrcamento', entityId: orc.id, entityLabel: exp.nome, action: 'update', details: `Fornecedor adicionado: ${linha.fornecedor}` });
   res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
 });
 
-router.put('/orcamentos/:id/fornecedores/:fornecedorId', requireAuth, requireExpositoresEdit, (req, res) => {
+router.put('/orcamentos/:id/expositores/:expositorId/fornecedores/:fornecedorId', requireAuth, requireExpositoresEdit, (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
-  const fornecedores = orc.fornecedores || [];
+  const exp = findExpositorEnvolvidoOr404(orc, req.params.expositorId, res);
+  if (!exp) return;
+  const fornecedores = exp.fornecedores || [];
   const alvo = fornecedores.find((f) => f.id === req.params.fornecedorId);
   if (!alvo) return res.status(404).json({ error: 'Fornecedor não encontrado.' });
   const { fornecedor, valor, material, prazoEntrega, pedidoMinimo, escolhido, data } = req.body || {};
-  // 79ª rodada, pedido da Raquel: "o status tbm deve ter a opção de ser
-  // editado" (status = o campo `escolhido`) -- antes só dava pra marcar
-  // um fornecedor como escolhido (o botão "Escolher" chamava esta mesma
-  // rota com `escolhido:true`); não existia jeito de DESMARCAR de volta
-  // sem escolher outro no lugar. `escolhido === false` explícito
-  // (distinto de undefined) agora desmarca esse fornecedor sem mexer nos
-  // outros. Marcar um como TRUE continua desmarcando qualquer outro
-  // automaticamente -- "Quando selecionar um, deve ter qual foi o
-  // fornecedor escolhido" só faz sentido como uma escolha ÚNICA por
-  // expositor, pra comparação.
   const novaLista = fornecedores.map((f) => {
     if (f.id !== req.params.fornecedorId) {
       return escolhido === true ? Object.assign({}, f, { escolhido: false }) : f;
@@ -591,15 +853,19 @@ router.put('/orcamentos/:id/fornecedores/:fornecedorId', requireAuth, requireExp
     if (escolhido !== undefined) atualizado.escolhido = !!escolhido;
     return atualizado;
   });
-  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ fornecedores: novaLista, updatedAt: new Date().toISOString() }).write();
+  const expositores = (orc.expositores || []).map((e) => (e.id === exp.id ? Object.assign({}, e, { fornecedores: novaLista }) : e));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
   res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
 });
 
-router.delete('/orcamentos/:id/fornecedores/:fornecedorId', requireAuth, requireExpositoresEdit, (req, res) => {
+router.delete('/orcamentos/:id/expositores/:expositorId/fornecedores/:fornecedorId', requireAuth, requireExpositoresEdit, (req, res) => {
   const orc = findOrcamentoOr404(req, res);
   if (!orc) return;
-  const fornecedores = (orc.fornecedores || []).filter((f) => f.id !== req.params.fornecedorId);
-  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ fornecedores, updatedAt: new Date().toISOString() }).write();
+  const exp = findExpositorEnvolvidoOr404(orc, req.params.expositorId, res);
+  if (!exp) return;
+  const fornecedores = (exp.fornecedores || []).filter((f) => f.id !== req.params.fornecedorId);
+  const expositores = (orc.expositores || []).map((e) => (e.id === exp.id ? Object.assign({}, e, { fornecedores }) : e));
+  db.get('expositoresOrcamentos').find({ id: orc.id }).assign({ expositores, updatedAt: new Date().toISOString() }).write();
   res.json({ item: serializeOrcamento(db.get('expositoresOrcamentos').find({ id: orc.id }).value()) });
 });
 

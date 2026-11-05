@@ -9,6 +9,19 @@
 // expositor. Quando selecionar um, deve ter qual foi o fornecedor
 // escolhido."
 //
+// ATUALIZADO na 144ª rodada: a Raquel pediu "mais de um tipo de
+// expositor no mesmo orçamento" -- o recurso foi reestruturado (ver
+// comentário grande em routes/expositores.js antes do POST /orcamentos):
+// cada orçamento agora tem uma LISTA de "expositores envolvidos"
+// (`orc.expositores[]`), e nome/imagens/desenho técnico/fornecedores
+// moraram pra dentro de cada um deles. Este teste foi adaptado pros
+// novos endpoints (`/orcamentos/:id/expositores/:expositorId/...`) --
+// os cenários da 78ª rodada continuam todos cobertos, só que através do
+// 1º expositor do orçamento (criado junto com o POST /orcamentos). A
+// cobertura dos campos NOVOS da 144ª rodada (fluxo, forma de pagamento,
+// múltiplos expositores, arquivo do orçamento, parcelas, aprovação) está
+// em test-manual/expositoresOrcamentosReestruturacao144.test.js.
+//
 // Roda o server.js de verdade numa porta própria, com backup/restauração
 // do data/db.json real -- não mexe no banco de produção.
 const path = require('path');
@@ -79,7 +92,8 @@ async function run() {
   const semAcessoToken = await login('orcsemacesso78', '123456');
   check('usuários de teste criados', !!(editor && semAcesso));
 
-  // ---------- CRUD básico ----------
+  // ---------- CRUD básico (144ª rodada: POST cria o orçamento com o 1º
+  // expositor dentro de orc.expositores[0]) ----------
   const semNome = await fetch(`${BASE}/api/expositores/orcamentos`, { method: 'POST', headers: hj(editorToken), body: JSON.stringify({ brand: 'ghelplus' }) });
   check('criar sem nome é rejeitado (400)', semNome.status === 400);
 
@@ -90,81 +104,90 @@ async function run() {
     method: 'POST', headers: hj(editorToken),
     body: JSON.stringify({ brand: 'ghelplus', nome: 'Expositor Teste 78', anoLancamento: 2026 })
   }).then((r) => r.json()).then((d) => d.item);
-  check('expositor orçado criado com nome e ano', orc.nome === 'Expositor Teste 78' && orc.anoLancamento === 2026);
-  check('nasce sem imagens/desenho técnico/fornecedores', orc.imagens.length === 0 && orc.desenhoTecnico.length === 0 && orc.fornecedores.length === 0);
+  check('orçamento nasce com 1 expositor envolvido', orc.expositores.length === 1);
+  const expId = orc.expositores[0].id;
+  check('expositor orçado criado com nome e ano', orc.expositores[0].nome === 'Expositor Teste 78' && orc.anoLancamento === 2026);
+  check('nasce sem imagens/desenho técnico/fornecedores', orc.expositores[0].imagens.length === 0 && orc.expositores[0].desenhoTecnico.length === 0 && orc.expositores[0].fornecedores.length === 0);
 
   const listaGhelplus = await fetch(`${BASE}/api/expositores/orcamentos?brand=ghelplus`, { headers: h(semAcessoToken) }).then((r) => r.json());
   check('quem não pode editar AINDA CONSEGUE VER a lista (mesmo padrão do resto de Expositores)', listaGhelplus.items.some((it) => it.id === orc.id));
   check('GET devolve canEdit certo por pessoa (false pra quem não tem permissão)', listaGhelplus.canEdit === false);
 
-  const rename = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}`, { method: 'PUT', headers: hj(editorToken), body: JSON.stringify({ nome: 'Expositor Teste 78 Renomeado' }) }).then((r) => r.json()).then((d) => d.item);
-  check('editar nome/ano funciona', rename.nome === 'Expositor Teste 78 Renomeado');
+  const rename = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}`, { method: 'PUT', headers: hj(editorToken), body: JSON.stringify({ nome: 'Expositor Teste 78 Renomeado' }) }).then((r) => r.json()).then((d) => d.item);
+  check('editar nome do expositor envolvido funciona', rename.expositores.find((e) => e.id === expId).nome === 'Expositor Teste 78 Renomeado');
 
-  // ---------- Imagens ----------
+  // ---------- Imagens (144ª rodada: por expositor, não mais no orçamento direto) ----------
   const fdImg = new FormData();
   fdImg.append('files', new Blob(['fake-jpg'], { type: 'image/jpeg' }), 'foto1.jpg');
   fdImg.append('files', new Blob(['fake-jpg-2'], { type: 'image/jpeg' }), 'foto2.jpg');
-  const comImagens = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/imagens`, { method: 'POST', headers: h(editorToken), body: fdImg }).then((r) => r.json()).then((d) => d.item);
-  check('upload de 2 imagens de uma vez funciona', comImagens.imagens.length === 2);
+  const comImagens = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/imagens`, { method: 'POST', headers: h(editorToken), body: fdImg }).then((r) => r.json()).then((d) => d.item);
+  check('upload de 2 imagens de uma vez funciona', comImagens.expositores.find((e) => e.id === expId).imagens.length === 2);
 
-  const semImagemNenhuma = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/imagens`, { method: 'POST', headers: h(editorToken), body: new FormData() });
+  const semImagemNenhuma = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/imagens`, { method: 'POST', headers: h(editorToken), body: new FormData() });
   check('upload sem nenhum arquivo é rejeitado (400)', semImagemNenhuma.status === 400);
 
-  const imagemParaApagar = comImagens.imagens[0].id;
-  const semUmaImagem = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/imagens/${imagemParaApagar}`, { method: 'DELETE', headers: h(editorToken) }).then((r) => r.json()).then((d) => d.item);
-  check('remover 1 imagem funciona (sobra 1)', semUmaImagem.imagens.length === 1);
+  const imagemParaApagar = comImagens.expositores.find((e) => e.id === expId).imagens[0].id;
+  const semUmaImagem = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/imagens/${imagemParaApagar}`, { method: 'DELETE', headers: h(editorToken) }).then((r) => r.json()).then((d) => d.item);
+  check('remover 1 imagem funciona (sobra 1)', semUmaImagem.expositores.find((e) => e.id === expId).imagens.length === 1);
 
   // ---------- Desenho técnico ----------
   const fdDesenho = new FormData();
   fdDesenho.append('files', new Blob(['fake-pdf'], { type: 'application/pdf' }), 'desenho.pdf');
-  const comDesenho = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/desenho-tecnico`, { method: 'POST', headers: h(editorToken), body: fdDesenho }).then((r) => r.json()).then((d) => d.item);
-  check('upload de desenho técnico funciona (coleção separada de imagens)', comDesenho.desenhoTecnico.length === 1 && comDesenho.imagens.length === 1);
+  const comDesenho = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/desenho-tecnico`, { method: 'POST', headers: h(editorToken), body: fdDesenho }).then((r) => r.json()).then((d) => d.item);
+  const expComDesenho = comDesenho.expositores.find((e) => e.id === expId);
+  check('upload de desenho técnico funciona (coleção separada de imagens)', expComDesenho.desenhoTecnico.length === 1 && expComDesenho.imagens.length === 1);
 
   // ---------- Fornecedores (empresas orçadas) ----------
-  const f1 = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/fornecedores`, {
+  const f1Res = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/fornecedores`, {
     method: 'POST', headers: hj(editorToken),
     body: JSON.stringify({ fornecedor: 'Fornecedor A', valor: 1000, material: 'Aço inox', prazoEntrega: '15 dias', pedidoMinimo: '10 unidades' })
   }).then((r) => r.json()).then((d) => d.item);
-  check('1º fornecedor adicionado', f1.fornecedores.length === 1 && f1.fornecedores[0].fornecedor === 'Fornecedor A');
+  let expAtual = f1Res.expositores.find((e) => e.id === expId);
+  check('1º fornecedor adicionado', expAtual.fornecedores.length === 1 && expAtual.fornecedores[0].fornecedor === 'Fornecedor A');
 
-  const semNomeFornecedor = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/fornecedores`, { method: 'POST', headers: hj(editorToken), body: JSON.stringify({ valor: 500 }) });
+  const semNomeFornecedor = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/fornecedores`, { method: 'POST', headers: hj(editorToken), body: JSON.stringify({ valor: 500 }) });
   check('fornecedor sem nome é rejeitado (400)', semNomeFornecedor.status === 400);
 
-  const f2Res = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/fornecedores`, {
+  const f2Res = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/fornecedores`, {
     method: 'POST', headers: hj(editorToken),
     body: JSON.stringify({ fornecedor: 'Fornecedor B', valor: 800, material: 'Alumínio', prazoEntrega: '20 dias', pedidoMinimo: '5 unidades' })
   }).then((r) => r.json()).then((d) => d.item);
-  check('"quantos fornecedores forem necessários" -- 2º fornecedor também é aceito, sem limite', f2Res.fornecedores.length === 2);
-  const f2Id = f2Res.fornecedores.find((f) => f.fornecedor === 'Fornecedor B').id;
-  const f1Id = f2Res.fornecedores.find((f) => f.fornecedor === 'Fornecedor A').id;
+  expAtual = f2Res.expositores.find((e) => e.id === expId);
+  check('"quantos fornecedores forem necessários" -- 2º fornecedor também é aceito, sem limite', expAtual.fornecedores.length === 2);
+  const f2Id = expAtual.fornecedores.find((f) => f.fornecedor === 'Fornecedor B').id;
+  const f1Id = expAtual.fornecedores.find((f) => f.fornecedor === 'Fornecedor A').id;
 
-  check('nenhum fornecedor está marcado como escolhido ainda', f2Res.fornecedores.every((f) => f.escolhido === false));
+  check('nenhum fornecedor está marcado como escolhido ainda', expAtual.fornecedores.every((f) => f.escolhido === false));
 
-  const escolheu = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/fornecedores/${f2Id}`, {
+  const escolheuRes = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/fornecedores/${f2Id}`, {
     method: 'PUT', headers: hj(editorToken), body: JSON.stringify({ escolhido: true })
   }).then((r) => r.json()).then((d) => d.item);
-  check('marcar o Fornecedor B como escolhido funciona', escolheu.fornecedores.find((f) => f.id === f2Id).escolhido === true);
-  check('Fornecedor A continua NÃO escolhido', escolheu.fornecedores.find((f) => f.id === f1Id).escolhido === false);
+  let expEscolha = escolheuRes.expositores.find((e) => e.id === expId);
+  check('marcar o Fornecedor B como escolhido funciona', expEscolha.fornecedores.find((f) => f.id === f2Id).escolhido === true);
+  check('Fornecedor A continua NÃO escolhido', expEscolha.fornecedores.find((f) => f.id === f1Id).escolhido === false);
 
-  const trocouEscolha = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/fornecedores/${f1Id}`, {
+  const trocouEscolhaRes = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/fornecedores/${f1Id}`, {
     method: 'PUT', headers: hj(editorToken), body: JSON.stringify({ escolhido: true })
   }).then((r) => r.json()).then((d) => d.item);
-  check('"quando selecionar um" -- escolher o Fornecedor A agora desmarca o B automaticamente (só 1 escolhido por vez)', trocouEscolha.fornecedores.find((f) => f.id === f1Id).escolhido === true && trocouEscolha.fornecedores.find((f) => f.id === f2Id).escolhido === false);
+  let expTroca = trocouEscolhaRes.expositores.find((e) => e.id === expId);
+  check('"quando selecionar um" -- escolher o Fornecedor A agora desmarca o B automaticamente (só 1 escolhido por vez)', expTroca.fornecedores.find((f) => f.id === f1Id).escolhido === true && expTroca.fornecedores.find((f) => f.id === f2Id).escolhido === false);
 
-  const editouValor = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/fornecedores/${f1Id}`, {
+  const editouValorRes = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/fornecedores/${f1Id}`, {
     method: 'PUT', headers: hj(editorToken), body: JSON.stringify({ valor: 950 })
   }).then((r) => r.json()).then((d) => d.item);
-  check('editar só o valor de um fornecedor não mexe na escolha dele', editouValor.fornecedores.find((f) => f.id === f1Id).valor === 950 && editouValor.fornecedores.find((f) => f.id === f1Id).escolhido === true);
+  let expValor = editouValorRes.expositores.find((e) => e.id === expId);
+  check('editar só o valor de um fornecedor não mexe na escolha dele', expValor.fornecedores.find((f) => f.id === f1Id).valor === 950 && expValor.fornecedores.find((f) => f.id === f1Id).escolhido === true);
 
-  const semAcessoEscolher = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/fornecedores/${f2Id}`, { method: 'PUT', headers: hj(semAcessoToken), body: JSON.stringify({ escolhido: true }) });
+  const semAcessoEscolher = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/fornecedores/${f2Id}`, { method: 'PUT', headers: hj(semAcessoToken), body: JSON.stringify({ escolhido: true }) });
   check('quem não tem permissão não consegue mudar a escolha (403)', semAcessoEscolher.status === 403);
 
-  const apagouFornecedor = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/fornecedores/${f2Id}`, { method: 'DELETE', headers: h(editorToken) }).then((r) => r.json()).then((d) => d.item);
-  check('excluir um fornecedor funciona (sobra 1)', apagouFornecedor.fornecedores.length === 1);
+  const apagouFornecedorRes = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}/expositores/${expId}/fornecedores/${f2Id}`, { method: 'DELETE', headers: h(editorToken) }).then((r) => r.json()).then((d) => d.item);
+  let expApagou = apagouFornecedorRes.expositores.find((e) => e.id === expId);
+  check('excluir um fornecedor funciona (sobra 1)', expApagou.fornecedores.length === 1);
 
-  // ---------- Excluir o expositor inteiro ----------
+  // ---------- Excluir o orçamento inteiro ----------
   const delRes = await fetch(`${BASE}/api/expositores/orcamentos/${orc.id}`, { method: 'DELETE', headers: h(editorToken) });
-  check('excluir o expositor orçado funciona (200)', delRes.status === 200);
+  check('excluir o orçamento funciona (200)', delRes.status === 200);
   const listaDepois = await fetch(`${BASE}/api/expositores/orcamentos?brand=ghelplus`, { headers: h(adminToken) }).then((r) => r.json());
   check('depois de excluído, não aparece mais na lista', !listaDepois.items.some((it) => it.id === orc.id));
 

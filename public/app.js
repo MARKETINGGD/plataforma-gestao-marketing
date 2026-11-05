@@ -1459,7 +1459,7 @@
   // endpoint público daquele recurso específico (cada um serializa do seu
   // jeito). A tabela é montada na hora, já que cada recurso tem colunas
   // diferentes.
-  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias' };
+  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', expositoresTotalMensal: 'expositores/lancamentos-mensais/total-mensal', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias' };
   function publicTableHtml(headers, rows) {
     return `<table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '' : c}</td>`).join('')}</tr>`).join('')
@@ -1698,6 +1698,15 @@
         </div>
         <div id="sharePublicExpositoresEstoqueTable"></div>
       `;
+    } else if (resource === 'expositoresTotalMensal') {
+      // 144ª rodada, pedido da Raquel: "importante ter um link externo
+      // também para o total mensal" -- mesma tabela de MONTHS_FULL/
+      // fmtMoney já usada dentro da Papoi (renderExpositoresMensal), só
+      // que os dados já vêm agregados prontos do servidor.
+      const rows = data.items || [];
+      empty = rows.length === 0;
+      html = publicTableHtml(['Mês', 'Total de expositores (unid./mês)', 'Valor total (R$/mês)'],
+        rows.map((r) => [`${MONTHS_FULL[r.month - 1]}/${r.year}`, r.totalUnidades, fmtMoney(r.totalValor)]));
     } else if (resource === 'concorrencia') {
       // 68ª rodada: link agregado (lista inteira da marca/escopo) --
       // reaproveita o mesmo cartão comparativo usado dentro da Papoi.
@@ -10990,12 +10999,21 @@
     } catch (e) { alert(e.message); }
   }
 
-  // ---------- Orçamentos de Expositores (78ª rodada) ----------
-  // Pedido detalhado da Raquel: "Nome do expositor, ano de lançamento,
+  // ---------- Orçamentos de Expositores (78ª rodada, reestruturado na
+  // 144ª rodada) ----------
+  // Pedido original (78ª rodada): "Nome do expositor, ano de lançamento,
   // imagens, desenho técnico, a imagem dele deve aparecer ao lado do
   // nome... empresas orçadas (Fornecedor, valor, material, prazo de
   // entrega, pedido minimo), quantos fornecedores forem necessários...
   // quando selecionar um, deve ter qual foi o fornecedor escolhido."
+  // 144ª rodada, pedido da Raquel: fluxo, fornecedor puxado do cadastro,
+  // arquivo do orçamento, mais de um tipo de expositor no mesmo
+  // orçamento, forma de pagamento, parcelas (datas), aprovado/não
+  // aprovado + data do primeiro pedido -- ver comentário grande em
+  // routes/expositores.js antes do POST /orcamentos. A partir de agora
+  // CADA CARD É UM ORÇAMENTO (não mais 1 expositor) -- um orçamento
+  // sempre tem pelo menos 1 "expositor envolvido" (`orc.expositores[]`),
+  // podendo ter vários.
   let expositoresOrcamentosBrand = 'debacco';
   let expositoresOrcamentosItems = [];
   let expositoresOrcamentosCanEdit = false;
@@ -11014,15 +11032,50 @@
       expositoresOrcamentosItems = data.items || [];
       expositoresOrcamentosCanEdit = data.canEdit;
       $('#expositoresOrcamentosNewBtn').hidden = !expositoresOrcamentosCanEdit;
+      fillExpositoresOrcamentosNomeDatalist();
+      fillExpositoresFornecedoresDatalist();
       renderExpositoresOrcamentos();
     } catch (e) { alert(e.message); }
   }
 
-  function expositorOrcamentoMatchesModelo(it, query) {
+  // 144ª rodada: datalist com os nomes de expositor já cadastrados em
+  // QUALQUER orçamento dessa marca -- "ao clicar na aba do cadastro do
+  // nome do expositor, deve aparecer a lista dos cadastrados, e caso não
+  // tenha na lista, aí sim, podemos cadastrar um novo" -- é só sugestão
+  // (datalist), sempre aceita digitar um nome novo.
+  function fillExpositoresOrcamentosNomeDatalist() {
+    const nomes = new Set();
+    expositoresOrcamentosItems.forEach((orc) => (orc.expositores || []).forEach((e) => { if (e.nome) nomes.add(e.nome); }));
+    $('#expositoresOrcamentosNomeDatalist').innerHTML = Array.from(nomes).map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
+  }
+  // 144ª rodada, pedido da Raquel: "fornecedor, que deve aparecer uma
+  // lista que será puxada lá do menu fornecedores" -- mesmo padrão já
+  // usado em Brindes Compras (155ª rodada): datalist só sugere, o campo
+  // continua texto livre.
+  async function fillExpositoresFornecedoresDatalist() {
+    try {
+      const data = await api('/api/fornecedores');
+      $('#expositoresFornecedoresDatalist').innerHTML = (data.items || []).map((f) => `<option value="${escapeHtml(f.nome)}"></option>`).join('');
+    } catch (e) { /* datalist é só uma sugestão -- sem ela o campo continua funcionando como texto livre */ }
+  }
+  async function fillExpositoresOrcamentoFluxoSelect(brand, selected) {
+    const sel = $('#expositoresOrcamentosFormFluxo');
+    if (!brand) { sel.innerHTML = '<option value="">Escolha a marca primeiro...</option>'; return; }
+    if (!budgetFluxosByBrand[brand]) {
+      try {
+        const meta = await api('/api/budget/meta?brand=' + encodeURIComponent(brand));
+        budgetFluxosByBrand[brand] = meta.fluxos;
+      } catch (e) { /* sem acesso ao Budget dessa marca */ }
+    }
+    const fluxos = budgetFluxosByBrand[brand] || [];
+    sel.innerHTML = '<option value="">Sem fluxo ainda</option>' + fluxos.map((f) => `<option value="${escapeHtml(f)}"${f === selected ? ' selected' : ''}>${escapeHtml(f)}</option>`).join('');
+  }
+
+  function expositorOrcamentoMatchesModelo(exp, query) {
     if (!query) return true;
     const q = query.trim().toLowerCase();
     if (!q) return true;
-    return (it.nome || '').toLowerCase().includes(q);
+    return (exp.nome || '').toLowerCase().includes(q);
   }
 
   // Filtro por fornecedor/data/status -- roda em cima de cada LINHA de
@@ -11070,53 +11123,116 @@
     `;
   }
 
-  function orcamentoDetailsHtml(orc, fornecedoresOverride) {
-    const imagensHtml = (orc.imagens || []).map((f) => `
+  // 144ª rodada: antes, cada card era 1 expositor; agora cada card é 1
+  // orçamento, que pode conter vários "expositores envolvidos" -- esta
+  // função renderiza o bloco de UM expositor dentro do card (nome,
+  // imagens, desenho técnico, fornecedores), reutilizado para cada um.
+  function orcamentoExpositorSectionHtml(orc, exp) {
+    const imagensHtml = (exp.imagens || []).map((f) => `
       <div class="orcamento-file-thumb" data-imagem-item="${f.id}">
         <a href="${f.url}" target="_blank" rel="noopener"><img src="${f.url}" alt="${escapeHtml(f.name)}"></a>
         ${expositoresOrcamentosCanEdit ? `<button type="button" class="orcamento-file-remove" data-del-imagem="${f.id}" title="Remover">✕</button>` : ''}
       </div>
     `).join('') || '<p class="muted" style="font-size:12px;">Nenhuma imagem ainda.</p>';
-    const desenhoHtml = (orc.desenhoTecnico || []).map((f) => `
+    const desenhoHtml = (exp.desenhoTecnico || []).map((f) => `
       <div class="file-item">
         <a href="${f.url}" target="_blank" rel="noopener">📐 ${escapeHtml(f.name)}</a>
         ${expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link danger" data-del-desenho="${f.id}">Excluir</button>` : ''}
       </div>
     `).join('') || '<p class="muted" style="font-size:12px;">Nenhum arquivo de desenho técnico ainda.</p>';
     // Quando algum filtro de fornecedor/data/status está ativo, mostra só
-    // as linhas que batem (fornecedoresOverride); senão, mostra todas.
-    const fornecedoresSource = fornecedoresOverride || orc.fornecedores || [];
-    const fornecedoresRows = fornecedoresSource.map((f) => orcamentoFornecedorRowHtml(orc, f)).join('');
+    // as linhas que batem (exp.fornecedores já vem filtrado nesse caso --
+    // ver renderExpositoresOrcamentos); senão, mostra todas.
+    const fornecedoresSource = exp.fornecedores || [];
+    const fornecedoresRows = fornecedoresSource.map((f) => orcamentoFornecedorRowHtml(exp, f)).join('');
+    const podeRemoverExpositor = expositoresOrcamentosCanEdit && (orc.expositores || []).length > 1;
     return `
-      <div class="orcamento-files-row">
-        <div>
-          <b>Imagens</b>
-          <div class="orcamento-file-grid">${imagensHtml}</div>
-          ${expositoresOrcamentosCanEdit ? `<input type="file" accept="image/*" multiple data-upload-imagens="${orc.id}">` : ''}
+      <div class="orcamento-expositor-section" data-exp-section="${exp.id}" style="border:1px solid var(--border,#ddd);border-radius:8px;padding:10px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+          ${expositoresOrcamentosCanEdit
+            ? `<input type="text" class="expositor-nome-input" data-expositor-nome-input="${exp.id}" list="expositoresOrcamentosNomeDatalist" value="${escapeHtml(exp.nome)}" style="font-weight:600;flex:1;max-width:320px;">`
+            : `<b>${escapeHtml(exp.nome)}</b>`}
+          ${podeRemoverExpositor ? `<button type="button" class="btn-link danger" data-remove-expositor="${exp.id}">Remover este expositor</button>` : ''}
         </div>
-        <div>
-          <b>Desenho técnico</b>
-          <div>${desenhoHtml}</div>
-          ${expositoresOrcamentosCanEdit ? `<input type="file" multiple data-upload-desenho="${orc.id}">` : ''}
+        <div class="orcamento-files-row">
+          <div>
+            <b>Imagens</b>
+            <div class="orcamento-file-grid">${imagensHtml}</div>
+            ${expositoresOrcamentosCanEdit ? `<input type="file" accept="image/*" multiple data-upload-imagens="${exp.id}">` : ''}
+          </div>
+          <div>
+            <b>Desenho técnico</b>
+            <div>${desenhoHtml}</div>
+            ${expositoresOrcamentosCanEdit ? `<input type="file" multiple data-upload-desenho="${exp.id}">` : ''}
+          </div>
         </div>
+        <b style="display:block;margin-top:16px;">Empresas orçadas <span class="muted" style="font-weight:400;font-size:12px;">(compare e marque a escolhida)</span></b>
+        <table class="data-table" style="margin-top:6px;">
+          <thead><tr><th>Fornecedor</th><th>Data</th><th>Valor</th><th>Material</th><th>Prazo de entrega</th><th>Pedido mínimo</th><th>Status</th><th></th></tr></thead>
+          <tbody data-fornecedores-body="${exp.id}">${fornecedoresRows}</tbody>
+        </table>
+        ${fornecedoresSource.length === 0 ? '<p class="muted" style="font-size:12px;">Nenhum fornecedor orçado ainda.</p>' : ''}
+        ${expositoresOrcamentosCanEdit ? `
+          <div class="orcamento-fornecedor-add-row" data-fornecedor-add="${exp.id}">
+            <input type="text" placeholder="Fornecedor" list="expositoresFornecedoresDatalist" data-f-fornecedor>
+            <input type="date" placeholder="Data da cotação" data-f-data title="Data da cotação">
+            <input type="number" step="0.01" placeholder="Valor (R$)" data-f-valor>
+            <input type="text" placeholder="Material" data-f-material>
+            <input type="text" placeholder="Prazo de entrega" data-f-prazo>
+            <input type="text" placeholder="Pedido mínimo" data-f-pedido>
+            <button type="button" class="btn-secondary" data-add-fornecedor="${exp.id}">+ Adicionar fornecedor</button>
+          </div>
+        ` : ''}
       </div>
-      <b style="display:block;margin-top:16px;">Empresas orçadas <span class="muted" style="font-weight:400;font-size:12px;">(compare e marque a escolhida)</span></b>
-      <table class="data-table" style="margin-top:6px;">
-        <thead><tr><th>Fornecedor</th><th>Data</th><th>Valor</th><th>Material</th><th>Prazo de entrega</th><th>Pedido mínimo</th><th>Status</th><th></th></tr></thead>
-        <tbody data-fornecedores-body="${orc.id}">${fornecedoresRows}</tbody>
-      </table>
-      ${fornecedoresSource.length === 0 ? '<p class="muted" style="font-size:12px;">Nenhum fornecedor orçado ainda.</p>' : ''}
+    `;
+  }
+
+  // 144ª rodada: detalhes do card do ORÇAMENTO inteiro -- um bloco por
+  // expositor envolvido (orcamentoExpositorSectionHtml) + adicionar novo
+  // expositor + arquivo do orçamento (nível do orçamento, não por
+  // expositor) + parcelamento (só informativo, nunca lança no Budget) +
+  // aprovado/data do primeiro pedido.
+  function orcamentoDetailsHtml(orc, expositoresOverride) {
+    const expositoresList = expositoresOverride || orc.expositores || [];
+    const expositoresHtml = expositoresList.map((exp) => orcamentoExpositorSectionHtml(orc, exp)).join('');
+    const arquivoHtml = fileChipsHtml(orc.arquivoOrcamento, expositoresOrcamentosCanEdit, 'del-orc-arquivo');
+    const parcelas = orc.parcelas || [];
+    const parcelasHtml = parcelas.length ? parcelas.map((p) => `
+      <div class="form-row" data-orc-parcela-row="${p.id}" style="align-items:center;">
+        <div><input type="number" step="0.01" class="orc-parcela-valor-input" value="${p.valor != null ? p.valor : ''}" style="max-width:120px;"></div>
+        <div><input type="date" class="orc-parcela-data-input" value="${p.dataPagamento || ''}"></div>
+        <div><label><input type="checkbox" class="orc-parcela-pago-input" ${p.pago ? 'checked' : ''}> Pago <span class="muted" style="font-size:11px;">(informativo -- não lança no Budget)</span></label></div>
+        <div><button type="button" class="btn-link danger orc-parcela-del-btn">✕</button></div>
+      </div>
+    `).join('') : '<p class="muted" style="font-size:12px;">Nenhuma parcela lançada ainda.</p>';
+    return `
+      ${expositoresHtml}
       ${expositoresOrcamentosCanEdit ? `
-        <div class="orcamento-fornecedor-add-row" data-fornecedor-add="${orc.id}">
-          <input type="text" placeholder="Fornecedor" data-f-fornecedor>
-          <input type="date" placeholder="Data da cotação" data-f-data title="Data da cotação">
-          <input type="number" step="0.01" placeholder="Valor (R$)" data-f-valor>
-          <input type="text" placeholder="Material" data-f-material>
-          <input type="text" placeholder="Prazo de entrega" data-f-prazo>
-          <input type="text" placeholder="Pedido mínimo" data-f-pedido>
-          <button type="button" class="btn-secondary" data-add-fornecedor="${orc.id}">+ Adicionar fornecedor</button>
+        <div class="orcamento-expositor-add-row" data-expositor-add="${orc.id}" style="margin:8px 0 16px;">
+          <input type="text" placeholder="Nome do novo expositor" list="expositoresOrcamentosNomeDatalist" data-novo-expositor-nome>
+          <button type="button" class="btn-secondary" data-add-expositor="${orc.id}">+ Adicionar expositor</button>
         </div>
       ` : ''}
+      <div style="border-top:1px solid var(--border,#ddd);padding-top:12px;margin-top:4px;">
+        <b style="display:block;margin-bottom:6px;">Arquivo do orçamento</b>
+        <div>${arquivoHtml}</div>
+        ${expositoresOrcamentosCanEdit ? `<input type="file" multiple data-upload-orc-arquivo="${orc.id}" style="margin-top:6px;">` : ''}
+      </div>
+      <div style="border-top:1px solid var(--border,#ddd);padding-top:12px;margin-top:12px;">
+        <b style="display:block;margin-bottom:6px;">Parcelamento <span class="muted" style="font-weight:400;font-size:12px;">(só informativo -- pedido aprovado não entra automaticamente no Budget; quem sincroniza é o botão "Lançar no Budget" de Controle de Expositores)</span></b>
+        <div data-orc-parcelas-list="${orc.id}">${parcelasHtml}</div>
+        ${expositoresOrcamentosCanEdit ? `
+          <div class="form-row" data-orc-parcela-add="${orc.id}" style="margin-top:8px;align-items:flex-end;">
+            <div><label>Valor (R$)</label><input type="number" step="0.01" data-novo-parcela-valor></div>
+            <div><label>Data de pagamento</label><input type="date" data-novo-parcela-data></div>
+            <button type="button" class="btn-secondary" data-add-orc-parcela="${orc.id}">+ Adicionar parcela</button>
+          </div>
+        ` : ''}
+      </div>
+      <div style="border-top:1px solid var(--border,#ddd);padding-top:12px;margin-top:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <label><input type="checkbox" data-orc-aprovado="${orc.id}" ${orc.aprovado ? 'checked' : ''} ${expositoresOrcamentosCanEdit ? '' : 'disabled'}> Orçamento aprovado</label>
+        ${orc.aprovado ? `<label>Data do primeiro pedido <input type="date" data-orc-data-primeiro-pedido="${orc.id}" value="${orc.dataPrimeiroPedido || ''}" ${expositoresOrcamentosCanEdit ? '' : 'disabled'}></label>` : ''}
+      </div>
     `;
   }
 
@@ -11126,30 +11242,51 @@
     // LINHAS de fornecedor de cada expositor -- some da lista quem não
     // tiver nenhuma linha batendo, e abre sozinho ("Ver detalhes") quem
     // tiver, pra já mostrar a linha que bateu sem precisar clicar.
+    // 144ª rodada: agora cada card é um orçamento com vários expositores
+    // -- o filtro de modelo roda em cima dos expositores dentro do
+    // orçamento (o card some só se NENHUM expositor dele bater), e o
+    // filtro de fornecedor/data/status roda por expositor, mostrando só
+    // os expositores (e só as linhas deles) que bateram.
     const activeFornecedorFilters = hasActiveFornecedorFilters();
     const rows = expositoresOrcamentosItems
-      .filter((it) => expositorOrcamentoMatchesModelo(it, query))
-      .map((it) => {
-        if (!activeFornecedorFilters) return { orc: it, fornecedoresOverride: null };
-        const matched = (it.fornecedores || []).filter(orcamentoFornecedorMatchesFilters);
-        return matched.length > 0 ? { orc: it, fornecedoresOverride: matched } : null;
+      .map((orc) => {
+        const expositoresDoModelo = (orc.expositores || []).filter((e) => expositorOrcamentoMatchesModelo(e, query));
+        if (expositoresDoModelo.length === 0) return null;
+        if (!activeFornecedorFilters) return { orc, expositoresOverride: null };
+        const overrideList = expositoresDoModelo
+          .map((e) => {
+            const matched = (e.fornecedores || []).filter(orcamentoFornecedorMatchesFilters);
+            return matched.length > 0 ? Object.assign({}, e, { fornecedores: matched }) : null;
+          })
+          .filter(Boolean);
+        return overrideList.length > 0 ? { orc, expositoresOverride: overrideList } : null;
       })
       .filter(Boolean);
     const list = $('#expositoresOrcamentosList');
     $('#expositoresOrcamentosEmpty').hidden = rows.length > 0;
-    list.innerHTML = rows.map(({ orc, fornecedoresOverride }) => {
+    list.innerHTML = rows.map(({ orc, expositoresOverride }) => {
       // "a imagem dele deve aparecer ao lado do nome, para ficar mais
-      // visual" -- usa a 1ª imagem enviada como uma espécie de capa.
-      const capa = (orc.imagens || [])[0];
+      // visual" -- usa a 1ª imagem de qualquer expositor do orçamento
+      // como uma espécie de capa.
+      const todasImagens = [].concat(...(orc.expositores || []).map((e) => e.imagens || []));
+      const capa = todasImagens[0];
       const expanded = activeFornecedorFilters ? true : expositoresOrcamentosExpanded.has(orc.id);
+      const nomes = (orc.expositores || []).map((e) => e.nome).join(', ') || '(sem expositor)';
+      const totalFornecedores = (orc.expositores || []).reduce((sum, e) => sum + (e.fornecedores || []).length, 0);
+      const metaParts = [
+        orc.anoLancamento ? 'Ano de lançamento: ' + orc.anoLancamento : 'Ano de lançamento não informado',
+        (orc.expositores || []).length + ' expositor(es)',
+        totalFornecedores + ' fornecedor(es) orçado(s)'
+      ];
+      if (orc.fluxo) metaParts.push('Fluxo: ' + escapeHtml(orc.fluxo));
       return `
         <div class="compare-card" data-orc-card="${orc.id}">
           <div class="compare-card-head">
             <div style="display:flex;align-items:center;gap:12px;">
               ${capa ? `<img src="${capa.url}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex:0 0 auto;">` : '<div style="width:48px;height:48px;border-radius:8px;background:var(--bg);flex:0 0 auto;"></div>'}
               <div>
-                <h4>${escapeHtml(orc.nome)}</h4>
-                <div class="compare-card-meta">${orc.anoLancamento ? 'Ano de lançamento: ' + orc.anoLancamento : 'Ano de lançamento não informado'} · ${(orc.fornecedores || []).length} fornecedor(es) orçado(s)</div>
+                <h4>${escapeHtml(nomes)}${orc.aprovado ? ' <span class="muted" style="font-size:12px;font-weight:400;">✓ Aprovado</span>' : ''}</h4>
+                <div class="compare-card-meta">${metaParts.join(' · ')}</div>
               </div>
             </div>
             <span>
@@ -11157,7 +11294,7 @@
               ${expositoresOrcamentosCanEdit ? `<button type="button" class="btn-link" data-edit-orc="${orc.id}">Editar</button> <button type="button" class="btn-link danger" data-del-orc="${orc.id}">Excluir</button>` : ''}
             </span>
           </div>
-          <div class="orcamento-details" ${expanded ? '' : 'hidden'}>${expanded ? orcamentoDetailsHtml(orc, fornecedoresOverride) : ''}</div>
+          <div class="orcamento-details" ${expanded ? '' : 'hidden'}>${expanded ? orcamentoDetailsHtml(orc, expositoresOverride) : ''}</div>
         </div>
       `;
     }).join('');
@@ -11175,7 +11312,7 @@
     });
     $all('[data-del-orc]').forEach((b) => {
       b.onclick = async () => {
-        if (!confirm('Excluir este expositor orçado? Isso apaga também as imagens, desenho técnico e a lista de fornecedores.')) return;
+        if (!confirm('Excluir este orçamento inteiro? Isso apaga todos os expositores dele, imagens, desenho técnico, arquivos e a lista de fornecedores.')) return;
         try {
           await api('/api/expositores/orcamentos/' + b.dataset.delOrc, { method: 'DELETE' });
           expositoresOrcamentosExpanded.delete(b.dataset.delOrc);
@@ -11183,50 +11320,92 @@
         } catch (e) { alert(e.message); }
       };
     });
+    $all('[data-expositor-nome-input]').forEach((input) => {
+      input.onblur = async () => {
+        const nome = input.value.trim();
+        if (!nome) { alert('Informe o nome do expositor.'); return; }
+        const expId = input.dataset.expositorNomeInput;
+        const orcId = input.closest('[data-orc-card]').dataset.orcCard;
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}`, { method: 'PUT', body: JSON.stringify({ nome }) });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-remove-expositor]').forEach((b) => {
+      const expId = b.dataset.removeExpositor;
+      const orcId = b.closest('[data-orc-card]').dataset.orcCard;
+      b.onclick = async () => {
+        if (!confirm('Remover este expositor do orçamento? Isso apaga as imagens, desenho técnico e fornecedores dele.')) return;
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}`, { method: 'DELETE' });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-add-expositor]').forEach((btn) => {
+      btn.onclick = async () => {
+        const orcId = btn.dataset.addExpositor;
+        const row = $(`[data-expositor-add="${orcId}"]`);
+        const nome = row.querySelector('[data-novo-expositor-nome]').value.trim();
+        if (!nome) { alert('Informe o nome do novo expositor.'); return; }
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/expositores`, { method: 'POST', body: JSON.stringify({ nome }) });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
     $all('[data-upload-imagens]').forEach((input) => {
+      const expId = input.dataset.uploadImagens;
+      const orcId = input.closest('[data-orc-card]').dataset.orcCard;
       input.onchange = async () => {
         if (!input.files.length) return;
         const fd = new FormData();
         Array.from(input.files).forEach((f) => fd.append('files', f));
         try {
-          await api('/api/expositores/orcamentos/' + input.dataset.uploadImagens + '/imagens', { method: 'POST', body: fd });
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}/imagens`, { method: 'POST', body: fd });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
     });
     $all('[data-upload-desenho]').forEach((input) => {
+      const expId = input.dataset.uploadDesenho;
+      const orcId = input.closest('[data-orc-card]').dataset.orcCard;
       input.onchange = async () => {
         if (!input.files.length) return;
         const fd = new FormData();
         Array.from(input.files).forEach((f) => fd.append('files', f));
         try {
-          await api('/api/expositores/orcamentos/' + input.dataset.uploadDesenho + '/desenho-tecnico', { method: 'POST', body: fd });
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}/desenho-tecnico`, { method: 'POST', body: fd });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
     });
     $all('[data-del-imagem]').forEach((b) => {
+      const expId = b.closest('[data-exp-section]').dataset.expSection;
       const orcId = b.closest('[data-orc-card]').dataset.orcCard;
       b.onclick = async () => {
         try {
-          await api(`/api/expositores/orcamentos/${orcId}/imagens/${b.dataset.delImagem}`, { method: 'DELETE' });
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}/imagens/${b.dataset.delImagem}`, { method: 'DELETE' });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
     });
     $all('[data-del-desenho]').forEach((b) => {
+      const expId = b.closest('[data-exp-section]').dataset.expSection;
       const orcId = b.closest('[data-orc-card]').dataset.orcCard;
       b.onclick = async () => {
         try {
-          await api(`/api/expositores/orcamentos/${orcId}/desenho-tecnico/${b.dataset.delDesenho}`, { method: 'DELETE' });
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}/desenho-tecnico/${b.dataset.delDesenho}`, { method: 'DELETE' });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
     });
     $all('[data-add-fornecedor]').forEach((btn) => {
       btn.onclick = async () => {
-        const orcId = btn.dataset.addFornecedor;
-        const row = $(`[data-fornecedor-add="${orcId}"]`);
+        const expId = btn.dataset.addFornecedor;
+        const orcId = btn.closest('[data-orc-card]').dataset.orcCard;
+        const row = $(`[data-fornecedor-add="${expId}"]`);
         const payload = {
           fornecedor: row.querySelector('[data-f-fornecedor]').value.trim(),
           data: row.querySelector('[data-f-data]').value || null,
@@ -11237,16 +11416,17 @@
         };
         if (!payload.fornecedor) { alert('Informe o nome do fornecedor.'); return; }
         try {
-          await api(`/api/expositores/orcamentos/${orcId}/fornecedores`, { method: 'POST', body: JSON.stringify(payload) });
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}/fornecedores`, { method: 'POST', body: JSON.stringify(payload) });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
     });
     $all('[data-escolher-fornecedor]').forEach((b) => {
+      const expId = b.closest('[data-exp-section]').dataset.expSection;
       const orcId = b.closest('[data-orc-card]').dataset.orcCard;
       b.onclick = async () => {
         try {
-          await api(`/api/expositores/orcamentos/${orcId}/fornecedores/${b.dataset.escolherFornecedor}`, { method: 'PUT', body: JSON.stringify({ escolhido: true }) });
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}/fornecedores/${b.dataset.escolherFornecedor}`, { method: 'PUT', body: JSON.stringify({ escolhido: true }) });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
@@ -11254,49 +11434,139 @@
     // 79ª rodada: "Desmarcar" -- devolve o status pra pendente sem
     // escolher nenhum outro fornecedor no lugar.
     $all('[data-desescolher-fornecedor]').forEach((b) => {
+      const expId = b.closest('[data-exp-section]').dataset.expSection;
       const orcId = b.closest('[data-orc-card]').dataset.orcCard;
       b.onclick = async () => {
         try {
-          await api(`/api/expositores/orcamentos/${orcId}/fornecedores/${b.dataset.desescolherFornecedor}`, { method: 'PUT', body: JSON.stringify({ escolhido: false }) });
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}/fornecedores/${b.dataset.desescolherFornecedor}`, { method: 'PUT', body: JSON.stringify({ escolhido: false }) });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
     });
     $all('[data-del-fornecedor]').forEach((b) => {
+      const expId = b.closest('[data-exp-section]').dataset.expSection;
       const orcId = b.closest('[data-orc-card]').dataset.orcCard;
       b.onclick = async () => {
         if (!confirm('Excluir este fornecedor orçado?')) return;
         try {
-          await api(`/api/expositores/orcamentos/${orcId}/fornecedores/${b.dataset.delFornecedor}`, { method: 'DELETE' });
+          await api(`/api/expositores/orcamentos/${orcId}/expositores/${expId}/fornecedores/${b.dataset.delFornecedor}`, { method: 'DELETE' });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    // ---- arquivo do orçamento (nível do orçamento, não por expositor) ----
+    $all('[data-upload-orc-arquivo]').forEach((input) => {
+      input.onchange = async () => {
+        if (!input.files.length) return;
+        const orcId = input.dataset.uploadOrcArquivo;
+        const fd = new FormData();
+        Array.from(input.files).forEach((f) => fd.append('files', f));
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/arquivo`, { method: 'POST', body: fd });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-del-orc-arquivo]').forEach((b) => {
+      const orcId = b.closest('[data-orc-card]').dataset.orcCard;
+      b.onclick = async () => {
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/arquivo/${b.dataset.delOrcArquivo}`, { method: 'DELETE' });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    // ---- parcelamento (144ª rodada, só informativo -- nunca lança no
+    // Budget sozinho, ver comentário em routes/expositores.js) ----
+    $all('[data-orc-parcela-row]').forEach((row) => {
+      const parcelaId = row.dataset.orcParcelaRow;
+      const orcId = row.closest('[data-orc-card]').dataset.orcCard;
+      const commit = async () => {
+        const valor = row.querySelector('.orc-parcela-valor-input').value;
+        const dataPagamento = row.querySelector('.orc-parcela-data-input').value || null;
+        const pago = row.querySelector('.orc-parcela-pago-input').checked;
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/parcelas/${parcelaId}`, { method: 'PUT', body: JSON.stringify({ valor, dataPagamento, pago }) });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+      row.querySelector('.orc-parcela-valor-input').onblur = commit;
+      row.querySelector('.orc-parcela-data-input').onchange = commit;
+      row.querySelector('.orc-parcela-pago-input').onchange = commit;
+      row.querySelector('.orc-parcela-del-btn').onclick = async () => {
+        if (!confirm('Excluir esta parcela?')) return;
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/parcelas/${parcelaId}`, { method: 'DELETE' });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-add-orc-parcela]').forEach((btn) => {
+      btn.onclick = async () => {
+        const orcId = btn.dataset.addOrcParcela;
+        const row = $(`[data-orc-parcela-add="${orcId}"]`);
+        const valor = row.querySelector('[data-novo-parcela-valor]').value;
+        const dataPagamento = row.querySelector('[data-novo-parcela-data]').value || null;
+        if (!valor) { alert('Informe o valor da parcela.'); return; }
+        try {
+          await api(`/api/expositores/orcamentos/${orcId}/parcelas`, { method: 'POST', body: JSON.stringify({ valor, dataPagamento }) });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    // ---- aprovado / data do primeiro pedido ----
+    $all('[data-orc-aprovado]').forEach((checkbox) => {
+      checkbox.onchange = async () => {
+        const orcId = checkbox.dataset.orcAprovado;
+        try {
+          await api('/api/expositores/orcamentos/' + orcId, { method: 'PUT', body: JSON.stringify({ aprovado: checkbox.checked }) });
+          await loadExpositoresOrcamentos();
+        } catch (e) { alert(e.message); }
+      };
+    });
+    $all('[data-orc-data-primeiro-pedido]').forEach((input) => {
+      input.onchange = async () => {
+        const orcId = input.dataset.orcDataPrimeiroPedido;
+        try {
+          await api('/api/expositores/orcamentos/' + orcId, { method: 'PUT', body: JSON.stringify({ dataPrimeiroPedido: input.value || null }) });
           await loadExpositoresOrcamentos();
         } catch (e) { alert(e.message); }
       };
     });
   }
 
-  function openExpositoresOrcamentoForm(orc) {
+  // 144ª rodada: o form agora cria/edita o ORÇAMENTO (fluxo, forma de
+  // pagamento, ano de lançamento) -- o nome só aparece ao CRIAR (é o
+  // nome do 1º expositor envolvido); editar um orçamento já existente
+  // não toca nome (cada expositor edita o próprio nome dentro do card).
+  async function openExpositoresOrcamentoForm(orc) {
     editingExpositoresOrcamentoId = orc ? orc.id : null;
-    $('#expositoresOrcamentosFormTitle').textContent = orc ? 'Editar expositor' : 'Novo expositor';
-    $('#expositoresOrcamentosFormNome').value = orc ? orc.nome : '';
+    $('#expositoresOrcamentosFormTitle').textContent = orc ? 'Editar orçamento' : 'Novo orçamento';
+    $('#expositoresOrcamentosFormNomeWrap').hidden = !!orc;
+    $('#expositoresOrcamentosFormNome').value = '';
     $('#expositoresOrcamentosFormAno').value = orc && orc.anoLancamento ? orc.anoLancamento : '';
+    $('#expositoresOrcamentosFormFormaPagamento').value = orc ? (orc.formaPagamento || '') : '';
     $('#expositoresOrcamentosFormError').hidden = true;
+    await fillExpositoresOrcamentoFluxoSelect(expositoresOrcamentosBrand, orc ? (orc.fluxo || null) : null);
     $('#expositoresOrcamentosFormWrap').hidden = false;
   }
   $('#expositoresOrcamentosNewBtn').onclick = () => openExpositoresOrcamentoForm(null);
   $('#expositoresOrcamentosFormCancel').onclick = () => { $('#expositoresOrcamentosFormWrap').hidden = true; };
   $('#expositoresOrcamentosFormSave').onclick = async () => {
-    const nome = $('#expositoresOrcamentosFormNome').value.trim();
-    if (!nome) {
-      $('#expositoresOrcamentosFormError').textContent = 'Informe o nome do expositor.';
-      $('#expositoresOrcamentosFormError').hidden = false;
-      return;
-    }
-    const payload = { nome, anoLancamento: $('#expositoresOrcamentosFormAno').value || null };
+    const fluxo = $('#expositoresOrcamentosFormFluxo').value || null;
+    const formaPagamento = $('#expositoresOrcamentosFormFormaPagamento').value.trim();
+    const anoLancamento = $('#expositoresOrcamentosFormAno').value || null;
     try {
       if (editingExpositoresOrcamentoId) {
-        await api('/api/expositores/orcamentos/' + editingExpositoresOrcamentoId, { method: 'PUT', body: JSON.stringify(payload) });
+        await api('/api/expositores/orcamentos/' + editingExpositoresOrcamentoId, { method: 'PUT', body: JSON.stringify({ anoLancamento, fluxo, formaPagamento }) });
       } else {
-        await api('/api/expositores/orcamentos', { method: 'POST', body: JSON.stringify(Object.assign({ brand: expositoresOrcamentosBrand }, payload)) });
+        const nome = $('#expositoresOrcamentosFormNome').value.trim();
+        if (!nome) {
+          $('#expositoresOrcamentosFormError').textContent = 'Informe o nome do expositor.';
+          $('#expositoresOrcamentosFormError').hidden = false;
+          return;
+        }
+        await api('/api/expositores/orcamentos', { method: 'POST', body: JSON.stringify({ brand: expositoresOrcamentosBrand, nome, anoLancamento, fluxo, formaPagamento }) });
       }
       $('#expositoresOrcamentosFormWrap').hidden = true;
       await loadExpositoresOrcamentos();
@@ -11332,6 +11602,7 @@
       const data = await api('/api/expositores/estoque?brand=' + encodeURIComponent(expositoresEstoqueBrand));
       expositoresEstoqueItems = data.items || [];
       expositoresEstoqueCanEdit = data.canEdit;
+      $('#expositorEstoqueFormNovoBtn').hidden = !expositoresEstoqueCanEdit;
       renderExpositoresEstoque();
       loadExpositoresLancamentosHistorico();
     } catch (e) { alert(e.message); }
@@ -11350,12 +11621,35 @@
     const body = $('#expositoresEstoqueBody');
     const modeloQuery = $('#expositoresEstoqueModeloFilter').value;
     const rowsToShow = expositoresEstoqueItems.filter((it) => expositorEstoqueMatchesModelo(it, modeloQuery));
-    body.innerHTML = rowsToShow.map((it) => `
+    // 144ª rodada, pedido da Raquel: "os códigos de entrada... se referem
+    // a um único código de saída... precisa ficar como na planilha de
+    // Excel que eu uso hoje" -- a planilha original mescla a célula de
+    // Código saída/Descrição saída quando várias linhas de entrada
+    // alimentam o MESMO código de saída (ver seedIfEmpty em
+    // routes/expositores.js, que já desfaz esse mesmo mesclado na
+    // importação). Agrupa aqui, na hora de desenhar a tabela, só visual
+    // -- o dado em si continua 1 linha por item, igual sempre foi.
+    // Agrupamento por ORDEM DE APARIÇÃO do código de saída (não
+    // reordena a tabela): a 1ª linha de cada grupo carrega o rowspan, as
+    // seguintes do mesmo grupo não repetem as 2 células.
+    const grupos = [];
+    const grupoPorSaida = {};
+    rowsToShow.forEach((it) => {
+      const chave = it.codigoSaida || ('__sem-saida__' + it.id);
+      if (!grupoPorSaida[chave]) {
+        grupoPorSaida[chave] = { codigoSaida: it.codigoSaida, descricaoSaida: it.descricaoSaida, itens: [] };
+        grupos.push(grupoPorSaida[chave]);
+      }
+      grupoPorSaida[chave].itens.push(it);
+    });
+    body.innerHTML = grupos.map((g) => g.itens.map((it, idx) => `
       <tr>
         <td>${it.codigoEntrada || '—'}</td>
         <td>${escapeHtml(it.descricaoEntrada || '—')}</td>
-        <td>${it.codigoSaida || '—'}</td>
-        <td>${escapeHtml(it.descricaoSaida || '—')}</td>
+        ${idx === 0 ? `
+        <td rowspan="${g.itens.length}">${g.codigoSaida || '—'}</td>
+        <td rowspan="${g.itens.length}">${escapeHtml(g.descricaoSaida || '—')}</td>
+        ` : ''}
         <td>${fmtMoney(it.valorUnitario)}</td>
         <td class="col-saldo-pr">${it.saldoPR}</td><td class="col-saldo-sp">${it.saldoSP}</td><td class="col-saldo-ne">${it.saldoNE}</td><td><b>${it.saldoTotal}</b></td>
         <td>${it.segurancaPR}</td><td>${it.pendenciaPR}</td>
@@ -11367,7 +11661,7 @@
         <td>${it.estoqueSeguranca ?? '—'}</td><td>${it.nota ?? '—'}</td>
         <td>${expositoresEstoqueCanEdit ? `<button class="btn-link" data-edit-expositor-estoque="${it.id}">Editar</button>` : ''}</td>
       </tr>
-    `).join('');
+    `).join('')).join('');
     $all('[data-edit-expositor-estoque]').forEach((b) => {
       b.onclick = () => openExpositorEstoqueForm(expositoresEstoqueItems.find((it) => it.id === b.dataset.editExpositorEstoque));
     });
@@ -11388,32 +11682,36 @@
     }
     updateExpositoresLancamentoPreview(totalUnidadesMes, totalValorMes);
   }
+  // 144ª rodada, pedido da Raquel: "opção de adicionar novos expositores
+  // no controle" -- mesmo formulário de sempre, agora também serve pra
+  // CRIAR (it === null): editingExpositorEstoqueId fica null nesse caso,
+  // e o botão Salvar decide POST (novo) x PUT (edição) por isso.
   function openExpositorEstoqueForm(it) {
-    if (!it) return;
-    editingExpositorEstoqueId = it.id;
-    $('#expositorEstoqueFormCodigoEntrada').value = it.codigoEntrada || '';
-    $('#expositorEstoqueFormDescricaoEntrada').value = it.descricaoEntrada || '';
-    $('#expositorEstoqueFormCodigoSaida').value = it.codigoSaida || '';
-    $('#expositorEstoqueFormDescricaoSaida').value = it.descricaoSaida || '';
-    $('#expositorEstoqueFormValorUnitario').value = it.valorUnitario ?? '';
-    $('#expositorEstoqueFormConsumoMensal').value = it.consumoMensal ?? 0;
-    $('#expositorEstoqueFormSaldoPR').value = it.saldoPR ?? 0;
-    $('#expositorEstoqueFormSaldoSP').value = it.saldoSP ?? 0;
-    $('#expositorEstoqueFormSaldoNE').value = it.saldoNE ?? 0;
-    $('#expositorEstoqueFormSegurancaPR').value = it.segurancaPR ?? 0;
-    $('#expositorEstoqueFormSegurancaSP').value = it.segurancaSP ?? 0;
-    $('#expositorEstoqueFormSegurancaNE').value = it.segurancaNE ?? 0;
-    $('#expositorEstoqueFormLoteEconomico').value = it.loteEconomico ?? '';
-    $('#expositorEstoqueFormLoteMultiplo').value = it.loteMultiplo ?? '';
-    $('#expositorEstoqueFormRessuprimentoFornecedor').value = it.ressuprimentoFornecedor ?? '';
-    $('#expositorEstoqueFormRessuprimentoCompras').value = it.ressuprimentoCompras ?? '';
-    $('#expositorEstoqueFormEstoqueSeguranca').value = it.estoqueSeguranca ?? '';
-    $('#expositorEstoqueFormNota').value = it.nota ?? '';
+    editingExpositorEstoqueId = it ? it.id : null;
+    $('#expositorEstoqueFormTitle').textContent = it ? 'Editar item' : 'Novo item';
+    $('#expositorEstoqueFormCodigoEntrada').value = it ? (it.codigoEntrada || '') : '';
+    $('#expositorEstoqueFormDescricaoEntrada').value = it ? (it.descricaoEntrada || '') : '';
+    $('#expositorEstoqueFormCodigoSaida').value = it ? (it.codigoSaida || '') : '';
+    $('#expositorEstoqueFormDescricaoSaida').value = it ? (it.descricaoSaida || '') : '';
+    $('#expositorEstoqueFormValorUnitario').value = it ? (it.valorUnitario ?? '') : '';
+    $('#expositorEstoqueFormConsumoMensal').value = it ? (it.consumoMensal ?? 0) : 0;
+    $('#expositorEstoqueFormSaldoPR').value = it ? (it.saldoPR ?? 0) : 0;
+    $('#expositorEstoqueFormSaldoSP').value = it ? (it.saldoSP ?? 0) : 0;
+    $('#expositorEstoqueFormSaldoNE').value = it ? (it.saldoNE ?? 0) : 0;
+    $('#expositorEstoqueFormSegurancaPR').value = it ? (it.segurancaPR ?? 0) : 0;
+    $('#expositorEstoqueFormSegurancaSP').value = it ? (it.segurancaSP ?? 0) : 0;
+    $('#expositorEstoqueFormSegurancaNE').value = it ? (it.segurancaNE ?? 0) : 0;
+    $('#expositorEstoqueFormLoteEconomico').value = it ? (it.loteEconomico ?? '') : '';
+    $('#expositorEstoqueFormLoteMultiplo').value = it ? (it.loteMultiplo ?? '') : '';
+    $('#expositorEstoqueFormRessuprimentoFornecedor').value = it ? (it.ressuprimentoFornecedor ?? '') : '';
+    $('#expositorEstoqueFormRessuprimentoCompras').value = it ? (it.ressuprimentoCompras ?? '') : '';
+    $('#expositorEstoqueFormEstoqueSeguranca').value = it ? (it.estoqueSeguranca ?? '') : '';
+    $('#expositorEstoqueFormNota').value = it ? (it.nota ?? '') : '';
     $('#expositorEstoqueFormWrap').hidden = false;
   }
+  $('#expositorEstoqueFormNovoBtn').onclick = () => openExpositorEstoqueForm(null);
   $('#expositorEstoqueFormCancel').onclick = () => { $('#expositorEstoqueFormWrap').hidden = true; };
   $('#expositorEstoqueFormSave').onclick = async () => {
-    if (!editingExpositorEstoqueId) return;
     const payload = {
       codigoEntrada: $('#expositorEstoqueFormCodigoEntrada').value.trim(),
       descricaoEntrada: $('#expositorEstoqueFormDescricaoEntrada').value.trim(),
@@ -11435,7 +11733,12 @@
       nota: $('#expositorEstoqueFormNota').value.trim()
     };
     try {
-      await api('/api/expositores/estoque/' + editingExpositorEstoqueId, { method: 'PUT', body: JSON.stringify(payload) });
+      if (editingExpositorEstoqueId) {
+        await api('/api/expositores/estoque/' + editingExpositorEstoqueId, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        payload.brand = expositoresEstoqueBrand;
+        await api('/api/expositores/estoque', { method: 'POST', body: JSON.stringify(payload) });
+      }
       $('#expositorEstoqueFormWrap').hidden = true;
       await loadExpositoresEstoque();
     } catch (e) { alert(e.message); }
@@ -11503,9 +11806,22 @@
       return;
     }
     const sorted = [...expositoresLancamentosCache].sort((a, b) => (b.year - a.year) || (b.month - a.month));
-    wrap.innerHTML = '<table class="data-table"><thead><tr><th>Mês</th><th>Unidades</th><th>Valor (R$)</th><th>Lançado por</th></tr></thead><tbody>' +
-      sorted.map((l) => `<tr><td>${MONTHS_FULL[l.month - 1]}/${l.year}</td><td>${l.totalUnidades}</td><td>${fmtMoney(l.totalValor)}</td><td>${escapeHtml(l.updatedBy || '—')}</td></tr>`).join('') +
+    wrap.innerHTML = '<table class="data-table"><thead><tr><th>Mês</th><th>Unidades</th><th>Valor (R$)</th><th>Lançado por</th><th></th></tr></thead><tbody>' +
+      sorted.map((l) => `<tr><td>${MONTHS_FULL[l.month - 1]}/${l.year}</td><td>${l.totalUnidades}</td><td>${fmtMoney(l.totalValor)}</td><td>${escapeHtml(l.updatedBy || '—')}</td><td><button class="btn-link danger no-print" data-del-expositores-lancamento="${l.id}">Excluir</button></td></tr>`).join('') +
       '</tbody></table>';
+    // 144ª rodada, pedido da Raquel: "na aba de lançamento mensal no
+    // budget, deve ter a opção de excluir o lançamento total mensal
+    // também" -- remove de vez o registro de histórico E o lançamento
+    // que ele tinha feito no Budget (ver DELETE no backend).
+    $all('[data-del-expositores-lancamento]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Excluir este lançamento mensal? Isso também remove o lançamento correspondente no Budget.')) return;
+        try {
+          await api('/api/expositores/lancamentos-mensais/' + b.dataset.delExpositoresLancamento, { method: 'DELETE' });
+          await loadExpositoresLancamentosHistorico();
+        } catch (e) { alert(e.message); }
+      };
+    });
   }
   $('#expositoresLancamentoBtn').onclick = async () => {
     const mes = Number($('#expositoresLancamentoMes').value);
@@ -11544,6 +11860,10 @@
     `).join('') : '<tr><td colspan="3" class="muted">Nenhum mês lançado ainda (use "Lançar no Budget" na aba de cada marca).</td></tr>';
   }
   setupPublicLinkPanel({ prefix: 'expositoresEstoque', apiBase: '/api/expositores/estoque', getKey: () => expositoresEstoqueBrand, keyParamName: 'brand' });
+  // 144ª rodada, pedido da Raquel: "importante ter um link externo também
+  // para o total mensal" -- recurso sem escopo por marca (já soma as 2),
+  // mesmo espírito de 'ausencias' acima (getKey fixo, o backend nem lê).
+  setupPublicLinkPanel({ prefix: 'expositoresTotalMensal', apiBase: '/api/expositores/lancamentos-mensais/total-mensal', getKey: () => 'geral', keyParamName: 'key' });
 
   function openLancamentoForm(item) {
     editingLancamentoId = item ? item.id : null;

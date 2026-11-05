@@ -2,6 +2,7 @@ const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
 const path = require('path');
 const fs = require('fs');
+const { nanoid } = require('./utils/id');
 
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) {
@@ -397,5 +398,43 @@ Object.values(expositoresPorChave).forEach((grupo) => {
     if (it.id !== manter.id) db.get('expositoresEstoque').remove({ id: it.id }).write();
   });
 });
+
+// Migração (144ª rodada, pedido da Raquel sobre Expositores > Orçamentos:
+// "opção de colocar mais de um tipo de expositor no mesmo orçamento").
+// Até a 78ª rodada, cada "Orçamento" tinha exatamente 1 expositor (nome +
+// imagens + desenhoTecnico + fornecedores direto no documento). Agora
+// `expositores` é uma LISTA (cada expositor com seu próprio
+// nome/imagens/desenhoTecnico/fornecedores, confirmado com a Raquel --
+// "por expositor" na comparação de fornecedores), e o orçamento em si
+// ganha campos novos no nível de cima (fluxo/formaPagamento/parcelas/
+// arquivoOrcamento/aprovado/dataPrimeiroPedido).
+//
+// Nunca perde orçamento real já cadastrado: todo orçamento sem o campo
+// `expositores` (ou seja, do formato antigo) vira 1 expositor dentro da
+// lista nova, com o nome/imagens/desenhoTecnico/fornecedores que já
+// tinha. Os campos antigos (`nome`/`imagens`/`desenhoTecnico`/
+// `fornecedores` soltos no orçamento) ficam no documento, sem uso -- só
+// não removidos pra nunca arriscar apagar dado de verdade numa migração.
+const orcamentosParaMigrar = db.get('expositoresOrcamentos').filter((o) => o.expositores === undefined).value();
+if (orcamentosParaMigrar.length > 0) {
+  orcamentosParaMigrar.forEach((o) => {
+    const expositorEnvolvido = {
+      id: nanoid(),
+      nome: o.nome || '',
+      imagens: o.imagens || [],
+      desenhoTecnico: o.desenhoTecnico || [],
+      fornecedores: o.fornecedores || []
+    };
+    db.get('expositoresOrcamentos').find({ id: o.id }).assign({
+      expositores: [expositorEnvolvido],
+      fluxo: o.fluxo || null,
+      formaPagamento: o.formaPagamento || '',
+      parcelas: o.parcelas || [],
+      arquivoOrcamento: o.arquivoOrcamento || [],
+      aprovado: !!o.aprovado,
+      dataPrimeiroPedido: o.dataPrimeiroPedido || null
+    }).write();
+  });
+}
 
 module.exports = db;

@@ -2870,7 +2870,7 @@
         <div class="view-toolbar">
           <h2>Expositores — Orçamentos</h2>
           <div class="view-toolbar-actions">
-            <button class="btn-primary" id="expositoresOrcamentosNewBtn">+ Novo expositor</button>
+            <button class="btn-primary" id="expositoresOrcamentosNewBtn">+ Novo orçamento</button>
           </div>
         </div>
         <div class="tabs">
@@ -2897,10 +2897,25 @@
         </div>
 
         <div id="expositoresOrcamentosFormWrap" class="form-card form-card-wide" hidden>
-          <h3 id="expositoresOrcamentosFormTitle">Novo expositor</h3>
-          <div class="form-row modal-row-2">
-            <div><label>Nome do expositor</label><input id="expositoresOrcamentosFormNome" type="text" placeholder="Ex.: Expositor GP Cubas N1/N2/N3"></div>
+          <h3 id="expositoresOrcamentosFormTitle">Novo orçamento</h3>
+          <!-- 144ª rodada: um orçamento pode ter mais de um tipo de
+               expositor -- o nome aqui é só do PRIMEIRO expositor (quem
+               cria o orçamento); os demais entram depois, dentro do card
+               ("+ Adicionar expositor"). Por isso o campo de nome só
+               aparece ao CRIAR -- editar um orçamento já existente edita
+               ano/fluxo/forma de pagamento (o nome de cada expositor se
+               edita direto no card, dentro dos detalhes). -->
+          <div id="expositoresOrcamentosFormNomeWrap" class="form-row modal-row-2">
+            <div>
+              <label>Nome do expositor</label>
+              <input id="expositoresOrcamentosFormNome" type="text" list="expositoresOrcamentosNomeDatalist" placeholder="Escolha um já cadastrado ou digite um novo">
+              <datalist id="expositoresOrcamentosNomeDatalist"></datalist>
+            </div>
             <div><label>Ano de lançamento</label><input id="expositoresOrcamentosFormAno" type="number" step="1" placeholder="Ex.: 2026"></div>
+          </div>
+          <div class="form-row modal-row-2">
+            <div><label>Fluxo (Budget)</label><select id="expositoresOrcamentosFormFluxo"><option value="">Escolha a marca primeiro...</option></select></div>
+            <div><label>Forma de pagamento</label><input id="expositoresOrcamentosFormFormaPagamento" type="text"></div>
           </div>
           <div id="expositoresOrcamentosFormError" class="error" hidden></div>
           <div class="form-actions">
@@ -2909,8 +2924,9 @@
           </div>
         </div>
 
+        <datalist id="expositoresFornecedoresDatalist"></datalist>
         <div id="expositoresOrcamentosList"></div>
-        <p class="muted" id="expositoresOrcamentosEmpty" hidden>Nenhum expositor orçado ainda nessa marca.</p>
+        <p class="muted" id="expositoresOrcamentosEmpty" hidden>Nenhum orçamento cadastrado ainda nessa marca.</p>
       </section>
 
       <!-- Controle de Expositores (68ª rodada, "Rodada I" da Pendência 51,
@@ -2937,6 +2953,7 @@
           <button class="btn-secondary no-print" id="expositoresEstoqueExportExcelBtn" type="button">⬇️ Exportar Excel</button>
           <button class="btn-secondary no-print" id="expositoresEstoqueExportPdfBtn" type="button">🖨️ Exportar PDF</button>
           <button class="btn-secondary no-print" id="expositoresEstoquePublicLinkBtn" type="button">🔗 Link externo</button>
+          <button class="btn-primary no-print" id="expositorEstoqueFormNovoBtn" type="button">+ Novo item</button>
         </div>
         <div id="expositoresEstoquePublicLinkPanel" class="form-card no-print" hidden>
           <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver o Controle de Expositores desta marca, somente leitura, mesmo sem estar logada na plataforma.</p>
@@ -2991,7 +3008,7 @@
         </div>
 
         <div id="expositorEstoqueFormWrap" class="form-card form-card-wide" hidden>
-          <h3>Editar item</h3>
+          <h3 id="expositorEstoqueFormTitle">Editar item</h3>
           <input type="hidden" id="expositorEstoqueFormId">
           <div class="form-row">
             <div><label>Código entrada</label><input id="expositorEstoqueFormCodigoEntrada" type="text"></div>
@@ -3056,6 +3073,21 @@
              tabela de itens nem formulário de edição, só o relatório. -->
         <div id="expositoresEstoqueMensalView" hidden>
           <p class="muted">Total mensal das duas marcas juntas (GhelPlus + De Bacco) — cada linha vem do lançamento feito em "Lançamento mensal no Budget", na aba de cada marca acima.</p>
+          <div class="view-toolbar-actions no-print" style="margin:12px 0;">
+            <button class="btn-secondary" id="expositoresTotalMensalPublicLinkBtn" type="button">🔗 Link externo</button>
+          </div>
+          <div id="expositoresTotalMensalPublicLinkPanel" class="form-card no-print" hidden>
+            <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link pode ver o Total Mensal (as 2 marcas juntas), somente leitura, mesmo sem estar logada na plataforma.</p>
+            <div id="expositoresTotalMensalPublicLinkActive" hidden>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="expositoresTotalMensalPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                <button class="btn-secondary" id="expositoresTotalMensalCopyLinkBtn" type="button">Copiar link</button>
+                <button class="btn-secondary" id="expositoresTotalMensalRegenLinkBtn" type="button">Gerar novo link</button>
+                <button class="btn-secondary danger" id="expositoresTotalMensalRevokeLinkBtn" type="button">Desativar</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="expositoresTotalMensalGenLinkBtn" type="button">Gerar link externo</button>
+          </div>
           <div style="overflow-x:auto;">
             <table class="data-table" id="expositoresMensalTable">
               <thead><tr><th>Mês</th><th>Total de expositores (unid./mês)</th><th>Valor total (R$/mês)</th></tr></thead>

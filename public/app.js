@@ -11032,19 +11032,30 @@
       expositoresOrcamentosItems = data.items || [];
       expositoresOrcamentosCanEdit = data.canEdit;
       $('#expositoresOrcamentosNewBtn').hidden = !expositoresOrcamentosCanEdit;
-      fillExpositoresOrcamentosNomeDatalist();
+      await fillExpositoresOrcamentosNomeDatalist();
       fillExpositoresFornecedoresDatalist();
       renderExpositoresOrcamentos();
     } catch (e) { alert(e.message); }
   }
 
-  // 144ª rodada: datalist com os nomes de expositor já cadastrados em
-  // QUALQUER orçamento dessa marca -- "ao clicar na aba do cadastro do
-  // nome do expositor, deve aparecer a lista dos cadastrados, e caso não
-  // tenha na lista, aí sim, podemos cadastrar um novo" -- é só sugestão
-  // (datalist), sempre aceita digitar um nome novo.
-  function fillExpositoresOrcamentosNomeDatalist() {
+  // 144ª rodada, pedido da Raquel (confirmado depois que ela viu a 1ª
+  // versão, que só sugeria nomes já usados em outros orçamentos -- "não
+  // aparece a lista de expositores que deveria ser puxada da planilha de
+  // Controle de Expositores de acordo com a marca"): a lista de "nomes já
+  // cadastrados" vem do Controle de Expositores (estoque) dessa marca --
+  // é lá que os expositores de verdade estão cadastrados (Descrição
+  // entrada). Mantém também, como sugestão extra, os nomes já usados em
+  // outros orçamentos dessa marca (sem duplicar). Continua sendo só
+  // sugestão (datalist) -- sempre aceita digitar um nome novo.
+  async function fillExpositoresOrcamentosNomeDatalist() {
     const nomes = new Set();
+    try {
+      const estoqueData = await api('/api/expositores/estoque?brand=' + encodeURIComponent(expositoresOrcamentosBrand));
+      (estoqueData.items || []).forEach((it) => {
+        const nome = (it.descricaoEntrada || it.codigoEntrada || '').trim();
+        if (nome) nomes.add(nome);
+      });
+    } catch (e) { /* datalist é só uma sugestão -- sem ela o campo continua funcionando como texto livre */ }
     expositoresOrcamentosItems.forEach((orc) => (orc.expositores || []).forEach((e) => { if (e.nome) nomes.add(e.nome); }));
     $('#expositoresOrcamentosNomeDatalist').innerHTML = Array.from(nomes).map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
   }
@@ -11557,8 +11568,10 @@
     const formaPagamento = $('#expositoresOrcamentosFormFormaPagamento').value.trim();
     const anoLancamento = $('#expositoresOrcamentosFormAno').value || null;
     try {
+      let orcId;
       if (editingExpositoresOrcamentoId) {
-        await api('/api/expositores/orcamentos/' + editingExpositoresOrcamentoId, { method: 'PUT', body: JSON.stringify({ anoLancamento, fluxo, formaPagamento }) });
+        const resp = await api('/api/expositores/orcamentos/' + editingExpositoresOrcamentoId, { method: 'PUT', body: JSON.stringify({ anoLancamento, fluxo, formaPagamento }) });
+        orcId = resp.item.id;
       } else {
         const nome = $('#expositoresOrcamentosFormNome').value.trim();
         if (!nome) {
@@ -11566,8 +11579,16 @@
           $('#expositoresOrcamentosFormError').hidden = false;
           return;
         }
-        await api('/api/expositores/orcamentos', { method: 'POST', body: JSON.stringify({ brand: expositoresOrcamentosBrand, nome, anoLancamento, fluxo, formaPagamento }) });
+        const resp = await api('/api/expositores/orcamentos', { method: 'POST', body: JSON.stringify({ brand: expositoresOrcamentosBrand, nome, anoLancamento, fluxo, formaPagamento }) });
+        orcId = resp.item.id;
       }
+      // Pedido da Raquel: ao salvar, os fornecedores/forma de pagamento/
+      // parcelamento "não aparecem ali" -- é porque o card nasce fechado
+      // ("Ver detalhes ▾") e essas seções só existem dentro dele (moram
+      // por expositor/no nível do orçamento, só fazem sentido depois que
+      // ele já existe de verdade). Abrir o card sozinho ao salvar deixa
+      // tudo isso visível na hora, sem precisar clicar em "Ver detalhes".
+      expositoresOrcamentosExpanded.add(orcId);
       $('#expositoresOrcamentosFormWrap').hidden = true;
       await loadExpositoresOrcamentos();
     } catch (e) {

@@ -11550,10 +11550,15 @@
   // pagamento, ano de lançamento) -- o nome só aparece ao CRIAR (é o
   // nome do 1º expositor envolvido); editar um orçamento já existente
   // não toca nome (cada expositor edita o próprio nome dentro do card).
+  // Pedido da Raquel: forma de pagamento só aparece ao EDITAR (um
+  // orçamento já criado) -- "já vou cadastrar isso lá dentro", mesmo
+  // espírito de fornecedor/parcelamento/arquivo, que também só existem
+  // depois que o orçamento já tem um id de verdade.
   async function openExpositoresOrcamentoForm(orc) {
     editingExpositoresOrcamentoId = orc ? orc.id : null;
     $('#expositoresOrcamentosFormTitle').textContent = orc ? 'Editar orçamento' : 'Novo orçamento';
     $('#expositoresOrcamentosFormNomeWrap').hidden = !!orc;
+    $('#expositoresOrcamentosFormFormaPagamentoWrap').hidden = !orc;
     $('#expositoresOrcamentosFormNome').value = '';
     $('#expositoresOrcamentosFormAno').value = orc && orc.anoLancamento ? orc.anoLancamento : '';
     $('#expositoresOrcamentosFormFormaPagamento').value = orc ? (orc.formaPagamento || '') : '';

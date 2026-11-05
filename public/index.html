@@ -2904,7 +2904,11 @@
                ("+ Adicionar expositor"). Por isso o campo de nome só
                aparece ao CRIAR -- editar um orçamento já existente edita
                ano/fluxo/forma de pagamento (o nome de cada expositor se
-               edita direto no card, dentro dos detalhes). -->
+               edita direto no card, dentro dos detalhes). Pedido da
+               Raquel (depois de ver a tela): forma de pagamento também
+               só aparece ao EDITAR -- "já vou cadastrar isso lá dentro",
+               igual fornecedor/parcelamento/arquivo, que só existem
+               depois que o orçamento já foi criado. -->
           <div id="expositoresOrcamentosFormNomeWrap" class="form-row modal-row-2">
             <div>
               <label>Nome do expositor</label>
@@ -2915,7 +2919,7 @@
           </div>
           <div class="form-row modal-row-2">
             <div><label>Fluxo (Budget)</label><select id="expositoresOrcamentosFormFluxo"><option value="">Escolha a marca primeiro...</option></select></div>
-            <div><label>Forma de pagamento</label><input id="expositoresOrcamentosFormFormaPagamento" type="text"></div>
+            <div id="expositoresOrcamentosFormFormaPagamentoWrap"><label>Forma de pagamento</label><input id="expositoresOrcamentosFormFormaPagamento" type="text"></div>
           </div>
           <div id="expositoresOrcamentosFormError" class="error" hidden></div>
           <div class="form-actions">

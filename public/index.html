@@ -859,7 +859,9 @@
         <div class="view-toolbar">
           <h2>Gerenciamento de Tráfego Pago</h2>
           <div class="view-toolbar-actions" style="align-items:center;">
+            <span id="trafegoEyebrow" class="muted" style="cursor:pointer;font-size:12px;" title="Clique para editar o título deste dashboard"></span>
             <div id="trafegoBrandSwitch" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+            <button class="btn-secondary" id="trafegoDownloadPdfBtn">Baixar PDF</button>
             <button class="btn-secondary" id="trafegoAuditBtn">Histórico de alterações</button>
             <button class="btn-secondary" id="trafegoHubPublicLinkBtn">Link externo</button>
           </div>
@@ -884,8 +886,388 @@
 
         <div class="tabs" id="trafegoTabs"></div>
 
-        <div class="iframe-wrap">
-          <iframe id="trafegoTelaFrame" title="Gerenciamento de Tráfego Pago"></iframe>
+        <div id="trafegoNativeScreens">
+          <div class="toast" id="toastEl"></div>
+  <!-- PLANNING -->
+  <div id="planningPage">
+    <div class="board-head">
+      <div>
+        <p class="board-eyebrow" id="planningEyebrow"></p>
+        <h2 class="board-title">Planejamento<span id="planningYearLabel"></span></h2>
+        <p class="board-sub" id="planningSub"></p>
+      </div>
+      <button class="btn btn-primary" id="addCampaignBtn">+ Nova campanha</button>
+    </div>
+    <div class="pillnav">
+      <span class="pillnav-label">Quarter:</span>
+      <div id="qfilterPlanning" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      <span class="pillnav-label" style="margin-left:8px;">Status:</span>
+      <div id="statusFilterPlanning" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      <span class="pillnav-label" style="margin-left:8px;">Objetivo:</span>
+      <div id="objectiveFilterPlanning" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      <span class="pillnav-trail" id="planningCountText"></span>
+    </div>
+
+    <div class="board-card board-section">
+      <div class="board-section-head">
+        <h2>Verba planejada x investido, por rede</h2>
+        <span class="sub" style="margin:0;" id="planningBudgetTotalText"></span>
+      </div>
+      <div id="planningBudgetRows"></div>
+    </div>
+
+    <div class="board-card board-section">
+      <div class="board-section-head">
+        <h2 id="planningTimelineTitle">Linha do tempo</h2>
+        <div class="legend-row" id="planningTimelineLegend"></div>
+      </div>
+      <div class="timeline-wrap">
+        <div class="timeline-months" id="planningTimelineMonths"></div>
+        <div id="planningTimelineRows"></div>
+      </div>
+      <p class="muted" style="margin:10px 0 0; font-size:12px;">Clique numa campanha na linha do tempo ou no card abaixo para abrir e editar os detalhes.</p>
+    </div>
+
+    <div class="board-section">
+      <div class="board-section-head"><h2>Campanhas <span class="muted" id="planningCardsCount" style="font-weight:400; font-size:13px;"></span></h2></div>
+      <div class="camp-card-grid" id="planningCardsGrid"></div>
+      <div class="empty-board" id="planningEmpty" style="display:none;">
+        <div style="font-size:16px; color:var(--ink); margin-bottom:6px; font-weight:600;">Nenhuma campanha neste filtro</div>
+        <div>Clique em "+ Nova campanha" para montar o cronograma.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="resultsPage" style="display:none;">
+    <div class="board-head">
+      <div>
+        <p class="board-eyebrow" id="resultsEyebrow"></p>
+        <h2 class="board-title">O que as campanhas entregaram</h2>
+        <p class="board-sub" id="resultsSub"></p>
+      </div>
+    </div>
+    <div class="pillnav">
+      <span class="pillnav-label">Quarter:</span>
+      <div id="qfilterResults" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      <span class="pillnav-label" style="margin-left:8px;">Rede:</span>
+      <div id="resultsNetworkTabs" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      <span class="pillnav-trail" id="resultsCountText"></span>
+    </div>
+
+    <div class="board-grid" id="resultsCards"></div>
+
+    <div class="board-card board-section">
+      <div class="board-section-head"><h2>Gastou o que foi planejado?</h2><div class="legend-row" id="resultsSpendLegend"></div></div>
+      <div id="resultsBudgetRows"></div>
+    </div>
+
+    <div class="board-card board-section">
+      <div class="board-section-head"><h2>Do anúncio à conversão</h2></div>
+      <p class="muted" id="funnelText" style="font-size:13.5px; margin:0 0 14px;"></p>
+      <div id="resultsFunnelRows"></div>
+    </div>
+
+    <div class="board-card board-section" id="resultsMissingBox" style="display:none;"></div>
+
+    <div class="board-section">
+      <div class="board-section-head">
+        <h2>Campanha por campanha</h2>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-sm" id="downloadTemplateBtn">Baixar modelo de importação</button>
+          <button class="btn btn-primary btn-sm" id="importDataBtn">Importar dados (CSV/XLSX)</button>
+          <input type="file" id="importFileInput" accept=".csv,.xlsx,.xls" style="display:none;">
+        </div>
+      </div>
+      <div class="importhint">Exporte os relatórios do Meta Ads, Google Ads, TikTok Ads ou Pinterest Ads, cole os números no <b>modelo de importação</b> (uma linha por campanha, casando pelo nome) e importe aqui.</div>
+      <div class="pillnav" style="margin-top:12px;" id="resultsTypeTabsWrap">
+        <span class="pillnav-label">Objetivo:</span>
+        <div id="resultsTypeTabs" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      </div>
+      <div class="camp-card-grid" id="resultsGroups"></div>
+      <div class="empty-board" id="resultsEmpty" style="display:none;">
+        <div style="font-size:16px; color:var(--ink); margin-bottom:6px; font-weight:600;">Sem campanhas para acompanhar</div>
+        <div>Cadastre campanhas no Planejamento — elas aparecem aqui automaticamente.</div>
+      </div>
+    </div>
+
+    <div class="board-card board-section" id="comparatorBox">
+      <h3 style="margin:0 0 14px; font-size:16px; font-weight:700;">Comparar campanhas específicas</h3>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px;">
+        <div class="field" style="margin:0; min-width:200px;"><label>Campanha A</label><select id="cmpA"></select></div>
+        <div class="field" style="margin:0; min-width:200px;"><label>Campanha B</label><select id="cmpB"></select></div>
+        <div class="field" style="margin:0; min-width:200px;"><label>Campanha C (opcional)</label><select id="cmpC"></select></div>
+      </div>
+      <div id="comparatorResult"></div>
+    </div>
+  </div>
+
+  <!-- SUMMARY (Resumo Campanhas) -->
+  <div id="summaryPage" style="display:none;">
+    <div class="board-head">
+      <div>
+        <p class="board-eyebrow" id="summaryEyebrow"></p>
+        <h2 class="board-title">Resumo das campanhas em 1 minuto</h2>
+      </div>
+    </div>
+    <div class="pillnav">
+      <span class="pillnav-label">Quarter:</span>
+      <div id="qfilterSummary" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+    </div>
+    <div id="resultsSummary"></div>
+  </div>
+
+  <!-- MONTHLY -->
+  <div id="monthlyPage" style="display:none;">
+    <div class="board-head">
+      <div>
+        <p class="board-eyebrow" id="monthlyEyebrow"></p>
+        <h2 class="board-title">Mês a mês</h2>
+        <p class="board-sub">Quanto investimos e o que voltou em seguidores, engajamento e resultados.</p>
+      </div>
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; justify-content:flex-end;">
+        <label class="chk" style="cursor:pointer;"><input type="checkbox" id="compareBrands"> Comparar GhelPlus x De Bacco</label>
+        <button class="btn btn-primary" id="addMonthlyBtn">+ Registrar mês</button>
+      </div>
+    </div>
+
+    <!-- Canvases ocultos: não fazem parte do layout novo (que usa barras em
+         HTML/CSS puro), mas continuam existindo só pra alimentar as imagens
+         dos gráficos no PDF exportado (ensureChartForExport/generatePdf). -->
+    <div style="position:absolute; width:1px; height:1px; overflow:hidden; opacity:0;" aria-hidden="true">
+      <canvas id="monthlyTrendsChart" width="600" height="260"></canvas>
+      <canvas id="investByTypeChart" width="300" height="260"></canvas>
+      <canvas id="investByPlatformChart" width="300" height="260"></canvas>
+    </div>
+
+    <div class="board-section">
+      <div class="board-section-head"><h2 id="monthlyCompareTitle">Este mês x mês passado</h2></div>
+      <div class="board-grid" id="monthlyCards"></div>
+      <div class="empty-board" id="monthCompareEmpty" style="display:none;">Registre pelo menos dois meses para comparar.</div>
+    </div>
+
+    <div class="board-card board-section">
+      <div class="board-section-head"><h2>Investimento e engajamento por mês</h2><div class="legend-row" id="monthlyChartLegend"></div></div>
+      <div id="monthlyBarsWrap">
+        <div class="month-bars" id="monthlyBars"></div>
+        <div class="month-labels" id="monthlyBarLabels"></div>
+      </div>
+      <p class="muted" id="monthlyBarsHint" style="margin:10px 0 0; font-size:12px;"></p>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px;">
+      <div class="board-card board-section" style="margin-bottom:0;">
+        <div class="board-section-head"><h2>Para onde foi a verba</h2></div>
+        <div id="investByPlatformSplit"></div>
+        <div class="empty-board" id="investByPlatformEmpty" style="display:none;">Sem investimento lançado ainda.</div>
+      </div>
+      <div class="board-card board-section" style="margin-bottom:0;">
+        <div class="board-section-head"><h2>Por objetivo</h2></div>
+        <div id="investByTypeSplit"></div>
+        <div class="empty-board" id="investByTypeEmpty" style="display:none;">Sem investimento lançado ainda.</div>
+      </div>
+    </div>
+
+    <div class="board-section" style="margin-top:18px;">
+      <div class="board-section-head"><h2>Todos os meses registrados</h2></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Mês</th><th>Investimento total</th><th>Por plataforma</th><th>Seguidores ganhos</th><th>Engajamento</th><th>Crescimento vs. mês anterior</th><th></th></tr></thead>
+          <tbody id="monthlyBody"></tbody>
+        </table>
+        <div class="empty" id="monthlyEmpty" style="display:none;">
+          <div class="big">Nenhum mês registrado ainda</div>
+          <div>Clique em "+ Registrar mês" para lançar investimento e resultados mensais.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ARCHIVE (previous years) -->
+  <div id="archivePage" style="display:none;">
+    <div class="board-head">
+      <div>
+        <p class="board-eyebrow" id="archiveEyebrow"></p>
+        <h2 class="board-title">Arquivo de planejamentos</h2>
+        <p class="board-sub">Cada ano fechado vira um cartão com o que foi feito.</p>
+      </div>
+    </div>
+    <div class="pillnav">
+      <select id="archiveYearSelect" style="border:1px solid var(--line); border-radius:999px; padding:7px 14px; background:#fff; font-family:var(--font-display); font-weight:600; font-size:13px;"></select>
+      <span class="pillnav-label" style="margin-left:8px;">Quarter:</span>
+      <div id="qfilterArchive" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+    </div>
+    <div id="archiveCards" style="display:flex; flex-direction:column; gap:16px;"></div>
+    <div class="empty-board" id="archiveEmpty" style="display:none; margin-top:16px;">
+      <div style="font-size:16px; color:var(--ink); margin-bottom:6px; font-weight:600;">Nenhum planejamento de anos anteriores ainda</div>
+      <div>Assim que o ano virar, as campanhas do ano passado aparecem aqui automaticamente.</div>
+    </div>
+    <p class="muted" style="margin:14px 0 0; font-size:12px;">Ainda dá para editar uma campanha arquivada — clique nela abaixo.</p>
+    <div class="tablewrap" style="margin-top:10px;">
+      <table>
+        <thead><tr><th>Quarter</th><th>Campanha / Tema</th><th>Objetivo</th><th>Período</th><th>Plataformas</th><th>Status</th><th>Investido</th><th>Conversões</th><th>Receita</th><th>ROAS</th><th></th></tr></thead>
+        <tbody id="archiveBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- YEARLY COMPARISON -->
+  <div id="yearlyPage" style="display:none;">
+    <div class="board-head">
+      <div>
+        <p class="board-eyebrow" id="yearlyEyebrow"></p>
+        <h2 class="board-title" id="yearlyTitle">Comparativo anual</h2>
+        <p class="board-sub">Compare o desempenho entre diferentes anos de planejamento.</p>
+      </div>
+    </div>
+    <div class="pillnav">
+      <span class="pillnav-label">Comparar:</span>
+      <div id="yearlyMetricPills" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      <select id="yearlyMetricSelect" style="display:none;">
+        <option value="spend">Investimento</option>
+        <option value="revenue">Receita</option>
+        <option value="conversions">Conversões</option>
+        <option value="roas">ROAS</option>
+      </select>
+    </div>
+    <div id="yearlyContent"></div>
+  </div>
+
+  <!-- AUDIT LOG -->
+  <div id="auditPage" style="display:none;">
+    <div class="toolbar"><div class="sub" style="margin:0;">Quem criou, editou ou excluiu cada item, com data e hora — só para esta marca.</div></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Tipo</th><th>Item</th><th>Detalhes</th></tr></thead>
+        <tbody id="auditBody"></tbody>
+      </table>
+      <div class="empty" id="auditEmpty" style="display:none;">
+        <div class="big">Nenhuma alteração registrada ainda</div>
+        <div>Assim que alguém criar, editar ou excluir algo, vai aparecer aqui.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footnote">Dados salvos no servidor. Todo mundo com login vê os mesmos dados; toda alteração fica registrada no Histórico.</div>
+
+<!-- CAMPAIGN MODAL -->
+<div class="overlay" id="campaignOverlay">
+  <div class="modal">
+    <div class="modal-head"><h2 id="modalTitle">Nova campanha</h2><button class="close" id="closeCampaignModal">&times;</button></div>
+    <div class="modal-body">
+      <div class="importhint" id="draftHint" style="display:none;">📝 Rascunho restaurado de um cadastro anterior. <a href="#" id="discardDraftLink" style="color:var(--accent); font-weight:600;">Descartar e começar do zero</a></div>
+      <div class="section-title">Identificação</div>
+      <div class="formgrid">
+        <div class="field"><label>Ano</label><input type="number" id="f_year" min="2020" max="2100" step="1"></div>
+        <div class="field"><label>Quarter</label><select id="f_quarter"><option value="Q1">Q1</option><option value="Q2">Q2</option><option value="Q3">Q3</option><option value="Q4">Q4</option></select></div>
+        <div class="field"><label>Objetivo</label>
+          <select id="f_objective">
+            <option>Reconhecimento</option><option>Tráfego</option><option>Engajamento</option>
+            <option>Leads</option><option>Promoção do app</option><option>Vendas</option>
+          </select>
+        </div>
+        <div class="field full"><label>Nome da campanha</label><input type="text" id="f_name" placeholder="Ex.: Verão 2026 — Linha Facial"></div>
+        <div class="field full"><label>Tema estimado</label><input type="text" id="f_theme" placeholder="Ex.: Lançamento de coleção, Promoção sazonal..."></div>
+        <div class="field"><label>O que conta como conversão?</label>
+          <select id="f_conversionType">
+            <option>Vendas</option><option>Leads / Cadastros</option><option>Seguidores / Novos fãs</option>
+            <option>Seguidores no Instagram</option><option>Seguidores no Facebook</option>
+            <option>Visitas ao perfil do Instagram</option><option>Visitas à Página do Facebook</option>
+            <option>Visualizações de vídeo</option><option>Cliques no link / Tráfego</option><option>Instalações de app</option>
+            <option>Inscrições / Assinaturas</option><option>Outro</option>
+          </select>
+        </div>
+        <div class="field" id="f_saleValueWrap" style="display:none;"><label>Valor de venda (R$)</label><input type="number" id="f_saleValue" step="0.01" min="0" placeholder="Ticket médio por venda"></div>
+        <div class="field"><label>Se "Outro", especifique</label><input type="text" id="f_conversionOther"></div>
+        <div class="field"><label>Data de início</label><input type="date" id="f_start"></div>
+        <div class="field"><label>Data de fim</label><input type="date" id="f_end"></div>
+      </div>
+      <div class="section-title">Plataformas</div>
+      <div class="checks" id="f_platforms"></div>
+      <div class="section-title">Valor da campanha por rede (R$)</div>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">Os resultados são diferentes em cada rede — defina o valor planejado separadamente para cada uma.</div>
+      <div class="checks" id="f_budgets" style="gap:12px;"></div>
+      <div class="section-title">Tipo de criativo</div>
+      <div class="checks" id="f_creativeTypes"></div>
+      <div class="section-title">Estratégia de público</div>
+      <div class="formgrid">
+        <div class="field full"><label>Perfil do público</label><textarea id="f_profile"></textarea></div>
+        <div class="field"><label>Faixa etária</label><input type="text" id="f_age"></div>
+        <div class="field"><label>Gênero</label><select id="f_gender"><option>Todos</option><option>Predominantemente feminino</option><option>Predominantemente masculino</option><option>Feminino</option><option>Masculino</option></select></div>
+        <div class="field"><label>Localização</label><input type="text" id="f_location"></div>
+        <div class="field"><label>Renda / classe</label><input type="text" id="f_income"></div>
+        <div class="field full"><label>Interesses e comportamentos</label><textarea id="f_interests"></textarea></div>
+      </div>
+      <div class="section-title">KPIs a serem analisados</div>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">Sugeridos automaticamente com base no objetivo escolhido acima (mesmo padrão do Gerenciador de Anúncios).</div>
+      <div class="checks" id="f_kpis"></div>
+      <div class="field full" style="margin-top:10px;"><label>KPI adicional (opcional)</label><input type="text" id="f_kpi_extra"></div>
+      <div class="section-title">Observações</div>
+      <div class="field full"><textarea id="f_notes"></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger btn-ghost" id="deleteCampaignBtn" style="display:none;">Excluir campanha</button>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="cancelCampaignBtn">Cancelar</button>
+        <button class="btn btn-primary" id="saveCampaignBtn">Salvar campanha</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RESULTS MODAL -->
+<div class="overlay" id="resultsOverlay">
+  <div class="modal">
+    <div class="modal-head"><h2 id="resultsModalTitle">Atualizar resultados</h2><button class="close" id="closeResultsModal">&times;</button></div>
+    <div class="modal-body">
+      <div class="muted" style="font-size:12px; margin-bottom:4px;" id="resultsModalHint">Os resultados são lançados separadamente para cada rede da campanha.</div>
+      <div id="r_platform_sections"></div>
+    </div>
+    <div class="modal-foot">
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="cancelResultsBtn">Cancelar</button>
+        <button class="btn btn-primary" id="saveResultsBtn">Salvar resultados</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MONTHLY MODAL -->
+<div class="overlay" id="monthlyOverlay">
+  <div class="modal narrow">
+    <div class="modal-head"><h2 id="monthlyModalTitle">Registrar mês</h2><button class="close" id="closeMonthlyModal">&times;</button></div>
+    <div class="modal-body">
+      <div class="formgrid">
+        <div class="field"><label>Mês / ano</label><input type="month" id="m_month"></div>
+        <div class="field"><label>Investimento total (R$)</label><input type="number" id="m_investment" step="0.01" min="0"></div>
+        <div class="field"><label>Seguidores ganhos no mês</label><input type="number" id="m_followers" min="0" placeholder="Somando todas as campanhas"></div>
+        <div class="field"><label>Engajamento no mês</label><input type="number" id="m_engagement" min="0" placeholder="Somando todas as campanhas"></div>
+      </div>
+      <div class="section-title">Investimento por plataforma</div>
+      <div class="checks" id="m_platform_budgets" style="gap:12px;"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger btn-ghost" id="deleteMonthlyBtn" style="display:none;">Excluir registro</button>
+      <div style="display:flex; gap:10px; margin-left:auto;">
+        <button class="btn" id="cancelMonthlyBtn">Cancelar</button>
+        <button class="btn btn-primary" id="saveMonthlyBtn">Salvar mês</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- META ADS LINK MODAL -->
+<div class="overlay" id="metaLinkOverlay">
+  <div class="modal narrow">
+    <div class="modal-head"><h2>Vincular campanha do Meta Ads</h2><button class="close" id="closeMetaLinkModal">&times;</button></div>
+    <div class="modal-body">
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">Campanhas da conta de anúncios compartilhada (Ghel e De Bacco). Escolha a que corresponde a esta campanha planejada.</div>
+      <div class="field full"><input type="text" id="metaLinkSearchInput" placeholder="Buscar por nome..."></div>
+      <div id="metaLinkResults" style="margin-top:8px; max-height:340px; overflow:auto;"></div>
+    </div>
+    <div class="modal-foot"><div style="margin-left:auto;"><button class="btn" id="cancelMetaLinkBtn">Cancelar</button></div></div>
+  </div>
+</div>
         </div>
       </section>
 

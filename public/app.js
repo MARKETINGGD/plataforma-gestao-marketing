@@ -1459,7 +1459,7 @@
   // endpoint público daquele recurso específico (cada um serializa do seu
   // jeito). A tabela é montada na hora, já que cada recurso tem colunas
   // diferentes.
-  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', expositoresTotalMensal: 'expositores/lancamentos-mensais/total-mensal', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias' };
+  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', expositoresTotalMensal: 'expositores/lancamentos-mensais/total-mensal', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias', trafegoPago: 'trafego-pago' };
   function publicTableHtml(headers, rows) {
     return `<table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '' : c}</td>`).join('')}</tr>`).join('')
@@ -1865,6 +1865,14 @@
       const dataRes = await fetch(`/api/${apiPath}/public/${encodeURIComponent(shareToken)}`);
       const dataBody = await dataRes.json();
       if (!dataRes.ok) throw new Error(dataBody.error || 'Link inválido ou desativado.');
+      // 156ª rodada: Tráfego Pago não usa a tabelinha genérica de
+      // #screen-share-public (os dados são um dashboard inteiro, com 6 abas
+      // + histórico) -- reaproveita as mesmas telas nativas do hub
+      // autenticado, só que em modo somente-leitura, sem precisar de login.
+      if (resolveBody.resource === 'trafegoPago') {
+        await startTrafegoPublicMode(dataBody);
+        return;
+      }
       renderSharePublicContent(resolveBody.resource, resolveBody.resourceLabel, dataBody, shareToken);
       showScreen('share-public');
     } catch (e) {
@@ -1872,6 +1880,23 @@
       $('#sharePublicError').hidden = false;
       showScreen('share-public');
     }
+  }
+
+  // Link externo do Tráfego Pago por MARCA (156ª rodada) -- `payload` é o
+  // retorno de GET /api/trafego-pago/public/:token ({brand, campaigns,
+  // monthly, settings}). Reaproveita o mesmo "modo público" já usado por
+  // Mídias/Ações Sazonais (barra lateral escondida, topo simples) e abre o
+  // hub de Tráfego Pago direto na marca do link, em somente-leitura (sem
+  // histórico de alterações, que esse payload não inclui).
+  async function startTrafegoPublicMode(payload) {
+    trafegoPublicBrand = payload.brand;
+    trafegoPublicPayload = payload;
+    trafegoBrand = payload.brand;
+    $('.app-shell').classList.add('public-hub-mode');
+    $('#publicHubTopbar').hidden = false;
+    $('#publicHubTopbarLabel').textContent = 'Tráfego Pago';
+    showScreen('app');
+    await openTrafegoHub();
   }
 
   // Link externo por dashboard (28ª rodada) — mesmo espírito do link do
@@ -1896,7 +1921,14 @@
       if (body.key === 'redesSociais') {
         await openMidiasHub();
       } else if (body.key === 'trafegoPago') {
-        openTrafegoHub();
+        // 156ª rodada: o link externo do Tráfego Pago deixou de ser deste
+        // sistema genérico (1 token por dashboard inteiro) -- agora é um
+        // link por MARCA, via utils/shareLinks.js (ver startTrafegoPublicMode
+        // / setupTrafegoPublicLink, que geram links `?sharePublic=...`).
+        // Um link antigo deste tipo que ainda exista não tem mais como
+        // funcionar (o painel de Tráfego Pago não aceita mais SSO por
+        // iframe), então avisa em vez de abrir uma tela quebrada.
+        throw new Error('Este link externo do Tráfego Pago não é mais válido. Peça para gerar um novo link.');
       } else if (body.key === 'acoesSazonais') {
         // 154ª rodada, pedido da Raquel: "esse link externo das ações, n esta
         // funcionando" -- faltava este branch. O resto do fluxo pro hub de
@@ -4329,31 +4361,51 @@
   const TRAFEGO_AUDIT_SECTION = 'audit';
   let trafegoBrand = 'ghelplus';
   let trafegoSection = TRAFEGO_SECTIONS[0].id;
-  let trafegoFrameBase = null; // cache { baseUrl, platformParams } — evita re-assinar o token a cada clique de aba/marca
+  // 156ª rodada: Tráfego Pago deixou de ser um iframe (SSO pra um app
+  // separado) e passou a ser um módulo nativo — `trafegoNative` é montado
+  // pelo próprio bloco de código do módulo, lá perto do fim deste arquivo
+  // (função initTrafegoNative), e expõe { initAuthenticated, initPublic,
+  // setBrand, setTab, canEdit }.
+  let trafegoNative = null;
+  // Preenchidos só no modo de link público (ver startTrafegoPublicMode) —
+  // trafegoPublicBrand trava a marca no valor do link (o payload público só
+  // tem 1 marca); trafegoPublicPayload é o retorno de GET /api/trafego-pago/public/:token.
+  let trafegoPublicBrand = null;
+  let trafegoPublicPayload = null;
 
-  function openTrafegoHub() {
+  async function openTrafegoHub() {
     showView('trafego-hub');
     // Mesmo cuidado do Mídias: some com os controles de "Link externo" pra
-    // quem já entrou por um link externo (28ª rodada) — mas o botão de
-    // Histórico continua visível pra quem entrou por esse link (acesso a
-    // TODAS as seções já era o combinado com a Raquel).
-    $('#trafegoHubPublicLinkBtn').hidden = !!dashboardPublicToken;
-    if (dashboardPublicToken) $('#trafegoPublicLinkPanel').hidden = true;
-    trafegoFrameBase = null;
+    // quem já entrou por um link externo — mas o botão de Histórico
+    // continua visível pra quem entrou por esse link (acesso a TODAS as
+    // seções já era o combinado com a Raquel).
+    $('#trafegoHubPublicLinkBtn').hidden = !!trafegoPublicBrand;
+    if (trafegoPublicBrand) { $('#trafegoPublicLinkPanel').hidden = true; trafegoBrand = trafegoPublicBrand; }
     renderTrafegoBrandSwitch();
     renderTrafegoTabs();
-    loadTrafegoFrame();
+    try {
+      if (trafegoPublicBrand) {
+        await trafegoNative.initPublic(trafegoPublicPayload, trafegoSection);
+      } else {
+        await trafegoNative.initAuthenticated(trafegoBrand, trafegoSection);
+      }
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar o Tráfego Pago.');
+    }
   }
 
   function renderTrafegoBrandSwitch() {
     const wrap = $('#trafegoBrandSwitch');
-    wrap.innerHTML = TRAFEGO_BRANDS.map((b) => `<button class="btn-secondary${b.id === trafegoBrand ? ' active' : ''}" data-trafego-brand="${b.id}">${b.label}</button>`).join('');
+    const brands = trafegoPublicBrand ? TRAFEGO_BRANDS.filter((b) => b.id === trafegoPublicBrand) : TRAFEGO_BRANDS;
+    wrap.innerHTML = brands.map((b) => `<button class="btn-secondary${b.id === trafegoBrand ? ' active' : ''}" data-trafego-brand="${b.id}">${b.label}</button>`).join('');
     wrap.querySelectorAll('[data-trafego-brand]').forEach((btn) => {
       btn.onclick = () => {
         if (trafegoBrand === btn.dataset.trafegoBrand) return;
         trafegoBrand = btn.dataset.trafegoBrand;
         renderTrafegoBrandSwitch();
-        loadTrafegoFrame();
+        trafegoNative.setBrand(trafegoBrand);
+        // Se o painel de link externo estiver aberto, atualiza pro link da marca nova.
+        if (!$('#trafegoPublicLinkPanel').hidden && trafegoPublicLinkRefreshOnBrandChange) trafegoPublicLinkRefreshOnBrandChange();
       };
     });
   }
@@ -4366,41 +4418,17 @@
         if (trafegoSection === btn.dataset.trafegoSection) return;
         trafegoSection = btn.dataset.trafegoSection;
         renderTrafegoTabs();
-        loadTrafegoFrame();
+        trafegoNative.setTab(trafegoSection);
       };
     });
     const auditBtn = $('#trafegoAuditBtn');
     if (auditBtn) auditBtn.classList.toggle('active', trafegoSection === TRAFEGO_AUDIT_SECTION);
   }
 
-  // Monta (ou reaproveita, se já montada nesta visita ao hub) a URL de login
-  // único do painel de Tráfego Pago, e aponta o iframe pra marca + aba
-  // atuais — chamada tanto ao abrir o hub quanto ao trocar de aba/marca.
-  async function loadTrafegoFrame() {
-    try {
-      if (!trafegoFrameBase) {
-        const data = await dashboardLaunch('trafegoPago');
-        // O launch devolve a URL ja com o token de login unico (?platformToken=...);
-        // a base (sem querystring) e o que precisamos pra montar os parametros de
-        // navegacao por cima — o painel de Trafego Pago le os dois juntos no boot.
-        const url = new URL(data.url);
-        trafegoFrameBase = { baseUrl: url.origin, platformParams: url.search };
-      }
-      const params = new URLSearchParams();
-      params.set('embedBrand', trafegoBrand);
-      params.set('embedView', trafegoSection);
-      const navSrc = trafegoFrameBase.baseUrl.replace(/\/$/, '') + '/?' + params.toString();
-      $('#trafegoTelaFrame').style.height = '';
-      $('#trafegoTelaFrame').src = navSrc + '&' + trafegoFrameBase.platformParams.slice(1);
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
   $('#trafegoAuditBtn').onclick = () => {
     trafegoSection = TRAFEGO_AUDIT_SECTION;
     renderTrafegoTabs();
-    loadTrafegoFrame();
+    trafegoNative.setTab(trafegoSection);
   };
 
   // ---------- Ações Sazonais + Expositores Especiais (30ª rodada) ----------
@@ -4571,8 +4599,8 @@
     const h = Math.max(300, Math.ceil(data.height));
     if ($('#midiasCanalFrame') && event.source === $('#midiasCanalFrame').contentWindow) {
       $('#midiasCanalFrame').style.height = h + 'px';
-    } else if ($('#trafegoTelaFrame') && event.source === $('#trafegoTelaFrame').contentWindow) {
-      $('#trafegoTelaFrame').style.height = h + 'px';
+    // Tráfego Pago não manda mais essa mensagem (156ª rodada: deixou de ser
+    // iframe, é módulo nativo) -- branch removido.
     } else if ($('#acoesTelaFrame') && event.source === $('#acoesTelaFrame').contentWindow) {
       $('#acoesTelaFrame').style.height = h + 'px';
     } else if ($('#expositoresTelaFrame') && event.source === $('#expositoresTelaFrame').contentWindow) {
@@ -14292,8 +14320,2086 @@
     };
   }
   setupDashboardPublicLink('redesSociais', 'midias');
-  setupDashboardPublicLink('trafegoPago', 'trafego');
   setupDashboardPublicLink('acoesSazonais', 'acoes');
+
+  // Link externo do Tráfego Pago (156ª rodada) -- NÃO usa mais
+  // setupDashboardPublicLink/dashboardPublicLinks (1 link por dashboard
+  // inteiro): agora é 1 link por MARCA, via /api/trafego-pago/public-link*
+  // (utils/shareLinks.js, mesmo padrão do Orçamento/Brindes/Expositores —
+  // ver setupPublicLinkPanel() acima), e o link gerado é consumido pela
+  // rota genérica `?sharePublic=token` (ver loadSharePublicPage/
+  // startTrafegoPublicMode). Os ids de botão em index.html usam o padrão
+  // "Hub" (trafegoHubPublicLinkBtn) herdado da versão em iframe, por isso
+  // não dá pra usar setupPublicLinkPanel() direto (ids não combinam) --
+  // função própria, mesma lógica.
+  function setupTrafegoPublicLink() {
+    function currentKey() { return trafegoBrand; }
+    async function refresh() {
+      try {
+        const data = await api('/api/trafego-pago/public-link?brand=' + encodeURIComponent(currentKey()));
+        setUI(data.publicToken);
+      } catch (e) { /* ignora falha pontual */ }
+    }
+    function setUI(pubToken) {
+      const active = !!pubToken;
+      $('#trafegoPublicLinkActive').hidden = !active;
+      $('#trafegoGenLinkBtn').hidden = active;
+      if (active) $('#trafegoPublicLinkField').value = `${window.location.origin}/?sharePublic=${pubToken}`;
+    }
+    $('#trafegoHubPublicLinkBtn').onclick = async () => {
+      const panel = $('#trafegoPublicLinkPanel');
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) await refresh();
+    };
+    $('#trafegoGenLinkBtn').onclick = $('#trafegoRegenLinkBtn').onclick = async () => {
+      try {
+        const data = await api('/api/trafego-pago/public-link/generate', { method: 'POST', body: JSON.stringify({ brand: currentKey() }) });
+        setUI(data.publicToken);
+      } catch (e) { alert(e.message); }
+    };
+    $('#trafegoRevokeLinkBtn').onclick = async () => {
+      if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir acessar.')) return;
+      try {
+        await api('/api/trafego-pago/public-link?brand=' + encodeURIComponent(currentKey()), { method: 'DELETE' });
+        setUI(null);
+      } catch (e) { alert(e.message); }
+    };
+    $('#trafegoCopyLinkBtn').onclick = () => {
+      const field = $('#trafegoPublicLinkField');
+      field.select();
+      navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+    };
+    // Reabre o estado do link ao trocar de marca, se o painel já estiver aberto.
+    trafegoPublicLinkRefreshOnBrandChange = refresh;
+  }
+  let trafegoPublicLinkRefreshOnBrandChange = null;
+  setupTrafegoPublicLink();
+
+  // ====================================================================
+  // TRÁFEGO PAGO — módulo nativo (migração 156ª rodada / tarefa #104)
+  // Portado do app standalone (dashboard tráfego pago/dashboard-app/public/
+  // index.html) para dentro da Papoi. Fica em sua própria IIFE (mesmo
+  // padrão do arquivo original) pra não colidir os próprios helpers desse
+  // módulo ($, $all, toast, escapeHtml, fmtMoney, state, etc.) com os da
+  // Papoi -- só usa token/currentUser/api/showView/dashboardLaunch de fora
+  // via closure (não redeclarados aqui). Ao final, expõe
+  // { initAuthenticated, initPublic, setBrand, setTab, canEdit } em
+  // `trafegoNative` (declarado lá no bloco do hub, acima).
+  // ====================================================================
+(function(){
+  // Pinterest só existe como plataforma para a De Bacco — GhelPlus não anuncia lá.
+  const PLATFORM_OPTS = { ghelplus:['TikTok','Meta','Google','YouTube'], debacco:['TikTok','Meta','Google','YouTube','Pinterest'] };
+  // Ordem e rótulos usados para separar os Resultados por rede.
+  const NETWORK_ORDER = ['TikTok','Meta','Google','YouTube','Pinterest'];
+  const NETWORK_LABEL = { 'TikTok':'TikTok', 'Meta':'Meta (Instagram e Facebook)', 'Google':'Google', 'YouTube':'YouTube', 'Pinterest':'Pinterest' };
+
+  const CREATIVE_OPTS = ['Post estático','Carrossel','Reels','Stories','Dark'];
+  const KPI_OPTS = ['Alcance','Impressões','CPM','CTR','CPC','Conversões','CPA','Taxa de conversão','ROAS','Receita','Frequência','Custo por lead','Engajamento','Retenção/CAC','Novos seguidores'];
+  const BRAND_LABEL = { ghelplus:'GhelPlus', debacco:'De Bacco' };
+  const YEAR_NOW = new Date().getFullYear();
+  function campaignYear(c){ return Number(c && c.year) || YEAR_NOW; }
+  // Objetivos oficiais do Meta Ads. Campanhas antigas com nomes de objetivo diferentes
+  // são convertidas automaticamente para o equivalente mais próximo (sem apagar o dado original no servidor).
+  const OBJECTIVE_ABBR = { 'Reconhecimento':'Reconhecimento','Tráfego':'Tráfego','Engajamento':'Engajamento','Leads':'Leads','Promoção do app':'Promoção do app','Vendas':'Vendas' };
+  const LEGACY_OBJECTIVE_MAP = {
+    'Reconhecimento de marca':'Reconhecimento', 'Tráfego / Alcance':'Tráfego', 'Consideração / Engajamento':'Engajamento',
+    'Conversão / Vendas':'Vendas', 'Geração de leads':'Leads', 'Lançamento de produto':'Vendas', 'Remarketing / Retenção':'Vendas'
+  };
+  function normalizeObjective(o){ return LEGACY_OBJECTIVE_MAP[o] || o || 'Vendas'; }
+  // "Bom para" — mesmos KPIs sugeridos pelo Gerenciador de Anúncios do Meta, por objetivo.
+  // KPIs estratégicos por objetivo — lógica "resultado principal → custo desse resultado → qualidade desse resultado",
+  // padronizados em 4 a 6 indicadores por objetivo (em vez de uma lista genérica única para todas as campanhas).
+  const OBJECTIVE_KPIS = {
+    'Reconhecimento': ['Alcance','Impressões','Frequência','CPM','ThruPlay'],
+    'Tráfego': ['Visualizações da página','Custo por visualização','CTR de link','CPC de link','Sessões'],
+    'Engajamento': ['Engajamentos','Custo por engajamento','Compartilhamentos','Salvamentos','Comentários'],
+    'Leads': ['Leads','CPL','Leads qualificados','CPQL','Taxa de conversão'],
+    'Promoção do app': ['Instalações','CPI','Eventos no app','Custo por evento','Retenção'],
+    'Vendas': ['Compras','CPA','Receita','ROAS','Taxa de conversão']
+  };
+  const STATUS_LABEL = { planned:'Planejada', running:'Em andamento', paused:'Pausada', done:'Concluída' };
+  // 144ª rodada — paleta por objetivo/rede/status pro layout novo (badges,
+  // linha do tempo, barras). Mesmos tons do canvas que a Raquel mandou,
+  // com Leads e Promoção do app adicionados (o canvas só mostrava 4 dos 6
+  // objetivos oficiais do Meta Ads).
+  const OBJ_BADGE = {
+    'Reconhecimento': { bg:'#DCE6FA', fg:'#1E4AA8' },
+    'Tráfego': { bg:'#FDEBD6', fg:'#8A4A07' },
+    'Engajamento': { bg:'#D5EFEC', fg:'#0B5A51' },
+    'Leads': { bg:'#FDF3D6', fg:'#8A6D07' },
+    'Promoção do app': { bg:'#E3E0FB', fg:'#4B3FA8' },
+    'Vendas': { bg:'#F6DDE4', fg:'#8A1C3B' }
+  };
+  const OBJ_SOLID = { 'Reconhecimento':'#2C5FC9', 'Tráfego':'#F2A24A', 'Engajamento':'#0F7A6E', 'Leads':'#C9A227', 'Promoção do app':'#8B5CF6', 'Vendas':'#C2185B' };
+  const OBJ_SOLID_TEXT = { 'Reconhecimento':'#fff', 'Tráfego':'#3D2203', 'Engajamento':'#fff', 'Leads':'#3D2203', 'Promoção do app':'#fff', 'Vendas':'#fff' };
+  const NET_COLORS = { Meta:'#2C5FC9', Google:'#0F7A6E', TikTok:'#16181D', Pinterest:'#C2410C', YouTube:'#B42318' };
+  const STATUS_DOT = { running:'#C2410C', done:'#17663F', planned:'#8A909C', paused:'#B42318' };
+  function objBadgeHtml(objective){
+    const key = normalizeObjective(objective);
+    const b = OBJ_BADGE[key] || { bg:'#EEF0F3', fg:'#3A404C' };
+    return `<span class="badge-pill" style="background:${b.bg};color:${b.fg};">${escapeHtml(OBJECTIVE_ABBR[key]||key)}</span>`;
+  }
+  function netBadgeHtml(p){
+    const c = NET_COLORS[p] || '#3A404C';
+    return `<span class="badge-pill" style="background:${c}1A;color:${c};">${escapeHtml(p)}</span>`;
+  }
+  function statusBadgeHtml(status){
+    const c = STATUS_DOT[status] || '#5C6270';
+    return `<span class="badge-pill" style="background:${c}1A;color:${c};">${escapeHtml(STATUS_LABEL[status]||status)}</span>`;
+  }
+  function netLabelFull(p){ return NETWORK_LABEL[p] || p; }
+  const ACTION_LABEL = { create:'Criou', update:'Atualizou', delete:'Excluiu' };
+  const ENTITY_LABEL = { campaign:'Campanha', result:'Resultado', monthly:'Métrica mensal', user:'Usuário', settings:'Título do dashboard' };
+
+  // token/currentUser: reaproveita as variáveis da Papoi (login único, sem duplicar).
+  let state = { ghelplus:{campaigns:[],monthly:[]}, debacco:{campaigns:[],monthly:[]} };
+  let auditLogs = { ghelplus:[], debacco:[] };
+  let brandSettings = { ghelplus:{tagline:''}, debacco:{tagline:''} };
+  let currentBrand = 'ghelplus';
+  let currentTab = 'planning';
+  const VALID_TABS = ['planning','results','summary','monthly','archive','yearly','audit'];
+  // Módulo nativo: sem embedBrand/embedTab por querystring (a Papoi chama
+  // tpSetBrand()/tpSetTab() diretamente) e sem postMessage de altura (não há mais iframe).
+
+  let qFilterPlanning = 'all', qFilterResults = 'all', qFilterSummary = 'all';
+  let qFilterArchive = 'all', archiveYearFilter = 'all';
+  let statusFilterPlanning = 'all', objectiveFilterPlanning = 'all';
+  let resultsSubTab = 'all', resultsNetworkTab = 'all';
+  let editingCampaignId = null, editingResultsId = null, editingMonthlyId = null;
+  let monthlyTrendsChart = null;
+  let investTypeChart = null, investPlatformChart = null;
+
+  const $ = (sel, root) => (root||document).querySelector(sel);
+  const $all = (sel, root) => Array.from((root||document).querySelectorAll(sel));
+  const fmtMoney = n => 'R$ ' + (Number(n)||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtInt = n => (Number(n)||0).toLocaleString('pt-BR');
+  const fmtDate = d => d ? new Date(d+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}) : '—';
+  const fmtDateTime = d => d ? new Date(d).toLocaleString('pt-BR') : '—';
+  function truncate(s,n){ return s.length>n ? s.slice(0,n)+'…' : s; }
+  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function convTypeLabel(c){ return c.conversionType==='Outro' ? (c.conversionOther || 'Outro') : (c.conversionType || 'Vendas'); }
+  function pctOf(spend,budget){ return budget>0 ? Math.round((spend/budget)*100) : 0; }
+  function platSlug(p){ return String(p).replace(/[^a-zA-Z0-9]/g,'_'); }
+
+  // ---------- RESULTADOS POR REDE (helpers) ----------
+  // A partir desta versão cada campanha tem um resultado por rede (plataforma).
+  // Estas funções escondem essa complexidade do resto do código: quem só quer
+  // um número consolidado da campanha usa aggregateResult()/campaignBudgetTotal().
+  function campaignPlatforms(c){ return (c && c.platforms && c.platforms.length) ? c.platforms : ['Meta']; }
+  function emptyResult(campaignId, platform){
+    return { campaignId, platform, status:'planned', budget:0, spend:0, revenue:0, impressions:0, clicks:0, conversions:0, frequency:0, reach:0, engagement:0, notes:'', updatedAt:null, updatedBy:null };
+  }
+  function resultsArray(c){
+    if (Array.isArray(c.results)) return c.results;
+    if (c.result) return [c.result]; // compatibilidade com dado antigo em memória, se sobrar algum
+    return [];
+  }
+  function resultFor(c, platform){
+    const arr = resultsArray(c);
+    return arr.find(r => r.platform===platform) || emptyResult(c.id, platform);
+  }
+  // Valor da campanha por rede. Campanhas antigas (de antes da separação por rede)
+  // só têm um `budget` único — nesse caso ele é dividido igualmente entre as redes
+  // cadastradas, só para não mostrar "R$ 0,00" onde havia um valor de verdade.
+  function campaignBudgets(c){
+    const plats = campaignPlatforms(c);
+    const out = {};
+    if (c.budgets && typeof c.budgets==='object' && Object.keys(c.budgets).length){
+      plats.forEach(p => out[p] = Number(c.budgets[p])||0);
+    } else {
+      const share = plats.length ? (Number(c.budget)||0)/plats.length : 0;
+      plats.forEach(p => out[p] = share);
+    }
+    return out;
+  }
+  function campaignBudgetTotal(c){ return Object.values(campaignBudgets(c)).reduce((s,v)=>s+v,0); }
+  // Status consolidado da campanha (usado no Planejamento e nos filtros):
+  // se qualquer rede estiver em andamento, mostra em andamento; senão pausada; senão concluída; senão planejada.
+  function campaignStatus(c){
+    const arr = campaignPlatforms(c).map(p => resultFor(c,p));
+    const order = ['running','paused','done','planned'];
+    return order.find(s => arr.some(r => r.status===s)) || 'planned';
+  }
+  // Resultado agregado (soma das redes) — usado onde faz sentido olhar a campanha como um todo:
+  // comparador, resumo por campanha, arquivo de anos anteriores, comparativo anual.
+  function aggregateResult(c){
+    const arr = campaignPlatforms(c).map(p => resultFor(c,p));
+    const sum = key => arr.reduce((s,r)=>s+(Number(r[key])||0),0);
+    const updatedRows = arr.filter(r=>r.updatedAt);
+    const latest = updatedRows.slice().sort((a,b)=> new Date(b.updatedAt)-new Date(a.updatedAt))[0];
+    return {
+      status: campaignStatus(c), budget: campaignBudgetTotal(c),
+      spend: sum('spend'), revenue: sum('revenue'), impressions: sum('impressions'), clicks: sum('clicks'),
+      conversions: sum('conversions'), reach: sum('reach'), engagement: sum('engagement'),
+      frequency: updatedRows.length ? sum('frequency')/updatedRows.length : 0,
+      notes: latest ? latest.notes : '', updatedAt: latest ? latest.updatedAt : null, updatedBy: latest ? latest.updatedBy : null
+    };
+  }
+
+  let toastTimer=null;
+  function toast(msg, isErr){
+    const el = $('#toastEl');
+    el.textContent = msg;
+    el.className = 'toast show' + (isErr ? ' err' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> el.classList.remove('show'), 2600);
+  }
+
+  // ---------- API ----------
+  // Módulo nativo: usa o api() da própria Papoi (helper genérico já usado por
+  // todo o resto do app.js, com o token Bearer já embutido e tratamento de
+  // 401) -- só adiciona a checagem de permissão de EDIÇÃO (permissions.trafegoPago)
+  // antes de qualquer requisição que não seja GET, no mesmo espírito do bloqueio
+  // client-side que o app separado já fazia (o bloqueio de verdade continua sendo
+  // o requireTrafegoPagoEdit no servidor).
+  async function tpApi(path, opts={}){
+    const method = (opts.method || 'GET').toUpperCase();
+    if (method !== 'GET' && !trafegoCanEdit()) {
+      toast('Você não tem permissão para editar o Tráfego Pago.', true);
+      throw new Error('Você não tem permissão para editar o Tráfego Pago.');
+    }
+    return api(path, opts);
+  }
+
+  // ---------- PERMISSÃO DE EDIÇÃO (permissions.trafegoPago) ----------
+  // Visualizar sempre é liberado pra qualquer pessoa logada na Papoi (mesmo
+  // comportamento de sempre do hub de dashboards -- 'none' nunca bloqueou
+  // ABRIR/VER) -- só a edição (criar/editar/excluir/importar/vincular Meta
+  // Ads/gerar-revogar link externo) depende de permissions.trafegoPago ser
+  // 'editor' ou 'admin'. No modo de link público (sem login) é sempre
+  // somente leitura.
+  function trafegoCanEdit(){
+    if (tpPublicMode) return false;
+    const perms = (typeof currentUser !== 'undefined' && currentUser && currentUser.permissions) || {};
+    return perms.trafegoPago === 'editor' || perms.trafegoPago === 'admin';
+  }
+  // Espelha o padrão do Orçamento: esconde/desabilita os controles de
+  // edição (sem bloquear a renderização dos dados) quando a pessoa só tem
+  // acesso de visualização.
+  function trafegoApplyEditGate(){
+    const can = trafegoCanEdit();
+    ['addCampaignBtn','addMonthlyBtn','importDataBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = can ? '' : 'none'; });
+    ['saveCampaignBtn','deleteCampaignBtn','saveResultsBtn','saveMonthlyBtn','deleteMonthlyBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !can; });
+  }
+
+  let tpPublicMode = false;
+  let tpPublicPayload = null;
+  let tpBootedBrands = {};
+
+  async function startApp(brand, tab){
+    if (!tpPublicMode){
+      await Promise.all(['ghelplus','debacco'].filter(b => !tpBootedBrands[b]).map(b => loadBrandData(b).then(()=>{ tpBootedBrands[b]=true; })));
+    } else if (!tpBootedBrands[brand]) {
+      await loadBrandData(brand);
+      tpBootedBrands[brand] = true;
+    }
+    setBrand(brand || 'ghelplus');
+    setTab(tab || 'planning');
+  }
+
+  // Pontos de entrada chamados pela Papoi (openTrafegoHub() em app.js) --
+  // substituem o antigo boot()/login/setup, que não existem mais aqui (o
+  // login é só o da Papoi).
+  async function tpInitAuthenticated(brand, tab){
+    tpPublicMode = false; tpPublicPayload = null;
+    await startApp(brand, tab);
+  }
+  async function tpInitPublic(payload, tab){
+    tpPublicMode = true; tpPublicPayload = payload;
+    tpBootedBrands = {};
+    await startApp(payload.brand, tab);
+  }
+  function tpSetBrand(brand){ if (tpBootedBrands[brand] || (tpPublicMode && brand===tpPublicPayload.brand)) setBrand(brand); }
+  function tpSetTab(tab){ setTab(tab); }
+
+  // ---------- DATA LOADING ----------
+  // Modo normal: busca pela API autenticada da Papoi (3 chamadas por marca).
+  // Modo de link público (tpPublicMode): os dados já vêm prontos num payload
+  // só (GET /api/trafego-pago/public/:token, sem login), pré-carregado por
+  // tpInitPublic() -- só serve pra UMA marca (a do link).
+  async function loadBrandData(brand){
+    if (tpPublicMode){
+      const payload = tpPublicPayload;
+      const campaigns = (payload.campaigns||[]).map(c => ({ ...c, objective: normalizeObjective(c.objective) }));
+      state[brand] = { campaigns, monthly: payload.monthly||[] };
+      brandSettings[brand] = payload.settings || { brand, tagline:'' };
+      return;
+    }
+    const [campaignsRes, monthlyRes, settingsRes] = await Promise.all([
+      tpApi(`/api/trafego-pago/brands/${brand}/campaigns`),
+      tpApi(`/api/trafego-pago/brands/${brand}/monthly`),
+      tpApi(`/api/trafego-pago/brands/${brand}/settings`)
+    ]);
+    const campaigns = campaignsRes.campaigns.map(c => ({ ...c, objective: normalizeObjective(c.objective) }));
+    state[brand] = { campaigns, monthly: monthlyRes.monthly };
+    brandSettings[brand] = settingsRes.settings;
+  }
+  function defaultTagline(brand){ return BRAND_LABEL[brand] + ' · Tráfego Pago · Planejamento Anual 2026'; }
+  function currentTagline(brand){ return (brandSettings[brand] && brandSettings[brand].tagline) || defaultTagline(brand); }
+  async function loadAudit(brand){
+    if (tpPublicMode){ auditLogs[brand] = []; return; } // o link público não inclui o histórico de alterações
+    const res = await tpApi(`/api/trafego-pago/brands/${brand}/audit-log`);
+    auditLogs[brand] = res.logs;
+  }
+
+  function setBrand(brand){
+    currentBrand = brand;
+    const eyebrowEl = document.getElementById('trafegoEyebrow');
+    if (eyebrowEl) eyebrowEl.textContent = currentTagline(brand);
+    trafegoApplyEditGate();
+    renderAll();
+  }
+  function setTab(tab){
+    currentTab = tab;
+    $('#planningPage').style.display = tab==='planning' ? '' : 'none';
+    $('#resultsPage').style.display = tab==='results' ? '' : 'none';
+    $('#summaryPage').style.display = tab==='summary' ? '' : 'none';
+    $('#monthlyPage').style.display = tab==='monthly' ? '' : 'none';
+    $('#archivePage').style.display = tab==='archive' ? '' : 'none';
+    $('#yearlyPage').style.display = tab==='yearly' ? '' : 'none';
+    $('#auditPage').style.display = tab==='audit' ? '' : 'none';
+    renderAll();
+  }
+
+  function buildQFilter(containerId, current, onPick){
+    const el = $(containerId); el.innerHTML = '';
+    ['all','Q1','Q2','Q3','Q4'].forEach(q => {
+      const btn = document.createElement('button');
+      btn.textContent = q==='all' ? 'Todos' : q;
+      btn.className = current===q ? 'active' : '';
+      btn.onclick = () => onPick(q);
+      el.appendChild(btn);
+    });
+  }
+  // Filtro genérico de botões (usado para status e objetivo no Planejamento).
+  function buildFilterGroup(containerId, items, current, onPick){
+    const el = $(containerId); if (!el) return; el.innerHTML = '';
+    items.forEach(item => {
+      const btn = document.createElement('button');
+      btn.textContent = item.label;
+      btn.className = current===item.value ? 'active' : '';
+      btn.onclick = () => onPick(item.value);
+      el.appendChild(btn);
+    });
+  }
+  function campaignsForBrand(filterQ){
+    const list = state[currentBrand].campaigns.filter(c => campaignYear(c) >= YEAR_NOW);
+    return filterQ==='all' ? list : list.filter(c => c.quarter===filterQ);
+  }
+  // Planejamento: além do quarter, filtra por status da campanha e por objetivo.
+  function planningFilteredList(){
+    let list = campaignsForBrand(qFilterPlanning);
+    if (statusFilterPlanning !== 'all') list = list.filter(c => campaignStatus(c) === statusFilterPlanning);
+    if (objectiveFilterPlanning !== 'all') list = list.filter(c => normalizeObjective(c.objective) === objectiveFilterPlanning);
+    return list;
+  }
+  // Resultados: além do quarter, filtra pela rede (plataforma) selecionada.
+  function availableNetworks(){
+    return NETWORK_ORDER.filter(n => (PLATFORM_OPTS[currentBrand]||[]).includes(n));
+  }
+  function resultsFilteredCampaigns(){
+    const list = campaignsForBrand(qFilterResults);
+    return resultsNetworkTab==='all' ? list : list.filter(c => campaignPlatforms(c).includes(resultsNetworkTab));
+  }
+  // Achata a lista de campanhas em uma linha por (campanha, rede) — é assim que os
+  // números por rede aparecem genuinamente distintos em vez de duplicados.
+  function resultsEntries(){
+    const list = resultsFilteredCampaigns();
+    const entries = [];
+    list.forEach(c => {
+      const plats = campaignPlatforms(c);
+      const usePlats = resultsNetworkTab==='all' ? plats : plats.filter(p=>p===resultsNetworkTab);
+      const budgets = campaignBudgets(c);
+      usePlats.forEach(p => entries.push({ c, platform:p, r: resultFor(c,p), budget: budgets[p]||0 }));
+    });
+    return entries;
+  }
+  function buildResultsNetworkTabs(){
+    const el = $('#resultsNetworkTabs'); if (!el) return;
+    const nets = availableNetworks();
+    if (resultsNetworkTab!=='all' && !nets.includes(resultsNetworkTab)) resultsNetworkTab='all';
+    const base = campaignsForBrand(qFilterResults);
+    el.innerHTML = '';
+    const allBtn = document.createElement('button');
+    allBtn.textContent = 'Todas as redes';
+    allBtn.className = resultsNetworkTab==='all' ? 'active' : '';
+    allBtn.onclick = () => { resultsNetworkTab='all'; renderAll(); };
+    el.appendChild(allBtn);
+    nets.forEach(n => {
+      const count = base.filter(c => campaignPlatforms(c).includes(n)).length;
+      const btn = document.createElement('button');
+      btn.innerHTML = `${escapeHtml(NETWORK_LABEL[n]||n)} <span class="pillnav-count">${count}</span>`;
+      btn.className = resultsNetworkTab===n ? 'active' : '';
+      btn.onclick = () => { resultsNetworkTab=n; renderAll(); };
+      el.appendChild(btn);
+    });
+  }
+  function pastYearsAvailable(){
+    const years = new Set();
+    state[currentBrand].campaigns.forEach(c => { const y = campaignYear(c); if (y < YEAR_NOW) years.add(y); });
+    return Array.from(years).sort((a,b)=>b-a);
+  }
+  function archiveCampaigns(filterYear, filterQ){
+    let list = state[currentBrand].campaigns.filter(c => campaignYear(c) < YEAR_NOW);
+    if (filterYear && filterYear!=='all') list = list.filter(c => campaignYear(c)===Number(filterYear));
+    if (filterQ && filterQ!=='all') list = list.filter(c => c.quarter===filterQ);
+    return list;
+  }
+  function allPastCampaigns(){
+    return state[currentBrand].campaigns.filter(c => campaignYear(c) < YEAR_NOW);
+  }
+
+  // ---------- PLANNING ----------
+  // Mostra o valor total quando a campanha só tem uma rede, ou uma quebra por rede
+  // (mais o total) quando tem mais de uma — os resultados são diferentes em cada rede,
+  // então o valor planejado por rede também precisa aparecer separado. Ainda usada
+  // no PDF (generatePdf monta sua própria versão em texto simples pra tabela).
+  function budgetCellHtml(c){
+    const plats = campaignPlatforms(c);
+    const budgets = campaignBudgets(c);
+    if (plats.length<=1) return fmtMoney(campaignBudgetTotal(c));
+    const lines = plats.map(p=>`<div class="campmeta">${escapeHtml(p)}: ${fmtMoney(budgets[p]||0)}</div>`).join('');
+    return `${lines}<div style="font-weight:700; margin-top:2px;">Total: ${fmtMoney(campaignBudgetTotal(c))}</div>`;
+  }
+  // "Verba planejada x teto mensal" do canvas não existe como campo nos dados reais
+  // (não há conceito de teto/orçamento mensal recorrente por rede) — a adaptação
+  // usada aqui foi mostrar ORÇADO x INVESTIDO por rede, somando as campanhas do
+  // filtro atual (quarter/status/objetivo), que é a comparação real equivalente
+  // já existente no modelo de dados.
+  function renderPlanningBudgetRows(list){
+    const el = $('#planningBudgetRows');
+    const byNet = {};
+    list.forEach(c => {
+      const budgets = campaignBudgets(c);
+      campaignPlatforms(c).forEach(p => {
+        if (!byNet[p]) byNet[p] = { budget:0, spend:0 };
+        byNet[p].budget += Number(budgets[p])||0;
+        byNet[p].spend += Number(resultFor(c,p).spend)||0;
+      });
+    });
+    const rows = NETWORK_ORDER.filter(n => byNet[n] && (byNet[n].budget>0 || byNet[n].spend>0));
+    if (!rows.length){ el.innerHTML = '<p class="muted" style="font-size:13px; margin:0;">Sem valor planejado neste filtro ainda.</p>'; $('#planningBudgetTotalText').textContent=''; return; }
+    const maxV = Math.max(1, ...rows.map(n => Math.max(byNet[n].budget, byNet[n].spend)));
+    let totalBudget=0, totalSpend=0;
+    el.innerHTML = rows.map(n => {
+      const { budget, spend } = byNet[n];
+      totalBudget += budget; totalSpend += spend;
+      const pct = budget>0 ? spend/budget : 0;
+      const color = !spend ? '#8A909C' : (pct>1.1 ? 'var(--warn)' : (pct<0.9 ? '#2C5FC9' : 'var(--good)'));
+      const planW = (budget/maxV*100).toFixed(1)+'%';
+      const invW = (spend/maxV*100).toFixed(1)+'%';
+      return `<div class="budget-row">
+        <div><div class="timeline-name">${escapeHtml(netLabelFull(n))}</div></div>
+        <div class="budget-bar-wrap"><div class="budget-plan" style="width:${planW}"></div><div class="budget-inv" style="width:${invW}; background:${color};"></div></div>
+        <div style="text-align:right;"><div style="font-weight:700; color:${color};">${budget>0 ? Math.round(pct*100)+'%' : '—'}</div><div class="timeline-meta">${fmtMoney(spend)} de ${fmtMoney(budget)}</div></div>
+      </div>`;
+    }).join('');
+    $('#planningBudgetTotalText').textContent = 'Total: ' + fmtMoney(totalSpend) + ' de ' + fmtMoney(totalBudget) + ' planejado';
+  }
+  // Linha do tempo em barras horizontais (estilo canvas), substituindo a antiga
+  // tabela como visão principal do Planejamento. Eixo = ano corrente (YEAR_NOW);
+  // campanhas de anos futuros ficam fora da régua visual mas continuam na lista
+  // de cards abaixo (e editáveis normalmente).
+  function renderPlanningTimeline(list){
+    const MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    $('#planningTimelineTitle').textContent = 'Linha do tempo — ' + YEAR_NOW;
+    $('#planningTimelineMonths').innerHTML = '<span></span><div style="display:grid; grid-template-columns:repeat(12,minmax(0,1fr));">' +
+      MONTHS_PT.map(m => `<span style="padding:0 0 6px 4px; border-left:1px solid var(--line);">${m}</span>`).join('') + '</div>';
+    const yearStart = new Date(YEAR_NOW,0,1).getTime();
+    const yearEnd = new Date(YEAR_NOW,11,31).getTime();
+    const span = yearEnd - yearStart;
+    const rowsEl = $('#planningTimelineRows');
+    const rows = list.slice().sort((a,b)=> (a.start||'').localeCompare(b.start||''));
+    if (!rows.length){ rowsEl.innerHTML = '<p class="muted" style="font-size:13px; padding:10px 0; margin:0;">Nenhuma campanha com período definido neste filtro.</p>'; }
+    else {
+      rowsEl.innerHTML = rows.map(c => {
+        const obj = normalizeObjective(c.objective);
+        const color = OBJ_SOLID[obj] || '#8A909C';
+        const textColor = OBJ_SOLID_TEXT[obj] || '#fff';
+        let left=0, width=3;
+        if (c.start && c.end){
+          const s = Math.max(new Date(c.start+'T00:00:00').getTime(), yearStart);
+          const e = Math.min(new Date(c.end+'T00:00:00').getTime(), yearEnd);
+          left = Math.max(0, (s-yearStart)/span*100);
+          width = Math.max(1.8, (e-s)/span*100);
+        }
+        return `<div class="timeline-row">
+          <div><div class="timeline-name">${escapeHtml(c.name)}</div><div class="timeline-meta">${escapeHtml(campaignPlatforms(c).join(' + ')||'—')} · ${escapeHtml(c.quarter)}</div></div>
+          <div class="timeline-track"><button type="button" class="timeline-seg open-campaign-tl" data-id="${c.id}" style="left:${left.toFixed(1)}%; width:${width.toFixed(1)}%; background:${color};"><span style="color:${textColor};">${escapeHtml(truncate(c.name,22))}</span></button></div>
+        </div>`;
+      }).join('');
+      $all('.open-campaign-tl', rowsEl).forEach(btn => btn.onclick = () => openCampaignModal(btn.dataset.id));
+    }
+    const keys = Object.keys(OBJ_SOLID);
+    $('#planningTimelineLegend').innerHTML = keys.map(k => `<span class="legend-dot"><span class="legend-swatch" style="background:${OBJ_SOLID[k]};"></span>${escapeHtml(OBJECTIVE_ABBR[k]||k)}</span>`).join('');
+  }
+  function renderPlanningCardsGrid(list){
+    const grid = $('#planningCardsGrid');
+    $('#planningEmpty').style.display = list.length ? 'none' : '';
+    $('#planningCardsCount').textContent = '(' + list.length + ')';
+    const sorted = list.slice().sort((a,b)=> (a.quarter+a.start).localeCompare(b.quarter+b.start));
+    grid.innerHTML = sorted.map(c => {
+      const status = campaignStatus(c);
+      const audienceBits = [c.age, c.location].filter(Boolean).join(' · ');
+      return `<article class="camp-card open-campaign-card" data-id="${c.id}">
+        <div class="badges">${objBadgeHtml(c.objective)}${statusBadgeHtml(status)}${campaignPlatforms(c).map(netBadgeHtml).join('')}</div>
+        <div><h3>${escapeHtml(c.name)}</h3><div class="camp-meta">${escapeHtml(c.theme||'Tema não definido')} · ${fmtDate(c.start)} — ${fmtDate(c.end)}</div></div>
+        <div class="camp-kpi-box"><div><div class="l">Valor planejado</div><div class="v">${fmtMoney(campaignBudgetTotal(c))}</div></div><div style="text-align:right;"><div class="l">KPIs</div><div class="v" style="font-size:12px; font-weight:600;">${(c.kpis||[]).slice(0,3).join(', ')||'—'}</div></div></div>
+        ${audienceBits ? `<div class="camp-verdict"><b>Público:</b> ${escapeHtml(audienceBits)}</div>` : ''}
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <button type="button" class="statusbtn ${status} toggle-status-card" data-id="${c.id}" title="Clique para alternar o status">${STATUS_LABEL[status]}</button>
+          <button type="button" class="btn btn-primary btn-sm open-results-card" data-id="${c.id}">Resultados</button>
+        </div>
+      </article>`;
+    }).join('');
+    $all('.open-campaign-card', grid).forEach(card => card.addEventListener('click', (e) => { if (e.target.closest('button')) return; openCampaignModal(card.dataset.id); }));
+    $all('.toggle-status-card', grid).forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); toggleCampaignStatus(btn.dataset.id); }));
+    $all('.open-results-card', grid).forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); openResultsModal(btn.dataset.id); }));
+  }
+  function renderPlanningPage(){
+    const list = planningFilteredList();
+    $('#planningEyebrow').textContent = BRAND_LABEL[currentBrand] + ' · Tráfego pago · Aba Planejamento';
+    $('#planningSub').textContent = (qFilterPlanning==='all' ? ('Campanhas de ' + YEAR_NOW + ' em diante') : ('Campanhas de ' + qFilterPlanning)) + ' · ' + list.length + (list.length===1?' campanha':' campanhas');
+    $('#planningCountText').textContent = list.length + (list.length===1?' campanha':' campanhas') + ' neste filtro';
+    renderPlanningBudgetRows(list);
+    renderPlanningTimeline(list);
+    renderPlanningCardsGrid(list);
+  }
+
+  function nextStatus(current){
+    if (current==='running') return 'paused';
+    if (current==='paused') return 'done';
+    if (current==='done') return 'running';
+    return 'running'; // 'planned' ou vazio -> primeira ativação
+  }
+  async function toggleCampaignStatus(id){
+    const c = state[currentBrand].campaigns.find(x=>x.id===id);
+    if (!c) return;
+    const current = campaignStatus(c);
+    const status = nextStatus(current);
+    try{
+      // O status é sincronizado em todas as redes da campanha, para não ficar
+      // "em andamento" numa rede e "pausada" em outra sem ninguém ter pedido isso.
+      for (const p of campaignPlatforms(c)){
+        await tpApi(`/api/trafego-pago/campaigns/${id}/results`, {method:'PUT', body:JSON.stringify({platform:p, status})});
+      }
+      await loadBrandData(currentBrand);
+      renderAll();
+      toast(`Status alterado para "${STATUS_LABEL[status]}".`);
+    }catch(e){ toast(e.message, true); }
+  }
+
+  // ---------- RESULTS ----------
+  function calc(res){
+    const ctr = res.impressions>0 ? (res.clicks/res.impressions*100) : 0;
+    const cpa = res.conversions>0 ? (res.spend/res.conversions) : 0;
+    const roas = res.spend>0 ? (res.revenue/res.spend) : 0;
+    const cpm = res.impressions>0 ? (res.spend/res.impressions*1000) : 0;
+    return {ctr,cpa,roas,cpm};
+  }
+  function hasResults(r){ return !!(r && r.updatedAt); }
+  const DASH = '<span class="muted">—</span>';
+  function renderResultsCards(entries){
+    let totalBudget=0, totalSpend=0, anyResults=false;
+    let freqSum=0, freqCount=0;
+    let salesSpend=0, salesRevenue=0, hasSalesData=false;
+    let impressions=0, clicks=0, reach=0;
+    const activeCampaignIds = new Set(), allCampaignIds = new Set();
+    entries.forEach(({c, r, budget}) => {
+      allCampaignIds.add(c.id);
+      totalBudget+=Number(budget)||0; totalSpend+=Number(r.spend)||0;
+      impressions+=Number(r.impressions)||0; clicks+=Number(r.clicks)||0; reach+=Number(r.reach)||0;
+      if (r.status==='running') activeCampaignIds.add(c.id);
+      if (Number(r.frequency)>0){ freqSum+=Number(r.frequency); freqCount++; }
+      if (hasResults(r)) anyResults=true;
+      if (c.conversionType==='Vendas' && hasResults(r) && Number(r.revenue)>0){ hasSalesData=true; salesSpend+=Number(r.spend)||0; salesRevenue+=Number(r.revenue)||0; }
+    });
+    const salesRoas = salesSpend>0 ? (salesRevenue/salesSpend) : 0;
+    const avgFreq = freqCount>0 ? (freqSum/freqCount) : 0;
+    const invPct = totalBudget>0 ? Math.min(100, totalSpend/totalBudget*100) : 0;
+    let tiles = `<div class="kpi-tile"><span class="kpi-label">Investido</span><span class="kpi-value">${anyResults ? fmtMoney(totalSpend) : '—'}</span>
+      <div class="progress-track"><div class="progress-fill" style="width:${invPct.toFixed(1)}%; background:var(--accent);"></div></div>
+      <span class="kpi-sub">de ${fmtMoney(totalBudget)} planejado</span></div>`;
+    tiles += `<div class="kpi-tile"><span class="kpi-label">Pessoas alcançadas</span><span class="kpi-value">${reach>0 ? fmtInt(reach) : '—'}</span><span class="kpi-sub">soma do alcance de cada campanha</span></div>`;
+    tiles += `<div class="kpi-tile"><span class="kpi-label">Vezes que o anúncio apareceu</span><span class="kpi-value">${impressions>0 ? fmtInt(impressions) : '—'}</span><span class="kpi-sub">impressões</span></div>`;
+    tiles += `<div class="kpi-tile"><span class="kpi-label">Cliques no link</span><span class="kpi-value">${clicks>0 ? fmtInt(clicks) : '—'}</span><span class="kpi-sub">${clicks>0 && totalSpend>0 ? 'custo médio de ' + fmtMoney(totalSpend/clicks) + ' por clique' : 'sem dados ainda'}</span></div>`;
+    if (hasSalesData){
+      tiles += `<div class="kpi-tile"><span class="kpi-label">Receita gerada</span><span class="kpi-value">${fmtMoney(salesRevenue)}</span><span class="kpi-sub">campanhas de Vendas, no período filtrado</span></div>`;
+      tiles += `<div class="kpi-tile"><span class="kpi-label">ROAS consolidado</span><span class="kpi-value">${salesRoas.toFixed(2)}x</span><span class="kpi-sub">receita / investimento (Vendas)</span></div>`;
+    }
+    tiles += `<div class="kpi-tile"><span class="kpi-label">Campanhas em andamento</span><span class="kpi-value">${activeCampaignIds.size}</span><span class="kpi-sub">de ${allCampaignIds.size} no filtro</span></div>`;
+    tiles += `<div class="kpi-tile"><span class="kpi-label">Frequência média</span><span class="kpi-value">${avgFreq>0 ? avgFreq.toFixed(1)+'x' : '—'}</span><span class="kpi-sub">${freqCount>0 ? freqCount+' rede(s) com dado' : 'nenhuma rede com frequência lançada'}</span></div>`;
+    $('#resultsCards').innerHTML = tiles;
+  }
+  // "Gastou o que foi planejado?" -- barra de orçado (tracejada) x investido,
+  // por campanha+rede (os valores já são separados por rede nos dados reais).
+  function renderResultsBudgetRows(entries){
+    const el = $('#resultsBudgetRows');
+    if (!entries.length){ el.innerHTML = '<p class="muted" style="font-size:13px; margin:0;">Sem campanhas neste filtro ainda.</p>'; $('#resultsSpendLegend').innerHTML=''; return; }
+    const maxV = Math.max(1, ...entries.map(({r,budget}) => Math.max(Number(budget)||0, Number(r.spend)||0)));
+    const multiNet = resultsNetworkTab==='all';
+    el.innerHTML = entries.slice().sort((a,b)=> (b.budget||0)-(a.budget||0)).map(({c, platform, r, budget}) => {
+      const spend = Number(r.spend)||0;
+      const pct = budget>0 ? spend/budget : 0;
+      const color = !spend ? '#8A909C' : (pct>1.1 ? 'var(--warn)' : (pct<0.9 ? '#2C5FC9' : 'var(--good)'));
+      const tag = !spend ? 'sem investimento' : (pct>1.1 ? 'acima' : (pct<0.9 ? 'abaixo' : 'no ritmo'));
+      const planW = (budget/maxV*100).toFixed(1)+'%';
+      const invW = (spend/maxV*100).toFixed(1)+'%';
+      const label = multiNet && campaignPlatforms(c).length>1 ? `${c.name} · ${platform}` : c.name;
+      return `<div class="budget-row">
+        <div><div class="timeline-name">${escapeHtml(truncate(label,30))}</div><div class="timeline-meta">${escapeHtml(objBadgeLabel(c.objective))}</div></div>
+        <div class="budget-bar-wrap"><div class="budget-plan" style="width:${planW}"></div><div class="budget-inv" style="width:${invW}; background:${color};"></div></div>
+        <div style="text-align:right;"><div style="font-weight:700; color:${color};">${budget>0 ? Math.round(pct*100)+'%' : '—'} <span style="font-weight:500; color:var(--ink-soft); font-size:11.5px;">· ${tag}</span></div><div class="timeline-meta">${fmtMoney(spend)} de ${fmtMoney(budget)}</div></div>
+      </div>`;
+    }).join('');
+    $('#resultsSpendLegend').innerHTML = `<span class="legend-dot"><span class="legend-swatch" style="background:var(--good);"></span>No ritmo</span>
+      <span class="legend-dot"><span class="legend-swatch" style="background:var(--warn);"></span>Acima do planejado</span>
+      <span class="legend-dot"><span class="legend-swatch" style="background:#2C5FC9;"></span>Abaixo do planejado</span>
+      <span class="legend-dot"><span class="legend-swatch" style="border:2px dashed #8A909C; background:none;"></span>Planejado</span>`;
+  }
+  function objBadgeLabel(objective){ const k = normalizeObjective(objective); return OBJECTIVE_ABBR[k]||k; }
+  // Funil impressões -> cliques -> conversões em barras HTML (sem Chart.js),
+  // igual ao board "Resultados" do canvas.
+  function renderResultsFunnelRows(entries){
+    let impressions=0, clicks=0, conversions=0;
+    entries.forEach(({r}) => { impressions+=Number(r.impressions)||0; clicks+=Number(r.clicks)||0; conversions+=Number(r.conversions)||0; });
+    const top = Math.max(1, impressions, clicks, conversions);
+    const steps = [
+      { label:'Vezes que apareceu', hint:'impressões', value:impressions, color:'var(--accent)' },
+      { label:'Cliques no link', hint:'cliques', value:clicks, color:'#F2A24A' },
+      { label:'Conversões', hint:'resultado final', value:conversions, color:'var(--good)' }
+    ];
+    $('#resultsFunnelRows').innerHTML = steps.map(s => `<div class="funnel-row">
+      <div><div class="timeline-name">${s.label}</div><div class="timeline-meta">${s.hint}</div></div>
+      <div class="funnel-track"><div class="funnel-fill" style="width:${Math.max(2,(s.value/top*100)).toFixed(1)}%; background:${s.color};"></div><span style="font-size:14px; font-weight:700; white-space:nowrap;">${fmtInt(s.value)}</span></div>
+    </div>`).join('');
+    const ctr = impressions>0 ? (clicks/impressions*100) : 0;
+    const convRate = clicks>0 ? (conversions/clicks*100) : 0;
+    $('#funnelText').innerHTML = (impressions>0 || clicks>0)
+      ? `De cada 100 vezes que o anúncio apareceu, <b>${ctr.toFixed(1)}</b> viraram clique. De cada 100 cliques, <b>${convRate.toFixed(1)}</b> viraram conversão.`
+      : 'Ainda sem impressões ou cliques lançados nesse filtro.';
+  }
+  // "Faltam dados" -- campanhas+rede do filtro atual que ainda não tiveram
+  // nenhum resultado lançado (hasResults=false), pra facilitar cobrar antes de
+  // uma reunião (mesma ideia do canvas).
+  function renderResultsMissingBox(entries){
+    const box = $('#resultsMissingBox');
+    const missing = entries.filter(({r}) => !hasResults(r));
+    if (!missing.length){ box.style.display='none'; return; }
+    box.style.display='';
+    box.className = 'board-card board-section missing-box';
+    const multiNet = resultsNetworkTab==='all';
+    box.innerHTML = `<h2>Faltam dados (${missing.length})</h2>
+      <p>Campanhas que já têm período definido, mas ainda sem números lançados nesta rede.</p>
+      <div>${missing.map(({c,platform}) => `<span class="missing-chip">${escapeHtml(c.name)}${multiNet && campaignPlatforms(c).length>1 ? ' · '+escapeHtml(platform) : ''}</span>`).join('')}</div>`;
+  }
+  // Linha de resumo de 1 campanha (nível campanha, soma das redes) — usada nas
+  // listas agrupadas por status da aba Resumos.
+  function campaignSummaryLine(c){
+    const r = aggregateResult(c);
+    const budget = campaignBudgetTotal(c);
+    const m = calc(r); const conv = convTypeLabel(c); const pacing = pctOf(r.spend, budget);
+    const isVendas = c.conversionType==='Vendas';
+    if (!hasResults(r)) return r.status==='planned' ? 'Planejada. Verba a definir ou já reservada — ver cadastro.' : 'Ainda sem resultados lançados.';
+    let perf = `Investiu ${fmtMoney(r.spend)} de ${fmtMoney(budget)} planejados (${pacing}%) e gerou ${fmtInt(r.conversions)} ${conv.toLowerCase()}`
+      + (isVendas && r.revenue>0 ? `, receita de ${fmtMoney(r.revenue)} — ROAS ${m.roas.toFixed(2)}x` : '')
+      + '.';
+    return perf;
+  }
+  // "Resumo das campanhas em 1 minuto" (board 3 do canvas): banner com
+  // manchete + tiles de status, e listas agrupadas por status (Concluídas /
+  // No ar agora / Planejadas), cada linha com barra de orçado x investido.
+  // O canvas usava "semestre/trimestre" como filtro -- aqui mantém o filtro de
+  // Quarter já existente no app (mesmo papel, nomenclatura real do produto).
+  function renderResultsSummary(){
+    const el = $('#resultsSummary');
+    const list = campaignsForBrand(qFilterSummary);
+    if (!list.length){ el.innerHTML = '<div class="empty-board">Nenhuma campanha neste filtro ainda.</div>'; return; }
+    let totalSpend=0, totalBudget=0, anyResults=false, noDataCount=0;
+    let salesSpend=0, salesRevenue=0, hasSalesData=false, best=null, bestRoas=-1, worst=null, worstRoas=Infinity;
+    const counts = { running:0, done:0, planned:0, paused:0 };
+    list.forEach(c => {
+      const r = aggregateResult(c); const m = calc(r); const status = campaignStatus(c);
+      totalBudget += campaignBudgetTotal(c);
+      counts[status] = (counts[status]||0) + 1;
+      if (hasResults(r)){
+        anyResults = true; totalSpend += Number(r.spend)||0;
+        if (c.conversionType==='Vendas'){
+          hasSalesData = true; salesSpend += Number(r.spend)||0; salesRevenue += Number(r.revenue)||0;
+          if (r.spend>0){ if (m.roas>bestRoas){ bestRoas=m.roas; best=c; } if (m.roas<worstRoas){ worstRoas=m.roas; worst=c; } }
+        }
+      } else if (status!=='planned') noDataCount++;
+    });
+    const salesRoas = salesSpend>0 ? (salesRevenue/salesSpend) : 0;
+    let headline;
+    if (!anyResults){
+      headline = `${BRAND_LABEL[currentBrand]} tem ${list.length} campanha${list.length>1?'s':''} neste recorte, com ${fmtMoney(totalBudget)} planejados — nenhum resultado lançado ainda.`;
+    } else {
+      headline = `Investimos ${fmtMoney(totalSpend)} de ${fmtMoney(totalBudget)} planejados em ${list.length} campanha${list.length>1?'s':''}.`;
+      if (hasSalesData){
+        headline += ` Nas campanhas de Vendas, a receita foi de ${fmtMoney(salesRevenue)} (ROAS consolidado de ${salesRoas.toFixed(2)}x).`
+          + (best ? ` Melhor retorno: ${escapeHtml(best.name)} (${bestRoas.toFixed(2)}x).` : '')
+          + (worst && (!best || worst.id!==best.id) ? ` Menor retorno: ${escapeHtml(worst.name)} (${worstRoas.toFixed(2)}x).` : '');
+      }
+    }
+    const tiles = [
+      { label:'Em andamento', n:counts.running||0, dot:'#FB923C' },
+      { label:'Concluídas', n:counts.done||0, dot:'#4ADE80' },
+      { label:'Planejadas', n:counts.planned||0, dot:'#C7CBD4' },
+      { label:'Sem dados lançados', n:noDataCount, dot:'#FACC15' }
+    ];
+    const banner = `<div class="headline-banner">
+      <p class="headline-text">${escapeHtml(headline).replace(/(\d[\d.,]*x|\bR\$[\d.,]+)/g,'<b>$1</b>')}</p>
+      <div class="status-tiles">${tiles.map(t => `<div class="status-tile"><span class="st-label"><span class="st-dot" style="background:${t.dot};"></span>${t.label}</span><span class="st-n">${t.n}</span></div>`).join('')}</div>
+    </div>`;
+    const STATUS_GROUP = [ ['running','Em andamento','#C2410C'], ['done','Concluídas','#17663F'], ['planned','Planejadas','#8A909C'], ['paused','Pausadas','#B42318'] ];
+    const groups = STATUS_GROUP.map(([key,title,dot]) => {
+      const rows = list.filter(c => campaignStatus(c)===key).sort((a,b)=>(a.quarter+a.start).localeCompare(b.quarter+b.start));
+      if (!rows.length) return '';
+      const rowsHtml = rows.map(c => {
+        const r = aggregateResult(c); const budget = campaignBudgetTotal(c); const spend = Number(r.spend)||0;
+        const pct = budget>0 ? spend/budget : 0;
+        const pctColor = !spend ? '#8A909C' : (pct>1.1 ? 'var(--warn)' : (pct<0.9 ? '#2C5FC9' : 'var(--good)'));
+        return `<div class="status-row open-summary-row" data-id="${c.id}" style="cursor:pointer;">
+          <div>
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:3px;"><b style="font-size:15px;">${escapeHtml(c.name)}</b>${campaignPlatforms(c).map(netBadgeHtml).join('')}${objBadgeHtml(c.objective)}</div>
+            <span style="font-size:13.5px; color:#3A404C;">${escapeHtml(campaignSummaryLine(c))}</span>
+          </div>
+          <div>
+            <div class="status-row-money"><span>${budget>0 ? fmtMoney(spend)+' de '+fmtMoney(budget) : 'sem verba definida'}</span><span style="font-weight:700; color:${pctColor};">${budget>0 && spend>0 ? Math.round(pct*100)+'%' : '—'}</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:${budget>0?Math.min(100,pct*100).toFixed(1):0}%; background:${pctColor};"></div></div>
+          </div>
+        </div>`;
+      }).join('');
+      return `<div class="board-card board-section">
+        <div class="status-group-title"><span class="dot" style="background:${dot}; width:11px; height:11px; border-radius:999px; display:inline-block;"></span>${title} <span class="muted" style="font-weight:400; font-size:13px;">(${rows.length})</span></div>
+        ${rowsHtml}
+      </div>`;
+    }).join('');
+    el.innerHTML = banner + groups;
+    $all('.open-summary-row', el).forEach(row => row.onclick = () => openCampaignModal(row.dataset.id));
+  }
+  const OBJECTIVE_METRIC = {
+    'Reconhecimento': {key:'reach', label:'Alcance'},
+    'Tráfego': {key:'ctr', label:'CTR de link'},
+    'Engajamento': {key:'engagement', label:'Engajamentos'},
+    'Leads': {key:'cpa', label:'CPL (custo por lead)'},
+    'Promoção do app': {key:'cpa', label:'CPI (custo por instalação)'},
+    'Vendas': {key:'roas', label:'ROAS'}
+  };
+  function objectiveMetric(objective){ return OBJECTIVE_METRIC[normalizeObjective(objective)] || {key:'roas', label:'ROAS'}; }
+  function metricValue(key, r){
+    const m = calc(r);
+    if (key==='roas') return m.roas;
+    if (key==='ctr') return m.ctr;
+    if (key==='cpm') return m.cpm;
+    if (key==='cpa') return m.cpa;
+    if (key==='reach') return Number(r.reach)||0;
+    if (key==='engagement') return Number(r.engagement)||0;
+    if (key==='conversions') return r.conversions||0;
+    if (key==='revenue') return r.revenue||0;
+    return m.roas;
+  }
+  function buildResultsTypeTabs(allKeys, groupCounts){
+    const el = $('#resultsTypeTabs');
+    if (resultsSubTab !== 'all' && !allKeys.includes(resultsSubTab)) resultsSubTab = 'all';
+    el.innerHTML = '';
+    const allBtn = document.createElement('button');
+    allBtn.textContent = 'Todos os tipos';
+    allBtn.className = resultsSubTab==='all' ? 'active' : '';
+    allBtn.onclick = () => { resultsSubTab='all'; renderAll(); };
+    el.appendChild(allBtn);
+    allKeys.forEach(key => {
+      const btn = document.createElement('button');
+      btn.innerHTML = `${escapeHtml(OBJECTIVE_ABBR[key]||key)} <span class="count">${groupCounts[key]}</span>`;
+      btn.className = resultsSubTab===key ? 'active' : '';
+      btn.onclick = () => { resultsSubTab=key; renderAll(); };
+      el.appendChild(btn);
+    });
+  }
+
+  // "Campanha por campanha" (board 4 do canvas, cards com badges + verdict +
+  // grid de 4 estatísticas) — substitui as antigas tabelas por objetivo com
+  // gráfico de barras em Chart.js. Continua agrupado por objetivo (pills
+  // "Objetivo:" acima), e por rede quando "Todas as redes" está selecionado.
+  function resultCardVerdict(c, platform, r, budget){
+    if (!hasResults(r)) return 'Ainda sem resultados lançados nesta rede.';
+    const m = calc(r);
+    const pacing = pctOf(r.spend, budget);
+    const isVendas = c.conversionType==='Vendas';
+    let txt = `Investiu ${fmtMoney(r.spend)}${budget>0?' ('+pacing+'% do planejado)':''}`;
+    if (r.reach>0) txt += `, alcançou ${fmtInt(r.reach)} pessoas`;
+    else if (r.clicks>0) txt += `, gerou ${fmtInt(r.clicks)} cliques`;
+    if (isVendas && r.revenue>0) txt += `. ROAS de ${m.roas.toFixed(2)}x`;
+    return txt + '.';
+  }
+  function renderResultsGroups(entries){
+    buildResultsNetworkTabs();
+    const container = $('#resultsGroups');
+    $('#resultsEmpty').style.display = entries.length ? 'none' : '';
+    if (!entries.length) { container.innerHTML=''; $('#resultsTypeTabs').innerHTML=''; $('#resultsTypeTabsWrap').style.display='none'; return; }
+    $('#resultsTypeTabsWrap').style.display='';
+    const groups = {};
+    entries.forEach(e => { const key = normalizeObjective(e.c.objective) || 'Outro'; (groups[key] = groups[key] || []).push(e); });
+    const order = Object.keys(OBJECTIVE_METRIC);
+    const allKeys = Object.keys(groups).sort((a,b) => { const ia=order.indexOf(a), ib=order.indexOf(b); return (ia===-1?999:ia)-(ib===-1?999:ib); });
+    const groupCounts = {}; allKeys.forEach(k => groupCounts[k]=groups[k].length);
+    buildResultsTypeTabs(allKeys, groupCounts);
+    const keys = resultsSubTab==='all' ? allKeys : allKeys.filter(k => k===resultsSubTab);
+    const showNetworkBadge = resultsNetworkTab==='all';
+    const cards = [];
+    keys.forEach(key => {
+      const rows = groups[key].slice().sort((a,b)=>(a.c.quarter+a.c.start).localeCompare(b.c.quarter+b.c.start));
+      rows.forEach(({c, platform, r, budget}) => {
+        const status = r.status;
+        const multiNetwork = campaignPlatforms(c).length>1;
+        const isVendas = c.conversionType==='Vendas';
+        const m = calc(r); const hasRes = hasResults(r);
+        cards.push(`<article class="camp-card open-results-card2" data-id="${c.id}">
+          <div class="badges">${objBadgeHtml(c.objective)}${statusBadgeHtml(status)}${showNetworkBadge && multiNetwork ? netBadgeHtml(platform) : ''}</div>
+          <div><h3>${escapeHtml(c.name)}</h3><div class="camp-meta">${escapeHtml(campaignPlatforms(c).join(' + ')||'—')} · ${escapeHtml(c.quarter)}${hasRes && r.updatedAt ? ' · atualizado '+new Date(r.updatedAt).toLocaleDateString('pt-BR') : ''}</div></div>
+          <div class="camp-verdict">${escapeHtml(resultCardVerdict(c, platform, r, budget))}</div>
+          <div class="camp-stat-grid">
+            <div class="camp-stat"><span class="l">Investido</span><span class="v">${hasRes ? fmtMoney(r.spend) : DASH}</span></div>
+            <div class="camp-stat"><span class="l">${r.reach>0 ? 'Alcance' : 'Impressões'}</span><span class="v">${hasRes && (r.reach>0||r.impressions>0) ? fmtInt(r.reach>0?r.reach:r.impressions) : DASH}</span></div>
+            <div class="camp-stat"><span class="l">Cliques / CTR</span><span class="v" style="font-size:13px;">${hasRes && r.clicks>0 ? fmtInt(r.clicks)+' · '+m.ctr.toFixed(2)+'%' : DASH}</span></div>
+            <div class="camp-stat"><span class="l">${isVendas ? 'Receita / ROAS' : 'Custo por resultado'}</span><span class="v" style="font-size:13px;">${isVendas ? (hasRes && r.revenue>0 ? fmtMoney(r.revenue)+' · '+m.roas.toFixed(2)+'x' : DASH) : (hasRes && r.conversions>0 ? fmtMoney(m.cpa) : DASH)}</span></div>
+          </div>
+        </article>`);
+      });
+    });
+    container.innerHTML = cards.join('');
+    $all('.open-results-card2', container).forEach(card => card.onclick = () => openResultsModal(card.dataset.id));
+  }
+
+  // ---------- COMPARADOR DE CAMPANHAS ----------
+  function populateComparatorSelects(){
+    const list = campaignsForBrand('all').slice().sort((a,b)=>(a.quarter+a.start).localeCompare(b.quarter+b.start));
+    ['cmpA','cmpB','cmpC'].forEach((id, idx) => {
+      const sel = $('#'+id);
+      const prev = sel.value;
+      const placeholder = idx===2 ? '<option value="">— (opcional)</option>' : '<option value="">Selecione...</option>';
+      sel.innerHTML = placeholder + list.map(c => `<option value="${c.id}">${escapeHtml(c.name)} (${c.quarter})</option>`).join('');
+      sel.value = list.find(c=>c.id===prev) ? prev : '';
+    });
+  }
+  function renderComparator(){
+    const ids = ['cmpA','cmpB','cmpC'].map(id => $('#'+id).value).filter(Boolean);
+    const box = $('#comparatorResult');
+    if (ids.length < 2){ box.innerHTML = '<div class="muted" style="font-size:13px;">Selecione pelo menos duas campanhas para comparar lado a lado.</div>'; return; }
+    const campaigns = ids.map(id => state[currentBrand].campaigns.find(c => c.id===id)).filter(Boolean);
+    const rows = [
+      {label:'Quarter / Ano', get:c=>`${c.quarter} · ${campaignYear(c)}`},
+      {label:'Objetivo', get:c=>OBJECTIVE_ABBR[c.objective]||c.objective},
+      {label:'Status', get:c=>STATUS_LABEL[campaignStatus(c)]},
+      {label:'Plataformas', get:c=>campaignPlatforms(c).join(', ')||'—'},
+      {label:'Tipo de criativo', get:c=>(c.creativeTypes||[]).join(', ')||'—'},
+      {label:'Orçado', get:c=>fmtMoney(campaignBudgetTotal(c))},
+      {label:'Investido', get:c=>{const r=aggregateResult(c); return hasResults(r) ? fmtMoney(r.spend) : DASH;}},
+      {label:'Alcance', get:c=>{const r=aggregateResult(c); return hasResults(r) && r.reach>0 ? fmtInt(r.reach) : DASH;}},
+      {label:'Impressões', get:c=>{const r=aggregateResult(c); return hasResults(r) && r.impressions>0 ? fmtInt(r.impressions) : DASH;}},
+      {label:'Engajamento', get:c=>{const r=aggregateResult(c); return hasResults(r) && r.engagement>0 ? fmtInt(r.engagement) : DASH;}},
+      {label:'Cliques', get:c=>{const r=aggregateResult(c); return hasResults(r) && r.clicks>0 ? fmtInt(r.clicks) : DASH;}},
+      {label:'CTR', get:c=>{const r=aggregateResult(c); return hasResults(r) && r.impressions>0 ? calc(r).ctr.toFixed(2)+'%' : DASH;}},
+      {label:'Conversões', get:c=>{const r=aggregateResult(c); return hasResults(r) ? fmtInt(r.conversions)+' ('+convTypeLabel(c)+')' : DASH;}},
+      {label:'Custo por resultado', get:c=>{const r=aggregateResult(c); return hasResults(r) && r.conversions>0 ? fmtMoney(calc(r).cpa) : DASH;}},
+      {label:'Receita', get:c=>{const r=aggregateResult(c); return c.conversionType==='Vendas' && hasResults(r) && r.revenue>0 ? fmtMoney(r.revenue) : DASH;}},
+      {label:'ROAS', get:c=>{const r=aggregateResult(c); return c.conversionType==='Vendas' && hasResults(r) && r.spend>0 ? calc(r).roas.toFixed(2)+'x' : DASH;}}
+    ];
+    let html = '<div class="tablewrap" style="box-shadow:none; overflow-x:auto;"><table><thead><tr><th></th>';
+    campaigns.forEach(c => html += `<th>${escapeHtml(c.name)}</th>`);
+    html += '</tr></thead><tbody>';
+    rows.forEach(row => {
+      html += `<tr><td class="muted" style="font-weight:600; white-space:nowrap;">${row.label}</td>`;
+      campaigns.forEach(c => html += `<td class="num">${row.get(c)}</td>`);
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    box.innerHTML = html;
+  }
+
+  // ---------- FUNIL DE CONVERSÃO ----------
+
+  // ---------- RITMO DE INVESTIMENTO (PACING) ----------
+  function pacingInfo(c, platform){
+    const r = resultFor(c, platform);
+    const budget = campaignBudgets(c)[platform] || 0;
+    if (!c.start || !c.end || !budget) return null;
+    const start = new Date(c.start+'T00:00:00'), end = new Date(c.end+'T00:00:00'), now = new Date();
+    const totalDays = (end-start)/86400000;
+    if (totalDays<=0) return null;
+    let elapsedDays = (now-start)/86400000;
+    elapsedDays = Math.max(0, Math.min(elapsedDays, totalDays));
+    const timePct = Math.round((elapsedDays/totalDays)*100);
+    const spendPct = budget>0 ? Math.round(((Number(r.spend)||0)/budget)*100) : 0;
+    const diff = spendPct - timePct;
+    let alert = 'good'; // good=no ritmo, fast=acelerado, slow=atrasado
+    if (diff > 15) alert = 'fast';
+    else if (diff < -15) alert = 'slow';
+    return { timePct, spendPct, alert };
+  }
+  function pacingBadge(c, platform){
+    const p = pacingInfo(c, platform);
+    if (!p) return '<span class="muted">—</span>';
+    const label = p.alert==='fast' ? 'Ritmo acelerado' : p.alert==='slow' ? 'Ritmo lento' : 'No ritmo';
+    return `<span class="pace ${p.alert}" title="${p.timePct}% do tempo decorrido · ${p.spendPct}% do orçamento investido">${label}</span><div class="campmeta">${p.timePct}% tempo · ${p.spendPct}% orçado</div>`;
+  }
+
+  // ---------- MONTHLY ----------
+  const MONTH_LABEL = m => { if (!m) return '—'; const [y,mo]=m.split('-'); const names=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']; return names[Number(mo)-1]+'/'+y.slice(2); };
+  function sortedMonthly(brand){ return (state[brand].monthly||[]).slice().sort((a,b)=>a.month.localeCompare(b.month)); }
+  // "Este mês x mês passado" (board 4 do canvas) — tiles com delta percentual.
+  // Mantém também os totais acumulados do período (eram o antigo conteúdo dos
+  // cards), só que como um 5º/6º tile, pra não perder essa visão geral.
+  function renderMonthlyCards(){
+    const list = sortedMonthly(currentBrand);
+    const totalInvest = list.reduce((s,e)=>s+(Number(e.investment)||0),0);
+    const totalFollowers = list.reduce((s,e)=>s+(Number(e.followers)||0),0);
+    const totalEngagement = list.reduce((s,e)=>s+(Number(e.engagement)||0),0);
+    $('#monthlyCompareTitle').textContent = list.length>=2
+      ? `Este mês x mês passado (${MONTH_LABEL(list[list.length-1].month)} x ${MONTH_LABEL(list[list.length-2].month)})`
+      : 'Este mês x mês passado';
+    $('#monthCompareEmpty').style.display = list.length>=2 ? 'none' : '';
+    const grid = $('#monthlyCards');
+    if (list.length<2){
+      grid.innerHTML = `
+        <div class="kpi-tile"><span class="kpi-label">Meses registrados</span><span class="kpi-value">${list.length}</span><span class="kpi-sub">${list.length? MONTH_LABEL(list[0].month) : 'Nenhum lançamento ainda'}</span></div>
+        <div class="kpi-tile"><span class="kpi-label">Investimento acumulado</span><span class="kpi-value" style="font-size:20px;">${fmtMoney(totalInvest)}</span><span class="kpi-sub">no período</span></div>
+        <div class="kpi-tile"><span class="kpi-label">Seguidores ganhos</span><span class="kpi-value" style="font-size:20px;">${fmtInt(totalFollowers)}</span><span class="kpi-sub">acumulado no período</span></div>
+        <div class="kpi-tile"><span class="kpi-label">Engajamento</span><span class="kpi-value" style="font-size:20px;">${fmtInt(totalEngagement)}</span><span class="kpi-sub">acumulado no período</span></div>`;
+      return;
+    }
+    const prev = list[list.length-2], last = list[list.length-1];
+    function tile(label, a, b, money){
+      const d = a>0 ? ((b-a)/a*100) : (b>0 ? 100 : 0);
+      const up = d>=0;
+      return `<div class="kpi-tile"><span class="kpi-label">${label}</span><span class="kpi-value">${money?fmtMoney(b):fmtInt(b)}</span>
+        <span class="kpi-delta" style="color:${a>0 ? (up?'var(--good)':'var(--danger)') : 'var(--ink-soft)'};">${a>0 ? (up?'▲ ':'▼ ')+Math.abs(Math.round(d))+'% vs mês passado' : 'sem mês anterior'}</span>
+        <span class="kpi-sub">${MONTH_LABEL(prev.month)}: ${money?fmtMoney(a):fmtInt(a)}</span></div>`;
+    }
+    grid.innerHTML = tile('Investimento', Number(prev.investment)||0, Number(last.investment)||0, true)
+      + tile('Seguidores ganhos', Number(prev.followers)||0, Number(last.followers)||0, false)
+      + tile('Engajamento', Number(prev.engagement)||0, Number(last.engagement)||0, false)
+      + `<div class="kpi-tile"><span class="kpi-label">Investimento acumulado</span><span class="kpi-value" style="font-size:20px;">${fmtMoney(totalInvest)}</span><span class="kpi-sub">${MONTH_LABEL(list[0].month)} — ${MONTH_LABEL(list[list.length-1].month)}</span></div>`;
+  }
+  function renderMonthlyTable(){
+    const list = sortedMonthly(currentBrand);
+    const body = $('#monthlyBody'); body.innerHTML='';
+    $('#monthlyEmpty').style.display = list.length ? 'none' : '';
+    $('#monthlyCount').textContent = list.length;
+    list.forEach((e, idx) => {
+      let growth='—';
+      if (idx>0){ const prev=list[idx-1]; if (Number(prev.investment)>0) growth = (((e.investment-prev.investment)/prev.investment)*100).toFixed(1)+'%'; }
+      const byPlat = e.investmentByPlatform || {};
+      const platHtml = Object.keys(byPlat).filter(p=>Number(byPlat[p])>0).map(p=>`<div class="campmeta">${escapeHtml(p)}: ${fmtMoney(byPlat[p])}</div>`).join('') || '<span class="muted">—</span>';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td data-label="Mês"><span class="qtag">${MONTH_LABEL(e.month)}</span></td>
+        <td data-label="Investimento total" class="num">${fmtMoney(e.investment)}</td>
+        <td data-label="Por plataforma">${platHtml}</td>
+        <td data-label="Seguidores ganhos" class="num">${fmtInt(e.followers)}</td>
+        <td data-label="Engajamento" class="num">${fmtInt(e.engagement)}</td>
+        <td data-label="Crescimento" class="num">${growth}</td>
+        <td data-label=""><button class="btn btn-ghost btn-sm edit-monthly" data-id="${e.id}">Editar</button></td>
+      `;
+      body.appendChild(tr);
+    });
+    $all('.edit-monthly', body).forEach(btn => btn.onclick = () => openMonthlyModal(btn.dataset.id));
+  }
+  // Investimento x engajamento x seguidores, mês a mês — com opção de comparar as duas marcas.
+  function renderMonthlyTrendsChart(){
+    const canvas = $('#monthlyTrendsChart');
+    if (!canvas || typeof Chart==='undefined') return;
+    const compare = $('#compareBrands').checked;
+    let labels, datasets;
+    if (compare){
+      const monthsSet = new Set([...sortedMonthly('ghelplus').map(e=>e.month), ...sortedMonthly('debacco').map(e=>e.month)]);
+      labels = Array.from(monthsSet).sort();
+      const valFor = (brand,key) => labels.map(m => { const e=(state[brand].monthly||[]).find(x=>x.month===m); return e ? (Number(e[key])||0) : null; });
+      datasets = [
+        { type:'bar', label:'Investimento GhelPlus', data:valFor('ghelplus','investment'), backgroundColor:'#0e7c6b55', borderColor:'#0e7c6b', yAxisID:'y1', order:3 },
+        { type:'bar', label:'Investimento De Bacco', data:valFor('debacco','investment'), backgroundColor:'#7a1f3455', borderColor:'#7a1f34', yAxisID:'y1', order:3 },
+        { type:'line', label:'Engajamento — GhelPlus', data:valFor('ghelplus','engagement'), borderColor:'#0e7c6b', backgroundColor:'#0e7c6b', tension:.3, yAxisID:'y2', order:1 },
+        { type:'line', label:'Engajamento — De Bacco', data:valFor('debacco','engagement'), borderColor:'#7a1f34', backgroundColor:'#7a1f34', tension:.3, yAxisID:'y2', order:1, borderDash:[4,3] },
+        { type:'line', label:'Seguidores — GhelPlus', data:valFor('ghelplus','followers'), borderColor:'#8a6d1f', backgroundColor:'#8a6d1f', tension:.3, yAxisID:'y2', order:1 },
+        { type:'line', label:'Seguidores — De Bacco', data:valFor('debacco','followers'), borderColor:'#6a4e94', backgroundColor:'#6a4e94', tension:.3, yAxisID:'y2', order:1, borderDash:[4,3] }
+      ];
+    } else {
+      const list = sortedMonthly(currentBrand);
+      labels = list.map(e=>e.month);
+      const accent = currentBrand==='debacco' ? '#7a1f34' : '#0e7c6b';
+      datasets = [
+        { type:'bar', label:'Investimento (R$)', data:list.map(e=>Number(e.investment)||0), backgroundColor:accent+'40', borderColor:accent, yAxisID:'y1', order:2 },
+        { type:'line', label:'Engajamento', data:list.map(e=>Number(e.engagement)||0), borderColor:'#b5541f', backgroundColor:'#b5541f', tension:.3, yAxisID:'y2', order:1, pointRadius:4 },
+        { type:'line', label:'Seguidores ganhos', data:list.map(e=>Number(e.followers)||0), borderColor:'#6a4e94', backgroundColor:'#6a4e94', tension:.3, yAxisID:'y2', order:1, pointRadius:4 }
+      ];
+    }
+    const cfg = { type:'bar', data:{ labels: labels.map(MONTH_LABEL), datasets },
+      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{ position:'bottom', labels:{font:{family:'Arial',size:10.5}} } },
+        scales:{ y1:{type:'linear',position:'left',title:{display:true,text:'Investimento (R$)'},grid:{color:'#eee'}}, y2:{type:'linear',position:'right',title:{display:true,text:'Engajamento / Seguidores'},grid:{display:false}} } } };
+    if (monthlyTrendsChart){ monthlyTrendsChart.destroy(); monthlyTrendsChart=null; }
+    monthlyTrendsChart = new Chart(canvas.getContext('2d'), cfg);
+  }
+  // Versão em tela (board "Investimento e engajamento por mês" do canvas) do
+  // mesmo gráfico acima, em barras duplas de HTML/CSS puro — sem Chart.js.
+  // Sem o toggle "Comparar marcas": Investimento x Engajamento, mês a mês.
+  // Com o toggle marcado: como as duas marcas têm investimento na mesma
+  // escala (R$) mas seguidores/engajamento não são comparáveis entre marcas
+  // de forma tão direta, a comparação passa a ser Investimento GhelPlus x
+  // Investimento De Bacco (reaproveitando o mesmo layout de 2 barras/mês).
+  function renderMonthlyBars(){
+    const barsEl = $('#monthlyBars'), labelsEl = $('#monthlyBarLabels');
+    const legendEl = $('#monthlyChartLegend'), hintEl = $('#monthlyBarsHint');
+    const compare = $('#compareBrands').checked;
+    const ACCENT = 'var(--accent)', SECOND = '#F2A24A';
+
+    let months, barsFor;
+    if (compare){
+      const monthsSet = new Set([...sortedMonthly('ghelplus').map(e=>e.month), ...sortedMonthly('debacco').map(e=>e.month)]);
+      months = Array.from(monthsSet).sort().slice(-6);
+      const investFor = (brand,m) => { const e=(state[brand].monthly||[]).find(x=>x.month===m); return e ? (Number(e.investment)||0) : 0; };
+      barsFor = m => [ {v: investFor('ghelplus', m), color: ACCENT}, {v: investFor('debacco', m), color: SECOND} ];
+      legendEl.innerHTML = `<span class="legend-dot"><span class="legend-swatch" style="background:${ACCENT};"></span>Investimento GhelPlus</span><span class="legend-dot"><span class="legend-swatch" style="background:${SECOND};"></span>Investimento De Bacco</span>`;
+    } else {
+      const list = sortedMonthly(currentBrand).slice(-6);
+      months = list.map(e=>e.month);
+      const byMonth = {}; list.forEach(e => byMonth[e.month]=e);
+      barsFor = m => [ {v: Number(byMonth[m].investment)||0, color: ACCENT}, {v: Number(byMonth[m].engagement)||0, color: SECOND} ];
+      legendEl.innerHTML = `<span class="legend-dot"><span class="legend-swatch" style="background:${ACCENT};"></span>Investimento</span><span class="legend-dot"><span class="legend-swatch" style="background:${SECOND};"></span>Engajamento</span>`;
+    }
+
+    if (!months.length){
+      barsEl.innerHTML = ''; labelsEl.innerHTML = '';
+      hintEl.textContent = 'Nenhum mês registrado ainda.';
+      return;
+    }
+    const cols = months.length;
+    barsEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0,1fr))`;
+    labelsEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0,1fr))`;
+
+    const allPairs = months.map(barsFor);
+    const maxA = Math.max(1, ...allPairs.map(p=>p[0].v));
+    const maxB = Math.max(1, ...allPairs.map(p=>p[1].v));
+    const MAXPX = 180;
+
+    barsEl.innerHTML = allPairs.map(pair => {
+      const [a,b] = pair;
+      const hA = Math.max(2, Math.round((a.v/maxA)*MAXPX));
+      const hB = Math.max(2, Math.round((b.v/maxB)*MAXPX));
+      const labelA = compare ? fmtMoney(a.v) : fmtMoney(a.v);
+      const labelB = compare ? fmtMoney(b.v) : fmtInt(b.v);
+      return `<div class="month-pair">
+        <div class="month-col"><span class="month-n">${labelA}</span><div class="month-fill" style="height:${hA}px; background:${a.color};"></div></div>
+        <div class="month-col"><span class="month-n">${labelB}</span><div class="month-fill" style="height:${hB}px; background:${b.color};"></div></div>
+      </div>`;
+    }).join('');
+
+    labelsEl.innerHTML = months.map(m => `<div class="ml"><b>${MONTH_LABEL(m)}</b></div>`).join('');
+
+    const totalKnown = compare ? Math.max(sortedMonthly('ghelplus').length, sortedMonthly('debacco').length) : sortedMonthly(currentBrand).length;
+    hintEl.textContent = totalKnown > 6
+      ? `Mostrando os últimos 6 meses de ${totalKnown} registrados. Cada barra é relativa ao maior valor da própria série.`
+      : 'Cada barra é relativa ao maior valor da própria série (investimento e engajamento têm escalas diferentes).';
+  }
+
+  const PIE_PALETTE = ['#0e7c6b','#7a1f34','#b5541f','#1c7a4f','#5c584f','#0369a1','#a3352b','#8a5a1f','#6d28d9'];
+  // Investimento (spend já lançado nos Resultados) agrupado por objetivo e por
+  // rede — usado tanto pelos gráficos ocultos (PDF) quanto pelos split-bars
+  // visíveis na tela (renderInvestmentSplits).
+  function computeSpendBreakdown(){
+    const list = campaignsForBrand('all');
+
+    const byObjective = {};
+    list.forEach(c => { const key = c.objective || 'Outro'; const spend = Number(aggregateResult(c).spend)||0; byObjective[key] = (byObjective[key]||0) + spend; });
+    const objLabels = Object.keys(byObjective).filter(k => byObjective[k] > 0);
+    const objValues = objLabels.map(k => byObjective[k]);
+
+    // Agora que cada rede tem seu próprio investido lançado, o investimento por
+    // plataforma usa o valor real de cada rede — não precisa mais dividir igualmente.
+    const byPlatform = {};
+    list.forEach(c => {
+      campaignPlatforms(c).forEach(p => { byPlatform[p] = (byPlatform[p]||0) + (Number(resultFor(c,p).spend)||0); });
+    });
+    const platLabels = Object.keys(byPlatform).filter(k => byPlatform[k] > 0);
+    const platValues = platLabels.map(k => byPlatform[k]);
+
+    return { byObjective, byPlatform, objLabels, objValues, platLabels, platValues };
+  }
+  function renderInvestmentBreakdownCharts(){
+    if (typeof Chart==='undefined') return;
+    const { objLabels, objValues, platLabels, platValues } = computeSpendBreakdown();
+
+    const pieOptions = {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{ boxWidth:11, font:{family:'Arial', size:11} } },
+        tooltip:{ callbacks:{ label: (ctx) => ` ${ctx.label}: ${fmtMoney(ctx.parsed)}` } } }
+    };
+
+    if (investTypeChart){ investTypeChart.destroy(); investTypeChart=null; }
+    const c1 = document.getElementById('investByTypeChart');
+    $('#investByTypeEmpty').style.display = objLabels.length ? 'none' : '';
+    if (c1 && objLabels.length){
+      investTypeChart = new Chart(c1.getContext('2d'), {
+        type:'doughnut',
+        data:{ labels: objLabels.map(k => OBJECTIVE_ABBR[k]||k), datasets:[{ data: objValues, backgroundColor: objLabels.map((_,i)=>PIE_PALETTE[i%PIE_PALETTE.length]) }] },
+        options: pieOptions
+      });
+    }
+
+    if (investPlatformChart){ investPlatformChart.destroy(); investPlatformChart=null; }
+    const c2 = document.getElementById('investByPlatformChart');
+    $('#investByPlatformEmpty').style.display = platLabels.length ? 'none' : '';
+    if (c2 && platLabels.length){
+      investPlatformChart = new Chart(c2.getContext('2d'), {
+        type:'doughnut',
+        data:{ labels: platLabels, datasets:[{ data: platValues, backgroundColor: platLabels.map((_,i)=>PIE_PALETTE[i%PIE_PALETTE.length]) }] },
+        options: pieOptions
+      });
+    }
+  }
+  // Mesmos dados do(s) gráfico(s) oculto(s) acima, só que como barras
+  // empilhadas em HTML/CSS puro (board "Para onde foi a verba" / "Por
+  // objetivo" do canvas) em vez de doughnuts do Chart.js.
+  function splitBarHtml(labels, values, colorFor){
+    const total = values.reduce((s,v)=>s+v,0) || 1;
+    const track = '<div class="split-track">' + labels.map((l,i) => {
+      const pct = (values[i]/total)*100;
+      return `<div style="width:${pct}%; background:${colorFor(l,i)};" title="${escapeHtml(l)}: ${fmtMoney(values[i])}"></div>`;
+    }).join('') + '</div>';
+    const rows = labels.map((l,i) => {
+      const pct = Math.round((values[i]/total)*100);
+      return `<div class="split-seg-row"><span class="legend-dot"><span class="legend-swatch" style="background:${colorFor(l,i)};"></span>${escapeHtml(l)}</span><span><b>${fmtMoney(values[i])}</b> <span class="muted">(${pct}%)</span></span></div>`;
+    }).join('');
+    return track + '<div style="margin-top:10px;">' + rows + '</div>';
+  }
+  function renderInvestmentSplits(){
+    const { objLabels, objValues, platLabels, platValues } = computeSpendBreakdown();
+
+    $('#investByPlatformEmpty').style.display = platLabels.length ? 'none' : '';
+    $('#investByPlatformSplit').innerHTML = platLabels.length
+      ? splitBarHtml(platLabels, platValues, (l,i) => NET_COLORS[l] || PIE_PALETTE[i%PIE_PALETTE.length])
+      : '';
+
+    const objLabelsAbbr = objLabels.map(k => OBJECTIVE_ABBR[k]||k);
+    $('#investByTypeEmpty').style.display = objLabels.length ? 'none' : '';
+    $('#investByTypeSplit').innerHTML = objLabels.length
+      ? splitBarHtml(objLabelsAbbr, objValues, (l,i) => OBJ_SOLID[objLabels[i]] || PIE_PALETTE[i%PIE_PALETTE.length])
+      : '';
+  }
+
+  // ---------- AUDIT ----------
+  function renderAudit(){
+    const logs = auditLogs[currentBrand] || [];
+    $('#auditCount').textContent = logs.length;
+    const body = $('#auditBody'); body.innerHTML='';
+    $('#auditEmpty').style.display = logs.length ? 'none' : '';
+    logs.forEach(log => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td data-label="Quando" class="num">${fmtDateTime(log.createdAt)}</td>
+        <td data-label="Usuário">${escapeHtml(log.username)}</td>
+        <td data-label="Ação">${ACTION_LABEL[log.action]||log.action}</td>
+        <td data-label="Tipo">${ENTITY_LABEL[log.entityType]||log.entityType}</td>
+        <td data-label="Item">${escapeHtml(log.entityLabel||'—')}</td>
+        <td data-label="Detalhes" class="muted">${escapeHtml(log.details||'—')}</td>
+      `;
+      body.appendChild(tr);
+    });
+  }
+
+  function renderArchive(){
+    const years = pastYearsAvailable();
+    const sel = $('#archiveYearSelect');
+    const prevVal = archiveYearFilter;
+    sel.innerHTML = '<option value="all">Todos os anos</option>' + years.map(y=>`<option value="${y}">${y}</option>`).join('');
+    sel.value = years.includes(Number(prevVal)) || prevVal==='all' ? prevVal : (years[0]!==undefined ? String(years[0]) : 'all');
+    archiveYearFilter = sel.value;
+
+    buildQFilter('#qfilterArchive', qFilterArchive, q => { qFilterArchive=q; renderAll(); });
+
+    const list = archiveCampaigns(archiveYearFilter, qFilterArchive).slice().sort((a,b)=> (b.year-a.year) || (a.quarter+a.start).localeCompare(b.quarter+b.start));
+    const body = $('#archiveBody'); body.innerHTML='';
+    $('#archiveEmpty').style.display = list.length ? 'none' : '';
+    $('#archiveCount').textContent = allPastCampaigns().length;
+    renderArchiveCards(list);
+    list.forEach(c => {
+      const r = aggregateResult(c);
+      const m = calc(r);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td data-label="Quarter"><span class="qtag">${campaignYear(c)} · ${c.quarter}</span></td>
+        <td data-label="Campanha"><div class="campname">${escapeHtml(c.name)}</div><div class="campmeta">${escapeHtml(c.theme||'—')}</div></td>
+        <td data-label="Objetivo">${escapeHtml(OBJECTIVE_ABBR[c.objective]||c.objective)}</td>
+        <td data-label="Período"><span class="num">${fmtDate(c.start)} — ${fmtDate(c.end)}</span></td>
+        <td data-label="Plataformas"><div class="platforms">${campaignPlatforms(c).map(p=>`<span class="plat">${p}</span>`).join('')||'<span class="muted">—</span>'}</div></td>
+        <td data-label="Status"><span class="status ${r.status}">${STATUS_LABEL[r.status]||r.status}</span></td>
+        <td data-label="Investido" class="num">${fmtMoney(r.spend)}</td>
+        <td data-label="Conversões" class="num">${fmtInt(r.conversions)}<div class="campmeta">${escapeHtml(convTypeLabel(c))}</div></td>
+        <td data-label="Receita" class="num">${fmtMoney(r.revenue)}</td>
+        <td data-label="ROAS" class="num">${m.roas.toFixed(2)}x</td>
+        <td data-label=""><button class="btn btn-ghost btn-sm edit-archive-campaign" data-id="${c.id}">Editar</button></td>
+      `;
+      body.appendChild(tr);
+    });
+    $all('.edit-archive-campaign', body).forEach(btn => btn.onclick = () => openCampaignModal(btn.dataset.id));
+  }
+  // Cartões por semestre (board "Anteriores" do canvas). O canvas usa campos
+  // subjetivos ("Funcionou" / "Ajustar para o próximo") que não existem nos
+  // dados reais — substituídos aqui por um ranking objetivo das campanhas do
+  // semestre por investimento, com o ROAS de cada uma.
+  function renderArchiveCards(list){
+    const cardsEl = $('#archiveCards');
+    if (!cardsEl) return;
+    if (!list.length){ cardsEl.innerHTML = ''; return; }
+    const groups = {};
+    list.forEach(c => {
+      const y = campaignYear(c);
+      const sem = (c.quarter==='Q1'||c.quarter==='Q2') ? 'H1' : 'H2';
+      const key = y+'-'+sem;
+      (groups[key] = groups[key] || { year:y, sem, campaigns:[] }).campaigns.push(c);
+    });
+    const keys = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+    cardsEl.innerHTML = keys.map(k => {
+      const g = groups[k];
+      const camps = g.campaigns;
+      let budget=0, spend=0, revenue=0;
+      camps.forEach(c => { const r=aggregateResult(c); budget+=campaignBudgetTotal(c); spend+=Number(r.spend)||0; revenue+=Number(r.revenue)||0; });
+      const roas = spend>0 ? revenue/spend : 0;
+      const semLabel = g.sem==='H1' ? '1º semestre' : '2º semestre';
+      const monthsRange = g.sem==='H1' ? 'jan – jun' : 'jul – dez';
+      const sorted = camps.slice().sort((a,b) => (Number(aggregateResult(b).spend)||0) - (Number(aggregateResult(a).spend)||0));
+      const rows = sorted.map(c => {
+        const r = aggregateResult(c), m = calc(r);
+        return `<div class="semester-list-row"><span>${escapeHtml(c.name)}</span><span class="num">${r.spend>0 ? m.roas.toFixed(2)+'x ROAS' : 'sem investimento'}</span></div>`;
+      }).join('');
+      return `<div class="board-card semester-card">
+        <div>
+          <div class="semester-tag" style="color:var(--accent);">${g.year} · ${semLabel.toUpperCase()}</div>
+          <div class="semester-title">${semLabel} de ${g.year}</div>
+          <div class="semester-range">${monthsRange} · ${camps.length} campanha${camps.length===1?'':'s'}</div>
+        </div>
+        <div>
+          <div class="semester-stats">
+            <div class="kpi-tile"><span class="kpi-label">Orçado</span><span class="kpi-value" style="font-size:19px;">${fmtMoney(budget)}</span></div>
+            <div class="kpi-tile"><span class="kpi-label">Investido</span><span class="kpi-value" style="font-size:19px;">${fmtMoney(spend)}</span></div>
+            <div class="kpi-tile"><span class="kpi-label">Receita</span><span class="kpi-value" style="font-size:19px;">${fmtMoney(revenue)}</span></div>
+            <div class="kpi-tile"><span class="kpi-label">ROAS médio</span><span class="kpi-value" style="font-size:19px;">${roas.toFixed(2)}x</span></div>
+          </div>
+          <div class="semester-list" style="margin-top:12px;">${rows}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ---------- COMPARATIVO ANUAL ----------
+  function yearsAvailableAll(){
+    const years = new Set();
+    state[currentBrand].campaigns.forEach(c => years.add(campaignYear(c)));
+    return Array.from(years).sort((a,b)=>a-b);
+  }
+  function yearAggregate(year){
+    const camps = state[currentBrand].campaigns.filter(c => campaignYear(c)===year);
+    let budget=0, spend=0, revenue=0, conversions=0;
+    const byQuarter = {Q1:0,Q2:0,Q3:0,Q4:0};
+    camps.forEach(c => {
+      const r = aggregateResult(c);
+      budget += campaignBudgetTotal(c); spend += Number(r.spend)||0; revenue += Number(r.revenue)||0; conversions += Number(r.conversions)||0;
+      byQuarter[c.quarter] = (byQuarter[c.quarter]||0) + (Number(r.spend)||0);
+    });
+    return { year, campaigns: camps.length, budget, spend, revenue, conversions, roas: spend>0 ? revenue/spend : 0, byQuarter };
+  }
+  // Board "Comparativo Anual" do canvas (placar 2025x2026 + barras por quarter).
+  // O canvas assume sempre exatamente 2 anos — aqui generaliza para comparar
+  // os DOIS anos mais recentes com dado (placar + barras por quarter), mas
+  // mantém a tabela completa com todos os anos disponíveis abaixo, caso haja
+  // mais histórico do que isso.
+  function renderYearlyPage(){
+    const years = yearsAvailableAll();
+    const container = $('#yearlyContent');
+    buildFilterGroup('#yearlyMetricPills', [
+      {value:'spend', label:'Investimento'}, {value:'revenue', label:'Receita'},
+      {value:'conversions', label:'Conversões'}, {value:'roas', label:'ROAS'}
+    ], $('#yearlyMetricSelect').value || 'spend', v => { $('#yearlyMetricSelect').value = v; renderYearlyPage(); });
+
+    if (!years.length){
+      container.innerHTML = '<div class="empty-board">Sem dados suficientes ainda. Cadastre campanhas para começar a comparar anos.</div>';
+      return;
+    }
+    const aggs = years.map(yearAggregate);
+    const metric = $('#yearlyMetricSelect').value || 'spend';
+    const metricVal = a => metric==='roas' ? a.roas : a[metric];
+    const fmtMetric = v => metric==='roas' ? v.toFixed(2)+'x' : (metric==='conversions' ? fmtInt(v) : fmtMoney(v));
+
+    const curr = aggs[aggs.length-1];
+    const prevAgg = aggs.length>1 ? aggs[aggs.length-2] : null;
+    function scoreCard(a, isCurrent){
+      return `<div class="score-card ${isCurrent?'current':''}">
+        <span class="score-year">${a.year}${isCurrent && prevAgg ? ' (atual)' : ''}</span>
+        <span class="score-val">${fmtMetric(metricVal(a))}</span>
+        <span class="muted" style="font-size:12.5px;">${a.campaigns} campanha${a.campaigns===1?'':'s'}</span>
+      </div>`;
+    }
+    let deltaHtml = '<div></div>';
+    if (prevAgg){
+      const a = metricVal(prevAgg), b = metricVal(curr);
+      const d = a>0 ? ((b-a)/a*100) : (b>0 ? 100 : 0);
+      const up = d>=0;
+      deltaHtml = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;">
+        <span style="font-size:22px;">${up?'▲':'▼'}</span>
+        <span style="font-weight:700; color:${up?'var(--good)':'var(--danger)'};">${Math.abs(Math.round(d))}%</span>
+        <span class="muted" style="font-size:11.5px; white-space:nowrap;">${prevAgg.year} → ${curr.year}</span>
+      </div>`;
+    }
+    const scoreHtml = `<div class="scoreboard">${prevAgg?scoreCard(prevAgg,false):'<div></div>'}${deltaHtml}${scoreCard(curr,true)}</div>`;
+
+    let qbarHtml = '';
+    if (prevAgg){
+      const maxQ = Math.max(1, ...['Q1','Q2','Q3','Q4'].map(q=>Math.max(prevAgg.byQuarter[q]||0, curr.byQuarter[q]||0)));
+      const bars = ['Q1','Q2','Q3','Q4'].map(q => {
+        const hA = Math.max(2, Math.round(((prevAgg.byQuarter[q]||0)/maxQ)*160));
+        const hB = Math.max(2, Math.round(((curr.byQuarter[q]||0)/maxQ)*160));
+        return `<div class="qbar-pair">
+          <div class="qbar-col"><span class="qbar-n">${fmtMoney(prevAgg.byQuarter[q]||0)}</span><div class="qbar-fill" style="height:${hA}px; background:#C9C3F2;"></div></div>
+          <div class="qbar-col"><span class="qbar-n">${fmtMoney(curr.byQuarter[q]||0)}</span><div class="qbar-fill" style="height:${hB}px; background:var(--accent);"></div></div>
+        </div>`;
+      }).join('');
+      qbarHtml = `<div class="board-card board-section" style="margin-top:16px;">
+        <div class="board-section-head"><h2>Investido por quarter</h2><div class="legend-row">
+          <span class="legend-dot"><span class="legend-swatch" style="background:#C9C3F2;"></span>${prevAgg.year}</span>
+          <span class="legend-dot"><span class="legend-swatch" style="background:var(--accent);"></span>${curr.year}</span>
+        </div></div>
+        <div class="qbar-grid">${bars}</div>
+        <div class="qbar-labels">${['Q1','Q2','Q3','Q4'].map(q=>`<span>${q}</span>`).join('')}</div>
+      </div>`;
+    }
+
+    let tableHtml = '<div class="tablewrap" style="box-shadow:none; margin-top:16px;"><table><thead><tr><th></th>';
+    aggs.forEach(a => tableHtml += `<th>${a.year}</th>`);
+    tableHtml += '</tr></thead><tbody>';
+    const rows = [
+      {label:'Campanhas', get:a=>fmtInt(a.campaigns)},
+      {label:'Orçado', get:a=>fmtMoney(a.budget)},
+      {label:'Investido', get:a=>fmtMoney(a.spend)},
+      {label:'Receita', get:a=>fmtMoney(a.revenue)},
+      {label:'Conversões', get:a=>fmtInt(a.conversions)},
+      {label:'ROAS', get:a=>a.roas.toFixed(2)+'x'}
+    ];
+    rows.forEach(row => {
+      tableHtml += `<tr><td class="muted" style="font-weight:600;">${row.label}</td>`;
+      aggs.forEach(a => tableHtml += `<td class="num">${row.get(a)}</td>`);
+      tableHtml += '</tr>';
+    });
+    tableHtml += '</tbody></table></div>';
+
+    container.innerHTML = scoreHtml + qbarHtml + tableHtml;
+  }
+
+  function renderAll(){
+    trafegoApplyEditGate();
+    buildQFilter('#qfilterPlanning', qFilterPlanning, q => { qFilterPlanning=q; renderAll(); });
+    buildQFilter('#qfilterResults', qFilterResults, q => { qFilterResults=q; renderAll(); });
+    buildQFilter('#qfilterSummary', qFilterSummary, q => { qFilterSummary=q; renderAll(); });
+    buildFilterGroup('#statusFilterPlanning', [
+      {value:'all', label:'Todos'}, {value:'running', label:STATUS_LABEL.running},
+      {value:'done', label:STATUS_LABEL.done}, {value:'planned', label:STATUS_LABEL.planned},
+      {value:'paused', label:STATUS_LABEL.paused}
+    ], statusFilterPlanning, v => { statusFilterPlanning=v; renderAll(); });
+    buildFilterGroup('#objectiveFilterPlanning', [{value:'all', label:'Todos'}].concat(
+      Object.keys(OBJECTIVE_KPIS).map(k => ({value:k, label:OBJECTIVE_ABBR[k]||k}))
+    ), objectiveFilterPlanning, v => { objectiveFilterPlanning=v; renderAll(); });
+    renderPlanningPage();
+    const resultsEntriesList = resultsEntries();
+    $('#resultsEyebrow').textContent = BRAND_LABEL[currentBrand] + ' · Tráfego pago · Aba Resultados';
+    $('#resultsSub').textContent = (qFilterResults==='all' ? YEAR_NOW+' em diante' : qFilterResults) + ' · dados lançados até ' + new Date().toLocaleDateString('pt-BR');
+    $('#resultsCountText').textContent = resultsEntriesList.length + (resultsEntriesList.length===1 ? ' resultado' : ' resultados');
+    renderResultsCards(resultsEntriesList);
+    renderResultsBudgetRows(resultsEntriesList);
+    renderResultsFunnelRows(resultsEntriesList);
+    renderResultsMissingBox(resultsEntriesList);
+    renderResultsGroups(resultsEntriesList);
+    $('#summaryEyebrow').textContent = BRAND_LABEL[currentBrand] + ' · Tráfego pago · Aba Resumo';
+    renderResultsSummary();
+    populateComparatorSelects(); renderComparator();
+    $('#monthlyEyebrow').textContent = BRAND_LABEL[currentBrand] + ' · Tráfego pago · Aba Métricas mensais';
+    renderMonthlyCards(); renderMonthlyTable();
+    $('#archiveEyebrow').textContent = BRAND_LABEL[currentBrand] + ' · Tráfego pago · Aba Planejamento Anterior';
+    $('#yearlyEyebrow').textContent = BRAND_LABEL[currentBrand] + ' · Tráfego pago · Aba Comparativo anual';
+    renderArchive();
+    if (currentTab==='monthly'){ renderMonthlyBars(); renderInvestmentSplits(); renderMonthlyTrendsChart(); renderInvestmentBreakdownCharts(); }
+    if (currentTab==='yearly') renderYearlyPage();
+    if (currentTab==='audit') { loadAudit(currentBrand).then(renderAudit); } else { renderAudit(); }
+  }
+
+  // ---------- CAMPAIGN MODAL ----------
+  function buildPlatformChecks(selected, budgets){
+    const el = $('#f_platforms'); el.innerHTML='';
+    PLATFORM_OPTS[currentBrand].forEach(p => {
+      const label = document.createElement('label');
+      label.className = 'chk' + (selected.includes(p) ? ' checked' : '');
+      label.innerHTML = `<input type="checkbox" value="${p}" ${selected.includes(p)?'checked':''}> ${p}`;
+      label.querySelector('input').onchange = (e) => { label.classList.toggle('checked', e.target.checked); rebuildBudgetFields(); };
+      el.appendChild(label);
+    });
+    buildBudgetFields(selected, budgets || {});
+  }
+  // Campos de valor por rede — reconstruídos sempre que a seleção de plataformas
+  // muda, preservando o que já tinha sido digitado nas redes que continuam marcadas.
+  function currentBudgetValues(){
+    const out = {};
+    $all('#f_budgets .f_budget_input').forEach(inp => { out[inp.dataset.platform] = inp.value; });
+    return out;
+  }
+  function rebuildBudgetFields(){
+    const selected = $all('#f_platforms input:checked').map(i=>i.value);
+    buildBudgetFields(selected, currentBudgetValues());
+  }
+  function buildBudgetFields(selected, budgets){
+    budgets = budgets || {};
+    const el = $('#f_budgets'); el.innerHTML='';
+    if (!selected.length){ el.innerHTML = '<div class="muted" style="font-size:12.5px;">Selecione ao menos uma plataforma acima para definir o valor da campanha.</div>'; return; }
+    selected.forEach(p => {
+      const wrap = document.createElement('div');
+      wrap.className = 'field'; wrap.style.cssText = 'margin:0; min-width:150px; flex:1;';
+      const val = (budgets[p]!==undefined && budgets[p]!==null && budgets[p]!=='') ? budgets[p] : '';
+      wrap.innerHTML = `<label>${escapeHtml(p)}</label><input type="number" step="0.01" min="0" class="f_budget_input" data-platform="${escapeHtml(p)}" value="${escapeHtml(String(val))}" placeholder="0,00">`;
+      el.appendChild(wrap);
+    });
+  }
+  function buildKpiChecks(selected, objective){
+    const opts = OBJECTIVE_KPIS[normalizeObjective(objective)] || KPI_OPTS;
+    const el = $('#f_kpis'); el.innerHTML='';
+    opts.forEach(k => {
+      const label = document.createElement('label');
+      label.className = 'chk' + (selected.includes(k) ? ' checked' : '');
+      label.innerHTML = `<input type="checkbox" value="${k}" ${selected.includes(k)?'checked':''}> ${k}`;
+      label.querySelector('input').onchange = (e) => label.classList.toggle('checked', e.target.checked);
+      el.appendChild(label);
+    });
+  }
+  function buildCreativeChecks(selected){
+    const el = $('#f_creativeTypes'); el.innerHTML='';
+    CREATIVE_OPTS.forEach(k => {
+      const label = document.createElement('label');
+      label.className = 'chk' + (selected.includes(k) ? ' checked' : '');
+      label.innerHTML = `<input type="checkbox" value="${k}" ${selected.includes(k)?'checked':''}> ${k}`;
+      label.querySelector('input').onchange = (e) => label.classList.toggle('checked', e.target.checked);
+      el.appendChild(label);
+    });
+  }
+  function toggleSaleValueField(){
+    $('#f_saleValueWrap').style.display = $('#f_conversionType').value === 'Vendas' ? '' : 'none';
+  }
+  function draftKey(){ return 'campaign-draft:' + currentBrand; }
+  function saveDraftToStorage(data){ try{ localStorage.setItem(draftKey(), JSON.stringify(data)); }catch(e){} }
+  function loadDraftFromStorage(){ try{ const raw = localStorage.getItem(draftKey()); return raw ? JSON.parse(raw) : null; }catch(e){ return null; } }
+  function clearDraft(){ try{ localStorage.removeItem(draftKey()); }catch(e){} }
+
+  function collectCampaignFormData(){
+    const platforms = $all('#f_platforms input:checked').map(i=>i.value);
+    const kpis = $all('#f_kpis input:checked').map(i=>i.value);
+    const creativeTypes = $all('#f_creativeTypes input:checked').map(i=>i.value);
+    return {
+      year: Number($('#f_year').value) || YEAR_NOW,
+      quarter:$('#f_quarter').value, objective:$('#f_objective').value, name:$('#f_name').value,
+      theme:$('#f_theme').value, budgets: currentBudgetValues(), conversionType:$('#f_conversionType').value, conversionOther:$('#f_conversionOther').value,
+      saleValue: $('#f_saleValue').value,
+      start:$('#f_start').value, end:$('#f_end').value, platforms, creativeTypes,
+      profile:$('#f_profile').value, age:$('#f_age').value, gender:$('#f_gender').value,
+      location:$('#f_location').value, income:$('#f_income').value, interests:$('#f_interests').value,
+      kpis, kpiExtra:$('#f_kpi_extra').value, notes:$('#f_notes').value
+    };
+  }
+  function populateCampaignForm(c){
+    $('#f_year').value = campaignYear(c);
+    const objective = normalizeObjective(c.objective || 'Vendas');
+    $('#f_quarter').value = c.quarter || 'Q1'; $('#f_objective').value = objective; $('#f_name').value = c.name || '';
+    $('#f_theme').value = c.theme || ''; $('#f_conversionType').value = c.conversionType || 'Vendas'; $('#f_conversionOther').value = c.conversionOther || '';
+    $('#f_saleValue').value = c.saleValue || '';
+    toggleSaleValueField();
+    $('#f_start').value = c.start || ''; $('#f_end').value = c.end || '';
+    buildPlatformChecks(c.platforms||[], campaignBudgets(c));
+    buildCreativeChecks(c.creativeTypes||[]);
+    $('#f_profile').value = c.profile || ''; $('#f_age').value = c.age || ''; $('#f_gender').value = c.gender || 'Todos';
+    $('#f_location').value = c.location || ''; $('#f_income').value = c.income || ''; $('#f_interests').value = c.interests || '';
+    buildKpiChecks(c.kpis||[], objective);
+    $('#f_kpi_extra').value = c.kpiExtra || ''; $('#f_notes').value = c.notes || '';
+  }
+
+  let draftTimer = null;
+  function scheduleDraftSave(){
+    if (editingCampaignId) return; // só rascunho para campanhas novas — edições já ficam salvas no servidor
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => saveDraftToStorage(collectCampaignFormData()), 400);
+  }
+
+  function openCampaignModal(id){
+    editingCampaignId = id || null;
+    $('#draftHint').style.display = 'none';
+    if (id){
+      const c = state[currentBrand].campaigns.find(x=>x.id===id);
+      $('#modalTitle').textContent = 'Editar campanha';
+      $('#deleteCampaignBtn').style.display = '';
+      populateCampaignForm(c);
+    } else {
+      $('#modalTitle').textContent = 'Nova campanha';
+      $('#deleteCampaignBtn').style.display = 'none';
+      const draft = loadDraftFromStorage();
+      if (draft){
+        populateCampaignForm(draft);
+        $('#draftHint').style.display = '';
+      } else {
+        populateCampaignForm({ year: YEAR_NOW, quarter:'Q1', objective:'Vendas', gender:'Todos', conversionType:'Vendas' });
+      }
+    }
+    $('#campaignOverlay').classList.add('open');
+  }
+  function closeCampaignModal(){ $('#campaignOverlay').classList.remove('open'); editingCampaignId=null; }
+  async function saveCampaign(){
+    const raw = collectCampaignFormData();
+    const kpis = raw.kpis.slice();
+    const kpiExtra = raw.kpiExtra.trim();
+    if (kpiExtra) kpis.push(kpiExtra);
+    const budgets = {};
+    raw.platforms.forEach(p => { budgets[p] = Number(raw.budgets[p])||0; });
+    const budgetTotal = Object.values(budgets).reduce((s,v)=>s+v,0);
+    const data = {
+      year: raw.year, quarter: raw.quarter, objective: raw.objective, name: raw.name.trim()||'Campanha sem nome',
+      theme: raw.theme.trim(), budgets, budget: budgetTotal, conversionType: raw.conversionType, conversionOther: raw.conversionOther.trim(),
+      saleValue: raw.conversionType==='Vendas' ? (Number(raw.saleValue)||0) : 0,
+      start: raw.start, end: raw.end, platforms: raw.platforms, creativeTypes: raw.creativeTypes,
+      profile: raw.profile.trim(), age: raw.age.trim(), gender: raw.gender,
+      location: raw.location.trim(), income: raw.income.trim(), interests: raw.interests.trim(),
+      kpis, kpiExtra, notes: raw.notes.trim()
+    };
+    try{
+      if (editingCampaignId) await tpApi(`/api/trafego-pago/campaigns/${editingCampaignId}`, {method:'PUT', body:JSON.stringify(data)});
+      else await tpApi(`/api/trafego-pago/brands/${currentBrand}/campaigns`, {method:'POST', body:JSON.stringify(data)});
+      if (!editingCampaignId) clearDraft();
+      await loadBrandData(currentBrand);
+      closeCampaignModal(); renderAll(); toast('Campanha salva.');
+    }catch(e){ toast(e.message, true); }
+  }
+  async function deleteCampaign(){
+    if (!editingCampaignId) return;
+    if (!confirm('Excluir esta campanha e seus resultados?')) return;
+    try{
+      await tpApi(`/api/trafego-pago/campaigns/${editingCampaignId}`, {method:'DELETE'});
+      await loadBrandData(currentBrand);
+      closeCampaignModal(); renderAll(); toast('Campanha excluída.');
+    }catch(e){ toast(e.message, true); }
+  }
+
+  // ---------- RESULTS MODAL ----------
+  // Uma seção por rede da campanha — cada uma com seus próprios campos e cálculos,
+  // já que "os resultados são diferentes em cada rede".
+  function recalcPreview(slug){
+    const res = { impressions:Number($('#rf_impressions_'+slug).value)||0, clicks:Number($('#rf_clicks_'+slug).value)||0, spend:Number($('#rf_spend_'+slug).value)||0, conversions:Number($('#rf_conversions_'+slug).value)||0, revenue:Number($('#rf_revenue_'+slug).value)||0 };
+    const m = calc(res);
+    $('#rf_ctr_calc_'+slug).value = m.ctr.toFixed(2)+'%';
+    $('#rf_cpa_calc_'+slug).value = fmtMoney(m.cpa);
+    $('#rf_roas_calc_'+slug).value = m.roas.toFixed(2)+'x';
+    $('#rf_cpm_calc_'+slug).value = fmtMoney(m.cpm);
+  }
+  function metaIntegrationHtml(c){
+    const can = trafegoCanEdit();
+    if (c.metaCampaignId){
+      const when = c.metaLastSyncAt ? new Date(c.metaLastSyncAt).toLocaleString('pt-BR') : 'ainda não sincronizado';
+      return `
+        <div class="muted" style="font-size:12px; margin:-6px 0 10px;">
+          🔗 Vinculada à campanha do Meta Ads: <strong>${escapeHtml(c.metaCampaignName || c.metaCampaignId)}</strong> · Última sincronização: ${when}
+          ${can ? `<button type="button" class="btn" id="metaSyncNowBtn" style="margin-left:8px; padding:2px 8px; font-size:12px;">Sincronizar agora</button>
+          <button type="button" class="btn btn-ghost" id="metaUnlinkBtn" style="padding:2px 8px; font-size:12px;">Desvincular</button>` : ''}
+        </div>`;
+    }
+    if (!can) return '';
+    return `
+      <div class="muted" style="font-size:12px; margin:-6px 0 10px;">
+        Puxe gasto, impressões, cliques, alcance e frequência direto do Meta Ads automaticamente (a cada 30 min).
+        <button type="button" class="btn" id="metaLinkBtn" style="margin-left:8px; padding:2px 8px; font-size:12px;">Vincular campanha do Meta Ads</button>
+      </div>`;
+  }
+  function buildResultsSections(c){
+    const container = $('#r_platform_sections'); container.innerHTML = '';
+    const plats = campaignPlatforms(c);
+    const budgets = campaignBudgets(c);
+    const convLabel = convTypeLabel(c);
+    plats.forEach((p, idx) => {
+      const slug = platSlug(p);
+      const r = resultFor(c, p);
+      const wrap = document.createElement('div');
+      wrap.innerHTML = `
+        <div class="section-title"${idx===0 ? '' : ' style="margin-top:22px;"'}>${escapeHtml(NETWORK_LABEL[p]||p)}</div>
+        ${p === 'Meta' ? metaIntegrationHtml(c) : ''}
+        <div class="formgrid">
+          <div class="field"><label>Status</label><select id="rf_status_${slug}">
+            <option value="planned">Planejada</option><option value="running">Em andamento</option><option value="paused">Pausada</option><option value="done">Concluída</option>
+          </select></div>
+          <div class="field"><label>Orçamento planejado (R$)</label><input type="number" id="rf_budget_${slug}" step="0.01" min="0" disabled title="Definido no cadastro da campanha (Planejamento)"></div>
+          <div class="field"><label>Investido até agora (R$)</label><input type="number" id="rf_spend_${slug}" step="0.01" min="0"></div>
+          <div class="field"><label>Receita gerada (R$)</label><input type="number" id="rf_revenue_${slug}" step="0.01" min="0"></div>
+          <div class="field"><label>Impressões</label><input type="number" id="rf_impressions_${slug}" min="0"></div>
+          <div class="field"><label>Cliques</label><input type="number" id="rf_clicks_${slug}" min="0"></div>
+          <div class="field"><label>Alcance</label><input type="number" id="rf_reach_${slug}" min="0" placeholder="Pessoas únicas alcançadas"></div>
+          <div class="field"><label>Engajamento</label><input type="number" id="rf_engagement_${slug}" min="0" placeholder="Curtidas + comentários + compart. + salvos"></div>
+          <div class="field"><label id="rf_conversions_label_${slug}">Conversões</label><input type="number" id="rf_conversions_${slug}" min="0"></div>
+          <div class="field"><label>Frequência média</label><input type="number" id="rf_frequency_${slug}" step="0.01" min="0"></div>
+          <div class="field full"><label>Aprendizados / observações</label><textarea id="rf_notes_${slug}"></textarea></div>
+        </div>
+        <div class="formgrid" style="margin-top:4px;">
+          <div class="field"><label>CTR</label><input type="text" id="rf_ctr_calc_${slug}" disabled></div>
+          <div class="field"><label id="rf_cpa_label_${slug}">Custo por resultado</label><input type="text" id="rf_cpa_calc_${slug}" disabled></div>
+          <div class="field"><label>ROAS</label><input type="text" id="rf_roas_calc_${slug}" disabled></div>
+          <div class="field"><label>CPM</label><input type="text" id="rf_cpm_calc_${slug}" disabled></div>
+        </div>
+        <div class="muted" style="font-size:11.5px; margin-top:2px;" id="rf_updated_${slug}"></div>
+      `;
+      container.appendChild(wrap);
+      if (p === 'Meta'){
+        const linkBtn = wrap.querySelector('#metaLinkBtn');
+        if (linkBtn) linkBtn.onclick = () => openMetaLinkModal(c.id);
+        const syncBtn = wrap.querySelector('#metaSyncNowBtn');
+        if (syncBtn) syncBtn.onclick = () => syncMetaNow(c.id);
+        const unlinkBtn = wrap.querySelector('#metaUnlinkBtn');
+        if (unlinkBtn) unlinkBtn.onclick = () => unlinkMetaCampaign(c.id);
+      }
+      $('#rf_status_'+slug).value = r.status;
+      $('#rf_budget_'+slug).value = budgets[p] || 0;
+      $('#rf_spend_'+slug).value = r.spend;
+      $('#rf_revenue_'+slug).value = r.revenue;
+      $('#rf_impressions_'+slug).value = r.impressions;
+      $('#rf_clicks_'+slug).value = r.clicks;
+      $('#rf_reach_'+slug).value = r.reach || '';
+      $('#rf_engagement_'+slug).value = r.engagement || '';
+      $('#rf_conversions_'+slug).value = r.conversions;
+      $('#rf_frequency_'+slug).value = r.frequency;
+      $('#rf_notes_'+slug).value = r.notes;
+      $('#rf_conversions_label_'+slug).textContent = convLabel;
+      $('#rf_cpa_label_'+slug).textContent = 'Custo por ' + convLabel.toLowerCase();
+      $('#rf_updated_'+slug).textContent = r.updatedAt ? ('Última atualização: '+new Date(r.updatedAt).toLocaleString('pt-BR')+(r.updatedBy?' por '+r.updatedBy:'')) : 'Ainda não atualizado nesta rede';
+      // Campanha de Vendas com valor de venda definido: sugere a receita (conversões x valor), só se ainda não houver receita lançada
+      if (c.conversionType==='Vendas' && Number(c.saleValue)>0 && !Number(r.revenue) && Number(r.conversions)>0){
+        $('#rf_revenue_'+slug).value = (Number(r.conversions) * Number(c.saleValue)).toFixed(2);
+      }
+      recalcPreview(slug);
+      ['rf_impressions_','rf_clicks_','rf_spend_','rf_conversions_','rf_revenue_'].forEach(prefix => {
+        $('#'+prefix+slug).addEventListener('input', () => recalcPreview(slug));
+      });
+    });
+  }
+  function openResultsModal(id){
+    editingResultsId = id;
+    const c = state[currentBrand].campaigns.find(x=>x.id===id);
+    $('#resultsModalTitle').textContent = 'Atualizar resultados — ' + c.name;
+    buildResultsSections(c);
+    $('#resultsOverlay').classList.add('open');
+  }
+  function closeResultsModal(){ $('#resultsOverlay').classList.remove('open'); editingResultsId=null; }
+
+  // ---------- META ADS LINK MODAL ----------
+  let metaLinkCampaignId = null;
+  let metaLinkSearchTimer = null;
+  function refreshOpenResultsModal(){
+    if (!editingResultsId) return;
+    const c = state[currentBrand].campaigns.find(x=>x.id===editingResultsId);
+    if (c) buildResultsSections(c);
+  }
+  function openMetaLinkModal(campaignId){
+    metaLinkCampaignId = campaignId;
+    $('#metaLinkSearchInput').value = '';
+    $('#metaLinkResults').innerHTML = '<div class="muted" style="font-size:12px;">Buscando campanhas na conta de anúncios…</div>';
+    $('#metaLinkOverlay').classList.add('open');
+    searchMetaCampaigns('');
+  }
+  function closeMetaLinkModal(){ $('#metaLinkOverlay').classList.remove('open'); metaLinkCampaignId = null; }
+  function scheduleMetaLinkSearch(){
+    clearTimeout(metaLinkSearchTimer);
+    metaLinkSearchTimer = setTimeout(() => searchMetaCampaigns($('#metaLinkSearchInput').value), 350);
+  }
+  async function searchMetaCampaigns(q){
+    const el = $('#metaLinkResults');
+    try{
+      const data = await tpApi(`/api/trafego-pago/meta/campaigns?q=${encodeURIComponent(q||'')}`);
+      const list = data.campaigns || [];
+      if (!list.length){ el.innerHTML = '<div class="muted" style="font-size:12px;">Nenhuma campanha encontrada.</div>'; return; }
+      el.innerHTML = list.map(c => `
+        <div class="meta-pick-row" data-id="${escapeHtml(c.id)}" data-name="${escapeHtml(c.name)}" style="padding:8px 4px; border-bottom:1px solid #eee; cursor:pointer; display:flex; justify-content:space-between; gap:10px;">
+          <span>${escapeHtml(c.name)}</span>
+          <span class="muted" style="font-size:11px; white-space:nowrap;">${escapeHtml(c.status||'')}</span>
+        </div>`).join('');
+      $all('.meta-pick-row', el).forEach(row => { row.onclick = () => chooseMetaCampaign(row.dataset.id, row.dataset.name); });
+    }catch(e){ el.innerHTML = `<div class="muted" style="font-size:12px;">Erro ao buscar: ${escapeHtml(e.message)}</div>`; }
+  }
+  async function chooseMetaCampaign(metaCampaignId, metaCampaignName){
+    if (!metaLinkCampaignId) return;
+    try{
+      await tpApi(`/api/trafego-pago/campaigns/${metaLinkCampaignId}/meta-link`, {method:'PUT', body: JSON.stringify({metaCampaignId, metaCampaignName})});
+      closeMetaLinkModal();
+      await loadBrandData(currentBrand);
+      refreshOpenResultsModal(); renderAll();
+      toast('Campanha vinculada ao Meta Ads. A sincronização automática roda a cada 30 min — ou clique em "Sincronizar agora".');
+    }catch(e){ toast(e.message, true); }
+  }
+  async function unlinkMetaCampaign(campaignId){
+    if (!confirm('Desvincular esta campanha do Meta Ads? Os números já salvos continuam no histórico, só para de atualizar sozinho.')) return;
+    try{
+      await tpApi(`/api/trafego-pago/campaigns/${campaignId}/meta-link`, {method:'PUT', body: JSON.stringify({metaCampaignId: null})});
+      await loadBrandData(currentBrand);
+      refreshOpenResultsModal(); renderAll();
+      toast('Campanha desvinculada do Meta Ads.');
+    }catch(e){ toast(e.message, true); }
+  }
+  async function syncMetaNow(campaignId){
+    try{
+      toast('Sincronizando com o Meta Ads…');
+      await tpApi(`/api/trafego-pago/campaigns/${campaignId}/meta-sync`, {method:'POST'});
+      await loadBrandData(currentBrand);
+      refreshOpenResultsModal(); renderAll();
+      toast('Sincronizado com o Meta Ads.');
+    }catch(e){ toast(e.message, true); }
+  }
+  async function saveResults(){
+    const c = state[currentBrand].campaigns.find(x=>x.id===editingResultsId);
+    if (!c) return;
+    try{
+      for (const p of campaignPlatforms(c)){
+        const slug = platSlug(p);
+        const data = {
+          platform: p,
+          status: $('#rf_status_'+slug).value,
+          spend: Number($('#rf_spend_'+slug).value)||0,
+          revenue: Number($('#rf_revenue_'+slug).value)||0,
+          impressions: Number($('#rf_impressions_'+slug).value)||0,
+          clicks: Number($('#rf_clicks_'+slug).value)||0,
+          conversions: Number($('#rf_conversions_'+slug).value)||0,
+          reach: Number($('#rf_reach_'+slug).value)||0,
+          engagement: Number($('#rf_engagement_'+slug).value)||0,
+          frequency: Number($('#rf_frequency_'+slug).value)||0,
+          notes: $('#rf_notes_'+slug).value.trim()
+        };
+        await tpApi(`/api/trafego-pago/campaigns/${editingResultsId}/results`, {method:'PUT', body:JSON.stringify(data)});
+      }
+      await loadBrandData(currentBrand);
+      closeResultsModal(); renderAll(); toast('Resultados atualizados.');
+    }catch(e){ toast(e.message, true); }
+  }
+
+  // ---------- MONTHLY MODAL ----------
+  function buildMonthlyPlatformFields(existing){
+    existing = existing || {};
+    const el = $('#m_platform_budgets'); el.innerHTML = '';
+    PLATFORM_OPTS[currentBrand].forEach(p => {
+      const wrap = document.createElement('div');
+      wrap.className = 'field'; wrap.style.cssText = 'margin:0; min-width:140px; flex:1;';
+      const val = existing[p]!==undefined ? existing[p] : '';
+      wrap.innerHTML = `<label>${escapeHtml(p)}</label><input type="number" step="0.01" min="0" class="m_platform_input" data-platform="${escapeHtml(p)}" value="${escapeHtml(String(val))}" placeholder="0,00">`;
+      el.appendChild(wrap);
+    });
+  }
+  function currentMonthlyPlatformValues(){
+    const out = {};
+    $all('#m_platform_budgets .m_platform_input').forEach(inp => { out[inp.dataset.platform] = Number(inp.value)||0; });
+    return out;
+  }
+  function openMonthlyModal(id){
+    editingMonthlyId = id || null;
+    const e = id ? state[currentBrand].monthly.find(x=>x.id===id) : {month:'', investment:0, followers:0, engagement:0, investmentByPlatform:{}};
+    $('#monthlyModalTitle').textContent = id ? 'Editar mês' : 'Registrar mês';
+    $('#deleteMonthlyBtn').style.display = id ? '' : 'none';
+    $('#m_month').value = e.month || ''; $('#m_investment').value = e.investment || ''; $('#m_followers').value = e.followers || ''; $('#m_engagement').value = e.engagement || '';
+    buildMonthlyPlatformFields(e.investmentByPlatform || {});
+    $('#monthlyOverlay').classList.add('open');
+  }
+  function closeMonthlyModal(){ $('#monthlyOverlay').classList.remove('open'); editingMonthlyId=null; }
+  async function saveMonthly(){
+    const month = $('#m_month').value;
+    if (!month){ alert('Selecione o mês/ano.'); return; }
+    const data = { month, investment:Number($('#m_investment').value)||0, followers:Number($('#m_followers').value)||0, engagement:Number($('#m_engagement').value)||0, investmentByPlatform: currentMonthlyPlatformValues() };
+    try{
+      if (editingMonthlyId) await tpApi(`/api/trafego-pago/monthly/${editingMonthlyId}`, {method:'PUT', body:JSON.stringify(data)});
+      else await tpApi(`/api/trafego-pago/brands/${currentBrand}/monthly`, {method:'POST', body:JSON.stringify(data)});
+      await loadBrandData(currentBrand);
+      closeMonthlyModal(); renderAll(); toast('Mês salvo.');
+    }catch(e){ toast(e.message, true); }
+  }
+  async function deleteMonthly(){
+    if (!editingMonthlyId) return;
+    if (!confirm('Excluir este registro mensal?')) return;
+    try{
+      await tpApi(`/api/trafego-pago/monthly/${editingMonthlyId}`, {method:'DELETE'});
+      await loadBrandData(currentBrand);
+      closeMonthlyModal(); renderAll(); toast('Registro excluído.');
+    }catch(e){ toast(e.message, true); }
+  }
+
+  // ---------- USERS (admin) ----------
+  // Removido na migração (156ª rodada): gestão de usuários/permissões agora é
+  // só a da própria Papoi (Configurações > Usuários) -- este painel não tem
+  // mais usuários próprios.
+
+  // ---------- CSV/XLSX IMPORT ----------
+  function stripAccents(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+  function normKey(s){ return stripAccents(s).toLowerCase().replace(/[^a-z0-9]/g,''); }
+  const FIELD_ALIASES = { name:['nomedacampanha','campanha','nome','campaignname','campaign'], platform:['rede','plataforma','network','platform'], status:['status'], budget:['orcamentoplanejado','orcamento','budget'], spend:['investido','spend','investimento','cost','custo'], impressions:['impressoes','impressions'], clicks:['cliques','clicks'], reach:['alcance','reach'], engagement:['engajamento','engagement'], conversions:['conversoes','conversions'], revenue:['receita','revenue'], notes:['observacoes','notes','obs','observacao'] };
+  const STATUS_ALIASES = { 'planejada':'planned','planned':'planned','emandamento':'running','andamento':'running','running':'running','ativa':'running','pausada':'paused','paused':'paused','concluida':'done','finalizada':'done','done':'done','completa':'done' };
+  function mapRowToFields(row){ const out={}; Object.keys(row).forEach(k => { const nk=normKey(k); for (const field in FIELD_ALIASES){ if (FIELD_ALIASES[field].includes(nk)) out[field]=row[k]; } }); return out; }
+  // Uma linha por campanha+rede — os resultados são diferentes em cada rede, então a
+  // planilha de importação/exportação também precisa separar por rede.
+  function templateRowsForBrand(brand){
+    const rows = [];
+    state[brand].campaigns.forEach(c => {
+      campaignPlatforms(c).forEach(p => {
+        const r = resultFor(c, p);
+        const budget = campaignBudgets(c)[p] || 0;
+        rows.push({
+          'Nome da campanha': c.name, 'Rede': p, 'Status': STATUS_LABEL[r.status]||r.status,
+          'Orcamento planejado (definido no cadastro)': budget,
+          'Investido': r.spend||0, 'Impressoes': r.impressions||0, 'Cliques': r.clicks||0,
+          'Alcance': r.reach||0, 'Engajamento': r.engagement||0,
+          'Conversoes': r.conversions||0, 'Receita': r.revenue||0, 'Observacoes': r.notes||''
+        });
+      });
+    });
+    return rows;
+  }
+  function downloadTemplate(){
+    if (typeof XLSX==='undefined'){ toast('Biblioteca de planilhas carregando, tente de novo.', true); return; }
+    const rows = templateRowsForBrand(currentBrand);
+    if (!rows.length){ toast('Cadastre ao menos uma campanha antes.', true); return; }
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{wch:38},{wch:12},{wch:14},{wch:16},{wch:12},{wch:12},{wch:10},{wch:10},{wch:12},{wch:12},{wch:12},{wch:34}];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
+    XLSX.writeFile(wb, `${currentBrand}-modelo-importacao.xlsx`);
+  }
+  function triggerImport(){ $('#importFileInput').click(); }
+  function handleImportFile(e){
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try{
+        const data = new Uint8Array(ev.target.result);
+        const wb = XLSX.read(data, {type:'array'});
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+        await applyImportedRows(rows);
+      }catch(err){ console.error(err); toast('Não consegui ler esse arquivo.', true); }
+      $('#importFileInput').value = '';
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  async function applyImportedRows(rows){
+    let matched = 0; const notFound = [];
+    for (const row of rows){
+      const f = mapRowToFields(row);
+      if (!f.name) continue;
+      const target = normKey(f.name);
+      const campaign = state[currentBrand].campaigns.find(c => normKey(c.name)===target);
+      if (!campaign){ notFound.push(f.name); continue; }
+      const plats = campaignPlatforms(campaign);
+      let platform = plats[0];
+      if (f.platform){
+        const wanted = normKey(f.platform);
+        const found = plats.find(p => normKey(p)===wanted || normKey(NETWORK_LABEL[p]||p)===wanted);
+        if (found) platform = found;
+      }
+      const payload = { platform };
+      if (f.status!==undefined && f.status!==''){ const st=STATUS_ALIASES[normKey(f.status)]; if (st) payload.status = st; }
+      ['spend','impressions','clicks','conversions','revenue','reach','engagement'].forEach(key => { if (f[key]!==undefined && f[key]!=='' && !isNaN(Number(f[key]))) payload[key]=Number(f[key]); });
+      if (f.notes!==undefined && f.notes!=='') payload.notes = String(f.notes);
+      try{ await tpApi(`/api/trafego-pago/campaigns/${campaign.id}/results`, {method:'PUT', body:JSON.stringify(payload)}); matched++; }
+      catch(e){ /* segue tentando os demais */ }
+    }
+    await loadBrandData(currentBrand); renderAll();
+    let msg = `${matched} linha(s) atualizada(s).`;
+    if (notFound.length) msg += ` Sem correspondência: ${notFound.join(', ')}.`;
+    toast(msg, notFound.length>0 && matched===0);
+  }
+
+  // ---------- PDF EXPORT ----------
+  function ensureChartForExport(){
+    const wasHidden = $('#monthlyPage').style.display === 'none';
+    if (wasHidden) $('#monthlyPage').style.display = '';
+    renderMonthlyTrendsChart();
+    renderInvestmentBreakdownCharts();
+    const img = monthlyTrendsChart ? monthlyTrendsChart.toBase64Image() : null;
+    const typeImg = investTypeChart ? investTypeChart.toBase64Image() : null;
+    const platformImg = investPlatformChart ? investPlatformChart.toBase64Image() : null;
+    if (wasHidden) $('#monthlyPage').style.display = 'none';
+    return { img, typeImg, platformImg };
+  }
+  function generatePdf(){
+    if (!window.jspdf){ toast('Biblioteca de PDF carregando, tente de novo.', true); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({unit:'pt', format:'a4'});
+    const brand = currentBrand, label = BRAND_LABEL[brand];
+    const pageW = doc.internal.pageSize.getWidth();
+    const accent = brand==='debacco' ? [122,31,52] : [14,124,107];
+    let y = 50;
+    doc.setFont('helvetica','bold'); doc.setFontSize(20); doc.setTextColor(...accent); doc.text('Planejamento de Tráfego Pago', 40, y); y+=22;
+    doc.setFontSize(13); doc.setTextColor(30,30,28); doc.text(label, 40, y); y+=16;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(110,105,95);
+    doc.text('Relatório gerado em '+new Date().toLocaleDateString('pt-BR')+' às '+new Date().toLocaleTimeString('pt-BR'), 40, y); y+=24;
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(30,30,28); doc.text('Cronograma de campanhas', 40, y); y+=8;
+    const campaigns = state[brand].campaigns.slice().sort((a,b)=>(a.quarter+a.start).localeCompare(b.quarter+b.start));
+    doc.autoTable({ startY:y+6, margin:{left:40,right:40}, head:[['Quarter','Campanha','Tema','Objetivo','Valor','Criativo','Período','Plataformas','Público','KPIs']],
+      body: campaigns.map(c => { const plats = campaignPlatforms(c); const budgets = campaignBudgets(c);
+        const valor = plats.length>1 ? plats.map(p=>`${p}: ${fmtMoney(budgets[p]||0)}`).join('\n') : fmtMoney(campaignBudgetTotal(c));
+        return [c.quarter, c.name, c.theme||'—', OBJECTIVE_ABBR[c.objective]||c.objective, valor, (c.creativeTypes||[]).join(', ')||'—', (c.start?fmtDate(c.start):'—')+' a '+(c.end?fmtDate(c.end):'—'), plats.join(', ')||'—', [c.age,c.gender,c.location].filter(Boolean).join(' · ')||'—', (c.kpis||[]).join(', ')||'—']; }),
+      styles:{font:'helvetica',fontSize:7.5,cellPadding:4,overflow:'linebreak'}, headStyles:{fillColor:accent,textColor:255,fontSize:7.5}, columnStyles:{1:{cellWidth:62},2:{cellWidth:55},8:{cellWidth:65},9:{cellWidth:65}} });
+    y = doc.lastAutoTable.finalY + 26;
+
+    if (y>680){ doc.addPage(); y=50; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(30,30,28); doc.text('Resultados por campanha e rede', 40, y); y+=8;
+    const resultRows = [];
+    campaigns.forEach(c => {
+      const budgets = campaignBudgets(c);
+      campaignPlatforms(c).forEach(p => {
+        const r = resultFor(c,p); const m=calc(r); const hasRes=hasResults(r); const dash='—'; const isVendas=c.conversionType==='Vendas';
+        resultRows.push([c.name, p, STATUS_LABEL[r.status]||r.status, fmtMoney(budgets[p]||0),
+          hasRes?fmtMoney(r.spend):dash, hasRes&&r.reach>0?fmtInt(r.reach):dash, hasRes&&r.impressions>0?fmtInt(r.impressions):dash, hasRes&&r.engagement>0?fmtInt(r.engagement):dash, hasRes&&r.clicks>0?fmtInt(r.clicks):dash,
+          hasRes&&r.impressions>0?m.ctr.toFixed(2)+'%':dash, hasRes?fmtInt(r.conversions)+' — '+convTypeLabel(c):dash,
+          hasRes&&r.conversions>0?fmtMoney(m.cpa):dash, isVendas&&hasRes&&r.revenue>0?fmtMoney(r.revenue):dash, isVendas&&hasRes&&r.spend>0?m.roas.toFixed(2)+'x':dash]);
+      });
+    });
+    doc.autoTable({ startY:y+6, margin:{left:40,right:40}, head:[['Campanha','Rede','Status','Orçado','Investido','Alcance','Impr.','Engaj.','Cliques','CTR','Conversões (tipo)','Custo/result.','Receita','ROAS']],
+      body: resultRows,
+      styles:{font:'helvetica',fontSize:6.5,cellPadding:3}, headStyles:{fillColor:accent,textColor:255,fontSize:6.5} });
+    y = doc.lastAutoTable.finalY + 26;
+
+    if (y>640){ doc.addPage(); y=50; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(30,30,28); doc.text('Resumo por campanha', 40, y); y+=16;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(60,58,52);
+    const maxW = pageW - 80;
+    campaigns.forEach(c => {
+      const r = aggregateResult(c); const budgetTotal = campaignBudgetTotal(c); const m = calc(r); const conv = convTypeLabel(c); const pacing = pctOf(r.spend, budgetTotal);
+      const header = `${c.name} (${c.quarter} · ${campaignPlatforms(c).join(', ')} · ${STATUS_LABEL[r.status]||r.status})`;
+      const body = r.spend>0 ? `Investiu ${fmtMoney(r.spend)} de ${fmtMoney(budgetTotal)} planejados (${pacing}%) e gerou ${fmtInt(r.conversions)} ${conv.toLowerCase()}, receita de ${fmtMoney(r.revenue)} — ROAS ${m.roas.toFixed(2)}x, custo por ${conv.toLowerCase()} ${fmtMoney(m.cpa)}.` : 'Ainda sem investimento lançado.';
+      const notes = r.notes ? `Obs.: ${r.notes}` : '';
+      if (y>760){ doc.addPage(); y=50; }
+      doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.text(header, 40, y); y+=12;
+      doc.setFont('helvetica','normal'); doc.setFontSize(9);
+      const bodyLines = doc.splitTextToSize(body, maxW); doc.text(bodyLines, 40, y); y += bodyLines.length*11+2;
+      if (notes){ const noteLines = doc.splitTextToSize(notes, maxW); doc.setFont('helvetica','italic'); doc.text(noteLines, 40, y); y += noteLines.length*11+2; }
+      y += 8;
+    });
+    y += 10;
+
+    const monthly = sortedMonthly(brand);
+    const charts = ensureChartForExport();
+    if (monthly.length){
+      if (y>620){ doc.addPage(); y=50; }
+      doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(30,30,28); doc.text('Evolução mensal — investimento x engajamento x seguidores', 40, y); y+=10;
+      if (charts.img){ const imgW = pageW-80, imgH = imgW*0.42; doc.addImage(charts.img,'PNG',40,y,imgW,imgH); y += imgH+18; }
+      if (y>650){ doc.addPage(); y=50; }
+      doc.autoTable({ startY:y, margin:{left:40,right:40}, head:[['Mês','Investimento','Seguidores ganhos','Engajamento']],
+        body: monthly.map(e => [MONTH_LABEL(e.month), fmtMoney(e.investment), fmtInt(e.followers), fmtInt(e.engagement)]),
+        styles:{font:'helvetica',fontSize:8.5,cellPadding:5}, headStyles:{fillColor:accent,textColor:255,fontSize:8.5} });
+      y = doc.lastAutoTable.finalY + 26;
+    }
+    if (charts.typeImg || charts.platformImg){
+      if (y>580){ doc.addPage(); y=50; }
+      doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(30,30,28); doc.text('Investimento por tipo e por plataforma', 40, y); y+=14;
+      const halfW = (pageW-80-20)/2, imgH = halfW*0.8;
+      if (charts.typeImg) doc.addImage(charts.typeImg,'PNG',40,y,halfW,imgH);
+      if (charts.platformImg) doc.addImage(charts.platformImg,'PNG',40+halfW+20,y,halfW,imgH);
+      y += imgH + 18;
+    }
+    doc.save(`${brand}-relatorio-trafego-pago.pdf`);
+  }
+
+  function startEditTagline(){
+    if (!trafegoCanEdit()) return;
+    const eyebrow = document.getElementById('trafegoEyebrow');
+    if (!eyebrow) return;
+    const current = currentTagline(currentBrand);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'eyebrow-input';
+    input.value = current;
+    input.style.fontSize = '12px';
+    eyebrow.replaceWith(input);
+    input.focus();
+    input.select();
+    let saved = false;
+    async function commit(){
+      if (saved) return;
+      saved = true;
+      const newVal = input.value.trim();
+      try{
+        await tpApi(`/api/trafego-pago/brands/${currentBrand}/settings`, {method:'PUT', body:JSON.stringify({tagline:newVal})});
+        brandSettings[currentBrand] = { brand: currentBrand, tagline: newVal };
+        toast('Título atualizado.');
+      }catch(e){ toast(e.message, true); }
+      const newEyebrow = document.createElement('span');
+      newEyebrow.className = 'muted'; newEyebrow.id = 'trafegoEyebrow'; newEyebrow.title = 'Clique para editar'; newEyebrow.style.cursor = 'pointer'; newEyebrow.style.fontSize = '12px';
+      newEyebrow.textContent = currentTagline(currentBrand);
+      newEyebrow.onclick = startEditTagline;
+      input.replaceWith(newEyebrow);
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => { if (e.key==='Enter') input.blur(); if (e.key==='Escape'){ saved=true; const newEyebrow=document.createElement('span'); newEyebrow.className='muted'; newEyebrow.id='trafegoEyebrow'; newEyebrow.title='Clique para editar'; newEyebrow.style.cursor='pointer'; newEyebrow.style.fontSize='12px'; newEyebrow.textContent=current; newEyebrow.onclick=startEditTagline; input.replaceWith(newEyebrow); } });
+  }
+
+  // ---------- EVENTS ----------
+  // Marca/abas: quem comanda agora é a Papoi (ver renderTrafegoBrandSwitch()/
+  // renderTrafegoTabs() em app.js, que chamam tpSetBrand()/tpSetTab()) -- o
+  // #brandSwitch/#tabbar locais não existem mais nesta versão nativa.
+  (function(){ const el = document.getElementById('trafegoEyebrow'); if (el) el.onclick = startEditTagline; })();
+  $('#addCampaignBtn').onclick = () => openCampaignModal(null);
+  $('#closeCampaignModal').onclick = closeCampaignModal;
+  $('#cancelCampaignBtn').onclick = closeCampaignModal;
+  $('#saveCampaignBtn').onclick = saveCampaign;
+  $('#deleteCampaignBtn').onclick = deleteCampaign;
+  $('#closeResultsModal').onclick = closeResultsModal;
+  $('#cancelResultsBtn').onclick = closeResultsModal;
+  $('#saveResultsBtn').onclick = saveResults;
+  // Os campos de resultado agora são gerados dinamicamente por rede (buildResultsSections),
+  // então o listener de recálculo é conectado seção a seção — não há mais um único conjunto de campos fixo.
+  // Clique fora do modal de campanha NÃO fecha mais (evita perder o cadastro por engano).
+  // Use o botão "Cancelar" ou o X — o rascunho fica salvo automaticamente de qualquer forma.
+  $('#campaignOverlay').addEventListener('input', scheduleDraftSave);
+  $('#campaignOverlay').addEventListener('change', scheduleDraftSave);
+  $('#f_conversionType').addEventListener('change', toggleSaleValueField);
+  $('#f_objective').addEventListener('change', (e) => buildKpiChecks([], e.target.value));
+  $('#discardDraftLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (!confirm('Descartar o rascunho e começar um cadastro em branco?')) return;
+    clearDraft();
+    populateCampaignForm({ year: YEAR_NOW, quarter:'Q1', objective:'Vendas', gender:'Todos', conversionType:'Vendas' });
+    $('#draftHint').style.display = 'none';
+  });
+  $('#resultsOverlay').addEventListener('click', (e) => { if (e.target.id==='resultsOverlay') closeResultsModal(); });
+  $('#metaLinkOverlay').addEventListener('click', (e) => { if (e.target.id==='metaLinkOverlay') closeMetaLinkModal(); });
+  $('#closeMetaLinkModal').onclick = closeMetaLinkModal;
+  $('#cancelMetaLinkBtn').onclick = closeMetaLinkModal;
+  $('#metaLinkSearchInput').addEventListener('input', scheduleMetaLinkSearch);
+  $('#monthlyOverlay').addEventListener('click', (e) => { if (e.target.id==='monthlyOverlay') closeMonthlyModal(); });
+  $('#addMonthlyBtn').onclick = () => openMonthlyModal(null);
+  $('#closeMonthlyModal').onclick = closeMonthlyModal;
+  $('#cancelMonthlyBtn').onclick = closeMonthlyModal;
+  $('#saveMonthlyBtn').onclick = saveMonthly;
+  $('#deleteMonthlyBtn').onclick = deleteMonthly;
+  $('#compareBrands').onchange = () => { renderMonthlyBars(); renderMonthlyTrendsChart(); };
+  $('#archiveYearSelect').onchange = (e) => { archiveYearFilter = e.target.value; renderAll(); };
+  $('#yearlyMetricSelect').onchange = renderYearlyPage;
+  $('#cmpA').onchange = renderComparator;
+  $('#cmpB').onchange = renderComparator;
+  $('#cmpC').onchange = renderComparator;
+  // Baixar PDF e Link externo agora ficam na barra de ferramentas do hub,
+  // dentro da própria Papoi (#trafegoDownloadPdfBtn/#trafegoHubPublicLinkBtn
+  // em index.html, ligados aqui e em app.js respectivamente).
+  const trafegoDownloadPdfBtnEl = document.getElementById('trafegoDownloadPdfBtn');
+  if (trafegoDownloadPdfBtnEl) trafegoDownloadPdfBtnEl.onclick = generatePdf;
+  $('#downloadTemplateBtn').onclick = downloadTemplate;
+  $('#importDataBtn').onclick = triggerImport;
+  $('#importFileInput').addEventListener('change', handleImportFile);
+  // Usuários/exemplos de seed (admin do app separado): removidos na migração
+  // -- usuários agora são só os da Papoi.
+
+  trafegoNative = { initAuthenticated: tpInitAuthenticated, initPublic: tpInitPublic, setBrand: tpSetBrand, setTab: tpSetTab, canEdit: trafegoCanEdit };
+})();
+
 
   // 76ª rodada: liga a barrinha de negrito/itálico/cor aos 2 campos que
   // viraram editor de texto rico (Briefing do Agendamento, Descrição das

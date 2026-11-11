@@ -56,6 +56,13 @@ app.use('/api/backup', require('./routes/backup'));
 // Ausências (104ª rodada) -- calendário de férias/afastamentos/saídas
 // fora do horário, dentro de Usuários. Ver routes/ausencias.js.
 app.use('/api/ausencias', require('./routes/ausencias'));
+// 156a rodada, pedido da Raquel: "eu quero que ele pertenca a plataforma,
+// que fique dentro dela. Com o login dela, mas quero que mantenha o link
+// externo de visualizacao" -- Trafego Pago migrado de um app Railway
+// separado pra dentro da Papoi como modulo nativo (mesmo login/sessao,
+// dados nas colecoes trafegoPago* do db.js, permissao pela chave
+// permissions.trafegoPago que ja existia). Ver routes/trafegoPago.js.
+app.use('/api/trafego-pago', require('./routes/trafegoPago'));
 
 // Importação automática (só roda uma vez) do orçamento 2026 real da
 // GhelPlus e da De Bacco, vindo das planilhas oficiais — agora linha a
@@ -142,6 +149,14 @@ require('./utils/pontoReminders').startPontoReminderScheduler();
 // tem post de Instagram/Facebook (estático) com a data/hora batendo e conta
 // conectada, e publica sozinho (ver utils/metaPublisher.js).
 require('./utils/metaPublisher').startMetaPublisherScheduler();
+
+// 156a rodada: sincronizacao automatica do Meta Ads do Trafego Pago nativo
+// (porte de utils/metaAdsSync.js do app separado -- ver
+// utils/trafegoPagoMetaAdsSync.js). So liga de verdade se
+// META_ADS_ACCESS_TOKEN/META_ADS_ACCOUNT_ID estiverem configurados nesta
+// instancia (ver aviso no proprio modulo se nao estiverem).
+require('./utils/trafegoPagoMetaAdsSync').startTrafegoPagoMetaAdsSyncScheduler();
+require('./utils/seedTrafegoPagoMigration156').seedTrafegoPagoMigration156();
 
 // 67ª rodada: mesma ideia, agora pra LinkedIn -- checa a cada 2 minutos se
 // tem post de LinkedIn com a data/hora batendo e conta conectada (ver

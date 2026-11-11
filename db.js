@@ -123,6 +123,20 @@ db.defaults({
   // ainda depende de a Raquel confirmar o que cada recurso deve deixar
   // editar de fora, por segurança).
   shareLinks: [],
+  // 156a rodada, pedido da Raquel: "eu quero que ele pertenca a plataforma,
+  // que fique dentro dela. Com o login dela, mas quero que mantenha o link
+  // externo de visualizacao" -- Trafego Pago deixou de ser um app Railway
+  // separado (login/dados proprios) e passou a ser modulo nativo da Papoi.
+  // 4 colecoes, 1 por colecao que o app separado tinha (campaigns/results/
+  // monthly/settings) -- prefixo trafegoPago pra nao colidir com nenhuma
+  // das colecoes ja existentes. auditLog e shareLinks (acima) sao
+  // REAPROVEITADOS, nao duplicados -- ver routes/trafegoPago.js. Dados reais
+  // migrados (exportados do Railway antes de desligar o servico de la) via
+  // utils/migrateTrafegoPagoFromExport156.js.
+  trafegoPagoCampaigns: [],
+  trafegoPagoResults: [],
+  trafegoPagoMonthly: [],
+  trafegoPagoSettings: [],
   // Contas de redes sociais conectadas de verdade (54ª rodada, pedido da
   // Raquel: "conectar o agendamento de redes sociais às apis de verdade").
   // Uma conta por marca+plataforma. 'meta' (Instagram+Facebook, via Login

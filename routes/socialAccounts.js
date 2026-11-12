@@ -49,10 +49,28 @@ const META_REDIRECT_URI = process.env.META_REDIRECT_URI || `${APP_BASE_URL}/api/
 // entender por quê — tudo indica que era a versão antiga da URL de
 // autorização abaixo, não o nome da permissão). Continua o fluxo
 // clássico `response_type=code`, sem parâmetros especiais.
+// 157ª rodada (12/11/2026) -- a Raquel recebeu o aviso "não consegui
+// publicar sozinho seu post de Facebook" nas DUAS marcas (De Bacco e
+// GhelPlus), só no Facebook (o Instagram continuou publicando
+// normalmente) -- erro cru da Graph API: "(#200) Permissions error".
+// Como não é a mensagem amigável de token expirado (118ª rodada, ver
+// isAccountTokenExpiredOrExpiringSoon em utils/metaPublisher.js), o
+// token está válido -- falta mesmo é permissão pra essa ação. `pages_
+// manage_posts` é a permissão que a própria Meta documenta como exigida
+// pra criar um post numa Página (`/{page}/feed`, `/{page}/photos`,
+// usados por publishFacebookPagePost/publishFacebookMultiPhotoPost em
+// utils/metaGraphClient.js) -- nunca tinha sido pedida (conferido: não
+// aparece em nenhum lugar do código nem do histórico das "5 correções
+// de escopo" de setembro, que foram só sobre o Instagram). Adicionada
+// aqui -- depois do deploy, as contas da Meta (as 2 marcas) precisam
+// ser RECONECTADAS em Integrações pra gerar um token novo já com essa
+// permissão (o token atual, de antes dessa correção, não ganha a
+// permissão nova sozinho).
 const META_SCOPES = [
   'instagram_basic',
   'instagram_content_publish',
   'pages_read_engagement',
+  'pages_manage_posts',
   'business_management',
   'pages_show_list'
 ].join(',');

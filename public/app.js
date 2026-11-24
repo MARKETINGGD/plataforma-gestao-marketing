@@ -1063,6 +1063,7 @@
   // assinatura genérica; o backend (routes/ausencias.js) nem lê esse
   // valor, sempre usa o mesmo link único ('geral').
   setupPublicLinkPanel({ prefix: 'ausencias', apiBase: '/api/ausencias', getKey: () => 'geral', keyParamName: 'key' });
+  setupPublicLinkPanel({ prefix: 'lancamentos', apiBase: '/api/produtos/lancamentos', getKey: () => 'geral', keyParamName: 'key' });
 
   // Brindes (68ª rodada): painel próprio (não o genérico acima) -- é um
   // dos 2 recursos (junto com Registro de Saídas) com o modo "edição",
@@ -10157,7 +10158,38 @@
   // alguém abrir e salvar de novo escolhendo um status atual.
   // 78ª rodada, pedido da Raquel: novo status "Engenharia" (logo depois de
   // Certificação) e "Lançado" (etapa final, depois de Liberado).
-  const LANCAMENTO_STATUS_LABEL = { certificacao: 'Certificação', engenharia: 'Engenharia', compra: 'Compra', fiscal: 'Fiscal', liberado: 'Liberado', lancado: 'Lançado' };
+  // 158ª rodada, pedido da Raquel: "coloque o que esta no print, isso é o
+  // status do lançamento" -- fluxo novo (9 etapas), substitui o de cima
+  // por completo. Lançamento antigo com um status do conjunto anterior
+  // continua aparecendo cru na tabela (ver routes/produtos.js) até
+  // alguém abrir e salvar de novo escolhendo um status atual -- mesmo
+  // comportamento documentado ali desde a 39ª rodada.
+  const LANCAMENTO_STATUS_LABEL = {
+    elaboracao_embalagem_manual: 'Elaboração de Embalagem e Manual',
+    imp_certificacao: 'IMP - Certificação',
+    imp_compra_importados: 'IMP - Compra Importados',
+    prod_compra_produzidos: 'Prod - Compra Produzidos',
+    marketing: 'Marketing',
+    comercial: 'Comercial',
+    projeto_reprovado: 'Projeto Reprovado',
+    projeto_em_stand_by: 'Projeto Em Stand By',
+    projeto_finalizado: 'Projeto Finalizado'
+  };
+  // Cor por grupo (158ª rodada) -- a Raquel mandou um print com cada
+  // status colorido, mas essa imagem não ficou disponível nesta sessão
+  // (é de uma conversa anterior) -- escolhi um esquema razoável reusando
+  // as classes de badge que já existiam (badge-danger/badge-success) + 2
+  // novas (ver style.css); avisar a ela que dá pra ajustar as cores se
+  // não bater com o print original.
+  const LANCAMENTO_STATUSES_FRONT = Object.keys(LANCAMENTO_STATUS_LABEL);
+  function lancamentoStatusBadgeClass(status) {
+    if (status === 'projeto_reprovado') return 'badge-danger';
+    if (status === 'projeto_finalizado') return 'badge-success';
+    if (status === 'projeto_em_stand_by') return 'badge-lancamento-standby';
+    if (status === 'marketing' || status === 'comercial') return 'badge-lancamento-marketing';
+    if (['elaboracao_embalagem_manual', 'imp_certificacao', 'imp_compra_importados', 'prod_compra_produzidos'].includes(status)) return 'badge-lancamento-producao';
+    return 'badge-muted';
+  }
 
   function canEditProdutos() {
     if (!currentUser) return false;
@@ -10651,6 +10683,12 @@
 
   function renderLancamentos() {
     $('#lancamentosNewBtn').hidden = !canEditProdutos();
+    // 158ª rodada: link externo só faz sentido na aba "Todas as marcas"
+    // (ela só pediu pra essa aba) -- nas abas De Bacco/GhelPlus o botão
+    // some, igual o painel (se estiver aberto).
+    const isTodasMarcas = lancamentosBrandFilter === 'todos';
+    $('#lancamentosPublicLinkBtn').hidden = !isTodasMarcas || !canEditProdutos();
+    if (!isTodasMarcas) $('#lancamentosPublicLinkPanel').hidden = true;
     const rows = lancamentosItems
       .filter((it) => lancamentosBrandFilter === 'todos' || it.brand === lancamentosBrandFilter)
       .slice()
@@ -10669,7 +10707,7 @@
         <td>${it.nome}</td>
         <td>${it.codigo || '—'}</td>
         <td>${it.dataLancamento ? fmtDate(it.dataLancamento) : '—'}</td>
-        <td>${LANCAMENTO_STATUS_LABEL[it.status] || it.status}</td>
+        <td><span class="badge ${lancamentoStatusBadgeClass(it.status)}">${LANCAMENTO_STATUS_LABEL[it.status] || it.status}</span></td>
         <td>${lancamentoChecklistProgressoLabel(it)}</td>
         <td>${
           // 68ª rodada, pedido da Raquel: "os arquivos anexados devem
@@ -10678,6 +10716,12 @@
           // download aqui na lista, sem precisar abrir "Editar" mais.
           (it.arquivos || []).length
             ? (it.arquivos || []).map((f) => `<a href="${f.url}" target="_blank" rel="noopener" download title="${escapeHtml(f.name)}">⬇️ ${escapeHtml(f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name)}</a>`).join('<br>')
+            : '<span class="muted">—</span>'
+        }</td>
+        <td>${
+          // 158ª rodada: mesma ideia dos arquivos acima, mas pra links.
+          (it.links || []).length
+            ? (it.links || []).map((l) => `<a href="${l.url}" target="_blank" rel="noopener" title="${escapeHtml(l.url)}">🔗 ${escapeHtml(l.label ? (l.label.length > 22 ? l.label.slice(0, 20) + '…' : l.label) : 'Link')}</a>`).join('<br>')
             : '<span class="muted">—</span>'
         }</td>
         <td>${canEditProdutos() ? `<button class="btn-link" data-edit-lancamento="${it.id}">Editar</button> <button class="btn-link danger" data-del-lancamento="${it.id}">Excluir</button>` : ''}</td>
@@ -10712,6 +10756,30 @@
         const data = await api('/api/produtos/lancamentos');
         lancamentosItems = data.items || [];
         renderLancamentoFiles(lancamentosItems.find((it) => it.id === item.id));
+        renderLancamentos();
+      };
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+
+  // 158ª rodada: mesma ideia de renderLancamentoFiles() acima, mas pra
+  // links (sem upload -- só url + rótulo opcional).
+  function renderLancamentoLinks(item) {
+    const wrap = $('#lancamentoLinks');
+    wrap.innerHTML = '';
+    (item && item.links || []).forEach((l) => {
+      const row = document.createElement('div');
+      row.className = 'file-item';
+      row.innerHTML = `<a href="${l.url}" target="_blank" rel="noopener">${escapeHtml(l.label || l.url)}</a>`;
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '✕';
+      delBtn.className = 'btn-link';
+      delBtn.onclick = async () => {
+        await api(`/api/produtos/lancamentos/${item.id}/links/${l.id}`, { method: 'DELETE' });
+        const data = await api('/api/produtos/lancamentos');
+        lancamentosItems = data.items || [];
+        renderLancamentoLinks(lancamentosItems.find((it) => it.id === item.id));
         renderLancamentos();
       };
       row.appendChild(delBtn);
@@ -11939,7 +12007,7 @@
     $('#lancamentoFormNome').value = item ? item.nome : '';
     $('#lancamentoFormCodigo').value = item ? (item.codigo || '') : '';
     $('#lancamentoFormData').value = item ? (item.dataLancamento || '') : '';
-    $('#lancamentoFormStatus').value = item ? item.status : 'certificacao';
+    $('#lancamentoFormStatus').value = item ? item.status : LANCAMENTO_STATUSES_FRONT[0];
     $('#lancamentoFormDiferenciais').value = item ? (item.diferenciais || '') : '';
     $('#lancamentoFormDescricao').value = item ? (item.descricao || '') : '';
     $('#lancamentoFormError').hidden = true;
@@ -11947,7 +12015,15 @@
     // na URL) -- mesmo comportamento já usado em Demandas.
     $('#lancamentoFileInput').value = '';
     $('#lancamentoFileInput').style.display = item ? '' : 'none';
+    // 158ª rodada: mesma regra pros campos de link -- só depois de o
+    // lançamento já existir.
+    $('#lancamentoLinkUrlInput').value = '';
+    $('#lancamentoLinkLabelInput').value = '';
+    $('#lancamentoLinkUrlInput').style.display = item ? '' : 'none';
+    $('#lancamentoLinkLabelInput').style.display = item ? '' : 'none';
+    $('#lancamentoLinkAddBtn').style.display = item ? '' : 'none';
     renderLancamentoFiles(item);
+    renderLancamentoLinks(item);
     renderLancamentoChecklist(item);
     $('#lancamentoFormWrap').hidden = false;
   }
@@ -11967,6 +12043,24 @@
       // Atualiza também a contagem de arquivos na tabela por trás do
       // formulário -- sem isso, ela só refletia o upload depois de fechar
       // e reabrir a tela (achado no teste desta rodada).
+      renderLancamentos();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  // 158ª rodada: mesmo padrão do upload de arquivo acima, só que pra link
+  // (sem FormData -- é só um POST json com url + rótulo).
+  $('#lancamentoLinkAddBtn').onclick = async () => {
+    const url = $('#lancamentoLinkUrlInput').value.trim();
+    if (!url || !editingLancamentoId) return;
+    const label = $('#lancamentoLinkLabelInput').value.trim();
+    try {
+      await api(`/api/produtos/lancamentos/${editingLancamentoId}/links`, { method: 'POST', body: JSON.stringify({ url, label }) });
+      $('#lancamentoLinkUrlInput').value = '';
+      $('#lancamentoLinkLabelInput').value = '';
+      const data = await api('/api/produtos/lancamentos');
+      lancamentosItems = data.items || [];
+      renderLancamentoLinks(lancamentosItems.find((it) => it.id === editingLancamentoId));
       renderLancamentos();
     } catch (e) {
       alert(e.message);

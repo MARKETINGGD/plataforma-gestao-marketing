@@ -3041,6 +3041,23 @@
           </div>
           <div class="view-toolbar-actions" style="margin:12px 0;">
             <button class="btn-primary" id="lancamentosNewBtn">+ Novo lançamento</button>
+            <!-- 158ª rodada, pedido da Raquel: "deve ter a opção de
+                 compartilhar a aba de todas as marcas por um link
+                 externo" -- só aparece na aba "Todas as marcas" (ver
+                 toggle em app.js). -->
+            <button class="btn-secondary no-print" id="lancamentosPublicLinkBtn" type="button">🔗 Link externo</button>
+          </div>
+          <div id="lancamentosPublicLinkPanel" class="form-card no-print" hidden>
+            <p class="muted" style="margin-top:0;">Qualquer pessoa com esse link vê a lista de lançamentos de TODAS as marcas, somente leitura, mesmo sem estar logada na plataforma.</p>
+            <div id="lancamentosPublicLinkActive" hidden>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="lancamentosPublicLinkField" readonly style="flex:1;min-width:240px;padding:8px;border:1px solid var(--border);border-radius:8px;">
+                <button class="btn-secondary" id="lancamentosCopyLinkBtn" type="button">Copiar link</button>
+                <button class="btn-secondary" id="lancamentosRegenLinkBtn" type="button">Gerar novo link</button>
+                <button class="btn-secondary danger" id="lancamentosRevokeLinkBtn" type="button">Desativar</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="lancamentosGenLinkBtn" type="button">Gerar link externo</button>
           </div>
 
           <!-- Modelo do checklist (editável) -- a Raquel ainda vai mandar
@@ -3096,12 +3113,15 @@
               <div><label>Data de lançamento</label><input id="lancamentoFormData" type="date"></div>
               <div><label>Status</label>
                 <select id="lancamentoFormStatus">
-                  <option value="certificacao">Certificação</option>
-                  <option value="engenharia">Engenharia</option>
-                  <option value="compra">Compra</option>
-                  <option value="fiscal">Fiscal</option>
-                  <option value="liberado">Liberado</option>
-                  <option value="lancado">Lançado</option>
+                  <option value="elaboracao_embalagem_manual">Elaboração de Embalagem e Manual</option>
+                  <option value="imp_certificacao">IMP - Certificação</option>
+                  <option value="imp_compra_importados">IMP - Compra Importados</option>
+                  <option value="prod_compra_produzidos">Prod - Compra Produzidos</option>
+                  <option value="marketing">Marketing</option>
+                  <option value="comercial">Comercial</option>
+                  <option value="projeto_reprovado">Projeto Reprovado</option>
+                  <option value="projeto_em_stand_by">Projeto Em Stand By</option>
+                  <option value="projeto_finalizado">Projeto Finalizado</option>
                 </select>
               </div>
             </div>
@@ -3112,6 +3132,18 @@
             <label>Arquivos</label>
             <div id="lancamentoFiles"></div>
             <input type="file" id="lancamentoFileInput">
+
+            <!-- 158ª rodada, pedido da Raquel: "alem de por arquivos, deve
+                 ter a opção de por links" -- mesmo padrão visual dos
+                 arquivos acima, só aparece depois do lançamento já
+                 existir (precisa de um id pra anexar). -->
+            <label>Links</label>
+            <div id="lancamentoLinks"></div>
+            <div class="form-row">
+              <input type="url" id="lancamentoLinkUrlInput" placeholder="https://...">
+              <input type="text" id="lancamentoLinkLabelInput" placeholder="Rótulo (opcional)">
+              <button class="btn-secondary" id="lancamentoLinkAddBtn" type="button">+ Adicionar link</button>
+            </div>
 
             <!-- 96ª rodada, pedido da Raquel: "cada produto lançado deve
                  ter esse check list conferido" -- só aparece depois de o
@@ -3133,7 +3165,7 @@
           </div>
 
           <table class="data-table">
-            <thead><tr><th>Marca</th><th>Produto</th><th>Nome</th><th>Código</th><th>Data de lançamento</th><th>Status</th><th>Checklist</th><th>Arquivos</th><th></th></tr></thead>
+            <thead><tr><th>Marca</th><th>Produto</th><th>Nome</th><th>Código</th><th>Data de lançamento</th><th>Status</th><th>Checklist</th><th>Arquivos</th><th>Links</th><th></th></tr></thead>
             <tbody id="lancamentosBody"></tbody>
           </table>
           <p class="muted" id="lancamentosEmpty" hidden>Nenhum lançamento cadastrado ainda.</p>

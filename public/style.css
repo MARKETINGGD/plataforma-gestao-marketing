@@ -69,6 +69,15 @@
 :root[data-theme="dark"] .badge-pausado{
   background:rgba(251,155,24,.16);border-color:rgba(251,155,24,.45);color:#fdb75c;
 }
+:root[data-theme="dark"] .badge-lancamento-producao{
+  background:rgba(139,130,232,.18);border-color:rgba(139,130,232,.45);color:#cdc8f5;
+}
+:root[data-theme="dark"] .badge-lancamento-marketing{
+  background:rgba(251,155,24,.16);border-color:rgba(251,155,24,.45);color:#fdb75c;
+}
+:root[data-theme="dark"] .badge-lancamento-standby{
+  background:rgba(154,161,168,.18);border-color:rgba(154,161,168,.4);color:#c3c9ce;
+}
 :root[data-theme="dark"] .chat-nudge-msg{
   background:rgba(245,166,35,.16);border-color:rgba(245,166,35,.45);color:#fbbf77;
 }
@@ -769,6 +778,16 @@ button{font-weight:700;}
 /* 158ª rodada: selo "⏸ Pausado" no card de Demandas -- mesmo padrão
    visual do badge-danger/badge-success, com a cor laranja da marca. */
 .badge-pausado{background:#fff4e0;border-color:#fde3b8;color:var(--brand-orange-dark);}
+/* 158ª rodada: cores por grupo do status de Lançamentos (ver
+   lancamentoStatusBadgeClass em app.js) -- "produção" usa a cor
+   primária da marca (roxo), "marketing/comercial" reusa o laranja já
+   usado em outros selos. Projeto Reprovado/Finalizado reusam
+   badge-danger/badge-success de sempre; falta só Stand By, que ganha um
+   cinza neutro sólido (diferente do badge-muted tracejado, que é pra
+   "informação secundária", não um status). */
+.badge-lancamento-producao{background:#eeecfc;border-color:#d7d3f7;color:var(--primary-dark);}
+.badge-lancamento-marketing{background:#fff4e0;border-color:#fde3b8;color:var(--brand-orange-dark);}
+.badge-lancamento-standby{background:#eceef1;border-color:#d7dbe0;color:#596270;}
 .kanban-empty{color:var(--muted);font-size:12px;padding:6px;}
 @media (max-width:900px){ .kanban-col{width:220px;flex-basis:220px;} }
 

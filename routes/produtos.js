@@ -57,7 +57,32 @@ const BRAND_LABEL_PT = { debacco: 'De Bacco', ghelplus: 'GhelPlus' };
 // Lançado. E adicione depois de certificação - Engenharia" -- fluxo passa
 // de 4 pra 6 etapas: Certificação → Engenharia → Compra → Fiscal →
 // Liberado → Lançado (a etapa final, de verdade, separada de "Liberado").
-const LANCAMENTO_STATUSES = ['certificacao', 'engenharia', 'compra', 'fiscal', 'liberado', 'lancado'];
+// 158ª rodada, pedido da Raquel: "coloque o que esta no print, isso é o
+// status do lançamento. e antes do status certificação, coloque
+// Elaboração de Embalagem e Manual" -- fluxo novo, substitui o de cima
+// por completo. Mesmo cuidado de sempre (78ª rodada acima, comentário
+// de LANCAMENTO_STATUS_LABEL em app.js): lançamento já cadastrado com um
+// status do conjunto ANTERIOR (certificacao/engenharia/compra/fiscal/
+// liberado/lancado) NÃO é migrado automaticamente -- continua com o
+// valor salvo até alguém abrir e salvar de novo escolhendo um status
+// atual, exatamente como já acontecia nas trocas de status anteriores.
+const LANCAMENTO_STATUSES = [
+  'elaboracao_embalagem_manual',
+  'imp_certificacao',
+  'imp_compra_importados',
+  'prod_compra_produzidos',
+  'marketing',
+  'comercial',
+  'projeto_reprovado',
+  'projeto_em_stand_by',
+  'projeto_finalizado'
+];
+// Link externo AGREGADO da aba "todas as marcas" de Lançamentos (158ª
+// rodada, pedido da Raquel: "deve ter a opção de compartilhar a aba de
+// todas as marcas por um link externo") -- só 1 link fixo (sem seletor
+// de marca, ela só pediu "todas as marcas"), mesmo mecanismo genérico
+// de sempre (utils/shareLinks.js), `scopeKey` fixo 'geral' igual ao já
+// usado em Ausências (108ª rodada).
 // Chaves válidas do link externo AGREGADO de Concorrência (68ª rodada,
 // pedido da Raquel: "compartilhar... ou todas as análises") -- mesmo
 // padrão "todos/debacco/ghelplus" já usado em Feiras/Influencers.
@@ -562,6 +587,33 @@ router.get('/lancamentos', requireAuth, (req, res) => {
   res.json({ items });
 });
 
+// ---------- link externo da aba "todas as marcas" (158ª rodada) ----------
+// Só leitura, mostra a lista inteira (as 2 marcas juntas, exatamente como
+// a aba "todas as marcas" aparece dentro da Papoi) -- mesmo padrão já
+// usado em Ausências/Feiras/Budget (utils/shareLinks.js). Fica ANTES de
+// qualquer rota com "/:id" (mesmo cuidado já documentado em routes/
+// feiras.js/routes/budget.js/routes/ausencias.js).
+router.get('/lancamentos/public-link', requireAuth, requireProdutosEdit, (req, res) => {
+  const link = shareLinks.getLink('lancamentos', 'geral');
+  res.json({ publicToken: link ? link.token : null });
+});
+router.post('/lancamentos/public-link/generate', requireAuth, requireProdutosEdit, (req, res) => {
+  const token = shareLinks.generateLink('lancamentos', 'geral', req);
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'lancamentos:geral', entityLabel: 'Lançamentos de Produtos', action: 'generate_public_link' });
+  res.json({ publicToken: token });
+});
+router.delete('/lancamentos/public-link', requireAuth, requireProdutosEdit, (req, res) => {
+  shareLinks.revokeLink('lancamentos', 'geral');
+  logAudit({ user: req.user, entityType: 'shareLink', entityId: 'lancamentos:geral', entityLabel: 'Lançamentos de Produtos', action: 'revoke_public_link' });
+  res.json({ ok: true });
+});
+router.get('/lancamentos/public/:token', (req, res) => {
+  const link = shareLinks.findByToken(req.params.token);
+  if (!link || link.resource !== 'lancamentos') return res.status(404).json({ error: 'Link inválido ou desativado.' });
+  const items = db.get('lancamentosProdutos').value().map(syncChecklist);
+  res.json({ items });
+});
+
 router.post('/lancamentos', requireAuth, requireProdutosEdit, (req, res) => {
   const { brand, produto, nome, codigo, diferenciais, dataLancamento, status, descricao } = req.body || {};
   const nomeTrim = str(nome);
@@ -584,6 +636,10 @@ router.post('/lancamentos', requireAuth, requireProdutosEdit, (req, res) => {
     status: LANCAMENTO_STATUSES.includes(status) ? status : LANCAMENTO_STATUSES[0],
     descricao: str(descricao),
     arquivos: [],
+    // 158ª rodada, pedido da Raquel: "alem de por arquivos, deve ter a
+    // opção de por links" -- lista paralela a `arquivos`, cada item só
+    // com url + um rótulo opcional (ver POST/DELETE .../links abaixo).
+    links: [],
     checklist,
     createdAt: new Date().toISOString(),
     createdBy: req.user.id,
@@ -701,6 +757,46 @@ router.delete('/lancamentos/:id/files/:fileId', requireAuth, requireProdutosEdit
     const filePath = path.join(lancamentosUploadsRoot, req.params.id, path.basename(target.url));
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     logAudit({ user: req.user, entityType: 'lancamentoProduto', entityId: existing.id, entityLabel: existing.nome, action: 'file_delete', details: `Arquivo removido: ${target.name}` });
+  }
+  res.json({ item: db.get('lancamentosProdutos').find({ id: req.params.id }).value() });
+});
+
+// ---------- Links do lançamento (158ª rodada) ----------
+// Mesma ideia dos arquivos acima, mas sem upload -- só grava a URL + um
+// rótulo opcional na lista `links` do lançamento (ver criação do item
+// mais acima). Validação solta (só confere que começa com http/https),
+// igual ao campo "link" já usado em Análise de Concorrência.
+function validUrl(v) {
+  const s = str(v);
+  return /^https?:\/\//i.test(s) ? s : '';
+}
+router.post('/lancamentos/:id/links', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('lancamentosProdutos').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Lançamento não encontrado.' });
+  const url = validUrl((req.body || {}).url);
+  if (!url) return res.status(400).json({ error: 'Informe um link válido (começando com http:// ou https://).' });
+  const linkMeta = {
+    id: nanoid(),
+    url,
+    label: str((req.body || {}).label),
+    addedAt: new Date().toISOString(),
+    addedBy: req.user.id,
+    addedByName: req.user.name
+  };
+  const links = [...(existing.links || []), linkMeta];
+  db.get('lancamentosProdutos').find({ id: req.params.id }).assign({ links, updatedAt: new Date().toISOString() }).write();
+  logAudit({ user: req.user, entityType: 'lancamentoProduto', entityId: existing.id, entityLabel: existing.nome, action: 'link_add', details: `Link adicionado: ${url}` });
+  res.json({ item: db.get('lancamentosProdutos').find({ id: req.params.id }).value() });
+});
+
+router.delete('/lancamentos/:id/links/:linkId', requireAuth, requireProdutosEdit, (req, res) => {
+  const existing = db.get('lancamentosProdutos').find({ id: req.params.id }).value();
+  if (!existing) return res.status(404).json({ error: 'Lançamento não encontrado.' });
+  const target = (existing.links || []).find((l) => l.id === req.params.linkId);
+  const links = (existing.links || []).filter((l) => l.id !== req.params.linkId);
+  db.get('lancamentosProdutos').find({ id: req.params.id }).assign({ links, updatedAt: new Date().toISOString() }).write();
+  if (target) {
+    logAudit({ user: req.user, entityType: 'lancamentoProduto', entityId: existing.id, entityLabel: existing.nome, action: 'link_delete', details: `Link removido: ${target.url}` });
   }
   res.json({ item: db.get('lancamentosProdutos').find({ id: req.params.id }).value() });
 });

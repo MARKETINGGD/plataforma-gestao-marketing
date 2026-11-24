@@ -36,6 +36,16 @@ const STATUSES = ['a_publicar', 'publicada', 'cancelada'];
 // anteriores a essa rodada) simplesmente não mostra essa parte.
 const TIPOS_PARCERIA = ['paga', 'permuta'];
 
+// 158ª rodada, item #115, pedido da Raquel: "formaPagamento" deixa de
+// ser texto livre e vira um select fechado. Influencer já cadastrado
+// com um valor de texto livre antigo (de antes desta rodada) NÃO é
+// migrado -- mesmo cuidado de sempre nesta base (ver LANCAMENTO_STATUSES
+// em routes/produtos.js, 158ª rodada item #120): continua mostrando o
+// valor antigo cru até alguém editar e escolher um dos 3 valores novos;
+// uma tentativa de gravar um valor fora da lista é simplesmente
+// ignorada (mantém o que já estava), nunca grava lixo novo.
+const FORMAS_PAGAMENTO = ['produto', 'pix', 'transferencia'];
+
 // Chaves do link externo agregado da aba "Todas as ações" (51ª rodada,
 // pedido da Raquel: "a planilha geral de influencers e aquela separada por
 // marcas, tbm deve ter link externo") -- 'todos' é a planilha geral (todas
@@ -109,6 +119,11 @@ function serializeInfluencer(inf) {
     formaPagamento: inf.formaPagamento || '',
     fluxo: inf.fluxo || null,
     parcelas: inf.parcelas || [],
+    // 158ª rodada, item #115: entregas de PRODUTO (permuta/brinde em vez
+    // de dinheiro) -- estrutura PARALELA a `parcelas`, nunca gera
+    // lançamento no Budget (ver POST/PUT abaixo). Suporta várias entregas/
+    // NFs pro mesmo influencer (pedido entregue em partes).
+    entregasProduto: inf.entregasProduto || [],
     createdAt: inf.createdAt,
     hasPublicLink: !!inf.publicToken
   };
@@ -251,6 +266,7 @@ router.post('/', requireAuth, (req, res) => {
     formaPagamento: '',
     fluxo: null,
     parcelas: [],
+    entregasProduto: [],
     createdAt: new Date().toISOString(),
     createdBy: req.user.id
   }, personal);
@@ -268,7 +284,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // 155ª rodada: forma de pagamento (texto livre) + fluxo (validado contra
   // os fluxos do Budget da marca DESTE influencer -- nunca aceita o fluxo
   // de outra marca por engano).
-  if (formaPagamento !== undefined) updates.formaPagamento = (formaPagamento || '').toString().trim();
+  if (formaPagamento !== undefined && FORMAS_PAGAMENTO.includes(formaPagamento)) updates.formaPagamento = formaPagamento;
   if (fluxo !== undefined) {
     const lista = FLUXOS_BY_BRAND[inf.brand] || [];
     updates.fluxo = lista.includes(fluxo) ? fluxo : null;
@@ -674,6 +690,13 @@ function createInfluencerParcelaBudgetEntry(inf, parcela, req) {
 router.post('/:id/parcelas', requireAuth, (req, res) => {
   const inf = findInfluencerOr404(req, res);
   if (!inf) return;
+  // 158ª rodada, item #115: influencer pago em Produto usa Entregas (ver
+  // POST /:id/entregas-produto abaixo), nunca parcelas -- Produto NUNCA
+  // entra no Budget, então misturar os dois fluxos geraria confusão (ou
+  // pior, um pagamento em produto lançado no Budget por engano).
+  if (inf.formaPagamento === 'produto') {
+    return res.status(400).json({ error: 'Influencer com forma de pagamento "Produto" usa Entregas, não parcelas.' });
+  }
   const { valor, dataPagamento } = req.body || {};
   const valorNum = numOrNull(valor);
   if (valorNum === null) return res.status(400).json({ error: 'Informe o valor da parcela.' });
@@ -794,6 +817,123 @@ router.delete('/:id/parcelas/:parcelaId/nota-fiscal', requireAuth, (req, res) =>
   const parcelas = (inf.parcelas || []).map((p) => (p.id === parcela.id ? Object.assign({}, p, { notaFiscal: null }) : p));
   db.get('influencers').find({ id: inf.id }).assign({ parcelas }).write();
   logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Nota fiscal da parcela removida' });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+// ---------- Entregas de Produto (158ª rodada, item #115) ----------
+// Pedido literal da Raquel: forma de pagamento "Produto" (permuta/brinde,
+// em vez de dinheiro) NUNCA entra no Budget -- precisa de uma estrutura
+// PARALELA a `parcelas` (nunca reaproveitada), com NF + data de entrega +
+// valor da NF + valor de custo, suportando MÚLTIPLAS entregas/NFs pro
+// mesmo influencer (pedido pode sair em 2, 3+ partes). Mesmo padrão de
+// pasta por item já usado em parcelas/nota fiscal, logo acima.
+router.post('/:id/entregas-produto', requireAuth, (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  if (inf.formaPagamento !== 'produto') {
+    return res.status(400).json({ error: 'Só influencers com forma de pagamento "Produto" têm entregas.' });
+  }
+  const { dataEntrega, valorNF, valorCusto } = req.body || {};
+  const now = new Date().toISOString();
+  const entrega = {
+    id: nanoid(),
+    dataEntrega: dataEntrega || null,
+    valorNF: numOrNull(valorNF),
+    valorCusto: numOrNull(valorCusto),
+    notaFiscal: null,
+    createdAt: now,
+    updatedAt: now
+  };
+  const entregasProduto = (inf.entregasProduto || []).concat([entrega]);
+  db.get('influencers').find({ id: inf.id }).assign({ entregasProduto }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Entrega de produto adicionada' });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+router.put('/:id/entregas-produto/:entregaId', requireAuth, (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  const before = (inf.entregasProduto || []).find((e) => e.id === req.params.entregaId);
+  if (!before) return res.status(404).json({ error: 'Entrega não encontrada.' });
+  const { dataEntrega, valorNF, valorCusto } = req.body || {};
+  const patch = { updatedAt: new Date().toISOString() };
+  if (dataEntrega !== undefined) patch.dataEntrega = dataEntrega || null;
+  if (valorNF !== undefined) patch.valorNF = numOrNull(valorNF);
+  if (valorCusto !== undefined) patch.valorCusto = numOrNull(valorCusto);
+  const entregasProduto = (inf.entregasProduto || []).map((e) => (e.id === req.params.entregaId ? Object.assign({}, e, patch) : e));
+  db.get('influencers').find({ id: inf.id }).assign({ entregasProduto }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Entrega de produto atualizada' });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+router.delete('/:id/entregas-produto/:entregaId', requireAuth, (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  const target = (inf.entregasProduto || []).find((e) => e.id === req.params.entregaId);
+  if (!target) return res.status(404).json({ error: 'Entrega não encontrada.' });
+  if (target.notaFiscal && target.notaFiscal.url) {
+    const filePath = path.join(uploadsRoot, inf.id, 'entregas-produto', req.params.entregaId, path.basename(target.notaFiscal.url));
+    if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch (e) { /* ignora */ } }
+  }
+  const entregasProduto = (inf.entregasProduto || []).filter((e) => e.id !== req.params.entregaId);
+  db.get('influencers').find({ id: inf.id }).assign({ entregasProduto }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Entrega de produto removida' });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+// Pasta própria por entrega (uploadsRoot/<id>/entregas-produto/<entregaId>/)
+// -- mesmo padrão de parcelas/nota fiscal e nota fiscal de permuta (22ª
+// rodada), nunca mistura entre si.
+const entregaProdutoNotaFiscalStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(uploadsRoot, req.params.id, 'entregas-produto', req.params.entregaId);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, Date.now() + '-' + safe);
+  }
+});
+const uploadEntregaProdutoNotaFiscal = multer({ storage: entregaProdutoNotaFiscalStorage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25MB, mesmo limite das outras notas fiscais deste arquivo
+
+router.post('/:id/entregas-produto/:entregaId/nota-fiscal', requireAuth, uploadEntregaProdutoNotaFiscal.single('notaFiscal'), (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) {
+    if (req.file && req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ } }
+    return;
+  }
+  const entrega = (inf.entregasProduto || []).find((e) => e.id === req.params.entregaId);
+  if (!entrega) {
+    if (req.file && req.file.path) { try { fs.unlinkSync(req.file.path); } catch (e) { /* já pode não existir */ } }
+    return res.status(404).json({ error: 'Entrega não encontrada.' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Selecione um arquivo.' });
+  if (entrega.notaFiscal && entrega.notaFiscal.url) {
+    const oldPath = path.join(__dirname, '..', 'data', entrega.notaFiscal.url.replace(/^\//, ''));
+    if (fs.existsSync(oldPath)) { try { fs.unlinkSync(oldPath); } catch (e) { /* ignora */ } }
+  }
+  const notaFiscal = {
+    url: `/uploads/influencers/${inf.id}/entregas-produto/${entrega.id}/${req.file.filename}`,
+    name: req.file.originalname,
+    uploadedAt: new Date().toISOString()
+  };
+  const entregasProduto = (inf.entregasProduto || []).map((e) => (e.id === entrega.id ? Object.assign({}, e, { notaFiscal }) : e));
+  db.get('influencers').find({ id: inf.id }).assign({ entregasProduto }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: `Nota fiscal da entrega enviada: ${notaFiscal.name}` });
+  res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
+});
+
+router.delete('/:id/entregas-produto/:entregaId/nota-fiscal', requireAuth, (req, res) => {
+  const inf = findInfluencerOr404(req, res);
+  if (!inf) return;
+  const entrega = (inf.entregasProduto || []).find((e) => e.id === req.params.entregaId);
+  if (!entrega || !entrega.notaFiscal) return res.status(404).json({ error: 'Essa entrega não tem nota fiscal anexada.' });
+  const filePath = path.join(__dirname, '..', 'data', entrega.notaFiscal.url.replace(/^\//, ''));
+  if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch (e) { /* ignora */ } }
+  const entregasProduto = (inf.entregasProduto || []).map((e) => (e.id === entrega.id ? Object.assign({}, e, { notaFiscal: null }) : e));
+  db.get('influencers').find({ id: inf.id }).assign({ entregasProduto }).write();
+  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'update', details: 'Nota fiscal da entrega removida' });
   res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
 });
 

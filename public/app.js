@@ -266,6 +266,11 @@
   let influencerAllPosts = [];
   let influencerAllBrandFilter = 'todos'; // 'todos' | 'debacco' | 'ghelplus'
   let editingInfluencerId = null;
+  // 158ª rodada, item #115: guarda o último influencer carregado no
+  // formulário, pra renderInfluencerParcelas/renderInfluencerEntregasProduto
+  // poderem re-renderizar (só trocar visibilidade) quando o SELECT de forma
+  // de pagamento muda, sem precisar de uma nova chamada à API.
+  let openInfluencerFormCache = null;
   let currentInfluencer = null; // influencer aberto na tela de tabela
   let currentInfluencerPosts = [];
   let editingInfluencerPostId = null;
@@ -14016,9 +14021,15 @@
   // chamar a API de parcelas) -- mesmo cuidado já usado no anexo por item
   // de checklist de Demandas e no parcelamento de Compras de Brindes.
   function renderInfluencerParcelas(inf) {
+    if (inf) openInfluencerFormCache = inf;
+    inf = inf || openInfluencerFormCache;
     const wrap = $('#influencerFormParcelasWrap');
     const hint = $('#influencerFormParcelasHint');
     if (!editingInfluencerId || !inf) { wrap.hidden = true; hint.hidden = false; return; }
+    // 158ª rodada, item #115: influencer pago em Produto usa a seção de
+    // Entregas (abaixo), não parcelas -- nunca mostra as duas ao mesmo
+    // tempo.
+    if ($('#influencerFormFormaPagamento').value === 'produto') { wrap.hidden = true; hint.hidden = true; return; }
     wrap.hidden = false;
     hint.hidden = true;
     const list = $('#influencerParcelasList');
@@ -14093,6 +14104,103 @@
     } catch (e) { alert(e.message); }
   };
 
+  // ---- Entregas de Produto (158ª rodada, item #115) ----
+  // Estrutura PARALELA às parcelas acima (nunca reaproveitada): pagamento
+  // em permuta/brinde, nunca entra no Budget. Mesmo padrão de UI (lista +
+  // formulário de novo item + upload de NF por item), só aparece quando a
+  // forma de pagamento escolhida é "Produto".
+  function renderInfluencerEntregasProduto(inf) {
+    if (inf) openInfluencerFormCache = inf;
+    inf = inf || openInfluencerFormCache;
+    const wrap = $('#influencerFormEntregasProdutoWrap');
+    const hint = $('#influencerFormParcelasHint');
+    if (!editingInfluencerId || !inf || $('#influencerFormFormaPagamento').value !== 'produto') {
+      wrap.hidden = true;
+      return;
+    }
+    wrap.hidden = false;
+    hint.hidden = true;
+    const list = $('#influencerEntregasProdutoList');
+    const entregas = inf.entregasProduto || [];
+    list.innerHTML = entregas.length ? entregas.map((e) => `
+      <div class="form-row" data-inf-entrega-row="${e.id}" style="align-items:center;">
+        <div><input type="date" class="inf-entrega-data-input" value="${e.dataEntrega || ''}"></div>
+        <div><input type="number" step="0.01" class="inf-entrega-nf-valor-input" value="${e.valorNF != null ? e.valorNF : ''}" placeholder="Valor NF" style="max-width:120px;"></div>
+        <div><input type="number" step="0.01" class="inf-entrega-custo-valor-input" value="${e.valorCusto != null ? e.valorCusto : ''}" placeholder="Valor custo" style="max-width:120px;"></div>
+        <div>${e.notaFiscal
+          ? `📎 <a href="${e.notaFiscal.url}" target="_blank" rel="noopener">${escapeHtml(e.notaFiscal.name)}</a> <button type="button" class="btn-link danger inf-entrega-nf-remove">✕</button>`
+          : `<input type="file" class="inf-entrega-nf-input" title="Anexar nota fiscal">`}
+        </div>
+        <div><button type="button" class="btn-link danger inf-entrega-del-btn">✕ Excluir</button></div>
+      </div>
+    `).join('') : '<p class="muted">Nenhuma entrega lançada ainda.</p>';
+    list.querySelectorAll('[data-inf-entrega-row]').forEach((row) => {
+      const entregaId = row.dataset.infEntregaRow;
+      const commit = async () => {
+        const dataEntrega = row.querySelector('.inf-entrega-data-input').value || null;
+        const valorNF = row.querySelector('.inf-entrega-nf-valor-input').value;
+        const valorCusto = row.querySelector('.inf-entrega-custo-valor-input').value;
+        try {
+          const data = await api(`/api/influencers/${editingInfluencerId}/entregas-produto/${entregaId}`, { method: 'PUT', body: JSON.stringify({ dataEntrega, valorNF, valorCusto }) });
+          renderInfluencerEntregasProduto(data.influencer);
+        } catch (e) { alert(e.message); }
+      };
+      row.querySelector('.inf-entrega-data-input').onchange = commit;
+      row.querySelector('.inf-entrega-nf-valor-input').onblur = commit;
+      row.querySelector('.inf-entrega-custo-valor-input').onblur = commit;
+      row.querySelector('.inf-entrega-del-btn').onclick = async () => {
+        if (!confirm('Excluir esta entrega?')) return;
+        try {
+          const data = await api(`/api/influencers/${editingInfluencerId}/entregas-produto/${entregaId}`, { method: 'DELETE' });
+          renderInfluencerEntregasProduto(data.influencer);
+        } catch (e) { alert(e.message); }
+      };
+      const nfInput = row.querySelector('.inf-entrega-nf-input');
+      if (nfInput) {
+        nfInput.onchange = async () => {
+          const file = nfInput.files[0];
+          if (!file) return;
+          const fd = new FormData();
+          fd.append('notaFiscal', file);
+          try {
+            const data = await api(`/api/influencers/${editingInfluencerId}/entregas-produto/${entregaId}/nota-fiscal`, { method: 'POST', body: fd });
+            renderInfluencerEntregasProduto(data.influencer);
+          } catch (e) { alert(e.message); }
+        };
+      }
+      const nfRemoveBtn = row.querySelector('.inf-entrega-nf-remove');
+      if (nfRemoveBtn) {
+        nfRemoveBtn.onclick = async () => {
+          try {
+            const data = await api(`/api/influencers/${editingInfluencerId}/entregas-produto/${entregaId}/nota-fiscal`, { method: 'DELETE' });
+            renderInfluencerEntregasProduto(data.influencer);
+          } catch (e) { alert(e.message); }
+        };
+      }
+    });
+  }
+  $('#influencerEntregaProdutoAddBtn').onclick = async () => {
+    if (!editingInfluencerId) return;
+    const dataEntrega = $('#influencerEntregaProdutoNovaData').value || null;
+    const valorNF = $('#influencerEntregaProdutoNovoValorNF').value;
+    const valorCusto = $('#influencerEntregaProdutoNovoValorCusto').value;
+    try {
+      const data = await api(`/api/influencers/${editingInfluencerId}/entregas-produto`, { method: 'POST', body: JSON.stringify({ dataEntrega, valorNF, valorCusto }) });
+      $('#influencerEntregaProdutoNovaData').value = '';
+      $('#influencerEntregaProdutoNovoValorNF').value = '';
+      $('#influencerEntregaProdutoNovoValorCusto').value = '';
+      renderInfluencerEntregasProduto(data.influencer);
+    } catch (e) { alert(e.message); }
+  };
+  // Trocar a forma de pagamento no SELECT (antes mesmo de salvar) já
+  // alterna qual seção aparece (Parcelas x Entregas) -- usa o cache do
+  // último influencer carregado, só reavalia visibilidade, não busca nada
+  // de novo na API.
+  $('#influencerFormFormaPagamento').onchange = () => {
+    renderInfluencerParcelas(openInfluencerFormCache);
+    renderInfluencerEntregasProduto(openInfluencerFormCache);
+  };
+
   async function openInfluencerForm(inf) {
     editingInfluencerId = inf ? inf.id : null;
     $('#influencerFormTitle').textContent = inf ? 'Editar influencer' : 'Novo influencer';
@@ -14113,9 +14221,15 @@
     } else {
       $('#influencerFormContractCurrent').hidden = true;
     }
+    // 158ª rodada, item #115: select fechado -- um influencer antigo com
+    // valor de texto livre (de antes desta rodada) não casa com nenhuma
+    // <option> e aparece em branco aqui (não é apagado -- só não dá pra
+    // mostrar um texto livre num select; o valor antigo continua gravado
+    // até alguém escolher um dos 3 valores novos e salvar).
     $('#influencerFormFormaPagamento').value = inf ? (inf.formaPagamento || '') : '';
     await fillInfluencerFluxoSelect(influencersTab, inf ? (inf.fluxo || null) : null);
     renderInfluencerParcelas(inf);
+    renderInfluencerEntregasProduto(inf);
     $('#influencerFormError').hidden = true;
     // 78ª rodada: obrigatório só no cadastro novo (o texto avisa isso
     // claramente -- editar um influencer antigo sem esses dados não fica

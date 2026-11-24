@@ -1573,8 +1573,17 @@
           <p class="muted" style="margin:16px 0 4px;font-size:12px;">Pagamento</p>
           <div class="form-row">
             <div>
+              <!-- 158ª rodada, item #115, pedido da Raquel: forma de
+                   pagamento deixa de ser texto livre -- select fechado
+                   (Produto/Pix/Transferência). Produto NUNCA entra no
+                   Budget -- usa Entregas (abaixo), não Parcelas. -->
               <label>Forma de pagamento</label>
-              <input id="influencerFormFormaPagamento" type="text" placeholder="Ex: PIX, transferência...">
+              <select id="influencerFormFormaPagamento">
+                <option value="">Selecione...</option>
+                <option value="produto">Produto</option>
+                <option value="pix">Pix</option>
+                <option value="transferencia">Transferência</option>
+              </select>
             </div>
             <div>
               <label>Fluxo (Budget)</label>
@@ -1591,7 +1600,22 @@
             </div>
             <button type="button" class="btn-secondary" id="influencerParcelaAddBtn">+ Adicionar parcela</button>
           </div>
-          <p id="influencerFormParcelasHint" class="muted" style="font-size:11.5px;margin-top:4px;">Salve o influencer primeiro para poder lançar parcelas de pagamento.</p>
+
+          <!-- Entregas de Produto (158ª rodada, item #115) -- estrutura
+               PARALELA às parcelas, só aparece quando a forma de
+               pagamento é "Produto"; NUNCA gera lançamento no Budget. -->
+          <div id="influencerFormEntregasProdutoWrap" hidden style="margin-top:8px;border-top:1px solid var(--border,#ddd);padding-top:12px;">
+            <p class="muted" style="margin:0 0 8px;font-size:12px;">Entregas de produto -- pagamento em permuta/brinde, nunca entra no Budget. Suporta várias entregas/NFs do mesmo pedido.</p>
+            <div id="influencerEntregasProdutoList"></div>
+            <div class="form-row" style="margin-top:8px;">
+              <div><label>Data de entrega</label><input id="influencerEntregaProdutoNovaData" type="date"></div>
+              <div><label>Valor da NF (R$)</label><input id="influencerEntregaProdutoNovoValorNF" type="number" step="0.01"></div>
+              <div><label>Valor de custo (R$)</label><input id="influencerEntregaProdutoNovoValorCusto" type="number" step="0.01"></div>
+            </div>
+            <button type="button" class="btn-secondary" id="influencerEntregaProdutoAddBtn">+ Adicionar entrega</button>
+          </div>
+
+          <p id="influencerFormParcelasHint" class="muted" style="font-size:11.5px;margin-top:4px;">Salve o influencer primeiro para poder lançar parcelas de pagamento ou entregas.</p>
 
           <div id="influencerFormError" class="error" hidden></div>
           <div class="form-actions">

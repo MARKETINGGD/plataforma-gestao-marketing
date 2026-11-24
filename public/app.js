@@ -2800,23 +2800,44 @@
       renderTrabalhandoAgora(data.rows || []);
     } catch (e) { /* ignora falha pontual — a Início segue sem esse bloco */ }
   }
+  // 158ª rodada, pedido literal da Raquel: "Trabalhando em ...... (nome da
+  // demanda) há (tempo em que esta trabalhando -- isso deve se atualizar
+  // quase que em tempo real, igual ao cronometro da demanda)." --
+  // `trabalhandoAgoraElapsed` guarda, por userId, o valor de segundos
+  // exibido AGORA na tela; a cada `loadTrabalhandoAgora()` (poll de 15s ou
+  // refreshTrabalhandoAgoraSoon) ele é resincronizado com o valor de
+  // verdade que vem do servidor, e entre uma sincronização e outra o
+  // `trabalhandoAgoraTickTimer` (abaixo) só soma +1 localmente a cada
+  // segundo -- mesmo padrão já usado no cronômetro do card
+  // (`demTimerTickInterval`, ver renderDemCardTimer).
+  const trabalhandoAgoraElapsed = {};
   function renderTrabalhandoAgora(rows) {
     const wrap = $('#trabalhandoAgoraList');
     if (!wrap) return;
     $('#trabalhandoAgoraEmpty').hidden = rows.length > 0;
+    Object.keys(trabalhandoAgoraElapsed).forEach((uid) => { delete trabalhandoAgoraElapsed[uid]; });
     wrap.innerHTML = rows.map((r) => {
       const initials = (r.userName || '?').trim().charAt(0).toUpperCase();
       const photoStyle = r.photoUrl ? `background-image:url('${r.photoUrl}');` : '';
       const outras = r.outrasCount > 0 ? ` <span class="muted">(+${r.outrasCount} outra${r.outrasCount === 1 ? '' : 's'})</span>` : '';
-      const timer = r.timerRunning ? `<span class="trabalhando-agora-timer">⏱ ${fmtDuration(r.elapsedSeconds)}</span>` : '';
+      const demandaLinha = `Trabalhando em ${escapeHtml(r.demandaTitle)}`;
+      let tempo = '';
+      if (r.timerRunning) {
+        trabalhandoAgoraElapsed[r.userId] = r.elapsedSeconds || 0;
+        // Fica FORA de `.trabalhando-agora-demanda` (que trunca com
+        // ellipsis quando o título é longo) pra o tempo nunca ficar
+        // escondido atrás do corte de texto -- mesmo motivo que já valia
+        // pro antigo badge "⏱" que ficava nesse mesmo lugar.
+        tempo = `<span class="trabalhando-agora-timer" data-user-id="${escapeHtml(r.userId)}">há ${fmtDuration(r.elapsedSeconds)}</span>`;
+      }
       return `
         <div class="trabalhando-agora-row" title="${escapeHtml(r.userName)}: ${escapeHtml(r.demandaTitle)}">
           <div class="trabalhando-agora-photo${r.photoUrl ? '' : ' trabalhando-agora-photo-fallback'}" style="${photoStyle}">${r.photoUrl ? '' : initials}</div>
           <div class="trabalhando-agora-info">
             <div class="trabalhando-agora-name">${escapeHtml(r.userName)}</div>
-            <div class="trabalhando-agora-demanda">${escapeHtml(r.demandaTitle)}${outras}</div>
+            <div class="trabalhando-agora-demanda">${demandaLinha}${outras}</div>
           </div>
-          ${timer}
+          ${tempo}
         </div>
       `;
     }).join('');
@@ -2827,6 +2848,18 @@
     trabalhandoAgoraPollTimer = setInterval(() => {
       if (activeViewName === 'home') loadTrabalhandoAgora();
     }, 15000);
+    startTrabalhandoAgoraTick();
+  }
+  let trabalhandoAgoraTickTimer = null;
+  function startTrabalhandoAgoraTick() {
+    if (trabalhandoAgoraTickTimer) return;
+    trabalhandoAgoraTickTimer = setInterval(() => {
+      Object.keys(trabalhandoAgoraElapsed).forEach((uid) => {
+        trabalhandoAgoraElapsed[uid] += 1;
+        const el = document.querySelector(`.trabalhando-agora-timer[data-user-id="${CSS.escape(uid)}"]`);
+        if (el) el.textContent = `há ${fmtDuration(trabalhandoAgoraElapsed[uid])}`;
+      });
+    }, 1000);
   }
   function refreshTrabalhandoAgoraSoon() {
     loadTrabalhandoAgora().catch(() => { /* ignora falha pontual */ });

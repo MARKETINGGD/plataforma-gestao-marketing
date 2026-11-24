@@ -905,12 +905,14 @@ function tempoDaAcao(d, filterUserId) {
 // 'andamento' mais recentemente atualizada dela, com um aviso de quantas
 // outras ficaram de fora da contagem (`outrasCount`).
 router.get('/trabalhando-agora', requireAuth, (req, res) => {
-  const managementIds = new Set(
-    db.get('users').value()
-      .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
-      .map((u) => u.id)
-  );
-  const teamUsers = db.get('users').value().filter((u) => !managementIds.has(u.id));
+  // 158ª rodada, pedido literal da Raquel: "Coordenadora e Gerente tbm
+  // devem aparecer no trabalhando agora." -- diferente do Reis do
+  // Marketing e do Acompanhamento da Equipe (que de propósito continuam
+  // excluindo gerência: lá é "quem está sendo acompanhado/pontuado"), aqui
+  // é só "quem está trabalhando agora", sem distinção de cargo -- por
+  // isso NÃO reaproveita o filtro managementIds usado nos outros
+  // endpoints deste arquivo.
+  const teamUsers = db.get('users').value();
   const emAndamento = db.get('demandas').value()
     .filter((d) => d.visibility !== 'pessoal' && d.status === 'andamento');
 

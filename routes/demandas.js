@@ -860,19 +860,33 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
 // da tela) e generaliza a MESMA regra do Reis do Marketing (que é fixa no
 // mês vigente) pra um período qualquer: só pontua concluções (de card ou
 // de item de checklist) cuja DATA DE CONCLUSÃO caia dentro de
-// `from`/`to`, e com a mesma exigência de "mês vigente" do Reis do
-// Marketing generalizada pra "dentro do período" (a data de entrega que
-// valia na conclusão também precisa cair no período, OU não ter data de
-// entrega nenhuma). Sem período nenhum selecionado (from/to vazios),
-// mantém o comportamento de sempre: conta tudo que já foi concluído,
-// sem nenhuma exigência de data de entrega.
+// `from`/`to`. Sem período nenhum selecionado (from/to vazios), mantém o
+// comportamento de sempre: conta tudo que já foi concluído algum dia.
+//
+// CORREÇÃO (158ª rodada, mesma conversa): a 1ª versão desta função exigia
+// que a data de entrega TAMBÉM caísse dentro do `from`/`to` escolhido --
+// igual ao Reis do Marketing só quando o período escolhido for o mês
+// INTEIRO certinho (dia 1 ao último dia). Mas um período PARCIAL do mês
+// vigente (ex.: "01/11 até hoje", bem comum de se digitar sem reparar que
+// o mês ainda não acabou) rejeitava uma entrega marcada pra mais tarde no
+// MESMO mês (ex.: concluída dia 20, com entrega dia 28) -- ponto que o
+// Reis do Marketing CONTA (mesmo mês = `ym`), mas que o período parcial
+// FICAVA DE FORA (28 > "até" 24), fazendo o relatório ficar sempre menor
+// que o gráfico (achado pela Raquel com os dados reais da Anelize: 76 no
+// relatório contra 84 no Reis do Marketing). `mesBate` abaixo resolve
+// isso comparando a entrega com o MÊS DA PRÓPRIA CONCLUSÃO daquele evento
+// (não mais com o from/to escolhido) -- exatamente o que `isMesVigente`
+// do Reis do Marketing já fazia, só que usando sempre o mês de "agora";
+// aqui generalizado pra funcionar com QUALQUER período, inclusive parcial
+// ou nenhum. `from`/`to` agora só decidem quais conclusões ENTRAM na
+// soma (a janela de tempo que a Raquel escolheu olhar) -- não mexem mais
+// na regra de "a entrega bateu com o mês" em si.
 //
 // Quando `filterUserId` está definido (coordenadora clicou numa pessoa
 // específica no resumo), só pontua o que for atribuído A ELA; sem pessoa
 // escolhida (lista mista de todo mundo), soma os pontos de todo mundo que
 // participou daquela ação específica.
 function pontosDaAcaoNoPeriodo(d, filterUserId, excludedIds, from, to) {
-  const semPeriodo = !from && !to;
   function dentroDoPeriodo(dataStr) {
     if (!dataStr) return false;
     const dia = dataStr.slice(0, 10);
@@ -880,15 +894,17 @@ function pontosDaAcaoNoPeriodo(d, filterUserId, excludedIds, from, to) {
     if (to && dia > to) return false;
     return true;
   }
-  function prazoBate(dueDate) {
-    if (semPeriodo) return true;
-    return !dueDate || dentroDoPeriodo(dueDate);
+  // "Mês vigente" por evento -- a entrega só precisa bater com o mês da
+  // PRÓPRIA conclusão (não com o from/to escolhido na tela). Sem data de
+  // entrega, conta sempre (mesma regra de sempre).
+  function mesBate(dataConclusao, dueDate) {
+    if (!dueDate) return true;
+    return dueDate.slice(0, 7) === dataConclusao.slice(0, 7);
   }
   let pontos = 0;
-  const concluidoDentroDoPeriodo = semPeriodo ? !!d.lastCompletedAt : dentroDoPeriodo(d.lastCompletedAt);
-  if (concluidoDentroDoPeriodo) {
+  if (d.lastCompletedAt && dentroDoPeriodo(d.lastCompletedAt)) {
     const dueDateNaConclusao = d.lastCompletedDueDate !== undefined ? d.lastCompletedDueDate : d.dueDate;
-    if (prazoBate(dueDateNaConclusao)) {
+    if (mesBate(d.lastCompletedAt, dueDateNaConclusao)) {
       const pontuamNesseCard = new Set(d.assigneeIds || []);
       if (d.responsibleId) pontuamNesseCard.add(d.responsibleId);
       pontuamNesseCard.forEach((id) => {
@@ -900,9 +916,8 @@ function pontosDaAcaoNoPeriodo(d, filterUserId, excludedIds, from, to) {
   }
   (d.checklist || []).forEach((it) => {
     if (!(it.assigneeId && it.done && it.doneAt)) return;
-    const itemDentroDoPeriodo = semPeriodo ? true : dentroDoPeriodo(it.doneAt);
-    if (!itemDentroDoPeriodo) return;
-    if (!prazoBate(it.dueDate)) return;
+    if (!dentroDoPeriodo(it.doneAt)) return;
+    if (!mesBate(it.doneAt, it.dueDate)) return;
     if (excludedIds.has(it.assigneeId)) return;
     if (filterUserId && it.assigneeId !== filterUserId) return;
     pontos += 1;

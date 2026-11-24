@@ -465,10 +465,14 @@
                  de selecionar todos os recados e dar lido em todos de uma
                  vez ou excluir todos de uma vez"). Só aparece quando tem
                  pelo menos 1 recado na lista. -->
+            <!-- 158ª rodada, novo ajuste da Raquel: "deixe ela menor e
+                 muda para: Selecionar todos, Marcar como Lido, Excluir"
+                 -- mesmos botões/IDs de sempre, só texto mais curto (ver
+                 também .recado-bulk-bar em style.css, barra mais compacta). -->
             <div id="recadosForMeBulkBar" class="recado-bulk-bar" hidden>
               <label class="recado-bulk-selectall"><input type="checkbox" id="recadosForMeSelectAll"> Selecionar todos</label>
-              <button class="btn-secondary" id="recadosForMeBulkRead" disabled>Marcar selecionados como lido</button>
-              <button class="btn-secondary danger" id="recadosForMeBulkDelete" disabled>Excluir selecionados</button>
+              <button class="btn-secondary" id="recadosForMeBulkRead" disabled>Marcar como Lido</button>
+              <button class="btn-secondary danger" id="recadosForMeBulkDelete" disabled>Excluir</button>
             </div>
             <div id="recadosForMe" class="recado-list"></div>
             <button class="btn-link" id="recadosToggleAll">Ver meus recados (enviados e recebidos)</button>

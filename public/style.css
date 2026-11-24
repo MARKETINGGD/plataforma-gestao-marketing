@@ -546,7 +546,11 @@ button{font-weight:700;}
    (1fr -> 0.85fr) pra abrir uma 3ª coluna pros Lembretes, do mesmo
    tamanho. REIS DO MARKETING perde um pouco também (1.3fr -> 1.15fr),
    já que agora tem mais 1 card dividindo a linha. */
-.home-top-row{display:grid;grid-template-columns:1.15fr 0.85fr 0.85fr;gap:24px;align-items:start;margin-top:40px;}
+/* 158ª rodada, novo ajuste da Raquel: "diminua um pouco a largura da aba
+   dos recados e aumente na mesma proporção o grafico do reis do
+   marketing" -- Recados perde 0.15fr, Reis do Marketing ganha os mesmos
+   0.15fr de volta (Lembretes não muda). */
+.home-top-row{display:grid;grid-template-columns:1.3fr 0.7fr 0.85fr;gap:24px;align-items:start;margin-top:40px;}
 @media (max-width:1100px){ .home-top-row{grid-template-columns:1fr 1fr;} #lembretesWrap{grid-column:1 / -1;} }
 @media (max-width:900px){ .home-top-row{grid-template-columns:1fr;} #lembretesWrap{grid-column:auto;} }
 /* 84ª rodada, pedido da Raquel: "na versão do papoi p PC, o grafico deve
@@ -843,10 +847,14 @@ button{font-weight:700;}
 #recadosWrap{margin-bottom:20px;min-width:0;}
 /* 13ª melhoria (24/09/2026, pedido da Raquel: "os recados, quando ficam
    muitos na tela, devem aparecer até 3, depois disso deve ter uma barra
-   de rolagem") -- ~90px por card (com folga pra quando tem o link "Ver
-   post publicado") x 3 = por volta de 270px; a partir do 4º recado a
-   lista ganha rolagem própria em vez de esticar a tela toda. */
-.recado-list{display:flex;flex-direction:column;gap:8px;margin:10px 0;max-height:280px;overflow-y:auto;padding-right:4px;}
+   de rolagem") -- a partir de um certo ponto a lista ganha rolagem
+   própria em vez de esticar a tela toda.
+   AJUSTE (158ª rodada, novo pedido): "deixe eles descerem ate ficar
+   próximos do quadro dos lançamentos e ai sim coloca a barrinha de
+   descer" -- teto subiu de 280px pra 520px (be mais perto da altura
+   típica do card REIS DO MARKETING + Trabalhando Agora ao lado), mesma
+   ideia pro .lembretes-grid logo abaixo. */
+.recado-list{display:flex;flex-direction:column;gap:8px;margin:10px 0;max-height:520px;overflow-y:auto;padding-right:4px;}
 .recado-list::-webkit-scrollbar{width:6px;}
 .recado-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:999px;}
 .recado-list::-webkit-scrollbar-track{background:transparent;}
@@ -859,7 +867,8 @@ button{font-weight:700;}
 .recado-empty{color:var(--muted);font-size:13px;}
 /* Ações em lote nos recados (53ª rodada) — "Selecionar todos" + marcar/
    excluir os selecionados de uma vez, mesma barra acima da lista. */
-.recado-bulk-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:10px 0 0;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:13px;}
+.recado-bulk-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 0;padding:4px 8px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:12px;}
+.recado-bulk-bar .btn-secondary{padding:4px 10px;font-size:12px;}
 .recado-bulk-selectall{display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;}
 .recado-card-checkbox{margin-right:2px;}
 /* Clicar no recado leva até o local (51ª rodada) — só os recados
@@ -881,7 +890,7 @@ button{font-weight:700;}
 
 /* ---------- Lembretes (158ª rodada) -- post-its pessoais ---------- */
 #lembretesWrap{margin-bottom:20px;min-width:0;}
-.lembretes-grid{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;max-height:280px;overflow-y:auto;padding:4px 4px 4px 0;}
+.lembretes-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;margin-top:10px;max-height:520px;overflow-y:auto;padding:4px 4px 4px 0;}
 .lembretes-grid::-webkit-scrollbar{width:6px;}
 .lembretes-grid::-webkit-scrollbar-thumb{background:var(--border);border-radius:999px;}
 .lembretes-grid::-webkit-scrollbar-track{background:transparent;}

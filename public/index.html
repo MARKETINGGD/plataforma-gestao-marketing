@@ -444,6 +444,16 @@
             <p class="muted" style="margin-top:0;">Quem mais concluiu demandas neste mês.</p>
             <div id="reisMarketingChart" class="reis-marketing-chart"></div>
             <p class="muted" id="reisMarketingEmpty" hidden>Ainda não há colaboradores cadastrados pra mostrar aqui.</p>
+
+            <!-- "Trabalhando agora" (158ª rodada, item #122, pedido da
+                 Raquel: "abaixo do gráfico Reis do Marketing... mostrar
+                 em tempo real em que cada membro está trabalhando
+                 agora"). -->
+            <div id="trabalhandoAgoraWrap" class="trabalhando-agora-wrap">
+              <h4 class="trabalhando-agora-title">🔧 Trabalhando agora</h4>
+              <div id="trabalhandoAgoraList" class="trabalhando-agora-list"></div>
+              <p class="muted" id="trabalhandoAgoraEmpty" hidden style="font-size:12px;margin:4px 0 0;">Ninguém com demanda em andamento agora.</p>
+            </div>
           </div>
 
           <div id="recadosWrap">
@@ -1375,13 +1385,13 @@
         <h3 style="margin-top:18px;">Resumo por pessoa</h3>
         <p class="muted" style="margin-top:0;font-size:12px;">O período/marca acima filtram este resumo; clique numa pessoa pra ver só as demandas dela na lista abaixo.</p>
         <table class="data-table">
-          <thead><tr><th>Pessoa</th><th>Total</th><th>A Fazer</th><th>Em Andamento</th><th>Em Aprovação</th><th>Concluída</th><th>Atrasada</th><th>Ausências<span class="muted" style="font-weight:normal;font-size:11px;"> (passe o mouse p/ ver detalhe)</span></th><th>Último acesso</th></tr></thead>
+          <thead><tr><th>Pessoa</th><th>Total</th><th>A Fazer</th><th>Em Andamento</th><th>Em Aprovação</th><th>Concluída</th><th>Atrasada</th><th>Ausências<span class="muted" style="font-weight:normal;font-size:11px;"> (passe o mouse p/ ver detalhe)</span></th><th>Tempo registrado</th><th>Último acesso</th></tr></thead>
           <tbody id="acompanhamentoResumoBody"></tbody>
         </table>
 
         <h3 style="margin-top:24px;">Demandas</h3>
         <table class="data-table">
-          <thead><tr><th>Pessoa(s)</th><th>Título</th><th>Marca</th><th>Status</th><th>Criada em</th><th>Entrega</th><th>Envolvidos</th><th>Pontos</th><th>Link</th><th>Arquivos</th></tr></thead>
+          <thead><tr><th>Pessoa(s)</th><th>Título</th><th>Marca</th><th>Status</th><th>Criada em</th><th>Entrega</th><th>Envolvidos</th><th>Pontos</th><th>Tempo</th><th>Link</th><th>Arquivos</th></tr></thead>
           <tbody id="acompanhamentoDetalheBody"></tbody>
         </table>
         <p id="acompanhamentoEmpty" class="muted" hidden>Nenhuma demanda encontrada com esses filtros.</p>
@@ -4120,6 +4130,20 @@
 
       <label for="demCardLink">Link <span class="muted" style="font-weight:400;">(opcional)</span></label>
       <input id="demCardLink" type="text" placeholder="https://...">
+
+      <!-- Cronômetro de tempo (158ª rodada, item #122, pedido da Raquel):
+           só aparece em card já salvo, pra quem está marcado nele -- é
+           um relógio PESSOAL (cada um só liga/inicia/para o próprio),
+           por isso nunca aparece pra quem só está vendo o card sem estar
+           marcado. -->
+      <div id="demCardTimerWrap" hidden>
+        <label class="demCardTimerToggle"><input type="checkbox" id="demCardTimerEnabled"> Rastrear meu tempo nesta demanda</label>
+        <div id="demCardTimerControls" class="demCardTimerControls" hidden>
+          <span id="demCardTimerDisplay" class="demCardTimerDisplay">00:00:00</span>
+          <button type="button" id="demCardTimerStartBtn" class="btn-secondary">▶ Iniciar</button>
+          <button type="button" id="demCardTimerStopBtn" class="btn-secondary" hidden>⏸ Pausar</button>
+        </div>
+      </div>
 
       <div class="checklist-title-row">
         <input id="demChecklistTitle" type="text" class="checklist-title-input" placeholder="Checklist" value="Checklist">

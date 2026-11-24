@@ -395,6 +395,33 @@ function compareChecklistByDueDate(a, b) {
   return 0;
 }
 
+// 158ª rodada, item #122, pedido da Raquel: cronômetro de tempo por
+// pessoa dentro do card (checkbox opcional pra ativar -- ver
+// PUT /:id/time-tracking abaixo -- e então iniciar/parar). Guardado em
+// `d.timeTracking`, um objeto por userId: { enabled, startedAt (ISO,
+// só enquanto rodando) , totalSeconds (acumulado, NÃO conta a sessão em
+// andamento) }. Esta função calcula, AO VIVO (sem gravar nada), quanto
+// tempo já passou de uma sessão em andamento e soma no total -- usada
+// tanto no card (serialize() abaixo) quanto no Acompanhamento da Equipe
+// e em "Trabalhando agora" (ver GET /trabalhando-agora), sempre a
+// mesma fonte de verdade pra não deixar o número divergir entre telas.
+function timeTrackingWithElapsed(d) {
+  const tt = d.timeTracking || {};
+  const out = {};
+  Object.keys(tt).forEach((uid) => {
+    const entry = tt[uid] || {};
+    const running = !!entry.startedAt;
+    const liveElapsed = running ? Math.max(0, Math.floor((Date.now() - new Date(entry.startedAt).getTime()) / 1000)) : 0;
+    out[uid] = {
+      enabled: !!entry.enabled,
+      startedAt: entry.startedAt || null,
+      totalSeconds: entry.totalSeconds || 0,
+      elapsedSeconds: (entry.totalSeconds || 0) + liveElapsed
+    };
+  });
+  return out;
+}
+
 function serialize(d, viewerId) {
   // Quando a demanda veio de um agendamento de redes sociais (uma por
   // pessoa marcada como envolvida, ver createDemandCardsForNewInvolved em
@@ -469,7 +496,9 @@ function serialize(d, viewerId) {
     createdByPhoto: resolveUserPhoto(d.createdBy),
     files: (d.files || []).map((f) => Object.assign({}, f, {
       uploadedByName: resolveUserName(f.uploadedBy, f.uploadedByName)
-    }))
+    })),
+    // 158ª rodada, item #122: ver timeTrackingWithElapsed() acima.
+    timeTracking: timeTrackingWithElapsed(d)
   });
 }
 
@@ -842,6 +871,74 @@ function pontosDaAcao(d, filterUserId, excludedIds) {
   return pontos;
 }
 
+// 158ª rodada, item #122: soma o tempo (em segundos) rastreado nesta
+// ação -- sem filtro de pessoa, soma todo mundo que tem alguma sessão
+// (atual ou acumulada) registrada; com `filterUserId`, só a dela. Mesma
+// fonte de verdade de timeTrackingWithElapsed() (perto de serialize()
+// acima) -- nunca recalcula o "ao vivo" de outro jeito, pra não divergir
+// do que o próprio card mostra.
+function tempoDaAcao(d, filterUserId) {
+  const tt = timeTrackingWithElapsed(d);
+  let total = 0;
+  Object.keys(tt).forEach((uid) => {
+    if (filterUserId && uid !== filterUserId) return;
+    total += tt[uid].elapsedSeconds;
+  });
+  return total;
+}
+
+// "Trabalhando agora" (158ª rodada, item #122) -- pedido da Raquel: "Na
+// tela Início, abaixo do gráfico Reis do Marketing: mostrar em tempo
+// real em que cada membro está trabalhando agora (demanda com status
+// 'andamento') -- foto + nome da demanda, e se tiver cronômetro
+// rodando, o tempo decorrido também." Visível a QUALQUER pessoa logada,
+// sem restrição (mesma regra de sempre do Reis do Marketing, que também
+// aparece pra todo mundo na Início) -- só NÃO mostra quem tem cargo
+// gerente/coordenador (mesma exclusão de sempre: são quem acompanha,
+// não quem é acompanhado).
+//
+// Quando uma pessoa está marcada em mais de 1 demanda 'andamento' ao
+// mesmo tempo (comum nesta Plataforma), não dá pra saber com certeza
+// qual delas é "a de agora" -- decisão: se ela tiver um cronômetro
+// rodando em alguma dessas demandas, é essa (sinal mais forte de
+// atividade real); sem nenhum cronômetro rodando, mostra a demanda
+// 'andamento' mais recentemente atualizada dela, com um aviso de quantas
+// outras ficaram de fora da contagem (`outrasCount`).
+router.get('/trabalhando-agora', requireAuth, (req, res) => {
+  const managementIds = new Set(
+    db.get('users').value()
+      .filter((u) => u.cargo === 'gerente' || u.cargo === 'coordenador')
+      .map((u) => u.id)
+  );
+  const teamUsers = db.get('users').value().filter((u) => !managementIds.has(u.id));
+  const emAndamento = db.get('demandas').value()
+    .filter((d) => d.visibility !== 'pessoal' && d.status === 'andamento');
+
+  const rows = [];
+  teamUsers.forEach((u) => {
+    const minhas = emAndamento.filter((d) => (d.assigneeIds || []).includes(u.id));
+    if (minhas.length === 0) return;
+    const comCronometroRodando = minhas.find((d) => {
+      const tt = (d.timeTracking || {})[u.id];
+      return !!(tt && tt.startedAt);
+    });
+    const escolhida = comCronometroRodando || minhas.slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
+    const ttEscolhida = timeTrackingWithElapsed(escolhida)[u.id];
+    const timerRunning = !!(ttEscolhida && ttEscolhida.startedAt);
+    rows.push({
+      userId: u.id,
+      userName: u.name || u.username,
+      photoUrl: u.photoUrl || null,
+      demandaId: escolhida.id,
+      demandaTitle: escolhida.title,
+      timerRunning,
+      elapsedSeconds: timerRunning ? ttEscolhida.elapsedSeconds : null,
+      outrasCount: minhas.length - 1
+    });
+  });
+  res.json({ rows });
+});
+
 // ---------- Acompanhamento da Equipe (77ª rodada) ----------
 // Pedido literal da Raquel: "quero poder pegar relatórios de cada pessoa
 // da equipe, somente eu (coordenadora) e a gerente teremos acesso, queremos
@@ -980,7 +1077,8 @@ router.get('/team-report', requireAuth, (req, res) => {
       horaRetorno: a.horaRetorno || null
     }));
 
-    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, ausenciasResumo, ausencias, lastAccessAt: u.lastAccessAt || null };
+    const tempoTotalSegundos = mine.reduce((sum, d) => sum + tempoDaAcao(d, u.id), 0);
+    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, ausenciasResumo, ausencias, lastAccessAt: u.lastAccessAt || null, tempoTotalSegundos };
   });
 
   let detail = allDemandasVisiveis.filter(matchesPeriodAndBrand);
@@ -1002,7 +1100,8 @@ router.get('/team-report', requireAuth, (req, res) => {
     .map((d) => Object.assign({}, serialize(d), {
       statusKey: teamReportStatusKey(d),
       assigneeCount: (d.assigneeIds || []).length,
-      pontos: pontosDaAcao(d, userId || null, managementIds)
+      pontos: pontosDaAcao(d, userId || null, managementIds),
+      tempoSegundos: tempoDaAcao(d, userId || null)
     }));
 
   res.json({ team, demandas });
@@ -1813,6 +1912,81 @@ router.post('/:id/comments', requireAuth, (req, res) => {
     mirrorCommentToSiblings(demanda.sourceSocialPostId, demanda.id, text, req);
   }
   res.json({ ok: true });
+});
+
+// ---------- Cronômetro de tempo por pessoa (158ª rodada, item #122)
+// ----------
+// Pedido literal da Raquel: "Dentro do card (por pessoa, campo
+// opcional -- um checkbox pra ativar): iniciar/parar cronômetro de
+// tempo gasto na demanda; tempo registrado no card e no relatório da
+// pessoa." É um cronômetro PESSOAL -- só a própria pessoa marcada
+// (assigneeIds) liga/desliga e inicia/para o PRÓPRIO relógio; ninguém
+// mais (nem o admin, nem quem criou o card) pode mexer no cronômetro de
+// outra pessoa por aqui -- mesmo espírito do "post-it" dos Lembretes
+// (123ª... item #123 desta mesma rodada), cada um só controla o seu.
+function requireOwnAssignee(demanda, req, res) {
+  if (!(demanda.assigneeIds || []).includes(req.user.id)) {
+    res.status(403).json({ error: 'Só quem está marcado na demanda pode controlar o próprio cronômetro.' });
+    return false;
+  }
+  return true;
+}
+
+// Liga/desliga o cronômetro pra ESTA pessoa nesta demanda (o checkbox
+// opcional do pedido). Desligar enquanto o relógio está rodando para o
+// relógio primeiro (acumula o tempo corrido até aqui) antes de desativar
+// -- nunca perde tempo já contado, só esconde os controles de novo.
+router.put('/:id/time-tracking', requireAuth, (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) return;
+  if (!requireOwnAssignee(demanda, req, res)) return;
+  const enabled = !!(req.body || {}).enabled;
+  const timeTracking = Object.assign({}, demanda.timeTracking || {});
+  const existing = timeTracking[req.user.id] || { enabled: false, startedAt: null, totalSeconds: 0 };
+  let totalSeconds = existing.totalSeconds || 0;
+  if (!enabled && existing.startedAt) {
+    totalSeconds += Math.max(0, Math.floor((Date.now() - new Date(existing.startedAt).getTime()) / 1000));
+  }
+  timeTracking[req.user.id] = {
+    enabled,
+    startedAt: enabled ? existing.startedAt : null,
+    totalSeconds
+  };
+  db.get('demandas').find({ id: req.params.id }).assign({ timeTracking, updatedAt: new Date().toISOString() }).write();
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
+});
+
+router.post('/:id/time-tracking/start', requireAuth, (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) return;
+  if (!requireOwnAssignee(demanda, req, res)) return;
+  const timeTracking = Object.assign({}, demanda.timeTracking || {});
+  const existing = timeTracking[req.user.id];
+  if (!existing || !existing.enabled) {
+    return res.status(400).json({ error: 'Ative o cronômetro desta demanda antes de iniciar.' });
+  }
+  // Já rodando: idempotente, não reinicia startedAt (evitaria perder o
+  // tempo já corrido se a pessoa clicar "iniciar" 2x por engano).
+  if (!existing.startedAt) {
+    timeTracking[req.user.id] = Object.assign({}, existing, { startedAt: new Date().toISOString() });
+    db.get('demandas').find({ id: req.params.id }).assign({ timeTracking, updatedAt: new Date().toISOString() }).write();
+  }
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
+});
+
+router.post('/:id/time-tracking/stop', requireAuth, (req, res) => {
+  const demanda = findOr404(req, res);
+  if (!demanda) return;
+  if (!requireOwnAssignee(demanda, req, res)) return;
+  const timeTracking = Object.assign({}, demanda.timeTracking || {});
+  const existing = timeTracking[req.user.id];
+  if (!existing || !existing.startedAt) {
+    return res.status(400).json({ error: 'O cronômetro desta demanda não está rodando.' });
+  }
+  const elapsed = Math.max(0, Math.floor((Date.now() - new Date(existing.startedAt).getTime()) / 1000));
+  timeTracking[req.user.id] = Object.assign({}, existing, { startedAt: null, totalSeconds: (existing.totalSeconds || 0) + elapsed });
+  db.get('demandas').find({ id: req.params.id }).assign({ timeTracking, updatedAt: new Date().toISOString() }).write();
+  res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
 // ---------- checklist ----------

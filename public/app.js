@@ -935,6 +935,15 @@
     if (Number.isNaN(d.getTime())) return '';
     return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   };
+  // 158ª rodada, item #122: formata segundos como HH:MM:SS -- usado no
+  // cronômetro do card e em "Trabalhando agora" na Início.
+  const fmtDuration = (totalSeconds) => {
+    const s = Math.max(0, Math.floor(totalSeconds || 0));
+    const hh = Math.floor(s / 3600);
+    const mm = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    return [hh, mm, ss].map((n) => String(n).padStart(2, '0')).join(':');
+  };
   const fmtBytes = (n) => {
     if (n < 1024) return n + ' B';
     if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
@@ -2059,6 +2068,7 @@
     await loadHome();
     startNotificationSoundWatcher();
     startReisMarketingPolling();
+    startTrabalhandoAgoraPolling();
     // Janelinha flutuante do Chat da Equipe (21ª rodada) — carrega o
     // histórico e começa a checar mensagens novas assim que loga, pra
     // avisar (som + aviso no canto) mesmo enquanto a pessoa está em
@@ -2530,6 +2540,7 @@
     } catch (e) { /* usuário pode não ter permissão futura — hoje é liberado a todos */ }
 
     await loadReisDoMarketing();
+    await loadTrabalhandoAgora();
 
     if (budgetAccess !== 'none') {
       // 24ª rodada: resumo da Início separado por marca (antes somava
@@ -2766,6 +2777,54 @@
   }
   function refreshReisDoMarketingSoon() {
     loadReisDoMarketing().catch(() => { /* ignora falha pontual */ });
+  }
+
+  // ---------- "Trabalhando agora" (158ª rodada, item #122) ----------
+  // Pedido da Raquel: "Na tela Início, abaixo do gráfico Reis do
+  // Marketing: mostrar em tempo real em que cada membro está
+  // trabalhando agora (demanda com status 'andamento') -- foto + nome
+  // da demanda, e se tiver cronômetro rodando, o tempo decorrido
+  // também." Mesmo padrão de atualização do Reis do Marketing logo
+  // acima: chamada imediata depois de start/stop do PRÓPRIO cronômetro
+  // (refreshTrabalhandoAgoraSoon) + polling discreto enquanto a Início
+  // está aberta, pra pegar o que outras pessoas começaram/pararam em
+  // outra sessão.
+  async function loadTrabalhandoAgora() {
+    try {
+      const data = await api('/api/demandas/trabalhando-agora');
+      renderTrabalhandoAgora(data.rows || []);
+    } catch (e) { /* ignora falha pontual — a Início segue sem esse bloco */ }
+  }
+  function renderTrabalhandoAgora(rows) {
+    const wrap = $('#trabalhandoAgoraList');
+    if (!wrap) return;
+    $('#trabalhandoAgoraEmpty').hidden = rows.length > 0;
+    wrap.innerHTML = rows.map((r) => {
+      const initials = (r.userName || '?').trim().charAt(0).toUpperCase();
+      const photoStyle = r.photoUrl ? `background-image:url('${r.photoUrl}');` : '';
+      const outras = r.outrasCount > 0 ? ` <span class="muted">(+${r.outrasCount} outra${r.outrasCount === 1 ? '' : 's'})</span>` : '';
+      const timer = r.timerRunning ? `<span class="trabalhando-agora-timer">⏱ ${fmtDuration(r.elapsedSeconds)}</span>` : '';
+      return `
+        <div class="trabalhando-agora-row" title="${escapeHtml(r.userName)}: ${escapeHtml(r.demandaTitle)}">
+          <div class="trabalhando-agora-photo${r.photoUrl ? '' : ' trabalhando-agora-photo-fallback'}" style="${photoStyle}">${r.photoUrl ? '' : initials}</div>
+          <div class="trabalhando-agora-info">
+            <div class="trabalhando-agora-name">${escapeHtml(r.userName)}</div>
+            <div class="trabalhando-agora-demanda">${escapeHtml(r.demandaTitle)}${outras}</div>
+          </div>
+          ${timer}
+        </div>
+      `;
+    }).join('');
+  }
+  let trabalhandoAgoraPollTimer = null;
+  function startTrabalhandoAgoraPolling() {
+    if (trabalhandoAgoraPollTimer) clearInterval(trabalhandoAgoraPollTimer);
+    trabalhandoAgoraPollTimer = setInterval(() => {
+      if (activeViewName === 'home') loadTrabalhandoAgora();
+    }, 15000);
+  }
+  function refreshTrabalhandoAgoraSoon() {
+    loadTrabalhandoAgora().catch(() => { /* ignora falha pontual */ });
   }
 
   // 42ª rodada, pedido da Raquel: "em vez de se mexer a cada 10 min, quem
@@ -6109,6 +6168,67 @@
     });
   }
 
+  // ---------- Cronômetro de tempo por pessoa (158ª rodada, item #122)
+  // ----------
+  // `demTimerTickInterval` faz o relógio na TELA andar sozinho de
+  // segundo em segundo ENQUANTO está rodando, sem precisar martelar a
+  // API a cada tick -- o número exato (elapsedSeconds) sempre vem do
+  // servidor (no load do card, no start/stop e no polling do card
+  // aberto); este interval só soma +1 localmente em cima desse valor
+  // até a próxima sincronização de verdade.
+  let demTimerTickInterval = null;
+  function renderDemCardTimer(demanda) {
+    if (demTimerTickInterval) { clearInterval(demTimerTickInterval); demTimerTickInterval = null; }
+    const wrap = $('#demCardTimerWrap');
+    const isAssignee = !!(demanda && currentUser && (demanda.assigneeIds || []).includes(currentUser.id));
+    wrap.hidden = !isAssignee;
+    if (!isAssignee) return;
+    const tt = (demanda.timeTracking && demanda.timeTracking[currentUser.id]) || { enabled: false, startedAt: null, elapsedSeconds: 0 };
+    $('#demCardTimerEnabled').checked = !!tt.enabled;
+    $('#demCardTimerControls').hidden = !tt.enabled;
+    const running = !!tt.startedAt;
+    $('#demCardTimerStartBtn').hidden = running;
+    $('#demCardTimerStopBtn').hidden = !running;
+    let displaySeconds = tt.elapsedSeconds || 0;
+    $('#demCardTimerDisplay').textContent = fmtDuration(displaySeconds);
+    if (running) {
+      demTimerTickInterval = setInterval(() => {
+        displaySeconds += 1;
+        $('#demCardTimerDisplay').textContent = fmtDuration(displaySeconds);
+      }, 1000);
+    }
+  }
+  $('#demCardTimerEnabled').onchange = async () => {
+    if (!editingDemandaId) return;
+    const enabled = $('#demCardTimerEnabled').checked;
+    try {
+      const data = await api(`/api/demandas/${editingDemandaId}/time-tracking`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+      openDemandaCache = data.demanda;
+      renderDemCardTimer(data.demanda);
+    } catch (e) {
+      $('#demCardTimerEnabled').checked = !enabled;
+      alert(e.message || 'Não foi possível atualizar o cronômetro.');
+    }
+  };
+  $('#demCardTimerStartBtn').onclick = async () => {
+    if (!editingDemandaId) return;
+    try {
+      const data = await api(`/api/demandas/${editingDemandaId}/time-tracking/start`, { method: 'POST' });
+      openDemandaCache = data.demanda;
+      renderDemCardTimer(data.demanda);
+      refreshTrabalhandoAgoraSoon();
+    } catch (e) { alert(e.message || 'Não foi possível iniciar o cronômetro.'); }
+  };
+  $('#demCardTimerStopBtn').onclick = async () => {
+    if (!editingDemandaId) return;
+    try {
+      const data = await api(`/api/demandas/${editingDemandaId}/time-tracking/stop`, { method: 'POST' });
+      openDemandaCache = data.demanda;
+      renderDemCardTimer(data.demanda);
+      refreshTrabalhandoAgoraSoon();
+    } catch (e) { alert(e.message || 'Não foi possível pausar o cronômetro.'); }
+  };
+
   let openDemandaCache = null;
   async function refreshOpenDemanda() {
     if (!editingDemandaId) return;
@@ -6119,6 +6239,7 @@
       renderChecklist(fresh);
       renderFiles(fresh);
       loadDemHistory(fresh.id);
+      renderDemCardTimer(fresh);
     }
   }
 
@@ -6359,6 +6480,7 @@
     $('#demCommentWrap').hidden = !demanda;
     $('#demCommentInput').value = '';
     loadDemHistory(demanda ? demanda.id : null);
+    renderDemCardTimer(demanda);
     $('#demandaModal').hidden = false;
   }
   $('#demCommentAdd').onclick = async () => {
@@ -6370,7 +6492,7 @@
       await loadDemHistory(editingDemandaId);
     } catch (e) { alert(e.message || 'Não foi possível salvar o comentário.'); }
   };
-  $('#demCardClose').onclick = () => { $('#demandaModal').hidden = true; loadDemandas(); };
+  $('#demCardClose').onclick = () => { if (demTimerTickInterval) { clearInterval(demTimerTickInterval); demTimerTickInterval = null; } $('#demandaModal').hidden = true; loadDemandas(); };
   $('#demCardRecurrence').onchange = () => { $('#demCardRecurringHint').hidden = $('#demCardRecurrence').value === 'none'; };
 
   $('#demCardSave').onclick = async () => {
@@ -7953,6 +8075,7 @@
         <td>${u.totals.concluida}</td>
         <td>${u.totals.atrasada}</td>
         <td>${ausenciasResumoCelula(u)}</td>
+        <td>${u.tempoTotalSegundos ? fmtDuration(u.tempoTotalSegundos) : '—'}</td>
         <td>${u.lastAccessAt ? fmtDateTime(u.lastAccessAt) : '—'}</td>
       `;
       tr.onclick = () => { pessoaSel.value = u.id; loadAcompanhamentoEquipe(); };
@@ -7977,6 +8100,7 @@
         <td>${d.dueDate ? fmtDate(d.dueDate) : '—'}</td>
         <td>${d.assigneeCount}</td>
         <td>${d.pontos || 0}</td>
+        <td>${d.tempoSegundos ? fmtDuration(d.tempoSegundos) : '—'}</td>
         <td>${d.link ? `<a href="${escapeHtml(d.link)}" target="_blank" rel="noopener">Abrir</a>` : '—'}</td>
         <td>${arquivos}</td>
       `;

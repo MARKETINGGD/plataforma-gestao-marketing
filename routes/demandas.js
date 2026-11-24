@@ -1099,6 +1099,31 @@ router.get('/team-report', requireAuth, (req, res) => {
     return matchesBrandOnly(d);
   }
 
+  // 158ª rodada, 3º ajuste: a lista detalhada ("Demandas") ainda usava
+  // `matchesPeriodAndBrand` (filtro por data de CRIAÇÃO), mesmo depois de
+  // `pontosNoPeriodo` (resumo) e o `pontos` de cada linha já terem sido
+  // corrigidos pra usar a data de CONCLUSÃO (ver comentários de
+  // `pontosDaAcaoNoPeriodo` acima). Resultado: uma demanda criada ANTES do
+  // período escolhido, mas concluída DENTRO dele, contava ponto no resumo
+  // (`pontosNoPeriodo`, que varre todas as demandas) mas não aparecia na
+  // lista -- fazendo a soma visível da coluna "Pontos" da lista ficar bem
+  // menor que o número do resumo (caso real: Anelize, período 01/11 a
+  // 24/11 -- resumo somava 84, lista somava só 38).
+  //
+  // `matchesDetailInclusion` resolve isso SEM mudar `matchesPeriodAndBrand`
+  // (que continua sendo usado por `mine`/`tempoTotalSegundos`, que
+  // ninguém reclamou estar errado): uma demanda entra na lista se foi
+  // CRIADA dentro do período (comportamento de sempre) OU se rendeu pelo
+  // menos 1 ponto dentro do período (novo). Sem período selecionado,
+  // `criadaDentro` já cobre tudo (não precisa do segundo teste).
+  function matchesDetailInclusion(d) {
+    if (!matchesBrandOnly(d)) return false;
+    const criadaDentro = (!from || (d.createdAt && d.createdAt.slice(0, 10) >= from)) && (!to || (d.createdAt && d.createdAt.slice(0, 10) <= to));
+    if (criadaDentro) return true;
+    if (!from && !to) return false;
+    return pontosDaAcaoNoPeriodo(d, userId || null, managementIds, from, to) > 0;
+  }
+
   // 107ª rodada, pedido literal da Raquel: "Essas informações devem ficar
   // vinculadas ao relatorio de demandas da equipe, quero poder saber o que
   // cada colaborador teve em relação a feria, saidas e afastamentos." --
@@ -1173,7 +1198,7 @@ router.get('/team-report', requireAuth, (req, res) => {
     return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, pontosNoPeriodo, ausenciasResumo, ausencias, lastAccessAt: u.lastAccessAt || null, tempoTotalSegundos };
   });
 
-  let detail = allDemandasVisiveis.filter(matchesPeriodAndBrand);
+  let detail = allDemandasVisiveis.filter(matchesDetailInclusion);
   if (userId) {
     detail = detail.filter((d) => (d.assigneeIds || []).includes(userId));
   } else {

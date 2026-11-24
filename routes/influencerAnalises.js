@@ -55,7 +55,10 @@ const MONEY_FIELDS = [
 // "email" e "tipoConteudo" são novos na 91ª rodada (planilha atualizada da
 // Raquel) — ficam logo depois de "genero", antes de "estado", igual à
 // ordem de colunas de verdade da planilha.
-const TEXT_FIELDS_MAPEAMENTO = ['nome', 'genero', 'email', 'tipoConteudo', 'estado', 'principaisTemas', 'cidades', 'observacoes', 'escopo'];
+// 158ª rodada, pedido da Raquel: "add a opção de contato e nome da
+// assessoria responsavel pelo influencer (isso se aplica tbm na planilha
+// de analise de influencer)".
+const TEXT_FIELDS_MAPEAMENTO = ['nome', 'genero', 'email', 'tipoConteudo', 'estado', 'principaisTemas', 'cidades', 'observacoes', 'escopo', 'assessoriaNome', 'assessoriaContato'];
 // Campos de texto livre (aba "Informações importantes") — tudo texto livre
 // de propósito (igual ao precedente de "Estado" em outras telas da
 // Plataforma: campo livre, não um <select> fechado), já que são respostas

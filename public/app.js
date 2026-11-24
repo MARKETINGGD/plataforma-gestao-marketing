@@ -295,7 +295,9 @@
     'observacoes', 'escopo', 'escopoValor',
     'instagramHandle', 'tiktokHandle', 'youtubeHandle', 'aniversario', 'idade', 'statusCivil',
     'reforma', 'filhos', 'moraSozinho', 'local', 'tipoCabelo', 'intoleranciasAlimentares',
-    'habitosAlimentares', 'alergias', 'oculosGrau', 'animalEstimacao'
+    'habitosAlimentares', 'alergias', 'oculosGrau', 'animalEstimacao',
+    // 158ª rodada -- contato e assessoria responsável pelo influencer.
+    'assessoriaNome', 'assessoriaContato'
   ];
   const ANALISE_FORM_ID = {
     faixaEtaria1317: 'analiseFormFaixaEtaria1317', faixaEtaria1824: 'analiseFormFaixaEtaria1824', faixaEtaria25Mais: 'analiseFormFaixaEtaria25Mais',
@@ -13752,6 +13754,8 @@
     $('#influencerFormEmail').value = inf ? (inf.email || '') : '';
     $('#influencerFormDataNascimento').value = inf ? (inf.dataNascimento || '') : '';
     $('#influencerFormEndereco').value = inf ? (inf.endereco || '') : '';
+    $('#influencerFormAssessoriaNome').value = inf ? (inf.assessoriaNome || '') : '';
+    $('#influencerFormAssessoriaContato').value = inf ? (inf.assessoriaContato || '') : '';
     $('#influencerFormContractInput').value = '';
     if (inf && inf.contrato) {
       $('#influencerFormContractCurrent').hidden = false;
@@ -13792,6 +13796,8 @@
       email: $('#influencerFormEmail').value.trim(),
       dataNascimento: $('#influencerFormDataNascimento').value || '',
       endereco: $('#influencerFormEndereco').value.trim(),
+      assessoriaNome: $('#influencerFormAssessoriaNome').value.trim(),
+      assessoriaContato: $('#influencerFormAssessoriaContato').value.trim(),
       formaPagamento: $('#influencerFormFormaPagamento').value.trim(),
       fluxo: $('#influencerFormFluxo').value || null
     };

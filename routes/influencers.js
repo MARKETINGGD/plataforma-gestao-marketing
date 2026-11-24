@@ -74,7 +74,11 @@ function validUserIds(ids) {
 // apagar o que já existe, só passa a dar espaço pra completar).
 function personalFields(body) {
   const out = {};
-  ['cpf', 'rg', 'telefone', 'email', 'dataNascimento', 'endereco'].forEach((key) => {
+  // 158ª rodada, pedido da Raquel: "add a opção de contato e nome da
+  // assessoria responsavel pelo influencer" -- mesmo padrão de sempre
+  // (texto livre, opcional, nunca obrigatório -- não entra em
+  // REQUIRED_PERSONAL_FIELD_LABELS).
+  ['cpf', 'rg', 'telefone', 'email', 'dataNascimento', 'endereco', 'assessoriaNome', 'assessoriaContato'].forEach((key) => {
     if (body[key] !== undefined) out[key] = (body[key] || '').toString().trim();
   });
   return out;
@@ -91,6 +95,9 @@ function serializeInfluencer(inf) {
     email: inf.email || '',
     dataNascimento: inf.dataNascimento || '',
     endereco: inf.endereco || '',
+    // 158ª rodada -- contato e assessoria responsável pelo influencer.
+    assessoriaNome: inf.assessoriaNome || '',
+    assessoriaContato: inf.assessoriaContato || '',
     contrato: inf.contrato || null,
     // 155ª rodada, pedido da Raquel: "Deve ter a opção de colocar o
     // contrato deles, forma de pagamento, parcelamento, NF, marca e

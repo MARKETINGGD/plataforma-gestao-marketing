@@ -469,6 +469,30 @@
               </table>
             </div>
           </div>
+
+          <!-- Lembretes (158ª rodada, pedido da Raquel: "diminua um pouco
+               a aba recados e ao lado dela coloque Lembretes (isso será
+               individual para cada membro e os lembretes devem ser no
+               estilo post it)") -- 100% pessoal, cada um só vê/edita os
+               próprios (ver routes/lembretes.js). -->
+          <div id="lembretesWrap">
+            <div class="view-toolbar">
+              <h3 style="margin:0;">📌 Lembretes</h3>
+              <button class="btn-secondary" id="lembretesNewBtn">+ Novo</button>
+            </div>
+            <div id="lembreteFormWrap" class="form-card" hidden>
+              <input type="hidden" id="lembreteFormId">
+              <textarea id="lembreteFormText" rows="2" placeholder="Escreva seu lembrete..."></textarea>
+              <div id="lembreteFormColors" class="color-swatches"></div>
+              <div id="lembreteFormError" class="error" hidden></div>
+              <div class="form-actions">
+                <button id="lembreteFormSave" class="btn-primary">Salvar</button>
+                <button id="lembreteFormCancel" class="btn-secondary">Cancelar</button>
+              </div>
+            </div>
+            <div id="lembretesGrid" class="lembretes-grid"></div>
+            <p class="muted" id="lembretesEmpty" hidden>Nenhum lembrete ainda -- use pra anotar o que não pode esquecer.</p>
+          </div>
         </div>
 
         <div class="home-grid">

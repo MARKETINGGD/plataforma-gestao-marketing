@@ -2516,6 +2516,7 @@
     applyHomeColor();
 
     await loadRecados();
+    await loadLembretes();
 
     try {
       const sum = await api('/api/demandas/summary');
@@ -3917,6 +3918,94 @@
       renderRecadosForMe();
       renderRecadosAll();
     } catch (e) { /* ignora */ }
+  }
+
+  // ---------- Lembretes (158ª rodada) -- post-its 100% pessoais ----------
+  let lembretesItems = [];
+  let lembreteSuggestedColors = [];
+  let selectedLembreteColor = '#f2d600';
+  let editingLembreteId = null;
+
+  async function loadLembretes() {
+    try {
+      const data = await api('/api/lembretes');
+      lembretesItems = data.lembretes || [];
+      lembreteSuggestedColors = data.suggestedColors || [];
+      renderLembretes();
+    } catch (e) { /* ignora */ }
+  }
+
+  function renderLembreteColorSwatches() {
+    const wrap = $('#lembreteFormColors');
+    wrap.innerHTML = '';
+    lembreteSuggestedColors.forEach((c) => {
+      const sw = document.createElement('div');
+      sw.className = 'color-swatch' + (selectedLembreteColor === c ? ' selected' : '');
+      sw.style.background = c;
+      sw.onclick = () => { selectedLembreteColor = c; renderLembreteColorSwatches(); };
+      wrap.appendChild(sw);
+    });
+  }
+
+  function openLembreteForm(lembrete) {
+    editingLembreteId = lembrete ? lembrete.id : null;
+    $('#lembreteFormId').value = lembrete ? lembrete.id : '';
+    $('#lembreteFormText').value = lembrete ? lembrete.text : '';
+    selectedLembreteColor = lembrete ? lembrete.color : (lembreteSuggestedColors[0] || '#f2d600');
+    $('#lembreteFormError').hidden = true;
+    renderLembreteColorSwatches();
+    $('#lembreteFormWrap').hidden = false;
+    $('#lembreteFormText').focus();
+  }
+  $('#lembretesNewBtn').onclick = () => openLembreteForm(null);
+  $('#lembreteFormCancel').onclick = () => { $('#lembreteFormWrap').hidden = true; };
+  $('#lembreteFormSave').onclick = async () => {
+    const text = $('#lembreteFormText').value.trim();
+    if (!text) {
+      $('#lembreteFormError').textContent = 'Escreva o lembrete.';
+      $('#lembreteFormError').hidden = false;
+      return;
+    }
+    try {
+      if (editingLembreteId) {
+        await api('/api/lembretes/' + editingLembreteId, { method: 'PUT', body: JSON.stringify({ text, color: selectedLembreteColor }) });
+      } else {
+        await api('/api/lembretes', { method: 'POST', body: JSON.stringify({ text, color: selectedLembreteColor }) });
+      }
+      $('#lembreteFormWrap').hidden = true;
+      await loadLembretes();
+    } catch (e) {
+      $('#lembreteFormError').textContent = e.message;
+      $('#lembreteFormError').hidden = false;
+    }
+  };
+
+  function renderLembretes() {
+    const grid = $('#lembretesGrid');
+    $('#lembretesEmpty').hidden = lembretesItems.length > 0;
+    grid.innerHTML = '';
+    lembretesItems.forEach((l) => {
+      const card = document.createElement('div');
+      card.className = 'lembrete-card';
+      card.style.background = l.color;
+      const textDiv = document.createElement('div');
+      textDiv.className = 'lembrete-card-text';
+      textDiv.textContent = l.text;
+      card.appendChild(textDiv);
+      const delBtn = document.createElement('button');
+      delBtn.className = 'lembrete-card-del';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Excluir lembrete';
+      delBtn.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (!confirm('Excluir este lembrete?')) return;
+        await api('/api/lembretes/' + l.id, { method: 'DELETE' });
+        await loadLembretes();
+      };
+      card.appendChild(delBtn);
+      card.onclick = () => openLembreteForm(l);
+      grid.appendChild(card);
+    });
   }
 
   // Ações em lote (53ª rodada, pedido da Raquel: "quero a opção de

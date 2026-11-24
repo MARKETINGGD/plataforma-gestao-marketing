@@ -48,6 +48,13 @@ db.defaults({
   labels: [],
   // Recados do mural da tela Início — coloridos, com destinatários
   recados: [],
+  // Lembretes (158ª rodada, pedido da Raquel: "diminua um pouco a aba
+  // recados e ao lado dela coloque Lembretes (isso será individual para
+  // cada membro e os lembretes devem ser no estilo post it)") -- post-its
+  // 100% pessoais (cada um só vê/edita os PRÓPRIOS, nunca de outra
+  // pessoa, nem o super admin) -- bem diferente de Recados, que é
+  // endereçado a alguém.
+  lembretes: [],
   // Agendamento de posts de redes sociais (manual por enquanto — a ideia é
   // no futuro conectar com as APIs da Meta/LinkedIn/TikTok/YouTube/Pinterest)
   socialPosts: [],

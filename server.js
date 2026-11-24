@@ -21,6 +21,7 @@ app.use('/api/budget', require('./routes/budget'));
 app.use('/api/demandas', require('./routes/demandas'));
 app.use('/api/labels', require('./routes/labels'));
 app.use('/api/recados', require('./routes/recados'));
+app.use('/api/lembretes', require('./routes/lembretes'));
 app.use('/api/social-posts', require('./routes/socialPosts'));
 // Conectar Agendamento de Redes Sociais à API de verdade da Meta (54ª
 // rodada) — ver routes/socialAccounts.js.

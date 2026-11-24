@@ -351,7 +351,24 @@ db.defaults({
   // aviso 2x no mesmo dia. Ver utils/demandaAtrasadaReminders.js e
   // utils/aprovacaoPendenteReminders.js.
   demandaAtrasadaEmailFired: [],
-  pendingApprovalEmailFired: []
+  pendingApprovalEmailFired: [],
+  // 158ª rodada, item 9/11 (#124, pedido da Raquel confirmado em 24/11):
+  // migração do dashboard de Ações Sazonais (app Railway separado, pasta
+  // dashboard-acoes-sazonais) pra dentro da Papoi como módulo nativo --
+  // mesmo molde da migração do Tráfego Pago (156ª rodada). 4 coleções
+  // novas (prefixo acoesSazonais*, nunca reaproveita nome já existente):
+  // Ações, Expositores Especiais ("Showroom" do app separado -- NÃO
+  // confundir com o módulo "Expositores" já nativo, expositoresEstoque
+  // acima, que é outra coisa), catálogo de produtos e orçamento anual por
+  // bucket. auditLog e budgetEntries (acima) são REAPROVEITADOS, não
+  // duplicados -- ver routes/acoesSazonais.js. Backend apenas nesta
+  // rodada -- frontend e migração do dado real do Railway ficam pra uma
+  // próxima etapa (ver claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md no
+  // Project da Raquel).
+  acoesSazonaisActions: [],
+  acoesSazonaisShowrooms: [],
+  acoesSazonaisBudgets: [],
+  acoesSazonaisProducts: []
 }).write();
 
 // Migração: os cards de Demandas tinham só 1 responsável (assigneeId).
@@ -456,6 +473,23 @@ if (orcamentosParaMigrar.length > 0) {
       dataPrimeiroPedido: o.dataPrimeiroPedido || null
     }).write();
   });
+}
+
+// Catálogo inicial de produtos de Ações Sazonais (158ª rodada, #124) --
+// mesmo padrão do app separado: só roda 1x, na coleção vazia (seed
+// original ou uso normal do sistema depois) -- nunca duplica/sobrescreve.
+if (db.get('acoesSazonaisProducts').size().value() === 0) {
+  const acoesSazonaisInitialProducts = require('./utils/acoesSazonaisProductCatalogSeed');
+  const nowSeed = new Date().toISOString();
+  const seededAcoesProducts = acoesSazonaisInitialProducts.map((p) => ({
+    id: nanoid(),
+    brand: p.brand,
+    nome: p.nome,
+    createdAt: nowSeed,
+    createdBy: 'seed'
+  }));
+  db.get('acoesSazonaisProducts').push(...seededAcoesProducts).write();
+  console.log(`[acoesSazonais] Catálogo de produtos inicial cadastrado: ${seededAcoesProducts.length} itens.`);
 }
 
 module.exports = db;

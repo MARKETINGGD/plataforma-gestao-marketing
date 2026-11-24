@@ -65,6 +65,18 @@ app.use('/api/ausencias', require('./routes/ausencias'));
 // permissions.trafegoPago que ja existia). Ver routes/trafegoPago.js.
 app.use('/api/trafego-pago', require('./routes/trafegoPago'));
 
+// 158a rodada, item #124: Ações Sazonais migrado do app Railway separado
+// (dashboard-acoes-sazonais) pra dentro da Papoi como modulo nativo,
+// mesmo padrao do Trafego Pago acima -- mesmo login/sessao, dados nas
+// colecoes acoesSazonais* do db.js, permissao pela chave
+// permissions.acoesSazonais que ja existia (antes so controlava a
+// visibilidade do card no hub via iframe; agora tambem controla edicao).
+// Backend apenas por enquanto -- ver claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md
+// (frontend nativo e migracao de dados reais do Railway ainda pendentes,
+// o iframe antigo em public/app.js continua funcionando ate o corte).
+// Ver routes/acoesSazonais.js.
+app.use('/api/acoes-sazonais', require('./routes/acoesSazonais'));
+
 // Importação automática (só roda uma vez) do orçamento 2026 real da
 // GhelPlus e da De Bacco, vindo das planilhas oficiais — agora linha a
 // linha (25ª rodada: fornecedor, título da compra e quantidade por

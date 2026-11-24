@@ -1339,6 +1339,44 @@
         <div class="iframe-wrap">
           <iframe id="acoesTelaFrame" title="Gerenciamento de Ações Sazonais"></iframe>
         </div>
+
+        <!-- 158ª rodada, item #124 (#127a) -- módulo nativo de Ações
+             Sazonais em construção, substituindo o iframe acima aos
+             poucos (ver claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md).
+             Fica OCULTO e sem nenhuma chamada até o corte final
+             (task #127i) -- o iframe acima continua sendo o que a
+             Raquel usa no dia a dia até lá, sem nenhum risco. -->
+        <div id="acoesNativeScreens" hidden>
+          <div id="asDashboardPage">
+            <div class="board-card board-section">
+              <div class="board-section-head"><h2>Visão Geral</h2></div>
+              <p class="muted" id="asDashboardSummary">Carregando…</p>
+            </div>
+          </div>
+          <div id="asVendasMetaPage" style="display:none;">
+            <div class="board-card board-section">
+              <div class="board-section-head"><h2>Resultados de Vendas e Meta</h2></div>
+              <p class="muted" id="asVendasMetaSummary">Carregando…</p>
+            </div>
+          </div>
+          <div id="asAcoesPage" style="display:none;">
+            <div class="board-section-head"><h2>Ações <span class="muted" id="asAcoesCount" style="font-weight:400;font-size:13px;"></span></h2></div>
+            <div id="asAcoesList"></div>
+          </div>
+          <div id="asHistoricoPage" style="display:none;">
+            <div class="board-section-head"><h2>Histórico</h2></div>
+            <table class="data-table">
+              <thead><tr><th>Quando</th><th>Quem</th><th>O quê</th><th>Ação</th></tr></thead>
+              <tbody id="asHistoricoBody"></tbody>
+            </table>
+          </div>
+          <div id="asUsuariosPage" style="display:none;">
+            <div class="board-card board-section">
+              <div class="board-section-head"><h2>Usuários</h2></div>
+              <p class="muted">A gestão de usuários e permissões é feita na tela de Usuários da própria Plataforma (Configurações → Usuários) — não existe mais um cadastro de usuário separado aqui.</p>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Acompanhamento Equipe (77ª rodada), pedido literal da Raquel:

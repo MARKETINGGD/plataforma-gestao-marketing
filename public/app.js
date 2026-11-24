@@ -4630,6 +4630,15 @@
   let acoesFrameBase = null; // cache { baseUrl, platformParams } -- evita re-assinar o token a cada clique de aba/marca
   let expositoresBrand = 'ghelplus';
 
+  // 158ª rodada, item #124 (#127a) -- módulo nativo em construção,
+  // mesmo padrão de `trafegoNative` (declarado acima): montado numa IIFE
+  // própria lá embaixo (função initAcoesSazonaisNative), que no final
+  // expõe { initAuthenticated, initPublic, setBrand, setTab, canEdit }
+  // aqui. AINDA NÃO é chamado por `openAcoesSazonaisHub()` (que continua
+  // usando o iframe normalmente) -- isso só acontece no corte final
+  // (task #127i), depois de todas as telas portadas e testadas.
+  let acoesSazonaisNative = null;
+
   // Só mostra Usuários/Link Público do painel pra quem tem acesso admin
   // NESSE dashboard (mesmo controle de acesso já usado pros outros 2
   // dashboards) -- editor/visitante não vê esses cards no hub.
@@ -16867,6 +16876,150 @@
   // -- usuários agora são só os da Papoi.
 
   trafegoNative = { initAuthenticated: tpInitAuthenticated, initPublic: tpInitPublic, setBrand: tpSetBrand, setTab: tpSetTab, canEdit: trafegoCanEdit };
+})();
+
+  // ====================================================================
+  // AÇÕES SAZONAIS — módulo nativo EM CONSTRUÇÃO (158ª rodada, item #124,
+  // task #127a) — esqueleto apenas: navegação por abas + carregamento de
+  // dado real via /api/acoes-sazonais/*, com conteúdo ainda só de
+  // placeholder em cada aba (o conteúdo completo de cada tela é portado
+  // nas tasks #127b-#127h, ver claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md).
+  // Mesmo molde do módulo do Tráfego Pago acima (própria IIFE, só usa
+  // api/currentUser/showView/$/$all de fora via closure). AINDA NÃO
+  // conectado a `openAcoesSazonaisHub()` -- só roda quando chamado
+  // manualmente (teste) até o corte final (#127i).
+  // ====================================================================
+(function(){
+  let asPublicMode = false;
+  let asPublicPayload = null;
+  let asBrand = 'ghelplus';
+  let asTab = 'dashboard';
+  let asData = { actions: [], showrooms: [], products: [], budgets: [], auditLog: [] };
+
+  function asCanEdit(){
+    if (asPublicMode) return false;
+    const perms = (typeof currentUser !== 'undefined' && currentUser && currentUser.permissions) || {};
+    return perms.acoesSazonais === 'editor' || perms.acoesSazonais === 'admin';
+  }
+
+  async function asLoadData(brand){
+    if (asPublicMode){
+      const payload = asPublicPayload;
+      asData = { actions: payload.actions || [], showrooms: payload.showrooms || [], products: [], budgets: payload.budgets || [], auditLog: [] };
+      return;
+    }
+    const brandQS = brand === 'all' ? '' : ('?brand=' + encodeURIComponent(brand));
+    const brandQSAmp = brand === 'all' ? '' : ('&brand=' + encodeURIComponent(brand));
+    const [actionsRes, showroomsRes, productsRes, budgetsRes, auditRes] = await Promise.all([
+      api('/api/acoes-sazonais/actions' + brandQS),
+      api('/api/acoes-sazonais/showrooms' + brandQS),
+      api('/api/acoes-sazonais/products' + brandQS),
+      api('/api/acoes-sazonais/budgets' + brandQS),
+      api('/api/acoes-sazonais/audit-log' + brandQS)
+    ]);
+    asData = {
+      actions: actionsRes.actions || [],
+      showrooms: showroomsRes.showrooms || [],
+      products: productsRes.products || [],
+      budgets: budgetsRes.budgets || [],
+      auditLog: auditRes.auditLog || []
+    };
+  }
+
+  function asFmtMoney(n){
+    return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  function asRenderDashboard(){
+    const el = document.getElementById('asDashboardSummary');
+    if (!el) return;
+    const totalInvestido = asData.actions.reduce((s, a) => s + (Number(a.valorInvestido) || 0), 0);
+    el.textContent = `${asData.actions.length} ação(ões) cadastrada(s) · investimento total registrado: ${asFmtMoney(totalInvestido)}.`;
+  }
+
+  function asRenderVendasMeta(){
+    const el = document.getElementById('asVendasMetaSummary');
+    if (!el) return;
+    const comMeta = asData.actions.filter((a) => a.metaTipo);
+    el.textContent = `${comMeta.length} de ${asData.actions.length} ação(ões) com meta definida.`;
+  }
+
+  function asRenderAcoes(){
+    const countEl = document.getElementById('asAcoesCount');
+    const listEl = document.getElementById('asAcoesList');
+    if (countEl) countEl.textContent = `(${asData.actions.length})`;
+    if (!listEl) return;
+    if (!asData.actions.length){
+      listEl.innerHTML = '<p class="muted">Nenhuma ação cadastrada ainda.</p>';
+      return;
+    }
+    listEl.innerHTML = '<div class="card-grid">' + asData.actions.map((a) => `
+      <div class="dash-card">
+        <h3>${escapeHtml(a.title || '(sem título)')}</h3>
+        <p class="muted">${escapeHtml(a.type || '')} · ${asFmtMoney(a.valorInvestido)}</p>
+      </div>`).join('') + '</div>';
+  }
+
+  function asRenderHistorico(){
+    const body = document.getElementById('asHistoricoBody');
+    if (!body) return;
+    if (!asData.auditLog.length){
+      body.innerHTML = '<tr><td colspan="4" class="muted">Nenhum registro ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = asData.auditLog.slice(0, 50).map((l) => `
+      <tr>
+        <td>${escapeHtml(l.createdAt || '')}</td>
+        <td>${escapeHtml(l.username || '')}</td>
+        <td>${escapeHtml(l.entityLabel || '')}</td>
+        <td>${escapeHtml(l.action || '')}</td>
+      </tr>`).join('');
+  }
+
+  function asRenderCurrentTab(){
+    if (asTab === 'dashboard') asRenderDashboard();
+    else if (asTab === 'vendas_meta') asRenderVendasMeta();
+    else if (asTab === 'acoes') asRenderAcoes();
+    else if (asTab === 'historico') asRenderHistorico();
+    // 'usuarios' é só texto estático, nada pra renderizar.
+  }
+
+  function asSetTab(tab){
+    asTab = tab;
+    ['dashboard', 'vendas_meta', 'acoes', 'historico', 'usuarios'].forEach((t) => {
+      const pageEl = document.getElementById('as' + t.replace(/(^|_)([a-z])/g, (m, p, c) => c.toUpperCase()) + 'Page');
+      if (pageEl) pageEl.style.display = (t === tab) ? '' : 'none';
+    });
+    asRenderCurrentTab();
+  }
+
+  async function asSetBrand(brand){
+    asBrand = brand;
+    await asLoadData(brand);
+    asRenderCurrentTab();
+  }
+
+  async function asInitAuthenticated(brand, tab){
+    asPublicMode = false; asPublicPayload = null;
+    asBrand = brand || 'ghelplus';
+    await asLoadData(asBrand);
+    asSetTab(tab || 'dashboard');
+  }
+
+  async function asInitPublic(payload, tab){
+    asPublicMode = true; asPublicPayload = payload;
+    asBrand = payload.brand;
+    await asLoadData(asBrand);
+    asSetTab(tab || 'dashboard');
+  }
+
+  acoesSazonaisNative = {
+    initAuthenticated: asInitAuthenticated,
+    initPublic: asInitPublic,
+    setBrand: asSetBrand,
+    setTab: asSetTab,
+    canEdit: asCanEdit
+  };
 })();
 
 

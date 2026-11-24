@@ -51,7 +51,12 @@ const router = express.Router();
 // (aprovacao, que é "mandado pra aprovar, esperando resposta"): "Aprovado"
 // é o card que JÁ foi aprovado e só falta ser finalizado/publicado. Entra
 // depois de "aprovacao" e antes de "concluida", seguindo o mesmo fluxo.
-const STATUSES = ['a_fazer', 'andamento', 'em_revisao', 'em_refacao', 'aprovacao', 'aprovado', 'concluida'];
+// 158ª rodada, pedido da Raquel: "No menu demandas: add a aopcao de
+// Pausado no status das demandas do card, quando ele estiver pausado,
+// deve aparecer uma etiqueta nesse card, destacando que esta pausado" --
+// mesmo padrão de sempre (92ª/97ª rodadas: Em Revisão/Em Refação/
+// Aprovado) pra adicionar um status novo.
+const STATUSES = ['a_fazer', 'andamento', 'em_revisao', 'em_refacao', 'aprovacao', 'aprovado', 'pausado', 'concluida'];
 const VISIBILITIES = ['geral', 'pessoal'];
 // Marca (37ª rodada, pedido da Raquel): opcional -- mostra o ícone da marca
 // no início do título do card. Demanda criada automaticamente a partir de
@@ -358,7 +363,7 @@ function cardOrder(d) {
 
 // Rótulos em PT do status, usados só pra montar frases legíveis no
 // histórico (22ª rodada) — mesmos valores de STATUSES acima.
-const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', aprovado: 'Aprovado', concluida: 'Concluída' };
+const STATUS_LABEL_PT = { a_fazer: 'A Fazer', andamento: 'Em Andamento', em_revisao: 'Em Revisão', em_refacao: 'Em Refação', aprovacao: 'Em Aprovação', aprovado: 'Aprovado', pausado: 'Pausado', concluida: 'Concluída' };
 
 // 126ª rodada, pedido da Raquel: "quem faz as aprovações de tudo, é
 // sempre a gerente, coordenadora e admin" -- mesmo público já usado em

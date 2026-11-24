@@ -778,6 +778,9 @@
   // refação, em revisão" -- precisa bater com STATUSES/STATUS_LABEL_PT em
   // routes/demandas.js. 97ª rodada: adicionado "aprovado" pelo mesmo motivo
   // (pedido da Raquel: "em demandas, no status - adicione a Aprovado").
+  // 158ª rodada, pedido da Raquel: "add a aopção de Pausado no status das
+  // demandas do card" -- precisa bater com STATUSES/STATUS_LABEL_PT em
+  // routes/demandas.js, mesmo padrão de sempre.
   const STATUS_COLUMNS = [
     { key: 'a_fazer', label: 'A Fazer' },
     { key: 'andamento', label: 'Em Andamento' },
@@ -785,6 +788,7 @@
     { key: 'em_refacao', label: 'Em Refação' },
     { key: 'aprovacao', label: 'Em Aprovação' },
     { key: 'aprovado', label: 'Aprovado' },
+    { key: 'pausado', label: 'Pausado' },
     { key: 'concluida', label: 'Concluída' }
   ];
   const SOCIAL_PLATFORM_LABEL = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', newsletter: 'Newsletter', influencer: 'Influencer', blog: 'Blog' };
@@ -5642,7 +5646,7 @@
       });
       items.forEach((d) => {
         const card = document.createElement('div');
-        card.className = 'kanban-card' + (d.overdue ? ' overdue' : '') + (d.status === 'concluida' ? ' is-done' : '');
+        card.className = 'kanban-card' + (d.overdue ? ' overdue' : '') + (d.status === 'concluida' ? ' is-done' : '') + (d.status === 'pausado' ? ' pausado' : '');
         const doneCount = (d.checklist || []).filter((c) => c.done).length;
         const total = (d.checklist || []).length;
         const cardLabels = (d.labelIds || []).map(labelById).filter(Boolean);
@@ -5654,7 +5658,7 @@
           </div>
           ${d.network ? `<div class="kanban-card-network">${networkIconHtml(d.network)} ${SOCIAL_PLATFORM_LABEL[d.network] || d.network}</div>` : ''}
           <div class="kanban-card-meta">
-            <span class="badge">${statusLabel(d.status)}</span>
+            <span class="badge${d.status === 'pausado' ? ' badge-pausado' : ''}">${d.status === 'pausado' ? '⏸ Pausado' : statusLabel(d.status)}</span>
             ${d.dueDate ? `<span class="badge ${d.overdue ? 'badge-danger' : ''}">${fmtDate(d.dueDate)}</span>` : ''}
             ${d.recurrence === 'mensal' ? '<span class="badge badge-muted" title="Repete todo mês">↻ mensal</span>' : ''}
             ${d.recurrence === 'semanal' ? '<span class="badge badge-muted" title="Repete toda semana">↻ semanal</span>' : ''}

@@ -8121,6 +8121,7 @@
         <td>${u.totals.aprovacao}</td>
         <td>${u.totals.concluida}</td>
         <td>${u.totals.atrasada}</td>
+        <td>${u.pontosNoPeriodo || 0}</td>
         <td>${ausenciasResumoCelula(u)}</td>
         <td>${u.tempoTotalSegundos ? fmtDuration(u.tempoTotalSegundos) : '—'}</td>
         <td>${u.lastAccessAt ? fmtDateTime(u.lastAccessAt) : '—'}</td>
@@ -8128,6 +8129,22 @@
       tr.onclick = () => { pessoaSel.value = u.id; loadAcompanhamentoEquipe(); };
       resumoBody.appendChild(tr);
     });
+
+    // 158ª rodada, ajuste: aviso visual de período ativo -- ver comentário
+    // no index.html (acompanhamentoPeriodoAtivoAviso). Só aparece quando
+    // "de" e/ou "até" tiverem valor.
+    const periodoAvisoEl = $('#acompanhamentoPeriodoAtivoAviso');
+    const deVal = $('#acompanhamentoFilterFrom').value;
+    const ateVal = $('#acompanhamentoFilterTo').value;
+    if (deVal || ateVal) {
+      const trecho = deVal && ateVal
+        ? `de ${fmtDate(deVal)} até ${fmtDate(ateVal)}`
+        : deVal ? `a partir de ${fmtDate(deVal)}` : `até ${fmtDate(ateVal)}`;
+      periodoAvisoEl.textContent = `⚠ Período ativo (${trecho}): afeta a coluna "Pontos" (por data de conclusão) e a lista de demandas abaixo (por data de criação) -- não afeta as colunas de status, que sempre mostram a realidade atual.`;
+      periodoAvisoEl.hidden = false;
+    } else {
+      periodoAvisoEl.hidden = true;
+    }
 
     detalheBody.innerHTML = '';
     data.demandas.forEach((d) => {

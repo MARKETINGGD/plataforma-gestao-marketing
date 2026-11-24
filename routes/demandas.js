@@ -838,32 +838,71 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
 });
 
 // 158ª rodada, item #121, pedido da Raquel: mostrar quantos pontos cada
-// ação gerou dentro do Acompanhamento da Equipe. Reaproveita EXATAMENTE a
-// mesma regra de pontuação do REIS DO MARKETING (GET /reis-do-marketing
-// acima: 1 ponto pelo card concluído -- marcados + responsável geral,
-// sem duplicar quem for os dois -- mais 1 ponto por item de checklist
-// concluído, excluindo sempre gerente/coordenador), com UMA diferença
-// deliberada: aqui NÃO há recorte por mês vigente -- o Acompanhamento da
-// Equipe já tem seu próprio filtro de período (`from`/`to`, aplicado
-// antes de chegar aqui via matchesPeriodAndBrand), então pontuar tudo que
-// já foi concluído evita o usuário "perder" pontos de um card concluído
-// num mês mas sendo olhado depois. Quando `filterUserId` está definido
-// (coordenadora clicou numa pessoa específica no resumo), só pontua o que
-// for atribuído A ELA; sem pessoa escolhida (lista mista de todo mundo),
-// soma os pontos de todo mundo que participou daquela ação específica.
-function pontosDaAcao(d, filterUserId, excludedIds) {
+// ação gerou dentro do Acompanhamento da Equipe. Reaproveita a mesma
+// regra de pontuação do REIS DO MARKETING (GET /reis-do-marketing acima:
+// 1 ponto pelo card concluído -- marcados + responsável geral, sem
+// duplicar quem for os dois -- mais 1 ponto por item de checklist
+// concluído, excluindo sempre gerente/coordenador).
+//
+// AJUSTE (158ª rodada, nova pedida da Raquel): a versão original desta
+// função (até o commit anterior) não tinha NENHUM recorte de data --
+// contava tudo que já tinha sido concluído algum dia, confiando que quem
+// chamava (`GET /team-report`, via `matchesPeriodAndBrand`) já tinha
+// filtrado as demandas por período antes. O problema: esse filtro de
+// período filtra pela data de CRIAÇÃO da demanda, não pela data de
+// CONCLUSÃO -- então uma demanda criada em outubro mas concluída em
+// novembro contava (ou não) os pontos de novembro de um jeito que nunca
+// batia com o Reis do Marketing (que sempre olha a data de CONCLUSÃO do
+// mês vigente). Pedido literal da Raquel: "quero que o relatorio, ao
+// puxar na data do mes de vigencia, os pontos batam com o grafico".
+//
+// Essa função agora recebe `from`/`to` (os mesmos parâmetros de período
+// da tela) e generaliza a MESMA regra do Reis do Marketing (que é fixa no
+// mês vigente) pra um período qualquer: só pontua concluções (de card ou
+// de item de checklist) cuja DATA DE CONCLUSÃO caia dentro de
+// `from`/`to`, e com a mesma exigência de "mês vigente" do Reis do
+// Marketing generalizada pra "dentro do período" (a data de entrega que
+// valia na conclusão também precisa cair no período, OU não ter data de
+// entrega nenhuma). Sem período nenhum selecionado (from/to vazios),
+// mantém o comportamento de sempre: conta tudo que já foi concluído,
+// sem nenhuma exigência de data de entrega.
+//
+// Quando `filterUserId` está definido (coordenadora clicou numa pessoa
+// específica no resumo), só pontua o que for atribuído A ELA; sem pessoa
+// escolhida (lista mista de todo mundo), soma os pontos de todo mundo que
+// participou daquela ação específica.
+function pontosDaAcaoNoPeriodo(d, filterUserId, excludedIds, from, to) {
+  const semPeriodo = !from && !to;
+  function dentroDoPeriodo(dataStr) {
+    if (!dataStr) return false;
+    const dia = dataStr.slice(0, 10);
+    if (from && dia < from) return false;
+    if (to && dia > to) return false;
+    return true;
+  }
+  function prazoBate(dueDate) {
+    if (semPeriodo) return true;
+    return !dueDate || dentroDoPeriodo(dueDate);
+  }
   let pontos = 0;
-  if (d.lastCompletedAt) {
-    const pontuamNesseCard = new Set(d.assigneeIds || []);
-    if (d.responsibleId) pontuamNesseCard.add(d.responsibleId);
-    pontuamNesseCard.forEach((id) => {
-      if (!id || excludedIds.has(id)) return;
-      if (filterUserId && id !== filterUserId) return;
-      pontos += 1;
-    });
+  const concluidoDentroDoPeriodo = semPeriodo ? !!d.lastCompletedAt : dentroDoPeriodo(d.lastCompletedAt);
+  if (concluidoDentroDoPeriodo) {
+    const dueDateNaConclusao = d.lastCompletedDueDate !== undefined ? d.lastCompletedDueDate : d.dueDate;
+    if (prazoBate(dueDateNaConclusao)) {
+      const pontuamNesseCard = new Set(d.assigneeIds || []);
+      if (d.responsibleId) pontuamNesseCard.add(d.responsibleId);
+      pontuamNesseCard.forEach((id) => {
+        if (!id || excludedIds.has(id)) return;
+        if (filterUserId && id !== filterUserId) return;
+        pontos += 1;
+      });
+    }
   }
   (d.checklist || []).forEach((it) => {
     if (!(it.assigneeId && it.done && it.doneAt)) return;
+    const itemDentroDoPeriodo = semPeriodo ? true : dentroDoPeriodo(it.doneAt);
+    if (!itemDentroDoPeriodo) return;
+    if (!prazoBate(it.dueDate)) return;
     if (excludedIds.has(it.assigneeId)) return;
     if (filterUserId && it.assigneeId !== filterUserId) return;
     pontos += 1;
@@ -1014,19 +1053,35 @@ router.get('/team-report', requireAuth, (req, res) => {
   // (`detail`, mais abaixo).
   const allDemandasVisiveis = allDemandas.filter((d) => d.visibility !== 'pessoal');
 
-  // Período (`from`/`to`) e marca filtram tanto o resumo por pessoa quanto
-  // a lista detalhada -- são "qual fatia de tempo/marca estamos olhando".
-  // Pessoa e status filtram só a lista detalhada -- o resumo por pessoa já
-  // mostra a composição por status de cada uma, então escolher 1 status ali
-  // esconderia justamente a comparação que o resumo serve pra mostrar.
-  function matchesPeriodAndBrand(d) {
-    if (from && (!d.createdAt || d.createdAt.slice(0, 10) < from)) return false;
-    if (to && (!d.createdAt || d.createdAt.slice(0, 10) > to)) return false;
+  // Período (`from`/`to`) e marca filtram a lista detalhada -- são "qual
+  // fatia de tempo/marca estamos olhando" (por data de CRIAÇÃO da
+  // demanda). Pessoa e status filtram só a lista detalhada -- o resumo
+  // por pessoa já mostra a composição por status de cada uma, então
+  // escolher 1 status ali esconderia justamente a comparação que o
+  // resumo serve pra mostrar.
+  //
+  // AJUSTE (158ª rodada): o resumo por pessoa (totals, abaixo) deixou de
+  // usar este filtro de período -- Raquel reportou que o total de
+  // demandas "a fazer"/"em andamento" de uma pessoa ficava bem menor que
+  // a realidade sempre que um período ficava selecionado (às vezes sem
+  // ela nem perceber, já que o filtro não se limpa sozinho ao trocar de
+  // tela). Status "a fazer"/"andamento"/etc é um fato do AGORA da
+  // demanda -- não faz sentido escondê-lo filtrando pela data em que a
+  // demanda foi CRIADA. `matchesBrandOnly` abaixo é usado pro resumo (só
+  // marca, sem período); `matchesPeriodAndBrand` continua existindo pra
+  // tudo que já fazia sentido ser "por período" antes (lista detalhada,
+  // tempo rastreado).
+  function matchesBrandOnly(d) {
     // 79ª rodada: card pode ter mais de uma marca marcada -- filtrar por
     // "De Bacco" também tem que achar um card marcado De Bacco+GhelPlus,
     // não só o que é De Bacco sozinho.
     if (brandFilter && !brandsOf(d).includes(brandFilter)) return false;
     return true;
+  }
+  function matchesPeriodAndBrand(d) {
+    if (from && (!d.createdAt || d.createdAt.slice(0, 10) < from)) return false;
+    if (to && (!d.createdAt || d.createdAt.slice(0, 10) > to)) return false;
+    return matchesBrandOnly(d);
   }
 
   // 107ª rodada, pedido literal da Raquel: "Essas informações devem ficar
@@ -1059,9 +1114,29 @@ router.get('/team-report', requireAuth, (req, res) => {
   const allAusencias = db.get('ausencias').value();
 
   const team = teamUsers.map((u) => {
+    // Totais de status (coluna "A Fazer"/"Em Andamento"/etc do resumo):
+    // só marca, SEM período (ver comentário de `matchesBrandOnly` acima).
+    const mineAtual = allDemandasVisiveis.filter((d) => (d.assigneeIds || []).includes(u.id) && matchesBrandOnly(d));
+    const totals = { total: mineAtual.length, a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, aprovado: 0, concluida: 0, atrasada: 0 };
+    mineAtual.forEach((d) => { const k = teamReportStatusKey(d); totals[k] = (totals[k] || 0) + 1; });
+
+    // Tempo registrado (abaixo) continua usando o filtro de período de
+    // sempre (por data de criação) -- ninguém reclamou desse número, e
+    // mudar o critério dele junto não foi pedido.
     const mine = allDemandasVisiveis.filter((d) => (d.assigneeIds || []).includes(u.id) && matchesPeriodAndBrand(d));
-    const totals = { total: mine.length, a_fazer: 0, andamento: 0, em_revisao: 0, em_refacao: 0, aprovacao: 0, aprovado: 0, concluida: 0, atrasada: 0 };
-    mine.forEach((d) => { const k = teamReportStatusKey(d); totals[k] = (totals[k] || 0) + 1; });
+
+    // Pontos do período selecionado (158ª rodada, ajuste): soma
+    // `pontosDaAcaoNoPeriodo` (ver comentário dela acima) em TODAS as
+    // demandas da marca escolhida -- não só as de `mine`/`mineAtual`
+    // (que são filtradas por data de CRIAÇÃO) -- porque o que importa
+    // aqui é a data de CONCLUSÃO de cada ponto, não a de criação do
+    // card. Sem período selecionado, `from`/`to` chegam undefined e a
+    // função conta tudo que já foi concluído algum dia (mesmo
+    // comportamento de antes deste ajuste). Com período = mês vigente,
+    // este número bate exatamente com o Reis do Marketing.
+    const pontosNoPeriodo = allDemandasVisiveis
+      .filter(matchesBrandOnly)
+      .reduce((soma, d) => soma + pontosDaAcaoNoPeriodo(d, u.id, managementIds, from, to), 0);
 
     const minhasAusencias = allAusencias
       .filter((a) => a.userId === u.id && matchesAbsencePeriod(a))
@@ -1080,7 +1155,7 @@ router.get('/team-report', requireAuth, (req, res) => {
     }));
 
     const tempoTotalSegundos = mine.reduce((sum, d) => sum + tempoDaAcao(d, u.id), 0);
-    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, ausenciasResumo, ausencias, lastAccessAt: u.lastAccessAt || null, tempoTotalSegundos };
+    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, pontosNoPeriodo, ausenciasResumo, ausencias, lastAccessAt: u.lastAccessAt || null, tempoTotalSegundos };
   });
 
   let detail = allDemandasVisiveis.filter(matchesPeriodAndBrand);
@@ -1102,7 +1177,7 @@ router.get('/team-report', requireAuth, (req, res) => {
     .map((d) => Object.assign({}, serialize(d), {
       statusKey: teamReportStatusKey(d),
       assigneeCount: (d.assigneeIds || []).length,
-      pontos: pontosDaAcao(d, userId || null, managementIds),
+      pontos: pontosDaAcaoNoPeriodo(d, userId || null, managementIds, from, to),
       tempoSegundos: tempoDaAcao(d, userId || null)
     }));
 

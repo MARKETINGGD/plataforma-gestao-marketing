@@ -5340,9 +5340,15 @@
   function ausenciaBadgeLabel(a) {
     if (!a) return '';
     if (a.tipo === 'saida') return '🕐 Saída';
-    if (a.tipo === 'afastamento') return '😷 Afastado(a)';
+    // 158ª rodada: "Afastamento" virou "Licença Médica" (mesmo emoji de
+    // sempre). "Licença Maternidade" é tipo novo -- a Raquel pediu um
+    // ícone de cegonha, mas não existe emoji de cegonha no Unicode; usei
+    // 👶 (bebê) por ser o mais próximo e universalmente suportado --
+    // avisar a ela que dá pra trocar se preferir outro símbolo.
+    if (a.tipo === 'afastamento') return '😷 Licença Médica';
+    if (a.tipo === 'licenca_maternidade') return '👶 Licença Maternidade';
     if (a.tipo === 'viagem') return '✈️ Viagem';
-    return '🏖️ Férias';
+    return '🏖️ Férias' + (a.meioDia ? ' (meio período)' : '');
   }
 
   function kanbanColumns() {
@@ -12504,6 +12510,28 @@
     populateAusenciaFormUserOptions();
     renderAusenciasCalendar();
     renderAusenciasTable();
+    await loadHorasNegativas();
+  }
+
+  // 158ª rodada: painel só aparece pra quem o back-end libera (gerente/
+  // coordenador/admin, mesma regra de "Saída fora do horário") -- quem
+  // não pode, recebe 403 e o painel simplesmente fica escondido, sem
+  // nenhum erro visível pra ela.
+  async function loadHorasNegativas() {
+    try {
+      const data = await api('/api/ausencias/horas-negativas');
+      const rows = data.horasNegativas || [];
+      $('#ausenciasHorasNegativasWrap').hidden = rows.length === 0;
+      const body = $('#ausenciasHorasNegativasBody');
+      body.innerHTML = rows.map((r) => {
+        const h = Math.floor(r.minutosNegativos / 60);
+        const m = r.minutosNegativos % 60;
+        const texto = (h > 0 ? h + 'h' : '') + (m > 0 ? m + 'min' : (h > 0 ? '' : '0min'));
+        return `<tr><td>${escapeHtml(r.userName || '')}</td><td>${texto}</td></tr>`;
+      }).join('');
+    } catch (e) {
+      $('#ausenciasHorasNegativasWrap').hidden = true;
+    }
   }
 
   function populateAusenciaFormUserOptions() {
@@ -12526,7 +12554,10 @@
 
   function ausenciaTipoLabel(tipo) {
     if (tipo === 'saida') return 'Saída fora do horário';
-    if (tipo === 'afastamento') return 'Afastamento';
+    // 158ª rodada: rótulo trocado de "Afastamento" pra "Licença Médica"
+    // (chave interna 'afastamento' continua igual, só o texto mudou).
+    if (tipo === 'afastamento') return 'Licença Médica';
+    if (tipo === 'licenca_maternidade') return 'Licença Maternidade';
     if (tipo === 'viagem') return 'Viagem a trabalho';
     return 'Férias';
   }
@@ -12647,6 +12678,7 @@
     $('#ausenciaFormHoraChegada').value = ausencia ? (ausencia.horaChegada || '') : '';
     $('#ausenciaFormHoraSaida').value = ausencia ? (ausencia.horaSaida || '') : '';
     $('#ausenciaFormHoraRetorno').value = ausencia ? (ausencia.horaRetorno || '') : '';
+    $('#ausenciaFormMeioDia').checked = ausencia ? !!ausencia.meioDia : false;
     $('#ausenciaFormObs').value = ausencia ? (ausencia.observacoes || '') : '';
     $('#ausenciaFormError').hidden = true;
     $('#ausenciaFormDelete').hidden = !ausencia || !currentUser.isSuperAdmin;
@@ -12666,6 +12698,9 @@
     $('#ausenciaFormFimWrap').hidden = isUmDia;
     if (isUmDia) $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
     $('#ausenciaFormHorasWrap').hidden = tipo !== 'saida';
+    // 158ª rodada: "meio dia" só faz sentido pra férias.
+    $('#ausenciaFormMeioDiaWrap').hidden = tipo !== 'ferias';
+    if (tipo !== 'ferias') $('#ausenciaFormMeioDia').checked = false;
   }
   $('#ausenciaFormTipo').onchange = updateAusenciaFimVisibility;
   $('#ausenciaFormInicio').onchange = () => {
@@ -12684,6 +12719,7 @@
       horaChegada: $('#ausenciaFormHoraChegada').value || null,
       horaSaida: $('#ausenciaFormHoraSaida').value || null,
       horaRetorno: $('#ausenciaFormHoraRetorno').value || null,
+      meioDia: $('#ausenciaFormMeioDia').checked,
       observacoes: $('#ausenciaFormObs').value.trim()
     };
     if (!payload.dataInicio) {

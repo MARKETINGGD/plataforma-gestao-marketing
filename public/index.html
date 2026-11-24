@@ -3714,7 +3714,8 @@
                 <label>Tipo</label>
                 <select id="ausenciaFormTipo">
                   <option value="ferias">Férias</option>
-                  <option value="afastamento">Afastamento</option>
+                  <option value="afastamento">Licença Médica</option>
+                  <option value="licenca_maternidade">Licença Maternidade</option>
                   <option value="viagem">Viagem a trabalho</option>
                   <option value="saida">Saída fora do horário</option>
                 </select>
@@ -3729,6 +3730,12 @@
                 <label>Data fim</label>
                 <input id="ausenciaFormFim" type="date">
               </div>
+            </div>
+            <!-- 158ª rodada, pedido da Raquel: "em casos de ferias deve ter
+                 a opção de colocar meio dia apenas tbm" -- só aparece pro
+                 tipo Férias (ver updateAusenciaFimVisibility em app.js). -->
+            <div id="ausenciaFormMeioDiaWrap" class="form-row" hidden>
+              <label><input type="checkbox" id="ausenciaFormMeioDia"> Meio período (meio dia de férias)</label>
             </div>
             <div id="ausenciaFormHorasWrap" class="form-row" hidden>
               <div>
@@ -3760,6 +3767,21 @@
             <button class="btn-secondary" id="ausenciasNextMonth">Próximo mês →</button>
           </div>
           <div class="cal-grid" id="ausenciasCalGrid"></div>
+
+          <!-- 158ª rodada, pedido da Raquel: "Quando chegou atrasado, saiu mais
+               cedo, deve ter mostrar as horas que acumularam como
+               negativas" -- resumo por pessoa, mesma restrição de acesso
+               de "Saída fora do horário" (só gerente/coordenador/admin);
+               o próprio back-end devolve 403 pra quem não pode ver, por
+               isso o painel some sozinho (ver loadAusenciasAdmin em
+               app.js) em vez de aparecer vazio pra todo mundo. -->
+          <div id="ausenciasHorasNegativasWrap" class="form-card" hidden style="margin-top:20px;">
+            <h3>Horas negativas acumuladas</h3>
+            <table class="data-table" id="ausenciasHorasNegativasTable">
+              <thead><tr><th>Colaborador(a)</th><th>Horas negativas</th></tr></thead>
+              <tbody id="ausenciasHorasNegativasBody"></tbody>
+            </table>
+          </div>
 
           <table class="data-table" id="ausenciasTable" style="margin-top:20px;">
             <thead>

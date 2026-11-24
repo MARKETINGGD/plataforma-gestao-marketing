@@ -4,6 +4,12 @@ const { nanoid } = require('../utils/id');
 const { requireAuth, requireSuperAdmin } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
+// 158ª rodada: "horas negativas" (atraso/saída antecipada) reaproveita o
+// MESMO horário de ponto já cadastrado por pessoa (47ª rodada,
+// `pontoSchedule` em routes/auth.js, campos entradaManha/saidaFinal) --
+// Raquel pediu "de acordo com os horarios de cada um que esta cadastrado
+// no usuario", e esse campo já é exatamente isso, não precisa criar nada
+// novo no cadastro do usuário (ver minutosNegativos() mais abaixo).
 const { createAutoRecado } = require('./recados');
 const shareLinks = require('../utils/shareLinks');
 const { todaySaoPauloStr } = require('../utils/dateSaoPaulo');
@@ -72,8 +78,16 @@ function canViewHorarioRestrito(req) {
 // opcionais (nenhum é obrigatório -- um registro simples de "saiu fora do
 // horário hoje", sem nenhum horário detalhado, continua válido, exatamente
 // como antes da 106ª rodada existir).
-const TIPOS = ['ferias', 'afastamento', 'viagem', 'saida'];
-const TIPO_LABEL = { ferias: 'Férias', afastamento: 'Afastamento', viagem: 'Viagem a trabalho', saida: 'Saída fora do horário' };
+// 158ª rodada, pedido da Raquel: "adicionar a opção de licença médica
+// (trocar o afastamento por esse) e licença maternidade". A CHAVE
+// interna continua 'afastamento' de propósito -- registros antigos já
+// salvos no banco (e toda a lógica de notificação por e-mail abaixo,
+// que já checava `tipo === 'afastamento'`) continuam funcionando sem
+// nenhuma migração de dados, só o RÓTULO visível muda pra "Licença
+// Médica". 'licenca_maternidade' é tipo novo, mesmo comportamento de
+// período (início/fim) que férias/licença médica/viagem já têm.
+const TIPOS = ['ferias', 'afastamento', 'licenca_maternidade', 'viagem', 'saida'];
+const TIPO_LABEL = { ferias: 'Férias', afastamento: 'Licença Médica', licenca_maternidade: 'Licença Maternidade', viagem: 'Viagem a trabalho', saida: 'Saída fora do horário' };
 // Tipos de 1 dia só (a data final sempre acompanha a de início, campo
 // "Data fim" nem aparece na tela -- ver updateAusenciaFimVisibility em
 // app.js). Férias/Afastamento/Viagem continuam sendo um período.
@@ -96,7 +110,11 @@ function serialize(a) {
     userPhoto: resolveUserPhoto(a.userId),
     horaChegada: a.horaChegada || null,
     horaSaida: a.horaSaida || null,
-    horaRetorno: a.horaRetorno || null
+    horaRetorno: a.horaRetorno || null,
+    // 158ª rodada: "em casos de ferias deve ter a opção de colocar meio
+    // dia apenas tbm" -- só faz sentido pra tipo 'ferias', sempre false
+    // pros outros tipos (nunca gravado neles, ver POST/PUT abaixo).
+    meioDia: !!a.meioDia
   });
 }
 
@@ -135,6 +153,55 @@ function horaDetalhes(ausencia) {
   return ` (${partes.slice(0, -1).join(', ')} e ${partes[partes.length - 1]})`;
 }
 
+// ---------- horas negativas (158ª rodada) ----------
+// Pedido da Raquel: "Quando chegou atrasado, saiu mais cedo, deve ter
+// mostrar as horas que acumularam como negativas, de acordo com os
+// horarios de cada um que esta cadastrado no usuario." -- o "horário
+// cadastrado" já existe (pontoSchedule, 47ª rodada, ver import de
+// PONTO_SLOTS acima): entradaManha/saidaFinal. Comparado só contra os
+// registros do tipo 'saida' (único tipo que grava horaChegada/horaSaida/
+// horaRetorno -- ver TIPOS_UM_DIA acima). Pessoa sem horário cadastrado
+// (pontoSchedule null, mesmo caso da Raquel/Melissa que não batem ponto)
+// não acumula nada -- não dá pra saber se chegou atrasada sem saber a que
+// horas deveria ter chegado.
+function toMinutes(hhmm) {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
+  return h * 60 + m;
+}
+
+// Minutos negativos de UM registro de 'saida': atraso na chegada (vs.
+// entradaManha) + tempo fora durante o expediente (saiu e, se voltou,
+// conta só o intervalo saída->retorno; se não voltou, conta até o
+// horário de saída final cadastrado). Os 2 cálculos são independentes
+// porque o mesmo registro pode ter os 2 ao mesmo tempo (ex.: chegou
+// atrasado E saiu mais cedo no mesmo dia) -- ver horaDetalhes() acima,
+// que já lida com qualquer combinação dos 3 campos.
+function minutosNegativos(ausencia, pontoSchedule) {
+  if (!ausencia || ausencia.tipo !== 'saida' || !pontoSchedule) return 0;
+  let total = 0;
+  const entrada = toMinutes(pontoSchedule.entradaManha);
+  const chegou = toMinutes(ausencia.horaChegada);
+  if (entrada !== null && chegou !== null && chegou > entrada) {
+    total += chegou - entrada;
+  }
+  const saiu = toMinutes(ausencia.horaSaida);
+  if (saiu !== null) {
+    const retornou = toMinutes(ausencia.horaRetorno);
+    if (retornou !== null && retornou > saiu) {
+      // saiu e voltou no mesmo dia -- conta só o tempo que ficou fora.
+      total += retornou - saiu;
+    } else if (retornou === null) {
+      // saiu e não voltou -- conta até o horário de saída final cadastrado
+      // (se ela já saiu DEPOIS do horário normal, não é "mais cedo", não
+      // soma nada).
+      const saidaFinal = toMinutes(pontoSchedule.saidaFinal);
+      if (saidaFinal !== null && saidaFinal > saiu) total += saidaFinal - saiu;
+    }
+  }
+  return total;
+}
+
 // 107ª rodada: com "chegou tal hora" e "saiu tal hora" vivendo agora no
 // mesmo tipo `saida`, o verbo do comunicado muda conforme o que foi
 // preenchido -- só horário de CHEGADA (chegou mais tarde, sem ter saído
@@ -155,11 +222,15 @@ function anunciarAusencia(ausencia) {
   if (ausencia.tipo === 'saida') {
     texto = `🕐 ${primeiroNome} ${verboSaida(ausencia, acabou)} no dia ${fmtDateBR(ausencia.dataInicio)}${horaDetalhes(ausencia)}.`;
   } else if (ausencia.tipo === 'afastamento') {
-    texto = `😷 ${primeiroNome} ${acabou ? 'esteve' : 'estará'} afastado(a) de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
+    // 158ª rodada: rótulo virou "Licença Médica" -- texto do comunicado
+    // acompanha (chave interna 'afastamento' continua igual, ver TIPOS).
+    texto = `😷 ${primeiroNome} ${acabou ? 'esteve' : 'estará'} de licença médica de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
+  } else if (ausencia.tipo === 'licenca_maternidade') {
+    texto = `👶 ${primeiroNome} ${acabou ? 'esteve' : 'estará'} de licença maternidade de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
   } else if (ausencia.tipo === 'viagem') {
     texto = `✈️ ${primeiroNome} ${acabou ? 'esteve' : 'estará'} em viagem a trabalho de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
   } else {
-    texto = `🏖️ ${primeiroNome} ${acabou ? 'esteve' : 'estará'} de férias de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
+    texto = `🏖️ ${primeiroNome} ${acabou ? 'esteve' : 'estará'} de férias${ausencia.meioDia ? ' (meio período)' : ''} de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
   }
   // 107ª rodada, pedido literal da Raquel: "todas as saidas ou chegadas
   // fora do horário devem aparecer apenas para coordenadora, admim e
@@ -278,6 +349,40 @@ router.delete('/public-link', requireAuth, requireSuperAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// Resumo de horas negativas acumuladas por pessoa (158ª rodada) --
+// mesma restrição de acesso que o resto do horário restrito ("saida"):
+// só gerente/coordenador/admin, igual a `canViewHorarioRestrito` já
+// documentado no topo deste arquivo. Soma TODOS os registros de 'saida'
+// já cadastrados (sem corte por período -- mais simples, e evita
+// "zerar" silenciosamente um acumulado que a Raquel ainda não tinha
+// cobrado de ninguém; se ela quiser resetar/por período, dá pra ajustar
+// depois). Gente sem nenhum atraso/saída antecipada fica de fora da
+// lista (não aparece com 0).
+router.get('/horas-negativas', requireAuth, (req, res) => {
+  if (!canViewHorarioRestrito(req)) {
+    return res.status(403).json({ error: 'Essa informação é restrita a gerente, coordenador(a) ou admin.' });
+  }
+  const allUsers = db.get('users').value();
+  const saidas = db.get('ausencias').value().filter((a) => a.tipo === 'saida');
+  const totals = {};
+  saidas.forEach((a) => {
+    const user = allUsers.find((u) => u.id === a.userId);
+    if (!user || !user.pontoSchedule) return;
+    const minutos = minutosNegativos(a, user.pontoSchedule);
+    if (minutos <= 0) return;
+    totals[a.userId] = (totals[a.userId] || 0) + minutos;
+  });
+  const rows = Object.keys(totals).map((userId) => {
+    const user = allUsers.find((u) => u.id === userId);
+    return {
+      userId,
+      userName: resolveUserName(userId, (user && (user.name || user.username)) || ''),
+      minutosNegativos: totals[userId]
+    };
+  }).sort((a, b) => b.minutosNegativos - a.minutosNegativos);
+  res.json({ horasNegativas: rows });
+});
+
 router.post('/', requireAuth, requireSuperAdmin, (req, res) => {
   const b = req.body || {};
   const userId = str(b.userId);
@@ -299,6 +404,10 @@ router.post('/', requireAuth, requireSuperAdmin, (req, res) => {
   const horaChegada = tipo === 'saida' ? validTime(b.horaChegada) : null;
   const horaSaida = tipo === 'saida' ? validTime(b.horaSaida) : null;
   const horaRetorno = tipo === 'saida' ? validTime(b.horaRetorno) : null;
+  // 158ª rodada: "meio dia" só existe pra férias -- nos outros tipos nunca
+  // grava nada aqui, mesmo que venha algo no corpo (mesmo cuidado já usado
+  // pros horários de 'saida' acima).
+  const meioDia = tipo === 'ferias' ? !!b.meioDia : false;
   const now = new Date().toISOString();
   const ausencia = {
     id: nanoid(),
@@ -310,6 +419,7 @@ router.post('/', requireAuth, requireSuperAdmin, (req, res) => {
     horaChegada,
     horaSaida,
     horaRetorno,
+    meioDia,
     observacoes: str(b.observacoes),
     createdAt: now,
     createdBy: req.user.id,
@@ -363,6 +473,13 @@ router.put('/:id', requireAuth, requireSuperAdmin, (req, res) => {
     updates.horaChegada = null;
     updates.horaSaida = null;
     updates.horaRetorno = null;
+  }
+  // 158ª rodada: "meio dia" só pra férias -- virando outro tipo, qualquer
+  // meio-dia que já existisse é limpo (mesmo padrão dos horários acima).
+  if (effectiveTipo === 'ferias') {
+    if (b.meioDia !== undefined) updates.meioDia = !!b.meioDia;
+  } else if (updates.tipo !== undefined) {
+    updates.meioDia = false;
   }
   if (b.observacoes !== undefined) updates.observacoes = str(b.observacoes);
   updates.updatedAt = new Date().toISOString();

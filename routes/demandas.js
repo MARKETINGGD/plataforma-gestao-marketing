@@ -808,6 +808,40 @@ router.get('/reis-do-marketing', requireAuth, (req, res) => {
   res.json({ month: ym, counts, excludedIds: Array.from(excludedIds) });
 });
 
+// 158ª rodada, item #121, pedido da Raquel: mostrar quantos pontos cada
+// ação gerou dentro do Acompanhamento da Equipe. Reaproveita EXATAMENTE a
+// mesma regra de pontuação do REIS DO MARKETING (GET /reis-do-marketing
+// acima: 1 ponto pelo card concluído -- marcados + responsável geral,
+// sem duplicar quem for os dois -- mais 1 ponto por item de checklist
+// concluído, excluindo sempre gerente/coordenador), com UMA diferença
+// deliberada: aqui NÃO há recorte por mês vigente -- o Acompanhamento da
+// Equipe já tem seu próprio filtro de período (`from`/`to`, aplicado
+// antes de chegar aqui via matchesPeriodAndBrand), então pontuar tudo que
+// já foi concluído evita o usuário "perder" pontos de um card concluído
+// num mês mas sendo olhado depois. Quando `filterUserId` está definido
+// (coordenadora clicou numa pessoa específica no resumo), só pontua o que
+// for atribuído A ELA; sem pessoa escolhida (lista mista de todo mundo),
+// soma os pontos de todo mundo que participou daquela ação específica.
+function pontosDaAcao(d, filterUserId, excludedIds) {
+  let pontos = 0;
+  if (d.lastCompletedAt) {
+    const pontuamNesseCard = new Set(d.assigneeIds || []);
+    if (d.responsibleId) pontuamNesseCard.add(d.responsibleId);
+    pontuamNesseCard.forEach((id) => {
+      if (!id || excludedIds.has(id)) return;
+      if (filterUserId && id !== filterUserId) return;
+      pontos += 1;
+    });
+  }
+  (d.checklist || []).forEach((it) => {
+    if (!(it.assigneeId && it.done && it.doneAt)) return;
+    if (excludedIds.has(it.assigneeId)) return;
+    if (filterUserId && it.assigneeId !== filterUserId) return;
+    pontos += 1;
+  });
+  return pontos;
+}
+
 // ---------- Acompanhamento da Equipe (77ª rodada) ----------
 // Pedido literal da Raquel: "quero poder pegar relatórios de cada pessoa
 // da equipe, somente eu (coordenadora) e a gerente teremos acesso, queremos
@@ -946,7 +980,7 @@ router.get('/team-report', requireAuth, (req, res) => {
       horaRetorno: a.horaRetorno || null
     }));
 
-    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, ausenciasResumo, ausencias };
+    return { id: u.id, name: u.name || u.username, photoUrl: u.photoUrl || null, cargo: u.cargo || '', totals, ausenciasResumo, ausencias, lastAccessAt: u.lastAccessAt || null };
   });
 
   let detail = allDemandasVisiveis.filter(matchesPeriodAndBrand);
@@ -967,7 +1001,8 @@ router.get('/team-report', requireAuth, (req, res) => {
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
     .map((d) => Object.assign({}, serialize(d), {
       statusKey: teamReportStatusKey(d),
-      assigneeCount: (d.assigneeIds || []).length
+      assigneeCount: (d.assigneeIds || []).length,
+      pontos: pontosDaAcao(d, userId || null, managementIds)
     }));
 
   res.json({ team, demandas });

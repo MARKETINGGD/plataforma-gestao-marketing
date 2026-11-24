@@ -309,6 +309,22 @@ router.post('/login', (req, res) => {
 router.get('/me', requireAuth, (req, res) => {
   const user = db.get('users').find({ id: req.user.id }).value();
   if (!user) return res.status(401).json({ error: 'Usuário não encontrado. Faça login novamente.' });
+  // 158ª rodada, item #121 (Acompanhamento da Equipe: "último acesso") --
+  // gravar aqui, NUNCA dentro de requireAuth: requireAuth roda em toda e
+  // qualquer requisição autenticada da Plataforma inteira, e o lowdb usado
+  // nesta base reescreve o db.json INTEIRO a cada .write() (ver
+  // AtomicFileSync em db.js) -- gravar o último acesso a cada chamada de
+  // API seria reescrever o banco inteiro dezenas de vezes por minuto por
+  // usuário ativo. GET /me já é chamado exatamente 1x por carregamento de
+  // página/boot do app (ver public/app.js), e o throttle de 5 minutos
+  // abaixo evita até isso de virar 1 escrita a cada F5 repetido. Campo
+  // não exposto em publicUser() (mesmo espírito do pontoSchedule, 47ª
+  // rodada) -- só é lido direto do registro bruto em GET /team-report.
+  const nowIso = new Date().toISOString();
+  const lastAccessAt = user.lastAccessAt;
+  if (!lastAccessAt || (Date.now() - new Date(lastAccessAt).getTime()) > 5 * 60 * 1000) {
+    db.get('users').find({ id: user.id }).assign({ lastAccessAt: nowIso }).write();
+  }
   res.json({ user: publicUser(user) });
 });
 

@@ -7953,6 +7953,7 @@
         <td>${u.totals.concluida}</td>
         <td>${u.totals.atrasada}</td>
         <td>${ausenciasResumoCelula(u)}</td>
+        <td>${u.lastAccessAt ? fmtDateTime(u.lastAccessAt) : '—'}</td>
       `;
       tr.onclick = () => { pessoaSel.value = u.id; loadAcompanhamentoEquipe(); };
       resumoBody.appendChild(tr);
@@ -7975,6 +7976,7 @@
         <td>${d.createdAt ? fmtDate(d.createdAt.slice(0, 10)) : '—'}</td>
         <td>${d.dueDate ? fmtDate(d.dueDate) : '—'}</td>
         <td>${d.assigneeCount}</td>
+        <td>${d.pontos || 0}</td>
         <td>${d.link ? `<a href="${escapeHtml(d.link)}" target="_blank" rel="noopener">Abrir</a>` : '—'}</td>
         <td>${arquivos}</td>
       `;

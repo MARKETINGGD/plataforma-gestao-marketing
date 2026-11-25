@@ -1351,12 +1351,12 @@
              (task #127i) -- o iframe acima continua sendo o que a
              Raquel usa no dia a dia até lá, sem nenhum risco. -->
         <div id="acoesNativeScreens" hidden>
-          <div id="asDashboardPage">
-            <div class="board-card board-section">
-              <div class="board-section-head"><h2>Visão Geral</h2></div>
-              <p class="muted" id="asDashboardSummary">Carregando…</p>
-            </div>
-          </div>
+          <!-- 158ª rodada, #124, #127b: conteúdo de verdade da Visão Geral --
+               tudo renderizado por asRenderDashboard() em app.js, igual ao
+               resto dos módulos nativos (ver #trafegoNativeScreens: cada
+               tela é um innerHTML montado na hora, não HTML estático
+               aqui). -->
+          <div id="asDashboardPage"></div>
           <div id="asVendasMetaPage" style="display:none;">
             <div class="board-card board-section">
               <div class="board-section-head"><h2>Resultados de Vendas e Meta</h2></div>

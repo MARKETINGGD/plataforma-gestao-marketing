@@ -17286,11 +17286,238 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
 
+  // 158ª rodada, #124, #127b: grupos de orçamento do Dashboard Ações --
+  // portado verbatim do app separado (dashboard-acoes-sazonais/public/
+  // index.html, const ACOES_BUDGET_GROUPS_BY_BRAND) -- cada marca tem seu
+  // próprio conjunto de grupos, porque cada uma trabalha com tipos de ação
+  // diferentes (ex.: só GhelPlus tem PDV; só De Bacco junta Imersões com
+  // Treinamentos e Relacionamento). `key` bate com os `bucket` já validados
+  // no backend (VALID_BUCKETS, routes/acoesSazonais.js).
+  const AS_BUDGET_GROUPS_BY_BRAND = {
+    ghelplus: [
+      { key: 'acoes_feiras_eventos_mostra_rodada', label: 'Mostra + Feira + Eventos + Rodada de Negócios + Campanha Cooperada', types: ['mostra', 'nova_feira', 'novo_evento', 'rodada_negocios', 'campanha_cooperada'] },
+      { key: 'acoes_influencer', label: 'Ação com Influencer', types: ['acao_influencer'] },
+      { key: 'acoes_campanha_vendas', label: 'Campanha de Vendas', types: ['campanha_vendas'] },
+      { key: 'acoes_pdv', label: 'PDV', types: ['material_pdv'] },
+      { key: 'acoes_treinamentos', label: 'Treinamentos', types: ['treinamentos'] }
+    ],
+    debacco: [
+      { key: 'acoes_feiras_eventos_mostra_rodada', label: 'Mostra + Feira + Eventos + Rodada de Negócios + Campanha Cooperada', types: ['mostra', 'nova_feira', 'novo_evento', 'rodada_negocios', 'campanha_cooperada'] },
+      { key: 'acoes_influencer', label: 'Ação com Influencer', types: ['acao_influencer'] },
+      { key: 'acoes_campanha_vendas', label: 'Campanha de Vendas', types: ['campanha_vendas'] },
+      { key: 'acoes_imersoes_relacionamento_treinamentos', label: 'Imersões + Treinamentos + Relacionamento', types: ['imersoes', 'treinamentos', 'relacionamento'] }
+    ]
+  };
+  function asBudgetGroupForBrand(key, brand){
+    return (AS_BUDGET_GROUPS_BY_BRAND[brand] || []).find((g) => g.key === key) || null;
+  }
+  // Lista de grupos pra exibir -- de uma marca específica, ou a união das
+  // duas (quando "Todas as marcas" está ativo). Cada ação é contada no seu
+  // grupo sempre pela definição da PRÓPRIA marca dela (asActionsInBudgetGroup
+  // abaixo), nunca pelo filtro de marca selecionado no topo.
+  function asBudgetGroupsForBrand(brand){
+    if (brand === 'ghelplus') return AS_BUDGET_GROUPS_BY_BRAND.ghelplus;
+    if (brand === 'debacco') return AS_BUDGET_GROUPS_BY_BRAND.debacco;
+    const map = {};
+    ['ghelplus', 'debacco'].forEach((b) => {
+      AS_BUDGET_GROUPS_BY_BRAND[b].forEach((g) => {
+        if (!map[g.key]) map[g.key] = { key: g.key, label: g.label, types: [...g.types] };
+      });
+    });
+    return Object.values(map);
+  }
+  function asActionsInBudgetGroup(actions, key){
+    return actions.filter((a) => {
+      const g = asBudgetGroupForBrand(key, a.brand);
+      return g && g.types.includes(a.type);
+    });
+  }
+  function asGetBudgetValue(bucket, brand, year){
+    if (brand === 'all'){
+      return ['ghelplus', 'debacco'].reduce((s, b) => {
+        const found = asData.budgets.find((x) => x.bucket === bucket && x.brand === b && x.year === year);
+        return s + (found ? (Number(found.valorAprovado) || 0) : 0);
+      }, 0);
+    }
+    const found = asData.budgets.find((x) => x.bucket === bucket && x.brand === brand && x.year === year);
+    return found ? (Number(found.valorAprovado) || 0) : 0;
+  }
+  // "feita"/"planejado": registros antigos (de antes desses campos
+  // existirem) contam como "sim" -- mesmo cuidado do app original, pra
+  // nenhuma ação já concluída/planejada no passado sumir à toa dos
+  // gráficos por causa de um histórico anterior a esses campos.
+  function asIsActionFeita(a){ return (a && a.feita) !== false; }
+  function asIsPlanned(a){ return (a && a.planejado) !== false; }
+  function asCurrentYear(){ return new Date().getFullYear(); }
+  function asInYear(list, field, year){
+    const y = String(year);
+    return list.filter((item) => {
+      const raw = item[field] || item.dataFim || item.createdAt;
+      return raw && String(raw).slice(0, 4) === y;
+    });
+  }
+  function asActionYearsAvailable(){
+    const years = new Set([String(asCurrentYear())]);
+    asData.actions.forEach((a) => {
+      if (a.dataInicio) years.add(String(a.dataInicio).slice(0, 4));
+      if (a.dataFim) years.add(String(a.dataFim).slice(0, 4));
+    });
+    return [...years].sort((x, y) => y.localeCompare(x));
+  }
+  // Versão curta de valor monetário (ex.: "R$ 12k"), usada só dentro das
+  // barras do gráfico (mesmo padrão do eixo Y do gráfico original de lá:
+  // 'R$ '+(v/1000)+'k').
+  function asFmtMoneyShort(v){
+    v = Number(v) || 0;
+    if (Math.abs(v) >= 1000) return 'R$ ' + Math.round(v / 1000) + 'k';
+    return asFmtMoney(v);
+  }
+
+  let asDashboardYear = 'all';
+
+  // 158ª rodada, #124, #127b: Visão Geral de verdade (primeira view
+  // portada do app separado -- ver claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md).
+  // Neste 1º incremento: painel "Visão Geral Anual" (aprovado/investido/
+  // utilizado/disponível), painel "Fora do orçamento" e o gráfico
+  // "Orçamento aprovado x Investido por grupo de ação", redesenhado em
+  // HTML/CSS puro (achado crítico #4 do plano -- mesmo padrão já usado no
+  // módulo nativo do Tráfego Pago, sem Chart.js na tela). Ainda faltam
+  // (ficam pro próximo incremento, #127b-2): o toggle "cruzar as duas
+  // marcas", clique numa ação da lista "fora do orçamento"/barra do
+  // gráfico pra abrir o detalhe (a view "Ações" ainda não tem detalhe/
+  // modal -- só a lista simples do #127a), o botão de editar valores
+  // aprovados, e os demais gráficos da Visão Geral original (investimento
+  // mensal, região/macrorregião, gerente, representantes, setor, tipo).
   function asRenderDashboard(){
-    const el = document.getElementById('asDashboardSummary');
-    if (!el) return;
-    const totalInvestido = asData.actions.reduce((s, a) => s + (Number(a.valorInvestido) || 0), 0);
-    el.textContent = `${asData.actions.length} ação(ões) cadastrada(s) · investimento total registrado: ${asFmtMoney(totalInvestido)}.`;
+    const root = document.getElementById('asDashboardPage');
+    if (!root) return;
+
+    const filterYear = asDashboardYear !== 'all' ? parseInt(asDashboardYear, 10) : null;
+    const year = filterYear || asCurrentYear();
+    const yearActions = asInYear(asData.actions, 'dataInicio', year);
+    const yearActionsFeitas = yearActions.filter(asIsActionFeita);
+    const availableYears = asActionYearsAvailable();
+
+    const budgetAprovadoTotal = asBudgetGroupsForBrand(asBrand).reduce((s, g) => s + asGetBudgetValue(g.key, asBrand, year), 0);
+    const budgetInvestidoTotal = yearActionsFeitas.reduce((s, a) => s + (Number(a.valorInvestido) || 0), 0);
+    const disponivel = budgetAprovadoTotal - budgetInvestidoTotal;
+    const dentro = budgetInvestidoTotal <= budgetAprovadoTotal;
+    const usadoPct = budgetAprovadoTotal > 0 ? Math.min(999, (budgetInvestidoTotal / budgetAprovadoTotal) * 100) : (budgetInvestidoTotal > 0 ? 100 : 0);
+    const barPct = Math.min(100, usadoPct);
+    const statusColor = budgetAprovadoTotal === 0 ? 'var(--ink-soft)' : (dentro ? 'var(--good)' : 'var(--danger)');
+    const statusText = budgetAprovadoTotal === 0
+      ? 'Nenhum valor aprovado cadastrado ainda para este ano'
+      : (dentro ? `Dentro do orçamento aprovado para ${year}` : `Acima do orçamento aprovado para ${year}`);
+
+    // "Fora do orçamento": ações já feitas no ano que não estavam no
+    // planejamento -- mesmo critério do app original (o valor aprovado já
+    // considera só o que estava previsto).
+    const foraOrcamentoList = yearActionsFeitas.filter((a) => !asIsPlanned(a)).sort((a, b) => (Number(b.valorInvestido) || 0) - (Number(a.valorInvestido) || 0));
+    const foraOrcamentoCount = foraOrcamentoList.length;
+    const foraOrcamentoValue = foraOrcamentoList.reduce((s, a) => s + (Number(a.valorInvestido) || 0), 0);
+
+    // Orçamento aprovado x investido, por grupo -- só grupos com algum
+    // investimento real (mesmo critério do app original).
+    const groupData = asBudgetGroupsForBrand(asBrand).map((g) => {
+      const actionsInGroup = asActionsInBudgetGroup(yearActionsFeitas.filter((a) => (Number(a.valorInvestido) || 0) > 0), g.key);
+      return {
+        label: g.label,
+        aprovado: asGetBudgetValue(g.key, asBrand, year),
+        investido: actionsInGroup.reduce((s, a) => s + (Number(a.valorInvestido) || 0), 0)
+      };
+    }).filter((g) => g.investido > 0);
+    const maxBarValue = Math.max(1, ...groupData.map((g) => Math.max(g.aprovado, g.investido)));
+
+    root.innerHTML = `
+      <div class="board-head">
+        <div>
+          <p class="board-eyebrow">Ações Sazonais</p>
+          <h1 class="board-title">Visão Geral</h1>
+        </div>
+        <select id="asDashboardYearSelect" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;">
+          <option value="all" ${asDashboardYear === 'all' ? 'selected' : ''}>Todos os anos</option>
+          ${availableYears.map((y) => `<option value="${y}" ${asDashboardYear === y ? 'selected' : ''}>${y}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="board-card board-section" style="border-left:4px solid ${statusColor};">
+        <div class="board-section-head">
+          <div>
+            <h2>Visão Geral Anual · ${year}</h2>
+            <div class="board-sub" style="color:${statusColor};font-weight:600;margin:4px 0 0;">${statusText}</div>
+          </div>
+        </div>
+        <div class="board-grid">
+          <div class="kpi-tile"><div class="kpi-label">Aprovado no ano</div><div class="kpi-value">${asFmtMoney(budgetAprovadoTotal)}</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Total de ações</div><div class="kpi-value">${yearActionsFeitas.length}</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Investido até agora</div><div class="kpi-value">${asFmtMoney(budgetInvestidoTotal)}</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Utilizado</div><div class="kpi-value">${usadoPct.toFixed(0)}%</div></div>
+          <div class="kpi-tile"><div class="kpi-label">${disponivel >= 0 ? 'Disponível' : 'Excedido em'}</div><div class="kpi-value" style="color:${disponivel >= 0 ? 'var(--ink)' : 'var(--danger)'};">${asFmtMoney(Math.abs(disponivel))}</div></div>
+        </div>
+        <div class="progress-track" style="margin-top:14px;">
+          <div class="progress-fill" style="width:${barPct}%;background:${statusColor};"></div>
+        </div>
+      </div>
+
+      <div class="board-card board-section" style="${foraOrcamentoCount ? 'border-left:4px solid var(--danger);' : ''}">
+        <div class="board-section-head">
+          <div>
+            <h2>Fora do orçamento · ${year}</h2>
+            <div class="board-sub">Ações não planejadas -- o valor aprovado já considera só as que estavam previstas.</div>
+          </div>
+        </div>
+        <div class="board-grid" style="grid-template-columns:repeat(2,1fr);${foraOrcamentoList.length ? 'margin-bottom:14px;' : ''}">
+          <div class="kpi-tile"><div class="kpi-label">Ações fora do orçamento</div><div class="kpi-value">${foraOrcamentoCount}</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Valor fora do orçamento</div><div class="kpi-value" style="color:${foraOrcamentoValue ? 'var(--danger)' : 'var(--ink)'};">${asFmtMoney(foraOrcamentoValue)}</div></div>
+        </div>
+        ${foraOrcamentoList.length ? `
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${foraOrcamentoList.slice(0, 8).map((a) => `
+              <div style="display:flex;justify-content:space-between;gap:10px;padding:7px 10px;background:var(--bg);border-radius:8px;font-size:13px;">
+                <span>${escapeHtml(a.title || '(sem título)')}</span>
+                <span style="font-weight:700;white-space:nowrap;">${asFmtMoney(a.valorInvestido)}</span>
+              </div>
+            `).join('')}
+            ${foraOrcamentoList.length > 8 ? `<div class="board-sub" style="margin-top:4px;">+ ${foraOrcamentoList.length - 8} outra(s)</div>` : ''}
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head">
+          <div>
+            <h2>Orçamento aprovado × Investido por grupo de ação · ${year}</h2>
+            <div class="board-sub">Comparação entre o valor aprovado (manual) e o investido (soma automática das ações já feitas)</div>
+          </div>
+          <div class="legend-row">
+            <span class="legend-dot"><span class="legend-swatch" style="background:#C9C4B4;"></span>Aprovado</span>
+            <span class="legend-dot"><span class="legend-swatch" style="background:var(--good);"></span>Investido (dentro)</span>
+            <span class="legend-dot"><span class="legend-swatch" style="background:var(--danger);"></span>Investido (acima)</span>
+          </div>
+        </div>
+        ${groupData.length ? `
+          <div class="qbar-grid" style="grid-template-columns:repeat(${groupData.length},minmax(0,1fr));">
+            ${groupData.map((g) => {
+              const hA = Math.max(2, Math.round((g.aprovado / maxBarValue) * 190));
+              const hB = Math.max(2, Math.round((g.investido / maxBarValue) * 190));
+              const corInvestido = (g.investido > g.aprovado && g.aprovado > 0) ? 'var(--danger)' : 'var(--good)';
+              return `
+                <div class="qbar-pair">
+                  <div class="qbar-col"><span class="qbar-n">${asFmtMoneyShort(g.aprovado)}</span><div class="qbar-fill" style="height:${hA}px;background:#C9C4B4;"></div></div>
+                  <div class="qbar-col"><span class="qbar-n">${asFmtMoneyShort(g.investido)}</span><div class="qbar-fill" style="height:${hB}px;background:${corInvestido};"></div></div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          <div class="qbar-labels" style="grid-template-columns:repeat(${groupData.length},minmax(0,1fr));margin-top:8px;">
+            ${groupData.map((g) => `<span>${escapeHtml(g.label)}</span>`).join('')}
+          </div>
+        ` : '<div class="empty-board">Nenhuma ação com investimento registrado neste ano ainda.</div>'}
+      </div>
+    `;
+
+    const yearSelect = document.getElementById('asDashboardYearSelect');
+    if (yearSelect) yearSelect.addEventListener('change', (e) => { asDashboardYear = e.target.value; asRenderDashboard(); });
   }
 
   function asRenderVendasMeta(){

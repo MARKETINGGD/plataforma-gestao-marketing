@@ -27,6 +27,36 @@ function getSiblings(sourceSocialPostId, excludeId) {
   );
 }
 
+// 158ª rodada, 4º ajuste (bug reportado pela Raquel com dado real: "a
+// demanda foi concluida e sumiu... foi arquivada, mesmo assim o
+// cronômetro segue contando na tela inicial"): concluir/arquivar uma
+// demanda não parava nenhum cronômetro que estivesse rodando nela -- o
+// card some do quadro, mas o relógio (e por tabela "Trabalhando agora",
+// ver GET /trabalhando-agora em routes/demandas.js) continuava contando
+// pra sempre, porque nada nunca mais chamava POST /:id/time-tracking/stop
+// pra ele. Esta função para (acumulando o tempo corrido, mesma conta do
+// stop manual) o cronômetro de QUALQUER pessoa que estivesse rodando
+// nesse objeto `timeTracking` -- usada sempre que uma demanda é
+// concluída/arquivada por qualquer caminho (manual, cascata de
+// demanda-irmã, ou mirror de arquivamento), pra nunca mais deixar um
+// relógioórfão correndo numa demanda que já saiu de cena.
+function pararCronometrosRodando(timeTracking) {
+  if (!timeTracking) return timeTracking;
+  const out = {};
+  let changed = false;
+  Object.keys(timeTracking).forEach((uid) => {
+    const entry = timeTracking[uid];
+    if (entry && entry.startedAt) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - new Date(entry.startedAt).getTime()) / 1000));
+      out[uid] = Object.assign({}, entry, { startedAt: null, totalSeconds: (entry.totalSeconds || 0) + elapsed });
+      changed = true;
+    } else {
+      out[uid] = entry;
+    }
+  });
+  return changed ? out : timeTracking;
+}
+
 // `excludeId` (opcional) é o id da demanda que já está sendo concluída na
 // mesma chamada que disparou essa função (pra não tentar re-gravar ela
 // aqui) — quando o gatilho é o agendamento virando "publicado", não tem
@@ -56,7 +86,8 @@ function cascadeCompleteDemandas(sourceSocialPostId, excludeId, req) {
       updatedAt: now,
       lastCompletedAt: now,
       lastCompletedDueDate: d.dueDate || null,
-      archived: true
+      archived: true,
+      timeTracking: pararCronometrosRodando(d.timeTracking)
     }).write();
     changed += 1;
     if (req && req.user) {
@@ -133,6 +164,9 @@ function syncLinkedDemandas(sourceSocialPostId, fields, req, excludeId, detail) 
     });
     if (Object.keys(updates).length === 0) return;
     updates.updatedAt = now;
+    if (updates.archived === true) {
+      updates.timeTracking = pararCronometrosRodando(d.timeTracking);
+    }
     db.get('demandas').find({ id: d.id }).assign(updates).write();
     changedCount += 1;
     if (req && req.user) {
@@ -251,5 +285,6 @@ module.exports = {
   mirrorArrayField,
   mirrorCommentToSiblings,
   sharedStateForNewSibling,
-  getSiblings
+  getSiblings,
+  pararCronometrosRodando
 };

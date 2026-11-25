@@ -7,7 +7,7 @@ const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const { resolveUserName, resolveUserPhoto } = require('../utils/names');
-const { alsoInvolvedUserIds, syncLinkedDemandas, mirrorArrayField, mirrorCommentToSiblings, getSiblings } = require('../utils/demandCascade');
+const { alsoInvolvedUserIds, syncLinkedDemandas, mirrorArrayField, mirrorCommentToSiblings, getSiblings, pararCronometrosRodando } = require('../utils/demandCascade');
 // 36ª rodada: sincronização de 3 vias Influencers <-> Agendamento <-> Demandas
 // (ver utils/tripleSync.js). Seguro exigir aqui -- tripleSync.js não exige
 // demandas.js de volta, então não cria require circular.
@@ -1691,6 +1691,11 @@ router.put('/:id', requireAuth, (req, res) => {
   // grava `archived: true`.
   if (updates.status === 'concluida' && demanda.status !== 'concluida') {
     updates.archived = true;
+    // 158ª rodada, 4º ajuste (bug reportado pela Raquel: cronômetro
+    // rodando continuava contando na tela Início mesmo depois da demanda
+    // concluída/arquivada) -- ver pararCronometrosRodando() em
+    // utils/demandCascade.js pro detalhe completo.
+    updates.timeTracking = pararCronometrosRodando(demanda.timeTracking);
   }
 
   // 126ª rodada, pedido explícito da Raquel: "quem faz as aprovações de
@@ -1941,7 +1946,12 @@ router.put('/:id/archive', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
   const archived = !!(req.body || {}).archived;
-  db.get('demandas').find({ id: req.params.id }).assign({ archived, updatedAt: new Date().toISOString() }).write();
+  const archivePayload = { archived, updatedAt: new Date().toISOString() };
+  // 158ª rodada, 4º ajuste: arquivar manualmente (fora do fluxo de
+  // concluir) também precisa parar qualquer cronômetro rodando -- mesmo
+  // cuidado do PUT /:id acima (ver pararCronometrosRodando()).
+  if (archived) archivePayload.timeTracking = pararCronometrosRodando(demanda.timeTracking);
+  db.get('demandas').find({ id: req.params.id }).assign(archivePayload).write();
   logAudit({ user: req.user, entityType: 'demanda', entityId: demanda.id, entityLabel: demanda.title, action: archived ? 'archive' : 'unarchive', meta: { visibility: demanda.visibility } });
   // 99ª rodada: arquivar/desarquivar manualmente (fora do fluxo de
   // concluir) também é um dos campos que precisa ficar igual em toda

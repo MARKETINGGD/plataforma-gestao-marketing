@@ -925,6 +925,16 @@ function pontosDaAcaoNoPeriodo(d, filterUserId, excludedIds, from, to) {
   return pontos;
 }
 
+// 158ª rodada (correção): card "envolve" uma pessoa se ela está marcada
+// no card (`assigneeIds`) OU tem pelo menos 1 item de checklist com
+// `assigneeId` dela -- mesmo critério que `pontosDaAcaoNoPeriodo` usa
+// pra decidir quem pontua, reaproveitado aqui pro filtro da listagem
+// detalhada (ver uso em GET /team-report acima).
+function cardEnvolve(d, id) {
+  if ((d.assigneeIds || []).includes(id)) return true;
+  return (d.checklist || []).some((it) => it.assigneeId === id);
+}
+
 // 158ª rodada, item #122: soma o tempo (em segundos) rastreado nesta
 // ação -- sem filtro de pessoa, soma todo mundo que tem alguma sessão
 // (atual ou acumulada) registrada; com `filterUserId`, só a dela. Mesma
@@ -1200,12 +1210,27 @@ router.get('/team-report', requireAuth, (req, res) => {
 
   let detail = allDemandasVisiveis.filter(matchesDetailInclusion);
   if (userId) {
-    detail = detail.filter((d) => (d.assigneeIds || []).includes(userId));
+    // Correção (158ª rodada, bug reportado pela Raquel: "a listagem das
+    // demandas não bate com a pontuação do gráfico e da tabela de
+    // pontos"): um item de CHECKLIST pode ter `assigneeId` de alguém que
+    // nem está em `d.assigneeIds` do card (ex.: card marcado só pra
+    // coordenadora, com um item de checklist delegado a uma pessoa da
+    // equipe) -- `pontosDaAcaoNoPeriodo` já pontua esse item normalmente
+    // pra quem concluiu (ver função acima), então o resumo por pessoa e
+    // o Reis do Marketing contavam esse ponto, mas o card inteiro sumia
+    // da listagem detalhada filtrada por pessoa (só olhava
+    // `d.assigneeIds`) -- fazendo a soma da coluna "Pontos" da lista
+    // ficar menor que o resumo. `cardEnvolve` agora olha os dois
+    // lugares, igual a pontuação já fazia.
+    detail = detail.filter((d) => cardEnvolve(d, userId));
   } else {
     // Sem pessoa escolhida: mostra só demandas que envolvem pelo menos 1
     // pessoa DA EQUIPE (não as demandas pessoais só da própria coordenadora/
     // gerente, que não é o que este relatório se propõe a acompanhar).
-    detail = detail.filter((d) => (d.assigneeIds || []).some((id) => !managementIds.has(id)));
+    // Mesma correção acima: considera também quem está marcado só num
+    // item de checklist, não só em `d.assigneeIds`.
+    detail = detail.filter((d) => (d.assigneeIds || []).some((id) => !managementIds.has(id))
+      || (d.checklist || []).some((it) => it.assigneeId && !managementIds.has(it.assigneeId)));
   }
   if (statusFilter) {
     detail = detail.filter((d) => teamReportStatusKey(d) === statusFilter);

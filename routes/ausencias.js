@@ -273,11 +273,31 @@ router.get('/', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Essa área é restrita -- peça pro admin liberar o acesso em Configurações.' });
   }
   const podeVerHorarioRestrito = canViewHorarioRestrito(req);
+  const allUsers = db.get('users').value();
   const rows = db.get('ausencias').value()
     .filter((a) => a.tipo !== 'saida' || podeVerHorarioRestrito)
     .slice()
     .sort((a, b) => (b.dataInicio || '').localeCompare(a.dataInicio || ''));
-  res.json({ ausencias: rows.map(serialize), canEdit: !!(req.user.role === 'super_admin') });
+  // 158ª rodada (2º pedido), pedido literal da Raquel: "naquela parte a
+  // ausencias que aparece colaborador, tipo, inicio, fim, horario e
+  // observações, adicione uma coluna de horas negativas, assim eu sei de
+  // onde veio cada hora" -- cada linha de 'saida' passa a trazer os
+  // minutos negativos DAQUELE registro específico (mesmo cálculo de
+  // `minutosNegativos`, já usado no resumo agregado abaixo), pra ela
+  // conseguir auditar visualmente o total "batendo" com a soma das
+  // linhas. Só calcula pra quem já podia ver 'saida' mesmo (mesmo motivo
+  // do filtro logo acima) -- não é informação nova se vazando.
+  res.json({
+    ausencias: rows.map((a) => {
+      const s = serialize(a);
+      if (podeVerHorarioRestrito && a.tipo === 'saida') {
+        const user = allUsers.find((u) => u.id === a.userId);
+        s.minutosNegativos = (user && user.pontoSchedule) ? minutosNegativos(a, user.pontoSchedule) : 0;
+      }
+      return s;
+    }),
+    canEdit: !!(req.user.role === 'super_admin')
+  });
 });
 
 // Listagem enxuta (sem observações), aberta a qualquer pessoa logada --
@@ -296,7 +316,16 @@ router.get('/publicas', requireAuth, (req, res) => {
       userId: a.userId,
       tipo: a.tipo,
       dataInicio: a.dataInicio,
-      dataFim: a.dataFim
+      dataFim: a.dataFim,
+      // 158ª rodada (2º pedido): o aviso de "pessoa ausente" no topo de
+      // cada card de demanda (ver renderKanban em app.js) reusa
+      // `ausenciaBadgeLabel`, que mostra "(meio período)" pra férias de
+      // meio-dia -- essa listagem enxuta não tinha esse campo (só a
+      // completa, em `serialize` acima, tinha), então o aviso nunca
+      // conseguia mostrar essa informação. Sem dado sensível nenhum aqui
+      // (não é observação/texto livre), então não fere o motivo de esta
+      // lista ser enxuta.
+      meioDia: !!a.meioDia
     }));
   res.json({ ausencias: rows });
 });
@@ -372,15 +401,54 @@ router.get('/horas-negativas', requireAuth, (req, res) => {
     if (minutos <= 0) return;
     totals[a.userId] = (totals[a.userId] || 0) + minutos;
   });
-  const rows = Object.keys(totals).map((userId) => {
+  // 158ª rodada (2º pedido), pedido literal da Raquel: "Coloque a opção
+  // de editar as horas negativas acumuladas" -- `ajusteMinutosNegativos`
+  // é um AJUSTE manual por pessoa (pode ser negativo, pra descontar
+  // horas já acertadas/pagas, ou positivo), somado ao total calculado
+  // automaticamente a partir dos registros de 'saida' (que continua
+  // intocado -- a tabela detalhada acima continua mostrando de onde cada
+  // hora "automática" veio). Gente com ajuste salvo entra na lista mesmo
+  // sem nenhuma 'saida' no momento (ex.: ajuste carregado de um acerto
+  // anterior). Total final nunca fica negativo (não faz sentido mostrar
+  // "horas negativas negativas").
+  const userIdsComAjuste = allUsers.filter((u) => u.ajusteMinutosNegativos).map((u) => u.id);
+  const todosUserIds = new Set([...Object.keys(totals), ...userIdsComAjuste]);
+  const rows = Array.from(todosUserIds).map((userId) => {
     const user = allUsers.find((u) => u.id === userId);
+    const autoMinutos = totals[userId] || 0;
+    const ajusteMinutos = (user && user.ajusteMinutosNegativos) || 0;
     return {
       userId,
       userName: resolveUserName(userId, (user && (user.name || user.username)) || ''),
-      minutosNegativos: totals[userId]
+      autoMinutos,
+      ajusteMinutos,
+      minutosNegativos: Math.max(0, autoMinutos + ajusteMinutos)
     };
   }).sort((a, b) => b.minutosNegativos - a.minutosNegativos);
   res.json({ horasNegativas: rows });
+});
+
+// Edita o AJUSTE manual de horas negativas de uma pessoa (158ª rodada,
+// 2º pedido) -- recebe o NOVO TOTAL desejado (não o ajuste em si, mais
+// fácil pra ela: "quanto essa pessoa deve ter de horas negativas agora")
+// e calcula sozinho o ajuste necessário por cima do total automático
+// (`autoMinutos`, calculado igual ao de cima). Mesma restrição de acesso
+// de criar/editar/excluir ausência (super admin de verdade).
+router.put('/horas-negativas/:userId', requireAuth, requireSuperAdmin, (req, res) => {
+  const user = db.get('users').find({ id: req.params.userId }).value();
+  if (!user) return res.status(404).json({ error: 'Colaborador(a) não encontrado(a).' });
+  const novoTotalMinutos = parseInt(req.body && req.body.novoTotalMinutos, 10);
+  if (!Number.isFinite(novoTotalMinutos) || novoTotalMinutos < 0) {
+    return res.status(400).json({ error: 'Informe um total válido (em minutos, 0 ou mais).' });
+  }
+  const saidas = db.get('ausencias').value().filter((a) => a.tipo === 'saida' && a.userId === user.id);
+  const autoMinutos = user.pontoSchedule
+    ? saidas.reduce((soma, a) => soma + minutosNegativos(a, user.pontoSchedule), 0)
+    : 0;
+  const ajusteMinutosNegativos = novoTotalMinutos - autoMinutos;
+  db.get('users').find({ id: user.id }).assign({ ajusteMinutosNegativos }).write();
+  logAudit({ user: req.user, entityType: 'ausencia', entityId: user.id, entityLabel: `Horas negativas de ${user.name || user.username}`, action: 'ajustar_horas_negativas' });
+  res.json({ ok: true, autoMinutos, ajusteMinutosNegativos, minutosNegativos: Math.max(0, autoMinutos + ajusteMinutosNegativos) });
 });
 
 router.post('/', requireAuth, requireSuperAdmin, (req, res) => {

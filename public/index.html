@@ -3915,15 +3915,21 @@
                app.js) em vez de aparecer vazio pra todo mundo. -->
           <div id="ausenciasHorasNegativasWrap" class="form-card" hidden style="margin-top:20px;">
             <h3>Horas negativas acumuladas</h3>
+            <!-- 158ª rodada (2º pedido), pedido literal da Raquel: "Coloque
+                 a opção de editar as horas negativas acumuladas" --
+                 "Automático" é só a soma dos registros de 'saida' (igual
+                 sempre foi); "Ajuste manual" é a correção feita por ela
+                 (ver editarHorasNegativas em app.js); "Total" é a soma dos
+                 dois (nunca negativo). -->
             <table class="data-table" id="ausenciasHorasNegativasTable">
-              <thead><tr><th>Colaborador(a)</th><th>Horas negativas</th></tr></thead>
+              <thead><tr><th>Colaborador(a)</th><th>Automático</th><th>Ajuste manual</th><th>Total</th><th></th></tr></thead>
               <tbody id="ausenciasHorasNegativasBody"></tbody>
             </table>
           </div>
 
           <table class="data-table" id="ausenciasTable" style="margin-top:20px;">
             <thead>
-              <tr><th></th><th>Colaborador(a)</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Horário</th><th>Observações</th><th></th></tr>
+              <tr><th></th><th>Colaborador(a)</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Horário</th><th>Horas negativas</th><th>Observações</th><th></th></tr>
             </thead>
             <tbody id="ausenciasTableBody"></tbody>
           </table>

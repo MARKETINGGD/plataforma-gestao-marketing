@@ -48,6 +48,11 @@
   let ausenciasAdmin = [];
   let ausenciasCalMonth = new Date();
   let editingAusenciaId = null;
+  // 158ª rodada (2º pedido): linhas do resumo de "Horas negativas
+  // acumuladas" (ver loadHorasNegativas/renderHorasNegativasTable) --
+  // precisa ficar em estado pra reusar ao reconstruir a tabela depois de
+  // editar o ajuste de alguém, sem precisar recarregar tudo de novo.
+  let horasNegativasRows = [];
 
   let teamMembers = [];
   // Ausências (104ª rodada) -- listagem enxuta (sem observações), carregada
@@ -1866,7 +1871,7 @@
           items.filter((a) => a.dataInicio <= cellDateStr && cellDateStr <= a.dataFim).forEach((a) => {
             const chip = document.createElement('div');
             chip.className = 'cal-post-chip';
-            chip.innerHTML = `<b>${ausenciaBadgeLabel(a)} ${escapeHtml(a.userName || '')}</b>${ausenciaTipoLabel(a.tipo)}`;
+            chip.innerHTML = `<b>${ausenciaBadgeLabel(a)} ${escapeHtml(a.userName || '')}</b>${escapeHtml(ausenciaChipDetalhe(a))}`;
             cell.appendChild(chip);
           });
           grid.appendChild(cell);
@@ -5533,6 +5538,13 @@
     dateStr = dateStr || todayStr();
     return ausenciasPublicas.find((a) => a.userId === userId && a.dataInicio <= dateStr && dateStr <= a.dataFim) || null;
   }
+  // 158ª rodada (2º pedido): tipos de ausência que significam "a pessoa
+  // não está trabalhando de verdade" -- usado no aviso de topo de CADA
+  // card de demanda (ver renderKanban abaixo). 'saida' fica de fora de
+  // propósito: é só um registro pontual de atraso/saída antecipada no
+  // MESMO dia de trabalho, não uma ausência real.
+  const AUSENCIA_TIPOS_FORA_DO_TRABALHO = ['ferias', 'afastamento', 'licenca_maternidade', 'viagem'];
+
   function ausenciaBadgeLabel(a) {
     if (!a) return '';
     if (a.tipo === 'saida') return '🕐 Saída';
@@ -5852,7 +5864,29 @@
         const doneCount = (d.checklist || []).filter((c) => c.done).length;
         const total = (d.checklist || []).length;
         const cardLabels = (d.labelIds || []).map(labelById).filter(Boolean);
+        // 158ª rodada (2º pedido), literal da Raquel: "FERIAS, LICENÇA
+        // MEDICA, LICENÇA MATERNIDADE, VIAGEM A TRABALHO, DEVEM APARECER
+        // no topo do card de demandas da pessoa, e deve vir aquele aviso
+        // de que a pessoa não esta trabalhando nesse período, caso ela
+        // receba demandas durante a ausência. o unico caso que n deve ter
+        // aviso é de saida ou chegada fora do horario." -- diferente do
+        // aviso que já existe no TOPO DA COLUNA (só férias/licença médica,
+        // ver `ausenciaAgora` acima, pedido antigo da 104ª/129ª rodada),
+        // este é por CARD/demanda -- qualquer pessoa marcada na demanda
+        // que esteja ausente HOJE, com um dos 4 tipos "de verdade" (não
+        // 'saida', que é só um registro pontual de atraso/saída
+        // antecipada no mesmo dia de trabalho, não uma ausência real).
+        const pessoasAusentesNoCard = (d.assigneeIds || [])
+          .map((id) => ({ id, ausencia: ausenciaEm(id) }))
+          .filter((x) => x.ausencia && AUSENCIA_TIPOS_FORA_DO_TRABALHO.includes(x.ausencia.tipo));
+        const avisoAusenciaCardHtml = pessoasAusentesNoCard.length > 0
+          ? `<div class="kanban-card-aviso-ausencia">⚠️ ${pessoasAusentesNoCard.map((x) => {
+              const nome = (teamMembers.find((m) => m.id === x.id) || {}).name || '';
+              return `${escapeHtml(nome)} não está trabalhando (${ausenciaTipoLabel(x.ausencia.tipo)} até ${fmtDate(x.ausencia.dataFim)})`;
+            }).join(' · ')}</div>`
+          : '';
         card.innerHTML = `
+          ${avisoAusenciaCardHtml}
           ${cardLabels.length > 0 ? `<div class="kanban-card-labels">${cardLabels.map((l) => `<span class="kanban-label-chip" title="${l.name}" style="background:${l.color}"></span>`).join('')}</div>` : ''}
           <div class="kanban-card-title-row">
             <button type="button" class="kanban-check-btn${d.status === 'concluida' ? ' checked' : ''}" title="${d.status === 'concluida' ? 'Marcar como não concluída' : 'Marcar como concluída'}"></button>
@@ -12890,20 +12924,79 @@
   // coordenador/admin, mesma regra de "Saída fora do horário") -- quem
   // não pode, recebe 403 e o painel simplesmente fica escondido, sem
   // nenhum erro visível pra ela.
+  //
+  // 158ª rodada (2º pedido), literal da Raquel: "Coloque a opção de
+  // editar as horas negativas acumuladas" -- a tabela ganhou 2 colunas
+  // novas (Automático / Ajuste manual, além do Total que já existia) pra
+  // deixar claro o que veio sozinho dos registros de 'saida' e o que foi
+  // corrigido manualmente, e um botão "Editar" (só pra quem pode criar/
+  // editar/excluir ausência de verdade -- super admin) que pergunta o
+  // NOVO TOTAL desejado e calcula o ajuste por cima do automático --
+  // ver `editarHorasNegativas` logo abaixo.
+  function fmtMinutosNegativos(min) {
+    if (!min) return '';
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return (h > 0 ? h + 'h' : '') + (m > 0 ? m + 'min' : (h > 0 ? '' : '0min'));
+  }
+
   async function loadHorasNegativas() {
     try {
       const data = await api('/api/ausencias/horas-negativas');
-      const rows = data.horasNegativas || [];
-      $('#ausenciasHorasNegativasWrap').hidden = rows.length === 0;
-      const body = $('#ausenciasHorasNegativasBody');
-      body.innerHTML = rows.map((r) => {
-        const h = Math.floor(r.minutosNegativos / 60);
-        const m = r.minutosNegativos % 60;
-        const texto = (h > 0 ? h + 'h' : '') + (m > 0 ? m + 'min' : (h > 0 ? '' : '0min'));
-        return `<tr><td>${escapeHtml(r.userName || '')}</td><td>${texto}</td></tr>`;
-      }).join('');
+      horasNegativasRows = data.horasNegativas || [];
+      $('#ausenciasHorasNegativasWrap').hidden = horasNegativasRows.length === 0;
+      renderHorasNegativasTable();
     } catch (e) {
       $('#ausenciasHorasNegativasWrap').hidden = true;
+    }
+  }
+
+  function renderHorasNegativasTable() {
+    const body = $('#ausenciasHorasNegativasBody');
+    body.innerHTML = '';
+    horasNegativasRows.forEach((r) => {
+      const tr = document.createElement('tr');
+      const ajusteTexto = r.ajusteMinutos
+        ? (r.ajusteMinutos > 0 ? '+' : '-') + (fmtMinutosNegativos(Math.abs(r.ajusteMinutos)) || '0min')
+        : '—';
+      tr.innerHTML = `
+        <td>${escapeHtml(r.userName || '')}</td>
+        <td>${fmtMinutosNegativos(r.autoMinutos) || '0min'}</td>
+        <td>${ajusteTexto}</td>
+        <td><b>${fmtMinutosNegativos(r.minutosNegativos) || '0min'}</b></td>
+        <td></td>
+      `;
+      if (currentUser.isSuperAdmin) {
+        const actionsTd = tr.querySelector('td:last-child');
+        const editBtn = document.createElement('button');
+        editBtn.textContent = 'Editar';
+        editBtn.onclick = () => editarHorasNegativas(r);
+        actionsTd.appendChild(editBtn);
+      }
+      body.appendChild(tr);
+    });
+  }
+
+  // Pede o NOVO TOTAL (não o ajuste em si -- mais simples pra ela: "quanto
+  // essa pessoa deve ter de horas negativas agora") e deixa o back-end
+  // calcular sozinho o ajuste necessário por cima do total automático
+  // (ver PUT /horas-negativas/:userId em routes/ausencias.js).
+  async function editarHorasNegativas(r) {
+    const totalAtualTexto = fmtMinutosNegativos(r.minutosNegativos) || '0min';
+    const automaticoTexto = fmtMinutosNegativos(r.autoMinutos) || '0min';
+    const resp = prompt(`Novo total de horas negativas de ${r.userName} (em MINUTOS -- ex.: 150 = 2h30min).
+Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saída): ${automaticoTexto}.`, String(r.minutosNegativos));
+    if (resp === null) return;
+    const novoTotalMinutos = parseInt(resp, 10);
+    if (!Number.isFinite(novoTotalMinutos) || novoTotalMinutos < 0) {
+      alert('Informe um número válido, em minutos (0 ou mais).');
+      return;
+    }
+    try {
+      await api(`/api/ausencias/horas-negativas/${r.userId}`, { method: 'PUT', body: JSON.stringify({ novoTotalMinutos }) });
+      await loadHorasNegativas();
+    } catch (e) {
+      alert('Não foi possível salvar o ajuste.');
     }
   }
 
@@ -12933,6 +13026,21 @@
     if (tipo === 'licenca_maternidade') return 'Licença Maternidade';
     if (tipo === 'viagem') return 'Viagem a trabalho';
     return 'Férias';
+  }
+
+  // 158ª rodada, bug reportado pela Raquel: o chip do calendário de
+  // Ausências (tanto o interno quanto o link público) mostrava a MESMA
+  // frase duas vezes -- ex.: "😷 Licença Médica Erika" (negrito, linha 1)
+  // seguido de "Licença Médica" de novo (linha 2, sem motivo nenhum pra
+  // repetir). `ausenciaBadgeLabel` já diz o tipo (com emoji); esta
+  // segunda linha só faz sentido quando tem informação NOVA pra mostrar
+  // -- no caso, os horários de "saída fora do horário" (chegou/saiu/
+  // voltou), que antes só apareciam na tabela, nunca no chip do
+  // calendário. Pros outros tipos (férias/licença/viagem), não tem nada
+  // novo pra acrescentar -- fica só a linha 1 mesmo, sem repetir.
+  function ausenciaChipDetalhe(a) {
+    if (a.tipo === 'saida') return ausenciaHoraResumo(a);
+    return '';
   }
 
   // Recarrega a listagem enxuta usada em Demandas (ausenciasPublicas), sem
@@ -12990,7 +13098,7 @@
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'cal-post-chip';
-        chip.innerHTML = `<b>${ausenciaBadgeLabel(a)} ${escapeHtml(a.userName || '')}</b>${ausenciaTipoLabel(a.tipo)}`;
+        chip.innerHTML = `<b>${ausenciaBadgeLabel(a)} ${escapeHtml(a.userName || '')}</b>${escapeHtml(ausenciaChipDetalhe(a))}`;
         chip.onclick = () => openAusenciaForm(a);
         cell.appendChild(chip);
       });
@@ -13013,6 +13121,15 @@
     body.innerHTML = '';
     ausenciasAdmin.forEach((a) => {
       const tr = document.createElement('tr');
+      // 158ª rodada (2º pedido), pedido literal da Raquel: "adicione uma
+      // coluna de horas negativas, assim eu sei de onde veio cada hora"
+      // -- só 'saida' grava horário, então só esse tipo pode ter minutos
+      // negativos (`minutosNegativos` vem pronto do back-end, ver GET /
+      // em routes/ausencias.js); "0min" deixa claro que ESSE registro em
+      // especial não rendeu nada (chegou/saiu dentro do horário), sem
+      // confundir com os outros tipos (férias/licença/viagem), que nem
+      // se aplicam -- esses ficam com traço.
+      const horasNegCelula = a.tipo === 'saida' ? (fmtMinutosNegativos(a.minutosNegativos) || '0min') : '—';
       tr.innerHTML = `
         <td>${ausenciaBadgeLabel(a)}</td>
         <td>${escapeHtml(a.userName || '')}</td>
@@ -13020,6 +13137,7 @@
         <td>${fmtDate(a.dataInicio)}</td>
         <td>${fmtDate(a.dataFim)}</td>
         <td>${escapeHtml(ausenciaHoraResumo(a))}</td>
+        <td>${horasNegCelula}</td>
         <td>${escapeHtml(a.observacoes || '')}</td>
         <td></td>
       `;

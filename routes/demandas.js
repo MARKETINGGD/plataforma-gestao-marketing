@@ -925,13 +925,27 @@ function pontosDaAcaoNoPeriodo(d, filterUserId, excludedIds, from, to) {
   return pontos;
 }
 
-// 158ª rodada (correção): card "envolve" uma pessoa se ela está marcada
-// no card (`assigneeIds`) OU tem pelo menos 1 item de checklist com
-// `assigneeId` dela -- mesmo critério que `pontosDaAcaoNoPeriodo` usa
-// pra decidir quem pontua, reaproveitado aqui pro filtro da listagem
-// detalhada (ver uso em GET /team-report acima).
+// 158ª rodada (correção, 2º ajuste -- bug reportado pela Raquel com dado
+// real: "41 no resumo, só 21 somando a listagem da Eduarda"): card
+// "envolve" uma pessoa se ela está marcada no card (`assigneeIds`), OU é
+// a RESPONSÁVEL GERAL (`responsibleId`), OU tem pelo menos 1 item de
+// checklist com `assigneeId` dela -- mesmo critério que
+// `pontosDaAcaoNoPeriodo` usa pra decidir quem pontua (ver
+// `pontuamNesseCard.add(d.responsibleId)` logo acima), reaproveitado
+// aqui pro filtro da listagem detalhada (ver uso em GET /team-report).
+//
+// O `responsibleId` faltava aqui porque, pra demanda-irmã de um
+// agendamento (`isSiblingGroup`, ver PUT /:id abaixo), o responsável
+// pode ser QUALQUER pessoa (representa "quem é responsável pelo
+// material inteiro", não precisa estar marcada NESSE card específico) --
+// então uma pessoa podia ser responsável geral de várias demandas-irmãs
+// de OUTRAS pessoas (cada uma com só a outra pessoa em `assigneeIds`),
+// ganhando ponto por cada uma (contado certo no resumo), mas esses
+// cards inteiros sumiam da listagem dela (só olhava `assigneeIds`/
+// checklist), derrubando a soma visível bem abaixo do resumo.
 function cardEnvolve(d, id) {
   if ((d.assigneeIds || []).includes(id)) return true;
+  if (d.responsibleId === id) return true;
   return (d.checklist || []).some((it) => it.assigneeId === id);
 }
 
@@ -1227,9 +1241,11 @@ router.get('/team-report', requireAuth, (req, res) => {
     // Sem pessoa escolhida: mostra só demandas que envolvem pelo menos 1
     // pessoa DA EQUIPE (não as demandas pessoais só da própria coordenadora/
     // gerente, que não é o que este relatório se propõe a acompanhar).
-    // Mesma correção acima: considera também quem está marcado só num
-    // item de checklist, não só em `d.assigneeIds`.
+    // Mesma correção acima: considera também quem é responsável geral
+    // (`responsibleId`) ou está marcado só num item de checklist, não só
+    // em `d.assigneeIds`.
     detail = detail.filter((d) => (d.assigneeIds || []).some((id) => !managementIds.has(id))
+      || (d.responsibleId && !managementIds.has(d.responsibleId))
       || (d.checklist || []).some((it) => it.assigneeId && !managementIds.has(it.assigneeId)));
   }
   if (statusFilter) {

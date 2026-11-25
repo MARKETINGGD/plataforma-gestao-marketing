@@ -17374,20 +17374,200 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
   }
 
   let asDashboardYear = 'all';
+  let asCompareMonthly = false;
+
+  // ---- 158ª rodada, #124, #127b-2: helpers pros gráficos de investimento
+  // mensal/região/macrorregião/gerente/representantes/setor/tipo
+  // (portados quase verbatim de aggMonthlyInvestment/aggValueBreakdown/
+  // aggCategoryBreakdown/actionEstados/actionMacroRegioes do app original,
+  // ver claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md) ----
+  const AS_MONTH_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const AS_TYPE_LABELS = {
+    nova_acao: 'Nova Ação', novo_evento: 'Evento', nova_feira: 'Feira',
+    acao_influencer: 'Ação com Influencer', rodada_negocios: 'Rodada de Negócios',
+    imersoes: 'Immersione', treinamentos: 'Treinamentos', mostra: 'Mostra',
+    campanha_vendas: 'Campanha de Vendas', campanha_institucional: 'Campanha Institucional',
+    relacionamento: 'Relacionamento', patrocinio: 'Patrocínios',
+    material_pdv: 'Material de PDV', campanha_cooperada: 'Campanha Cooperada'
+  };
+  const AS_SETOR_LABELS = { marketing: 'Marketing', comercial: 'Comercial', outro: 'Outro' };
+  const AS_BR_MACRO_POR_UF = {
+    AC:'Norte', AP:'Norte', AM:'Norte', PA:'Norte', RO:'Norte', RR:'Norte', TO:'Norte',
+    AL:'Nordeste', BA:'Nordeste', CE:'Nordeste', MA:'Nordeste', PB:'Nordeste', PE:'Nordeste',
+    PI:'Nordeste', RN:'Nordeste', SE:'Nordeste',
+    DF:'Centro-Oeste', GO:'Centro-Oeste', MT:'Centro-Oeste', MS:'Centro-Oeste',
+    ES:'Sudeste', MG:'Sudeste', RJ:'Sudeste', SP:'Sudeste',
+    PR:'Sul', RS:'Sul', SC:'Sul'
+  };
+  const AS_MACRO_REGIOES_BR = ['Norte','Nordeste','Centro-Oeste','Sudeste','Sul'];
+  // Paleta categórica validada (skill dataviz, references/palette.md) --
+  // ordem fixa, nunca ciclada; "Outros" sempre no cinza neutro à parte
+  // (--series-outros), nunca um dos 6 tons de verdade.
+  const AS_SERIES_COLORS = ['var(--series-1)','var(--series-2)','var(--series-3)','var(--series-4)','var(--series-5)','var(--series-6)'];
+
+  function asMonthKey(iso){
+    if (!iso) return null;
+    const parts = String(iso).split('-');
+    if (parts.length < 2) return null;
+    return `${parts[0]}-${parts[1]}`;
+  }
+  function asMonthRange(startKey, endKey){
+    if (!startKey) return [];
+    if (!endKey || endKey < startKey) endKey = startKey;
+    const result = [];
+    let [y, m] = startKey.split('-').map(Number);
+    const [ey, em] = endKey.split('-').map(Number);
+    let guard = 0;
+    while ((y < ey || (y === ey && m <= em)) && guard < 240) {
+      result.push(`${y}-${String(m).padStart(2, '0')}`);
+      m++; if (m > 12) { m = 1; y++; }
+      guard++;
+    }
+    return result;
+  }
+  function asActionPaymentLegs(a){
+    if (Array.isArray(a.servicos) && a.servicos.length) {
+      return a.servicos.map((s) => ({ valor: Number(s.valor) || 0, parcelado: !!s.parcelado, parcelas: s.parcelas || [], dataPagamento: s.dataPagamento || '' }));
+    }
+    return [{ valor: Number(a.valorInvestido) || 0, parcelado: !!a.parcelado, parcelas: a.parcelas || [], dataPagamento: a.dataPagamento || '' }];
+  }
+  // Soma, por mês de PAGAMENTO (não de realização), o valor investido -- mesma
+  // lógica do app original: parcela conta no mês da sua própria data; pagamento
+  // único conta no mês da "Data de pagamento"; sem nenhuma data cadastrada,
+  // divide pela duração da ação; sem duração nem data nenhuma, usa o mês de
+  // criação do registro -- nenhum valor pago some do gráfico.
+  function asAggMonthlyInvestment(list, compareBrands, year){
+    const buckets = {};
+    function addToBucket(mk, brand, value){
+      if (!mk || !(value > 0)) return;
+      buckets[mk] = buckets[mk] || { ghelplus: 0, debacco: 0 };
+      buckets[mk][brand] = (buckets[mk][brand] || 0) + value;
+    }
+    list.forEach((a) => {
+      const startKey = asMonthKey(a.dataInicio) || asMonthKey(a.dataFim);
+      const endKey = asMonthKey(a.dataFim) || startKey;
+      const months = startKey ? asMonthRange(startKey, endKey) : [];
+      const fallbackKey = startKey || asMonthKey(a.createdAt);
+      asActionPaymentLegs(a).forEach((leg) => {
+        if (leg.parcelado && Array.isArray(leg.parcelas) && leg.parcelas.length) {
+          let soma = 0;
+          leg.parcelas.forEach((p) => {
+            const mk = asMonthKey(p.data) || fallbackKey;
+            addToBucket(mk, a.brand, Number(p.valor) || 0);
+            soma += Number(p.valor) || 0;
+          });
+          const falta = (leg.valor || 0) - soma;
+          if (falta > 0.01) addToBucket(fallbackKey, a.brand, falta);
+          return;
+        }
+        const payKey = asMonthKey(leg.dataPagamento);
+        if (payKey) { addToBucket(payKey, a.brand, leg.valor || 0); return; }
+        if (months.length) {
+          const perMonth = (leg.valor || 0) / months.length;
+          months.forEach((mk) => addToBucket(mk, a.brand, perMonth));
+          return;
+        }
+        addToBucket(fallbackKey, a.brand, leg.valor || 0);
+      });
+    });
+    let keys = Object.keys(buckets).sort();
+    if (year) keys = keys.filter((k) => k.slice(0, 4) === String(year));
+    const labels = keys.map((k) => { const [y, m] = k.split('-'); return `${AS_MONTH_LABELS[parseInt(m, 10) - 1]}/${y.slice(2)}`; });
+    return { keys, labels, buckets };
+  }
+  function asActionEstados(a){
+    if (Array.isArray(a.regioes) && a.regioes.length) {
+      return [...new Set(a.regioes.map((r) => r && r.estado).filter(Boolean))];
+    }
+    return [];
+  }
+  function asActionMacroRegioes(a){
+    const estados = asActionEstados(a);
+    if (!estados.length) return [];
+    return estados.map((uf) => (uf === 'NACIONAL' ? 'Nacional' : (AS_BR_MACRO_POR_UF[uf] || 'Não informado')));
+  }
+  // Agrupa por categoria somando VALOR investido (região/macrorregião/gerente).
+  function asAggValueBreakdown(list, keyFn, multiValue){
+    const map = {};
+    list.forEach((a) => {
+      const raw = keyFn(a);
+      if (!raw || (Array.isArray(raw) && !raw.length)) return;
+      const names = Array.isArray(raw)
+        ? raw.map((x) => String(x).trim()).filter(Boolean)
+        : (multiValue ? String(raw).split(',').map((x) => x.trim()).filter(Boolean) : [String(raw).trim()].filter(Boolean));
+      [...new Set(names)].forEach((name) => {
+        map[name] = map[name] || { value: 0 };
+        map[name].value += (Number(a.valorInvestido) || 0);
+      });
+    });
+    return Object.entries(map).sort((x, y) => y[1].value - x[1].value);
+  }
+  // Agrupa por categoria CONTANDO ações (representantes/setor/tipo).
+  function asAggCategoryBreakdown(list, keyFn, multiValue){
+    const map = {};
+    list.forEach((a) => {
+      const raw = keyFn(a);
+      if (!raw || (Array.isArray(raw) && !raw.length)) return;
+      const names = Array.isArray(raw)
+        ? raw.map((x) => String(x).trim()).filter(Boolean)
+        : (multiValue ? String(raw).split(',').map((x) => x.trim()).filter(Boolean) : [String(raw).trim()].filter(Boolean));
+      [...new Set(names)].forEach((name) => {
+        map[name] = map[name] || { count: 0 };
+        map[name].count += 1;
+      });
+    });
+    return Object.entries(map).sort((x, y) => y[1].count - x[1].count);
+  }
+  // Mais de 6 categorias reais nunca cicla a paleta categórica (regra da
+  // skill dataviz) -- o resto vira "Outros", cinza neutro à parte.
+  function asFoldIntoOutros(entries, cap, valueKey){
+    if (entries.length <= cap) return entries;
+    const top = entries.slice(0, cap);
+    const rest = entries.slice(cap);
+    const outros = rest.reduce((s, x) => s + (x[1][valueKey] || 0), 0);
+    return [...top, ['Outros', { [valueKey]: outros }]];
+  }
+  // Barra proporcional categórica (stacked bar + legenda) -- identidade +
+  // proporção, sem pizza (skill dataviz: >6 fatias finas não lê bem; aqui a
+  // categoria aparece sempre no texto da legenda, nunca só pela cor).
+  function asCatBarHTML(entries, valueKey, fmtValue){
+    const total = entries.reduce((s, x) => s + (x[1][valueKey] || 0), 0) || 1;
+    const segs = entries.map((x, i) => {
+      const v = x[1][valueKey] || 0;
+      const pct = (v / total) * 100;
+      const color = x[0] === 'Outros' ? 'var(--series-outros)' : AS_SERIES_COLORS[i % AS_SERIES_COLORS.length];
+      return { nome: x[0], v, pct, color };
+    });
+    if (!segs.some((s) => s.v > 0)) return '<div class="empty-board" style="padding:20px 10px;">Sem dados suficientes ainda.</div>';
+    const track = `<div class="catbar-track">${segs.filter((s) => s.pct > 0).map((s) => `<div class="catbar-seg" style="width:${s.pct.toFixed(2)}%;background:${s.color};"></div>`).join('')}</div>`;
+    const legend = `<div class="legend-row" style="margin-top:10px;">${segs.map((s) => `<span class="legend-dot"><span class="legend-swatch" style="background:${s.color};"></span>${escapeHtml(s.nome)} — ${fmtValue(s.v)} (${s.pct.toFixed(1).replace(/\.0$/, '')}%)</span>`).join('')}</div>`;
+    return track + legend;
+  }
+  // Lista ranqueada por contagem, 1 cor só -- mesmo padrão já usado no funil
+  // de Resultados do Tráfego Pago (funnel-row/-track/-fill).
+  function asRankBarListHTML(entries, emptyMsg){
+    if (!entries.length) return `<div class="empty-board" style="padding:20px 10px;">${emptyMsg}</div>`;
+    const top = Math.max(1, ...entries.map((x) => x[1].count));
+    return entries.map((x) => `
+      <div class="funnel-row">
+        <div class="timeline-name">${escapeHtml(x[0].length > 32 ? x[0].slice(0, 32) + '…' : x[0])}</div>
+        <div class="funnel-track"><div class="funnel-fill" style="width:${Math.max(2, (x[1].count / top) * 100).toFixed(1)}%;background:var(--accent);"></div><span style="font-size:13px;font-weight:700;white-space:nowrap;">${x[1].count}</span></div>
+      </div>`).join('');
+  }
 
   // 158ª rodada, #124, #127b: Visão Geral de verdade (primeira view
   // portada do app separado -- ver claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md).
-  // Neste 1º incremento: painel "Visão Geral Anual" (aprovado/investido/
-  // utilizado/disponível), painel "Fora do orçamento" e o gráfico
-  // "Orçamento aprovado x Investido por grupo de ação", redesenhado em
-  // HTML/CSS puro (achado crítico #4 do plano -- mesmo padrão já usado no
-  // módulo nativo do Tráfego Pago, sem Chart.js na tela). Ainda faltam
-  // (ficam pro próximo incremento, #127b-2): o toggle "cruzar as duas
-  // marcas", clique numa ação da lista "fora do orçamento"/barra do
-  // gráfico pra abrir o detalhe (a view "Ações" ainda não tem detalhe/
-  // modal -- só a lista simples do #127a), o botão de editar valores
-  // aprovados, e os demais gráficos da Visão Geral original (investimento
-  // mensal, região/macrorregião, gerente, representantes, setor, tipo).
+  // #127b (1º incremento): painel "Visão Geral Anual", painel "Fora do
+  // orçamento" e o gráfico "Orçamento aprovado x Investido por grupo de
+  // ação". #127b-2 (2º incremento, este): os 5 painéis restantes --
+  // investimento mensal (com toggle "cruzar marcas"), investimento por
+  // região + macrorregião, investimento por gerente, representantes mais
+  // atuantes e ações por setor/tipo -- todos redesenhados em HTML/CSS puro
+  // (achado crítico #4), pizza/doughnut do app original virou barra
+  // proporcional + legenda (achado crítico #5 documentado no plano: cuidado
+  // com qualquer "*/" dentro de um comentário CSS neste arquivo). Ainda
+  // faltam (ficam pro corte final, #127i): clique numa ação pra abrir o
+  // detalhe e o botão de editar valores aprovados.
   function asRenderDashboard(){
     const root = document.getElementById('asDashboardPage');
     if (!root) return;
@@ -17427,6 +17607,35 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
       };
     }).filter((g) => g.investido > 0);
     const maxBarValue = Math.max(1, ...groupData.map((g) => Math.max(g.aprovado, g.investido)));
+
+    // ---- #127b-2: dados pros 5 paineis restantes ----
+    // Investimento mensal: por mes de PAGAMENTO (nao de inicio da acao) --
+    // usa asData.actions inteiro (todas as marcas, se asBrand==='all'; so a
+    // marca ativa, senao) e o filtro por ano (quando houver) acontece DEPOIS,
+    // direto nas chaves mes/ano -- igual ao app original.
+    const monthly = asAggMonthlyInvestment(asData.actions.filter(asIsActionFeita), asCompareMonthly, filterYear);
+    const monthlyMax = Math.max(1, ...monthly.keys.map((k) => {
+      const b = monthly.buckets[k];
+      return asCompareMonthly ? Math.max(b.ghelplus || 0, b.debacco || 0) : ((b.ghelplus || 0) + (b.debacco || 0));
+    }));
+    // Regiao/macrorregiao/gerente: so acoes feitas, com regiao cadastrada e
+    // com valor investido de verdade (mesmo criterio do app original, 148a/
+    // 150a rodada) -- scopedList respeita "todos os anos" de verdade (sem
+    // recorte), diferente de yearActions (sempre 1 ano, usado nos KPIs/
+    // orcamento acima, que sao sempre "por ano" por definicao).
+    const scopedList = filterYear ? yearActions : asData.actions;
+    const scopedListFeitas = scopedList.filter(asIsActionFeita);
+    const investList = scopedListFeitas.filter((a) => asActionEstados(a).length > 0 && (Number(a.valorInvestido) || 0) > 0);
+    const regioes = asFoldIntoOutros(asAggValueBreakdown(investList, (a) => asActionEstados(a).filter((uf) => uf !== 'NACIONAL'), false), 6, 'value');
+    const macroAgg = Object.fromEntries(asAggValueBreakdown(investList, (a) => asActionMacroRegioes(a), false));
+    const macroRegioes = [
+      ...AS_MACRO_REGIOES_BR.map((nome) => [nome, macroAgg[nome] || { value: 0 }]),
+      ...Object.keys(macroAgg).filter((nome) => !AS_MACRO_REGIOES_BR.includes(nome)).map((nome) => [nome, macroAgg[nome]])
+    ];
+    const gerentes = asFoldIntoOutros(asAggValueBreakdown(investList, (a) => a.gerente, true), 6, 'value');
+    const representantes = asAggCategoryBreakdown(scopedListFeitas, (a) => a.representante, true);
+    const setores = asFoldIntoOutros(asAggCategoryBreakdown(scopedListFeitas, (a) => AS_SETOR_LABELS[a.setor] || a.setor, false), 6, 'count');
+    const tipos = asFoldIntoOutros(asAggCategoryBreakdown(scopedListFeitas, (a) => AS_TYPE_LABELS[a.type] || a.type, false), 6, 'count');
 
     root.innerHTML = `
       <div class="board-head">
@@ -17514,10 +17723,84 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
           </div>
         ` : '<div class="empty-board">Nenhuma ação com investimento registrado neste ano ainda.</div>'}
       </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head">
+          <div>
+            <h2>Investimento mensal por marca</h2>
+            <div class="board-sub">Somatório de valor investido, agrupado pelo mês em que cada pagamento foi feito</div>
+          </div>
+          ${asBrand === 'all' ? `<label class="toggle-row" style="font-size:12.5px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="asChkCompareMonthly" ${asCompareMonthly ? 'checked' : ''}/> Cruzar as duas marcas no mesmo gráfico</label>` : ''}
+        </div>
+        ${monthly.keys.length ? `
+          ${asCompareMonthly ? `<div class="legend-row" style="margin-bottom:10px;"><span class="legend-dot"><span class="legend-swatch" style="background:var(--series-1);"></span>GhelPlus</span><span class="legend-dot"><span class="legend-swatch" style="background:var(--series-2);"></span>De Bacco</span></div>` : ''}
+          <div class="qbar-grid" style="grid-template-columns:repeat(${monthly.keys.length},minmax(0,1fr));">
+            ${monthly.keys.map((k) => {
+              const b = monthly.buckets[k];
+              if (asCompareMonthly) {
+                const hA = Math.max(2, Math.round(((b.ghelplus || 0) / monthlyMax) * 190));
+                const hB = Math.max(2, Math.round(((b.debacco || 0) / monthlyMax) * 190));
+                return `<div class="qbar-pair">
+                  <div class="qbar-col"><div class="qbar-fill" style="height:${hA}px;background:var(--series-1);"></div></div>
+                  <div class="qbar-col"><div class="qbar-fill" style="height:${hB}px;background:var(--series-2);"></div></div>
+                </div>`;
+              }
+              const total = (b.ghelplus || 0) + (b.debacco || 0);
+              const h = Math.max(2, Math.round((total / monthlyMax) * 190));
+              return `<div class="qbar-pair"><div class="qbar-col"><div class="qbar-fill" style="height:${h}px;background:var(--accent);"></div></div></div>`;
+            }).join('')}
+          </div>
+          <div class="qbar-labels" style="grid-template-columns:repeat(${monthly.keys.length},minmax(0,1fr));margin-top:8px;">
+            ${monthly.labels.map((l) => `<span style="font-size:11px;">${l}</span>`).join('')}
+          </div>
+        ` : '<div class="empty-board">Sem dados suficientes ainda -- cadastre ações com valor investido pago.</div>'}
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head"><h2>Investimento por região</h2></div>
+        <div class="board-grid" style="grid-template-columns:1fr 1fr;gap:24px;">
+          <div>
+            <div class="board-sub" style="margin-bottom:8px;">Por estado (UF)</div>
+            ${asCatBarHTML(regioes, 'value', asFmtMoney)}
+          </div>
+          <div>
+            <div class="board-sub" style="margin-bottom:8px;">Por macrorregião</div>
+            ${asCatBarHTML(macroRegioes, 'value', asFmtMoney)}
+          </div>
+        </div>
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head"><h2>Investimento por gerente</h2></div>
+        ${asCatBarHTML(gerentes, 'value', asFmtMoney)}
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head"><h2>Representantes mais atuantes</h2></div>
+        <div style="max-height:360px;overflow-y:auto;overflow-x:hidden;">
+          ${asRankBarListHTML(representantes, 'Nenhum representante registrado ainda.')}
+        </div>
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head"><h2>Ações por setor e por tipo</h2></div>
+        <div class="board-grid" style="grid-template-columns:1fr 1fr;gap:24px;">
+          <div>
+            <div class="board-sub" style="margin-bottom:8px;">Por setor</div>
+            ${asCatBarHTML(setores, 'count', (v) => String(v))}
+          </div>
+          <div>
+            <div class="board-sub" style="margin-bottom:8px;">Por tipo</div>
+            ${asCatBarHTML(tipos, 'count', (v) => String(v))}
+          </div>
+        </div>
+      </div>
     `;
 
     const yearSelect = document.getElementById('asDashboardYearSelect');
     if (yearSelect) yearSelect.addEventListener('change', (e) => { asDashboardYear = e.target.value; asRenderDashboard(); });
+    const chkMonthly = document.getElementById('asChkCompareMonthly');
+    if (chkMonthly) chkMonthly.addEventListener('change', (e) => { asCompareMonthly = e.target.checked; asRenderDashboard(); });
   }
 
   function asRenderVendasMeta(){

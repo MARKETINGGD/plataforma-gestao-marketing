@@ -1824,8 +1824,23 @@ button{font-weight:700;}
     --lilac: #3F31B0; --lilac-soft: #E8E5FB;
     --shadow: 0 1px 2px rgba(22,24,29,0.04), 0 8px 24px -12px rgba(22,24,29,0.12); --radius: 14px;
     --font-display: 'Inter','Arial','Helvetica Neue',sans-serif;
+    /* 158a rodada, #124, #127b-2: paleta categorica (skill dataviz,
+       references/palette.md) -- ordem fixa, nunca ciclada, validada com
+       scripts/validate_palette.js (6 slots, modo light, ALL CHECKS PASS).
+       Usada nos graficos de investimento mensal/regiao/macrorregiao/
+       gerente, nunca nos graficos de status (--good/--danger acima, que
+       continuam reservados pro estado dentro/fora do orcamento). */
+    --series-1: #257DE0; --series-2: #F47230; --series-3: #00B894;
+    --series-4: #F2A600; --series-5: #EE7FAC; --series-6: #008A17;
+    --series-outros: #9AA0AC;
   }
 #acoesNativeScreens, #acoesNativeScreens * { box-sizing: border-box; }
+/* 158a rodada, #124, #127b-2: barra proporcional categorica (stacked bar +
+   legenda) -- substitui pizza/doughnut do app original (skill dataviz:
+   >6 fatias finas nao le bem; aqui a categoria aparece sempre no texto da
+   legenda, nunca so pela cor -- regra "relief" da paleta). */
+#acoesNativeScreens .catbar-track { display:flex; gap:2px; height:16px; border-radius:8px; overflow:hidden; background:var(--line-soft); }
+#acoesNativeScreens .catbar-seg { height:100%; }
 #acoesNativeScreens { background: var(--bg); color: var(--ink); font-family:'Arial','Helvetica Neue',sans-serif; font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; }
 #acoesNativeScreens .wrap { max-width:1280px; margin:0 auto; padding:28px 24px 80px; }
 #acoesNativeScreens .hidden { display:none !important; }

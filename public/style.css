@@ -2080,3 +2080,19 @@ button{font-weight:700;}
 #acoesNativeScreens tbody td { display:flex; justify-content:space-between; gap:12px; border-bottom:none; padding:6px 14px; }
 #acoesNativeScreens tbody td::before { content:attr(data-label); font-family:'Arial','Helvetica Neue',sans-serif; font-size:10px; text-transform:uppercase; color:var(--ink-soft); flex:none; }
 #acoesNativeScreens .board-grid { grid-template-columns:repeat(2,1fr); }}
+/* 158a rodada, #124, #127d: badges/pilulas novos da listagem de Acoes e
+   do relatorio somente-leitura -- escopados so a #acoesNativeScreens,
+   cuidado nunca escrever a sequencia de fechar comentario dentro de um
+   comentario (achado critico #5 ja documentado no plano tecnico). */
+#acoesNativeScreens .tag-plan { display:inline-flex; align-items:center; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:600; white-space:nowrap; }
+#acoesNativeScreens .tag-plan.yes { background:var(--good-soft); color:var(--good); }
+#acoesNativeScreens .tag-plan.no { background:var(--danger-soft); color:var(--danger); }
+#acoesNativeScreens .tag-brand { display:inline-flex; align-items:center; padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:600; background:var(--neutral-soft); color:var(--ink); white-space:nowrap; }
+#acoesNativeScreens .type-pill { display:inline-flex; align-items:center; padding:3px 9px; border-radius:999px; font-size:11px; font-weight:600; background:var(--line-soft); color:var(--ink-soft); white-space:nowrap; }
+#acoesNativeScreens .as-report-dl { display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; margin:0; }
+#acoesNativeScreens .as-report-dl > div.full { grid-column:1 / -1; }
+#acoesNativeScreens .as-report-dl dt { font-family:'Arial','Helvetica Neue',sans-serif; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); margin:0 0 3px; }
+#acoesNativeScreens .as-report-dl dd { margin:0; font-size:13.5px; color:var(--ink); }
+@media (max-width:640px) {
+#acoesNativeScreens .as-report-dl { grid-template-columns:1fr; }
+}

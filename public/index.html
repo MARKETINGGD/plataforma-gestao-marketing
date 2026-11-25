@@ -1351,6 +1351,8 @@
              (task #127i) -- o iframe acima continua sendo o que a
              Raquel usa no dia a dia até lá, sem nenhum risco. -->
         <div id="acoesNativeScreens" hidden>
+          <div class="toast" id="asToastEl"></div>
+          <div class="overlay" id="asOverlay"><div class="modal" id="asModalBox"></div></div>
           <!-- 158ª rodada, #124, #127b: conteúdo de verdade da Visão Geral --
                tudo renderizado por asRenderDashboard() em app.js, igual ao
                resto dos módulos nativos (ver #trafegoNativeScreens: cada
@@ -1361,10 +1363,7 @@
                Meta, tudo renderizado por asRenderVendasMeta() em app.js,
                mesmo padrao do asDashboardPage acima. -->
           <div id="asVendasMetaPage" style="display:none;"></div>
-          <div id="asAcoesPage" style="display:none;">
-            <div class="board-section-head"><h2>Ações <span class="muted" id="asAcoesCount" style="font-weight:400;font-size:13px;"></span></h2></div>
-            <div id="asAcoesList"></div>
-          </div>
+          <div id="asAcoesPage" style="display:none;"></div>
           <div id="asHistoricoPage" style="display:none;">
             <div class="board-section-head"><h2>Histórico</h2></div>
             <table class="data-table">

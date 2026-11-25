@@ -17994,20 +17994,1121 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     if (yearSelect) yearSelect.addEventListener('change', (e) => { asDashboardYear = e.target.value; asRenderVendasMeta(); });
   }
 
-  function asRenderAcoes(){
-    const countEl = document.getElementById('asAcoesCount');
-    const listEl = document.getElementById('asAcoesList');
-    if (countEl) countEl.textContent = `(${asData.actions.length})`;
-    if (!listEl) return;
-    if (!asData.actions.length){
-      listEl.innerHTML = '<p class="muted">Nenhuma ação cadastrada ainda.</p>';
-      return;
+  // ===================== 158ª rodada, #124, #127d: Ações -- listagem + =====================
+  // ===================== cadastro completo (CRUD) =====================
+  // Porta renderAcoesView()/openActionModal()/openReportModal() do app
+  // separado (dashboard-acoes-sazonais/public/index.html) quase verbatim,
+  // com 3 reduções de escopo deliberadas (anotadas no plano técnico,
+  // claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md):
+  // (1) sem upload de arquivo nos campos de anexo (documentoArquivo,
+  //     permutaArquivo, participantesArquivo) -- só os campos de link
+  //     ficam editáveis por enquanto; o backend já aceita os 3 campos de
+  //     anexo (routes/acoesSazonais.js), então uma próxima rodada pode
+  //     ligar o upload sem precisar mexer no servidor;
+  // (2) sem rascunho automático em localStorage (o app original salvava
+  //     o formulário a cada tecla, pra recuperar se a aba fosse fechada
+  //     sem salvar);
+  // (3) sem importação/exportação de planilha nem exportação de PDF --
+  //     fica pra uma etapa própria de exports (#127g/#127h), igual o
+  //     resto do módulo.
+  // O relatório da ação (openReportModal) também muda de Chart.js/canvas
+  // pra HTML/CSS puro (achado crítico #4): a barra "Meta vs. Resultado"
+  // vira uma barra de progresso (mesmo padrão de Vendas e Meta/#127c) e
+  // os resultados mensais viram uma tabela simples, nunca um canvas.
+
+  const AS_TYPES_BY_BRAND = {
+    ghelplus: ['campanha_cooperada', 'material_pdv', 'novo_evento', 'nova_feira', 'acao_influencer', 'rodada_negocios', 'treinamentos', 'mostra', 'campanha_vendas', 'relacionamento'],
+    debacco: ['novo_evento', 'nova_feira', 'acao_influencer', 'rodada_negocios', 'treinamentos', 'mostra', 'campanha_vendas', 'relacionamento', 'campanha_cooperada', 'imersoes']
+  };
+  function asSelectableTypeLabelsForBrand(brand){
+    const keys = brand === 'ghelplus' ? AS_TYPES_BY_BRAND.ghelplus
+      : brand === 'debacco' ? AS_TYPES_BY_BRAND.debacco
+      : [...new Set([...AS_TYPES_BY_BRAND.ghelplus, ...AS_TYPES_BY_BRAND.debacco])];
+    const out = {};
+    keys.forEach((k) => { if (AS_TYPE_LABELS[k]) out[k] = AS_TYPE_LABELS[k]; });
+    return out;
+  }
+  function asTypeOptionsHTMLForBrand(brand, currentType){
+    const labels = asSelectableTypeLabelsForBrand(brand);
+    let html = Object.entries(labels).map(([k, v]) => `<option value="${k}" ${currentType === k ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+    if (currentType && !labels[currentType] && AS_TYPE_LABELS[currentType]) {
+      html += `<option value="${currentType}" selected>${escapeHtml(AS_TYPE_LABELS[currentType])} (descontinuado)</option>`;
     }
-    listEl.innerHTML = '<div class="card-grid">' + asData.actions.map((a) => `
-      <div class="dash-card">
-        <h3>${escapeHtml(a.title || '(sem título)')}</h3>
-        <p class="muted">${escapeHtml(a.type || '')} · ${asFmtMoney(a.valorInvestido)}</p>
-      </div>`).join('') + '</div>';
+    return html;
+  }
+  const AS_META_TIPOS_POR_TIPO_ACAO = {
+    nova_feira: ['faturamento_valor', 'faturamento_percentual', 'novos_clientes'],
+    campanha_vendas: ['faturamento_valor', 'faturamento_percentual', 'novos_clientes'],
+    rodada_negocios: ['faturamento_valor', 'faturamento_percentual', 'novos_clientes'],
+    mostra: ['faturamento_valor', 'faturamento_percentual', 'novos_clientes'],
+    novo_evento: ['faturamento_valor', 'faturamento_percentual', 'novos_clientes'],
+    patrocinio: ['faturamento_valor', 'faturamento_percentual', 'novos_clientes'],
+    material_pdv: ['faturamento_valor', 'faturamento_percentual', 'novos_clientes'],
+    campanha_cooperada: ['faturamento_valor', 'faturamento_percentual', 'novos_clientes'],
+    acao_influencer: ['conversao_leads', 'engajamento', 'alcance', 'seguidores'],
+    treinamentos: ['participantes', 'novos_clientes', 'novos_leads'],
+    imersoes: ['participantes', 'novos_clientes', 'novos_leads'],
+    relacionamento: ['participantes', 'novos_clientes', 'novos_leads']
+  };
+  const AS_PARTICIPANTS_LIST_TYPES = ['relacionamento', 'treinamentos', 'imersoes'];
+  function asShouldShowParticipantes(type, modalidade){
+    if (modalidade === 'presencial' || modalidade === 'hibrido') return true;
+    if (modalidade === 'online') return AS_PARTICIPANTS_LIST_TYPES.includes(type);
+    return true;
+  }
+  const AS_BR_ESTADOS = [
+    { uf: 'AC', nome: 'Acre' }, { uf: 'AL', nome: 'Alagoas' }, { uf: 'AP', nome: 'Amapá' }, { uf: 'AM', nome: 'Amazonas' },
+    { uf: 'BA', nome: 'Bahia' }, { uf: 'CE', nome: 'Ceará' }, { uf: 'DF', nome: 'Distrito Federal' }, { uf: 'ES', nome: 'Espírito Santo' },
+    { uf: 'GO', nome: 'Goiás' }, { uf: 'MA', nome: 'Maranhão' }, { uf: 'MT', nome: 'Mato Grosso' }, { uf: 'MS', nome: 'Mato Grosso do Sul' },
+    { uf: 'MG', nome: 'Minas Gerais' }, { uf: 'PA', nome: 'Pará' }, { uf: 'PB', nome: 'Paraíba' }, { uf: 'PR', nome: 'Paraná' },
+    { uf: 'PE', nome: 'Pernambuco' }, { uf: 'PI', nome: 'Piauí' }, { uf: 'RJ', nome: 'Rio de Janeiro' }, { uf: 'RN', nome: 'Rio Grande do Norte' },
+    { uf: 'RS', nome: 'Rio Grande do Sul' }, { uf: 'RO', nome: 'Rondônia' }, { uf: 'RR', nome: 'Roraima' }, { uf: 'SC', nome: 'Santa Catarina' },
+    { uf: 'SP', nome: 'São Paulo' }, { uf: 'SE', nome: 'Sergipe' }, { uf: 'TO', nome: 'Tocantins' },
+    { uf: 'NACIONAL', nome: 'Nacional' }
+  ];
+  const AS_BR_ESTADOS_OPTIONS_HTML = '<option value="">UF</option>' + AS_BR_ESTADOS.map((e) => `<option value="${e.uf}">${e.uf}</option>`).join('');
+  const AS_PARCELADO_FORMAS = ['PIX', 'Boleto', 'Cartão'];
+
+  function asFmtDate(iso){
+    if (!iso) return '—';
+    const parts = String(iso).split('-');
+    if (parts.length !== 3) return iso;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  function asFmtDateRange(a, b){
+    if (!a && !b) return '—';
+    if (a && b) return `${asFmtDate(a)} – ${asFmtDate(b)}`;
+    return asFmtDate(a || b);
+  }
+  function asPlanTagHTML(record){
+    return asIsPlanned(record)
+      ? `<span class="tag-plan yes">Dentro do Budget</span>`
+      : `<span class="tag-plan no">Fora do Budget</span>`;
+  }
+  function asFeitaTagHTML(action){
+    return asIsActionFeita(action)
+      ? `<span class="tag-plan yes">Ação feita</span>`
+      : `<span class="tag-plan no">Ainda não feita</span>`;
+  }
+  function asFormatProdutosList(val){
+    const list = asNormalizeProdutos(val);
+    if (!list.length) return '';
+    return list.map((p) => p.quantidade ? `${p.nome} (${p.quantidade})` : p.nome).join(', ');
+  }
+  function asFormatParcelasList(parcelas){
+    return (parcelas || []).filter((p) => p.data).map((p) => `${asFmtDate(p.data)}: ${asFmtMoney(p.valor)}`).join(' · ');
+  }
+  function asSplitMultiValue(raw){
+    return [...new Set(String(raw || '').split(',').map((s) => s.trim()).filter(Boolean))];
+  }
+  function asFormatServicosList(servicos){
+    return (servicos || []).map((s) => {
+      const bits = [s.titulo || '(sem título)', asFmtMoney(s.valor)];
+      if (s.formaPagamento) bits.push(s.formaPagamento);
+      return bits.join(' — ');
+    }).join(' · ');
+  }
+
+  let asToastTimer = null;
+  function asToast(msg, isErr){
+    const el = document.getElementById('asToastEl');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'toast show' + (isErr ? ' err' : '');
+    clearTimeout(asToastTimer);
+    asToastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+  let asOverlayWired = false;
+  function asEnsureOverlayWired(){
+    if (asOverlayWired) return;
+    const overlay = document.getElementById('asOverlay');
+    if (!overlay) return;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) asCloseModal(); });
+    asOverlayWired = true;
+  }
+  function asCloseModal(){
+    const overlay = document.getElementById('asOverlay');
+    if (overlay) overlay.classList.remove('open');
+  }
+  async function asEnsureProductInCatalog(brand, nome){
+    nome = (nome || '').trim();
+    if (!nome || !brand) return;
+    const exists = asData.products.some((p) => p.brand === brand && p.nome.trim().toLowerCase() === nome.toLowerCase());
+    if (exists) return;
+    try {
+      const res = await api('/api/acoes-sazonais/products', { method: 'POST', body: JSON.stringify({ brand, nome }) });
+      if (res.product) asData.products.push(res.product);
+    } catch (e) { /* autocomplete não é crítico -- falha silenciosa */ }
+  }
+
+  let asAcoesFilterType = '';
+  let asAcoesSearch = '';
+
+  function asRenderAcoes(){
+    const root = document.getElementById('asAcoesPage');
+    if (!root) return;
+    const canEdit = asCanEdit();
+    let list = asData.actions.slice();
+    if (asBrand !== 'all') list = list.filter((a) => a.brand === asBrand);
+    if (asDashboardYear !== 'all') list = asInYear(list, 'dataInicio', parseInt(asDashboardYear, 10));
+    if (asAcoesFilterType) list = list.filter((a) => a.type === asAcoesFilterType);
+    if (asAcoesSearch) {
+      const q = asAcoesSearch.toLowerCase();
+      list = list.filter((a) => (a.title || '').toLowerCase().includes(q) || (a.regiao || '').toLowerCase().includes(q) || (a.gerente || '').toLowerCase().includes(q) || (a.representante || '').toLowerCase().includes(q) || (a.cliente || '').toLowerCase().includes(q));
+    }
+    list = list.slice().sort((a, b) => (b.dataInicio || '').localeCompare(a.dataInicio || ''));
+    const availableYears = asActionYearsAvailable();
+    const typeLabelsForFilter = asSelectableTypeLabelsForBrand(asBrand);
+
+    root.innerHTML = `
+      <div class="board-section-head">
+        <h2>Ações <span class="muted" style="font-weight:400;font-size:13px;">(${list.length})</span></h2>
+        ${canEdit ? `<button class="btn-primary" id="asBtnNovaAcao">+ Nova ação</button>` : ''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">
+        <select id="asAcoesFilterType" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;">
+          <option value="">Todos os tipos</option>
+          ${Object.entries(typeLabelsForFilter).map(([k, v]) => `<option value="${k}" ${asAcoesFilterType === k ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('')}
+        </select>
+        <input type="search" id="asAcoesFilterSearch" placeholder="Buscar por nome, região, gerente..." value="${escapeHtml(asAcoesSearch)}" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;font-family:inherit;" />
+        <select id="asAcoesYearSelect" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;">
+          <option value="all" ${asDashboardYear === 'all' ? 'selected' : ''}>Todos os anos</option>
+          ${availableYears.map((y) => `<option value="${y}" ${asDashboardYear === y ? 'selected' : ''}>${y}</option>`).join('')}
+        </select>
+      </div>
+      <div style="overflow-x:auto;">
+      ${list.length ? `
+        <table class="data-table">
+          <thead><tr>
+            <th>Ação</th><th>Feita</th><th>Marca</th><th>Tipo</th><th>Setor</th><th>Região</th><th>Período</th>
+            <th>Investido</th><th>Cliente</th><th>Budget</th><th>Responsáveis</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${list.map((a) => `
+              <tr>
+                <td><strong>${escapeHtml(a.title)}</strong>${a.modalidade ? `<div class="muted" style="font-size:11.5px;margin-top:2px;">${a.modalidade === 'presencial' ? 'Presencial' : a.modalidade === 'online' ? 'Online' : 'Híbrido'}</div>` : ''}</td>
+                <td style="text-align:center;">
+                  <input type="checkbox" data-as-feita-toggle data-id="${a.id}" ${asIsActionFeita(a) ? 'checked' : ''} ${canEdit ? '' : 'disabled'} title="Ação já foi realizada" />
+                </td>
+                <td><span class="tag-brand">${a.brand === 'debacco' ? 'De Bacco' : 'GhelPlus'}</span></td>
+                <td><span class="type-pill" title="${escapeHtml(AS_TYPE_LABELS[a.type] || a.type)}">${escapeHtml(AS_TYPE_LABELS[a.type] || a.type)}</span></td>
+                <td>${AS_SETOR_LABELS[a.setor] || '—'}</td>
+                <td>${escapeHtml(a.regiao) || '—'}</td>
+                <td class="num">${asFmtDateRange(a.dataInicio, a.dataFim)}</td>
+                <td class="num">${asFmtMoney(a.valorInvestido)}</td>
+                <td>${escapeHtml(a.cliente) || '—'}</td>
+                <td>${asPlanTagHTML(a)}</td>
+                <td class="muted" style="font-size:12px;">${escapeHtml([a.gerente, a.representante].filter(Boolean).join(' · ')) || '—'}</td>
+                <td style="white-space:nowrap;">
+                  <button class="btn-link" data-as-act="report" data-id="${a.id}">Relatório</button>
+                  ${canEdit ? `<button class="btn-link" data-as-act="edit" data-id="${a.id}">Editar</button><button class="btn-link danger" data-as-act="delete" data-id="${a.id}">Excluir</button>` : ''}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : `<div class="empty-board" style="padding:30px 10px;">Nenhuma ação encontrada. Ajuste os filtros ou cadastre a primeira ação sazonal.</div>`}
+      </div>
+    `;
+
+    const typeSel = document.getElementById('asAcoesFilterType');
+    if (typeSel) typeSel.addEventListener('change', (e) => { asAcoesFilterType = e.target.value; asRenderAcoes(); });
+    const searchInput = document.getElementById('asAcoesFilterSearch');
+    if (searchInput) searchInput.addEventListener('input', (e) => {
+      asAcoesSearch = e.target.value;
+      const cursorPos = e.target.selectionStart;
+      asRenderAcoes();
+      const fresh = document.getElementById('asAcoesFilterSearch');
+      if (fresh) { fresh.focus(); try { fresh.setSelectionRange(cursorPos, cursorPos); } catch (e2) {} }
+    });
+    const yearSel = document.getElementById('asAcoesYearSelect');
+    if (yearSel) yearSel.addEventListener('change', (e) => { asDashboardYear = e.target.value; asRenderAcoes(); });
+    const btnNova = document.getElementById('asBtnNovaAcao');
+    if (btnNova) btnNova.addEventListener('click', () => asOpenActionModal(null));
+    root.querySelectorAll('[data-as-act]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const action = asData.actions.find((a) => a.id === id);
+        if (!action) return;
+        if (btn.dataset.asAct === 'edit') asOpenActionModal(action);
+        else if (btn.dataset.asAct === 'report') asOpenReportModal(action);
+        else if (btn.dataset.asAct === 'delete') asDeleteAction(action);
+      });
+    });
+    if (canEdit) {
+      root.querySelectorAll('[data-as-feita-toggle]').forEach((cb) => {
+        cb.addEventListener('change', () => asToggleActionFeita(cb));
+      });
+    }
+  }
+
+  async function asToggleActionFeita(checkbox){
+    const id = checkbox.dataset.id;
+    const action = asData.actions.find((a) => a.id === id);
+    if (!action) return;
+    const novoValor = checkbox.checked;
+    const valorAnterior = action.feita;
+    action.feita = novoValor;
+    checkbox.disabled = true;
+    try {
+      const res = await api('/api/acoes-sazonais/actions/' + id, { method: 'PUT', body: JSON.stringify({ feita: novoValor }) });
+      const idx = asData.actions.findIndex((a) => a.id === id);
+      if (idx >= 0) asData.actions[idx] = res.action;
+      asToast(novoValor ? 'Ação marcada como feita.' : 'Ação marcada como ainda não feita.');
+    } catch (e) {
+      action.feita = valorAnterior;
+      checkbox.checked = asIsActionFeita(action);
+      asToast(e.message, true);
+    } finally {
+      checkbox.disabled = false;
+    }
+  }
+
+  async function asDeleteAction(action){
+    if (!confirm(`Excluir a ação "${action.title}"? Essa operação não pode ser desfeita.`)) return;
+    try {
+      await api('/api/acoes-sazonais/actions/' + action.id, { method: 'DELETE' });
+      asData.actions = asData.actions.filter((a) => a.id !== action.id);
+      asToast('Ação excluída.');
+      asRenderAcoes();
+    } catch (e) { asToast(e.message, true); }
+  }
+
+  async function asOpenActionModal(action){
+    asEnsureOverlayWired();
+    const isEdit = !!action;
+    const blank = {
+      brand: asBrand !== 'all' ? asBrand : 'ghelplus',
+      type: 'nova_feira', fluxo: '', title: '', representante: '', gerente: '', setor: 'marketing',
+      cliente: '', permutaLink: '', oQueFoiFeito: '', regiao: '', regioes: [],
+      dataInicio: '', dataFim: '', colaboradores: [], modalidade: 'presencial',
+      redesSociaisConteudo: false, campanhaTrafego: false,
+      participantes: '', participantesLink: '', monthlyEntries: [],
+      servicos: [], planejado: true, feita: false,
+      documentoLink: '', metaTipo: '', metaValor: '', metaResultadoManual: '',
+      report: { engajamentoRedes: '', seguidoresGanhos: '', vendasQuantidade: '', valorVendas: '', vendasProdutos: [], acessosSite: '', resultadosRegionais: '', resultadosNacionais: '', feedbackCliente: '', mudancaVendas: '', observacoes: '' }
+    };
+    const a = action ? Object.assign({}, blank, action, { report: Object.assign({}, blank.report, action.report || {}) }) : blank;
+    const r = a.report || {};
+
+    let servicos = (a.servicos || []).map((s) => ({ ...s, parcelas: (s.parcelas || []).map((p) => ({ ...p })), produtos: asNormalizeProdutos(s.produtos).map((p) => ({ ...p })), permutaServicos: asNormalizeProdutos(s.permutaServicos).map((p) => ({ ...p })) }));
+    // 158a rodada, #124, #127d: ações antigas (de antes do campo "servicos" existir)
+    // guardavam o pagamento num jeito diferente -- migra automaticamente pro formato
+    // novo aqui, igual o app separado ja fazia, pra nao perder nem esconder o dado ja
+    // cadastrado ao abrir uma acao legada nesse modal novo.
+    if (!servicos.length && a.type === 'acao_influencer' && ((parseFloat(a.pagamentoDinheiro) || 0) > 0 || (parseFloat(a.pagamentoPermuta) || 0) > 0)) {
+      if ((parseFloat(a.pagamentoDinheiro) || 0) > 0) {
+        servicos.push({ titulo: '', valor: a.pagamentoDinheiro, formaPagamento: a.formaPagamento || '', parcelado: !!a.parcelado, dataPagamento: '', parcelas: (a.parcelas || []).map((p) => ({ ...p })), produtos: [], permutaServicos: [] });
+      }
+      if ((parseFloat(a.pagamentoPermuta) || 0) > 0) {
+        servicos.push({ titulo: '', valor: a.pagamentoPermuta, formaPagamento: 'Permuta', parcelado: false, dataPagamento: '', parcelas: [], produtos: [], permutaServicos: [] });
+      }
+    } else if (!servicos.length && a.type !== 'acao_influencer' && (parseFloat(a.valorInvestido) || 0) > 0) {
+      servicos = [{ titulo: '', valor: a.valorInvestido, formaPagamento: a.formaPagamento || '', parcelado: !!a.parcelado, dataPagamento: '', parcelas: (a.parcelas || []).map((p) => ({ ...p })), produtos: [], permutaServicos: [] }];
+    }
+    if (!servicos.length) servicos = [{ titulo: '', valor: '', formaPagamento: '', parcelado: false, dataPagamento: '', parcelas: [], produtos: [], permutaServicos: [] }];
+    let regioes = (a.regioes || []).map((rg) => ({ ...rg }));
+    // Idem pra região: ações antigas só tinham o campo de texto livre "regiao" (ex:
+    // "Aflitos- PE, Caruaru- PE") -- migra automaticamente aqui, separando por vírgula
+    // e tentando reconhecer a sigla do estado no fim de cada pedaço.
+    if (!regioes.length && a.regiao) {
+      regioes = asSplitMultiValue(a.regiao).map((piece) => {
+        const m = piece.match(/^(.*?)[\s,-]*([A-Za-z]{2})\s*$/);
+        const uf = m ? m[2].toUpperCase() : null;
+        if (uf && AS_BR_ESTADOS.some((e) => e.uf === uf)) {
+          return { cidade: m[1].trim().replace(/[-,]\s*$/, ''), estado: uf };
+        }
+        return { cidade: piece, estado: '' };
+      });
+    }
+    if (!regioes.length) regioes = [{ cidade: '', estado: '' }];
+    let monthlyEntries = (a.monthlyEntries || []).map((e) => ({ ...e, vendasProdutos: asNormalizeProdutos(e.vendasProdutos) }));
+    let reportProdutos = asNormalizeProdutos(r.vendasProdutos);
+
+    let fluxos = [];
+    try {
+      const fluxoRes = await api('/api/acoes-sazonais/actions/fluxos?brand=' + encodeURIComponent(a.brand));
+      fluxos = fluxoRes.fluxos || [];
+    } catch (e) { fluxos = []; }
+
+    function fluxoOptionsHTML(current){
+      let html = '<option value="">Selecione...</option>' + fluxos.map((f) => `<option value="${escapeHtml(f)}" ${f === current ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('');
+      if (current && !fluxos.includes(current)) html += `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} (fora da lista atual)</option>`;
+      return html;
+    }
+    function productDatalistOptionsHTML(brand){
+      return asData.products.filter((p) => p.brand === brand).map((p) => `<option value="${escapeHtml(p.nome)}">`).join('');
+    }
+
+    const overlay = document.getElementById('asOverlay');
+    const modalBox = document.getElementById('asModalBox');
+    modalBox.className = 'modal';
+    modalBox.innerHTML = `
+      <datalist id="asProductDatalist">${productDatalistOptionsHTML(a.brand)}</datalist>
+      <div class="modal-head"><h2>${isEdit ? 'Editar ação' : 'Nova ação sazonal'}</h2><button class="close" id="asModalCloseBtn">&times;</button></div>
+      <div class="modal-body">
+        <div class="section-title">Identificação</div>
+        <div class="formgrid">
+          <div class="field"><label>Marca *</label>
+            <select id="asFBrand">
+              <option value="ghelplus" ${a.brand === 'ghelplus' ? 'selected' : ''}>GhelPlus</option>
+              <option value="debacco" ${a.brand === 'debacco' ? 'selected' : ''}>De Bacco</option>
+            </select>
+          </div>
+          <div class="field"><label>Tipo de ação *</label><select id="asFType">${asTypeOptionsHTMLForBrand(a.brand, a.type)}</select></div>
+          <div class="field" id="asFieldFluxo"><label>Fluxo do orçamento *</label><select id="asFFluxo">${fluxoOptionsHTML(a.fluxo)}</select></div>
+          <div class="field full"><label>Nome da ação *</label><input type="text" id="asFTitle" value="${escapeHtml(a.title)}" placeholder="Ex: Feira de Verão SP" /></div>
+        </div>
+
+        <div class="section-title">Responsáveis</div>
+        <div class="formgrid">
+          <div class="field"><label>Representante responsável</label><input type="text" id="asFRepresentante" value="${escapeHtml(a.representante)}" /></div>
+          <div class="field"><label>Gerente responsável</label><input type="text" id="asFGerente" value="${escapeHtml(a.gerente)}" /></div>
+          <div class="field"><label>Setor responsável</label>
+            <select id="asFSetor">
+              <option value="marketing" ${a.setor === 'marketing' ? 'selected' : ''}>Marketing</option>
+              <option value="comercial" ${a.setor === 'comercial' ? 'selected' : ''}>Comercial</option>
+              <option value="outro" ${a.setor === 'outro' ? 'selected' : ''}>Outro</option>
+            </select>
+          </div>
+          <div class="field"><label>Cliente</label><input type="text" id="asFCliente" value="${escapeHtml(a.cliente)}" /></div>
+          <div class="field full"><label>Colaboradores à frente da organização</label><input type="text" id="asFColaboradores" value="${escapeHtml(Array.isArray(a.colaboradores) ? a.colaboradores.join(', ') : (a.colaboradores || ''))}" placeholder="Separe os nomes por vírgula" /></div>
+          <div class="field full"><label>Documentos da ação (link)</label><input type="text" id="asFDocumentoLink" value="${escapeHtml(a.documentoLink)}" placeholder="Cole aqui o link (Google Drive etc.)" /></div>
+        </div>
+
+        <div class="section-title">Execução</div>
+        <div class="formgrid">
+          <div class="field"><label>Estava dentro do budget?</label>
+            <select id="asFPlanejado">
+              <option value="true" ${a.planejado !== false ? 'selected' : ''}>Sim</option>
+              <option value="false" ${a.planejado === false ? 'selected' : ''}>Não</option>
+            </select>
+          </div>
+        </div>
+        <div class="field full">
+          <label>Serviços / pagamentos</label>
+          <div class="muted" style="font-size:12px;margin:-2px 0 8px;text-transform:none;">Se a ação precisa de mais de um pagamento pra acontecer, cadastre um serviço pra cada um. O valor investido total é somado automaticamente.</div>
+          <div id="asServicosList"></div>
+          <button type="button" class="btn-secondary" id="asBtnAddServico" style="margin-top:4px;">+ Adicionar serviço</button>
+          <div id="asServicosTotal" style="font-size:13px;font-weight:600;margin-top:8px;"></div>
+        </div>
+        <div class="formgrid" style="margin-top:14px;">
+          <div class="field full" id="asFieldPermutaLink" style="display:none;"><label>Link do comprovante de permuta</label><input type="text" id="asFPermutaLink" value="${escapeHtml(a.permutaLink)}" /></div>
+          <div class="field full">
+            <label>Região</label>
+            <div class="muted" style="font-size:12px;margin:-2px 0 8px;text-transform:none;">Cidade e estado de cada local em que a ação aconteceu.</div>
+            <div id="asRegioesList"></div>
+            <button type="button" class="btn-secondary" id="asBtnAddRegiao" style="margin-top:4px;">+ Adicionar cidade</button>
+          </div>
+          <div class="field"><label>Data de início</label><input type="date" id="asFDataInicio" value="${escapeHtml(a.dataInicio)}" /></div>
+          <div class="field"><label>Data de fim</label><input type="date" id="asFDataFim" value="${escapeHtml(a.dataFim)}" /></div>
+          <div class="field"><label>Formato</label>
+            <select id="asFModalidade">
+              <option value="presencial" ${a.modalidade === 'presencial' ? 'selected' : ''}>Presencial</option>
+              <option value="online" ${a.modalidade === 'online' ? 'selected' : ''}>Online</option>
+              <option value="hibrido" ${a.modalidade === 'hibrido' ? 'selected' : ''}>Híbrido</option>
+            </select>
+          </div>
+          <div class="field" id="asFieldParticipantes"><label>Nº de participantes</label><input type="number" min="0" id="asFParticipantes" value="${a.participantes !== undefined && a.participantes !== null ? a.participantes : ''}" /></div>
+          <div class="field full" id="asFieldParticipantesLink" style="display:none;"><label>Lista de participantes (link)</label><input type="text" id="asFParticipantesLink" value="${escapeHtml(a.participantesLink)}" /></div>
+          <div class="field full">
+            <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:600;font-size:13px;"><input type="checkbox" id="asFFeita" ${a.feita !== false ? 'checked' : ''}/> Ação já foi realizada — só ações marcadas aqui contam nos gráficos de investimento</label>
+            <div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:400;font-size:13px;"><input type="checkbox" id="asFRedesSociais" ${a.redesSociaisConteudo ? 'checked' : ''}/> Teve conteúdo divulgado em redes sociais</label>
+              <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:400;font-size:13px;"><input type="checkbox" id="asFCampanhaTrafego" ${a.campanhaTrafego ? 'checked' : ''}/> Teve campanha de tráfego pago</label>
+            </div>
+          </div>
+          <div class="field full"><label>O que foi feito</label><textarea id="asFOQueFoiFeito">${escapeHtml(a.oQueFoiFeito)}</textarea></div>
+        </div>
+
+        <div class="section-title" id="asSectionMetaTitle" style="display:none;">Meta da ação</div>
+        <div class="formgrid" id="asSectionMetaFields" style="display:none;">
+          <div class="field"><label>Tipo de meta</label><select id="asFMetaTipo"></select></div>
+          <div class="field"><label>Valor da meta</label><input type="number" step="0.01" min="0" id="asFMetaValor" value="${a.metaValor !== undefined && a.metaValor !== null ? a.metaValor : ''}" /></div>
+          <div class="field" id="asFieldMetaResultadoManual" style="display:none;"><label>Resultado alcançado</label><input type="number" step="0.01" min="0" id="asFMetaResultadoManual" value="${a.metaResultadoManual !== undefined && a.metaResultadoManual !== null ? a.metaResultadoManual : ''}" /></div>
+        </div>
+
+        <div class="section-title" id="asSectionRedesTitle">Redes sociais e acessos</div>
+        <div class="formgrid">
+          <div class="field" id="asFieldEngajamento"><label>Engajamento nas redes (interações)</label><input type="number" min="0" id="asFEngajamento" value="${r.engajamentoRedes !== undefined && r.engajamentoRedes !== null ? r.engajamentoRedes : ''}" /></div>
+          <div class="field" id="asFieldSeguidores"><label>Novos seguidores gerados</label><input type="number" min="0" id="asFSeguidores" value="${r.seguidoresGanhos !== undefined && r.seguidoresGanhos !== null ? r.seguidoresGanhos : ''}" /></div>
+          <div class="field" id="asFieldAcessos"><label>Acessos ao site</label><input type="number" min="0" id="asFAcessos" value="${r.acessosSite !== undefined && r.acessosSite !== null ? r.acessosSite : ''}" /></div>
+        </div>
+
+        <div class="section-title" id="asSectionVendasTitle">Vendas geradas por esta ação</div>
+        <div class="formgrid" id="asSectionVendasFields">
+          <div class="field" id="asFieldVendasValor"><label>Valor de vendas (R$)</label><input type="number" step="0.01" min="0" id="asFVendasValor" value="${r.valorVendas !== undefined && r.valorVendas !== null ? r.valorVendas : ''}" /></div>
+          <div class="field" id="asFieldVendasQtd"><label>Quantidade de vendas</label><input type="number" min="0" id="asFVendasQtd" value="${r.vendasQuantidade !== undefined && r.vendasQuantidade !== null ? r.vendasQuantidade : ''}" /></div>
+          <div class="field full" id="asFieldVendasProdutos">
+            <label>Produto(s) vendido(s)</label>
+            <div id="asReportProdutosList"></div>
+            <button type="button" class="btn-secondary" id="asBtnAddReportProduto" style="margin-top:4px;">+ Adicionar produto</button>
+          </div>
+        </div>
+
+        <div class="section-title">Outras informações do relatório</div>
+        <div class="formgrid">
+          <div class="field full"><label>Resultados regionais</label><textarea id="asFResultadosRegionais">${escapeHtml(r.resultadosRegionais)}</textarea></div>
+          <div class="field full"><label>Resultados nacionais</label><textarea id="asFResultadosNacionais">${escapeHtml(r.resultadosNacionais)}</textarea></div>
+          <div class="field full"><label>Feedback do cliente</label><textarea id="asFFeedbackCliente">${escapeHtml(r.feedbackCliente)}</textarea></div>
+          <div class="field full"><label>Mudança nas vendas da região</label><textarea id="asFMudancaVendas">${escapeHtml(r.mudancaVendas)}</textarea></div>
+          <div class="field full"><label>Outras observações relevantes</label><textarea id="asFObservacoes">${escapeHtml(r.observacoes)}</textarea></div>
+        </div>
+
+        <div class="section-title">Resultados mensais (ações de longa duração)</div>
+        <div class="muted" style="font-size:12px;margin:0 0 10px;text-transform:none;">Se essa ação dura vários meses, cadastre um resultado por mês aqui, em vez de criar uma ação nova a cada mês.</div>
+        <div id="asMonthlyList"></div>
+        <button type="button" class="btn-secondary" id="asBtnAddMonth" style="margin-top:4px;">+ Adicionar mês</button>
+      </div>
+      <div class="modal-foot">
+        <span></span>
+        <div>
+          <button type="button" class="btn-secondary" id="asBtnCancel" style="margin-right:8px;">Cancelar</button>
+          <button type="button" class="btn-primary" id="asBtnSubmit">${isEdit ? 'Salvar alterações' : 'Criar ação'}</button>
+        </div>
+      </div>
+    `;
+    overlay.classList.add('open');
+
+    function renderServicosTotal(){
+      const totalEl = document.getElementById('asServicosTotal');
+      if (!totalEl) return;
+      const total = servicos.reduce((s, sv) => s + (parseFloat(sv.valor) || 0), 0);
+      totalEl.textContent = 'Valor total investido: ' + asFmtMoney(total);
+    }
+    function servicoParcelasTotalText(sv){
+      const total = (sv.parcelas || []).reduce((s, p) => s + (parseFloat(p.valor) || 0), 0);
+      return (sv.parcelas || []).length ? ('Total das parcelas: ' + asFmtMoney(total)) : '';
+    }
+    function updateFieldVisibilityForPermuta(){
+      const hasPermuta = servicos.some((sv) => sv.formaPagamento === 'Permuta');
+      const f = document.getElementById('asFieldPermutaLink');
+      if (f) f.style.display = hasPermuta ? '' : 'none';
+    }
+    function renderServicos(){
+      const container = document.getElementById('asServicosList');
+      if (!container) return;
+      const feitaCb = document.getElementById('asFFeita');
+      const feitaMarcada = !feitaCb || feitaCb.checked;
+      container.innerHTML = servicos.map((s, idx) => {
+        const allowParcelado = AS_PARCELADO_FORMAS.includes(s.formaPagamento);
+        const dataPagamentoObrigatoria = feitaMarcada && (parseFloat(s.valor) || 0) > 0;
+        return `
+        <div style="border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:10px;background:var(--neutral-soft);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong style="font-size:12.5px;">Serviço #${idx + 1}</strong>
+            ${servicos.length > 1 ? `<button type="button" data-as-remove-servico="${idx}" style="background:none;border:none;color:var(--danger);font-size:12px;cursor:pointer;text-decoration:underline;">Remover</button>` : ''}
+          </div>
+          <div class="formgrid">
+            <div class="field full"><label>Título do serviço</label><input type="text" data-as-serv-field="titulo" data-idx="${idx}" value="${escapeHtml(s.titulo)}" placeholder="Ex: Fornecimento, Instalação, Frete..." /></div>
+            <div class="field"><label>Valor investido (R$)</label><input type="number" step="0.01" min="0" data-as-serv-field="valor" data-idx="${idx}" value="${s.valor !== undefined && s.valor !== null ? s.valor : ''}" /></div>
+            <div class="field"><label>Forma de pagamento</label>
+              <select data-as-serv-field="formaPagamento" data-idx="${idx}">
+                <option value="" ${!s.formaPagamento ? 'selected' : ''}>Não informado</option>
+                <option value="PIX" ${s.formaPagamento === 'PIX' ? 'selected' : ''}>PIX</option>
+                <option value="Boleto" ${s.formaPagamento === 'Boleto' ? 'selected' : ''}>Boleto</option>
+                <option value="Transferência" ${s.formaPagamento === 'Transferência' ? 'selected' : ''}>Transferência</option>
+                <option value="Cartão" ${s.formaPagamento === 'Cartão' ? 'selected' : ''}>Cartão</option>
+                <option value="Dinheiro" ${s.formaPagamento === 'Dinheiro' ? 'selected' : ''}>Dinheiro</option>
+                <option value="Consignado" ${s.formaPagamento === 'Consignado' ? 'selected' : ''}>Consignado</option>
+                <option value="Permuta" ${s.formaPagamento === 'Permuta' ? 'selected' : ''}>Permuta</option>
+                <option value="Outro" ${s.formaPagamento === 'Outro' ? 'selected' : ''}>Outro</option>
+              </select>
+            </div>
+            ${allowParcelado ? `<div class="field"><label>&nbsp;</label><label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:400;font-size:13px;margin-top:8px;"><input type="checkbox" data-as-serv-field="parcelado" data-idx="${idx}" ${s.parcelado ? 'checked' : ''}/> Pagamento parcelado</label></div>` : ''}
+            ${!(allowParcelado && s.parcelado) ? `
+              <div class="field">
+                <label>Data de pagamento</label>
+                <input type="date" data-as-serv-field="dataPagamento" data-idx="${idx}" value="${escapeHtml(s.dataPagamento)}" ${dataPagamentoObrigatoria ? 'required' : ''} />
+                <div class="muted" style="font-size:11px;margin-top:4px;text-transform:none;">${!feitaMarcada ? 'Não obrigatório enquanto a ação não estiver marcada como "já foi realizada".' : (dataPagamentoObrigatoria ? 'Entra no gráfico de investimento mensal no mês desse pagamento.' : 'Não obrigatório — este serviço ainda não tem valor investido.')}</div>
+              </div>
+            ` : ''}
+            ${allowParcelado && s.parcelado ? `
+              <div class="field full">
+                <label>Parcelas</label>
+                <div class="as-servico-parcelas-list" data-servico-idx="${idx}">
+                  ${(s.parcelas || []).length ? (s.parcelas || []).map((p, pidx) => `
+                    <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+                      <input type="date" data-as-sparc-field="data" data-servico-idx="${idx}" data-parc-idx="${pidx}" value="${escapeHtml(p.data)}" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+                      <input type="number" step="0.01" min="0" data-as-sparc-field="valor" data-servico-idx="${idx}" data-parc-idx="${pidx}" value="${p.valor || ''}" placeholder="Valor (R$)" style="width:130px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+                      <button type="button" data-as-remove-sparc="${idx}" data-parc-idx="${pidx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
+                    </div>
+                  `).join('') : `<div class="muted" style="font-size:11.5px;padding:2px 0 6px;text-transform:none;">Nenhuma parcela adicionada ainda.</div>`}
+                </div>
+                <button type="button" data-as-add-sparc="${idx}" class="btn-secondary" style="margin-top:2px;">+ Adicionar parcela</button>
+                <div class="as-serv-parcelas-total" data-servico-idx="${idx}" style="font-size:11.5px;color:var(--ink-soft);margin-top:6px;">${servicoParcelasTotalText(s)}</div>
+              </div>
+            ` : ''}
+            ${(s.formaPagamento === 'Consignado' || s.formaPagamento === 'Permuta') ? `
+              <div class="field full">
+                <label>Produtos ${s.formaPagamento === 'Consignado' ? 'consignados' : 'envolvidos na permuta'}</label>
+                <div data-servico-idx="${idx}" data-as-servprod-kind="produtos">
+                  ${(s.produtos || []).length ? (s.produtos || []).map((p, pidx) => `
+                    <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+                      <input type="text" data-as-servprod-field="nome" data-as-servprod-kind="produtos" data-servico-idx="${idx}" data-prod-idx="${pidx}" value="${escapeHtml(p.nome)}" placeholder="Nome do produto" list="asProductDatalist" style="flex:2;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+                      <input type="number" min="0" data-as-servprod-field="quantidade" data-as-servprod-kind="produtos" data-servico-idx="${idx}" data-prod-idx="${pidx}" value="${p.quantidade || ''}" placeholder="Qtd" style="width:72px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+                      <button type="button" data-as-remove-servprod="produtos" data-servico-idx="${idx}" data-prod-idx="${pidx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
+                    </div>
+                  `).join('') : `<div class="muted" style="font-size:11.5px;padding:2px 0 6px;text-transform:none;">Nenhum produto adicionado ainda.</div>`}
+                </div>
+                <button type="button" data-as-add-servprod="produtos" data-servico-idx="${idx}" class="btn-secondary" style="margin-top:2px;">+ Adicionar produto</button>
+              </div>
+            ` : ''}
+            ${s.formaPagamento === 'Permuta' ? `
+              <div class="field full">
+                <label>Serviços prestados na permuta</label>
+                <div data-servico-idx="${idx}" data-as-servprod-kind="permutaServicos">
+                  ${(s.permutaServicos || []).length ? (s.permutaServicos || []).map((p, pidx) => `
+                    <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+                      <input type="text" data-as-servprod-field="nome" data-as-servprod-kind="permutaServicos" data-servico-idx="${idx}" data-prod-idx="${pidx}" value="${escapeHtml(p.nome)}" placeholder="Descrição do serviço" style="flex:2;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+                      <input type="number" min="0" data-as-servprod-field="quantidade" data-as-servprod-kind="permutaServicos" data-servico-idx="${idx}" data-prod-idx="${pidx}" value="${p.quantidade || ''}" placeholder="Qtd" style="width:72px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+                      <button type="button" data-as-remove-servprod="permutaServicos" data-servico-idx="${idx}" data-prod-idx="${pidx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
+                    </div>
+                  `).join('') : `<div class="muted" style="font-size:11.5px;padding:2px 0 6px;text-transform:none;">Nenhum serviço adicionado ainda.</div>`}
+                </div>
+                <button type="button" data-as-add-servprod="permutaServicos" data-servico-idx="${idx}" class="btn-secondary" style="margin-top:2px;">+ Adicionar serviço</button>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+      }).join('');
+      renderServicosTotal();
+      updateFieldVisibilityForPermuta();
+    }
+    function renderRegioes(){
+      const container = document.getElementById('asRegioesList');
+      if (!container) return;
+      container.innerHTML = regioes.map((rg, idx) => {
+        const isNacional = rg.estado === 'NACIONAL';
+        return `
+        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+          <input type="text" data-as-regiao-field="cidade" data-idx="${idx}" value="${isNacional ? '' : escapeHtml(rg.cidade)}" placeholder="${isNacional ? 'Não se aplica — abrange o Brasil todo' : 'Cidade'}" ${isNacional ? 'disabled' : ''} style="flex:2;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <select data-as-regiao-field="estado" data-idx="${idx}" style="width:90px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;">${AS_BR_ESTADOS_OPTIONS_HTML}</select>
+          ${regioes.length > 1 ? `<button type="button" data-as-remove-regiao="${idx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>` : ''}
+        </div>
+      `;}).join('');
+      regioes.forEach((rg, idx) => {
+        const sel = container.querySelector(`select[data-as-regiao-field="estado"][data-idx="${idx}"]`);
+        if (sel) sel.value = rg.estado || '';
+      });
+    }
+    function renderMonthlyEntries(){
+      const container = document.getElementById('asMonthlyList');
+      if (!container) return;
+      const typeSelNow = document.getElementById('asFType');
+      const isRelacionamento = typeSelNow && typeSelNow.value === 'relacionamento';
+      if (!monthlyEntries.length) {
+        container.innerHTML = '<div class="muted" style="font-size:12px;padding:8px 0;text-transform:none;">Nenhum mês adicionado ainda.</div>';
+        return;
+      }
+      container.innerHTML = monthlyEntries.map((m, idx) => `
+        <div style="border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:10px;background:var(--neutral-soft);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong style="font-size:12.5px;">Mês #${idx + 1}</strong>
+            <button type="button" data-as-remove-month="${idx}" style="background:none;border:none;color:var(--danger);font-size:12px;cursor:pointer;text-decoration:underline;">Remover</button>
+          </div>
+          <div class="formgrid">
+            <div class="field"><label>Mês</label><input type="month" data-as-month-field="month" data-idx="${idx}" value="${escapeHtml(m.month || '')}" /></div>
+            ${isRelacionamento ? `
+              <div class="field"><label>Pessoas captadas no mês</label><input type="number" min="0" data-as-month-field="pessoasCaptadas" data-idx="${idx}" value="${m.pessoasCaptadas !== undefined && m.pessoasCaptadas !== null ? m.pessoasCaptadas : ''}" /></div>
+              <div class="field"><label>Região do mês</label><input type="text" data-as-month-field="regiaoMes" data-idx="${idx}" value="${escapeHtml(m.regiaoMes || '')}" /></div>
+              <div class="field"><label>Nº de eventos realizados</label><input type="number" min="0" data-as-month-field="numEventos" data-idx="${idx}" value="${m.numEventos !== undefined && m.numEventos !== null ? m.numEventos : ''}" /></div>
+              <div class="field full"><label>Observações do mês</label><input type="text" data-as-month-field="observacoes" data-idx="${idx}" value="${escapeHtml(m.observacoes || '')}" /></div>
+            ` : `
+              <div class="field"><label>Engajamento nas redes</label><input type="number" min="0" data-as-month-field="engajamentoRedes" data-idx="${idx}" value="${m.engajamentoRedes !== undefined && m.engajamentoRedes !== null ? m.engajamentoRedes : ''}" /></div>
+              <div class="field"><label>Novos seguidores</label><input type="number" min="0" data-as-month-field="seguidoresGanhos" data-idx="${idx}" value="${m.seguidoresGanhos !== undefined && m.seguidoresGanhos !== null ? m.seguidoresGanhos : ''}" /></div>
+              <div class="field"><label>Valor de vendas (R$)</label><input type="number" step="0.01" min="0" data-as-month-field="valorVendas" data-idx="${idx}" value="${m.valorVendas !== undefined && m.valorVendas !== null ? m.valorVendas : ''}" /></div>
+              <div class="field"><label>Quantidade de vendas</label><input type="number" min="0" data-as-month-field="vendasQuantidade" data-idx="${idx}" value="${m.vendasQuantidade !== undefined && m.vendasQuantidade !== null ? m.vendasQuantidade : ''}" /></div>
+              <div class="field"><label>Acessos ao site</label><input type="number" min="0" data-as-month-field="acessosSite" data-idx="${idx}" value="${m.acessosSite !== undefined && m.acessosSite !== null ? m.acessosSite : ''}" /></div>
+              <div class="field full">
+                <label>Produto(s) vendido(s)</label>
+                <div data-month-idx="${idx}">
+                  ${(m.vendasProdutos || []).map((p, pidx) => `
+                    <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+                      <input type="text" data-as-prod-field="nome" data-month-idx="${idx}" data-prod-idx="${pidx}" value="${escapeHtml(p.nome)}" placeholder="Nome do produto" list="asProductDatalist" style="flex:2;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;" />
+                      <input type="number" min="0" data-as-prod-field="quantidade" data-month-idx="${idx}" data-prod-idx="${pidx}" value="${p.quantidade || ''}" placeholder="Qtd" style="width:64px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;" />
+                      <button type="button" data-as-remove-prod-month="${idx}" data-prod-idx="${pidx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:17px;line-height:1;padding:0 4px;">&times;</button>
+                    </div>
+                  `).join('')}
+                </div>
+                <button type="button" data-as-add-prod-month="${idx}" style="background:none;border:1px dashed var(--line);border-radius:6px;padding:5px 10px;font-size:11.5px;color:var(--ink-soft);cursor:pointer;">+ produto</button>
+              </div>
+              <div class="field full"><label>Observações do mês</label><input type="text" data-as-month-field="observacoes" data-idx="${idx}" value="${escapeHtml(m.observacoes || '')}" /></div>
+            `}
+          </div>
+        </div>
+      `).join('');
+    }
+    function renderReportProdutos(){
+      const container = document.getElementById('asReportProdutosList');
+      if (!container) return;
+      if (!reportProdutos.length) {
+        container.innerHTML = '<div class="muted" style="font-size:11.5px;padding:2px 0 6px;text-transform:none;">Nenhum produto adicionado ainda.</div>';
+        return;
+      }
+      container.innerHTML = reportProdutos.map((p, idx) => `
+        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+          <input type="text" data-as-rprod-field="nome" data-idx="${idx}" value="${escapeHtml(p.nome)}" placeholder="Nome do produto" list="asProductDatalist" style="flex:2;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <input type="number" min="0" data-as-rprod-field="quantidade" data-idx="${idx}" value="${p.quantidade || ''}" placeholder="Qtd" style="width:72px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <button type="button" data-as-remove-rprod="${idx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
+        </div>
+      `).join('');
+    }
+    function updateMetaResultadoVisibility(){
+      const metaSelect = document.getElementById('asFMetaTipo');
+      if (!metaSelect) return;
+      const opt = AS_META_TIPO_OPTIONS[metaSelect.value];
+      const field = document.getElementById('asFieldMetaResultadoManual');
+      if (field) field.style.display = (opt && opt.auto === null) ? '' : 'none';
+    }
+    function updateConditionalFields(){
+      const type = document.getElementById('asFType').value;
+      const modalidade = document.getElementById('asFModalidade').value;
+      const isInfluencer = type === 'acao_influencer';
+      const isRelacionamento = type === 'relacionamento';
+
+      const fieldFluxo = document.getElementById('asFieldFluxo');
+      if (fieldFluxo) fieldFluxo.style.display = (type === 'nova_feira') ? 'none' : '';
+
+      const showParticipantes = asShouldShowParticipantes(type, modalidade);
+      document.getElementById('asFieldParticipantes').style.display = showParticipantes ? '' : 'none';
+      document.getElementById('asFieldParticipantesLink').style.display = AS_PARTICIPANTS_LIST_TYPES.includes(type) ? '' : 'none';
+
+      const redesCb = document.getElementById('asFRedesSociais');
+      const trafegoCb = document.getElementById('asFCampanhaTrafego');
+      const hasRedesOuTrafego = (redesCb && redesCb.checked) || (trafegoCb && trafegoCb.checked);
+      const showVendas = !isRelacionamento && !isInfluencer;
+      const rules = {
+        asFieldEngajamento: !isRelacionamento && hasRedesOuTrafego,
+        asFieldSeguidores: !isRelacionamento && !isInfluencer && hasRedesOuTrafego,
+        asFieldVendasValor: showVendas,
+        asFieldVendasQtd: showVendas,
+        asFieldVendasProdutos: showVendas,
+        asFieldAcessos: !isRelacionamento && !isInfluencer && hasRedesOuTrafego
+      };
+      Object.entries(rules).forEach(([id, show]) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = show ? '' : 'none';
+      });
+      const redesTitle = document.getElementById('asSectionRedesTitle');
+      if (redesTitle) redesTitle.style.display = hasRedesOuTrafego ? '' : 'none';
+      const vendasTitle = document.getElementById('asSectionVendasTitle');
+      if (vendasTitle) vendasTitle.style.display = showVendas ? '' : 'none';
+
+      const metaTipos = AS_META_TIPOS_POR_TIPO_ACAO[type] || [];
+      const showMeta = metaTipos.length > 0;
+      document.getElementById('asSectionMetaTitle').style.display = showMeta ? '' : 'none';
+      document.getElementById('asSectionMetaFields').style.display = showMeta ? '' : 'none';
+      if (showMeta) {
+        const metaSelect = document.getElementById('asFMetaTipo');
+        const currentValue = metaSelect.dataset.currentValue !== undefined ? metaSelect.dataset.currentValue : metaSelect.value;
+        const keepCurrent = metaTipos.includes(currentValue);
+        metaSelect.innerHTML = metaTipos.map((k) => `<option value="${k}" ${keepCurrent && k === currentValue ? 'selected' : ''}>${AS_META_TIPO_OPTIONS[k].label}</option>`).join('');
+        delete metaSelect.dataset.currentValue;
+        updateMetaResultadoVisibility();
+      }
+      renderServicos();
+      renderMonthlyEntries();
+    }
+
+    const metaSelectEl = document.getElementById('asFMetaTipo');
+    if (metaSelectEl) metaSelectEl.dataset.currentValue = a.metaTipo || '';
+    renderServicos();
+    renderRegioes();
+    renderMonthlyEntries();
+    renderReportProdutos();
+    updateConditionalFields();
+
+    document.getElementById('asFType').addEventListener('change', updateConditionalFields);
+    document.getElementById('asFModalidade').addEventListener('change', updateConditionalFields);
+    document.getElementById('asFRedesSociais').addEventListener('change', updateConditionalFields);
+    document.getElementById('asFCampanhaTrafego').addEventListener('change', updateConditionalFields);
+    document.getElementById('asFFeita').addEventListener('change', () => { renderServicos(); });
+    if (metaSelectEl) metaSelectEl.addEventListener('change', updateMetaResultadoVisibility);
+
+    document.getElementById('asFBrand').addEventListener('change', async (e) => {
+      const newBrand = e.target.value;
+      const typeSelect = document.getElementById('asFType');
+      const validKeys = Object.keys(asSelectableTypeLabelsForBrand(newBrand));
+      const keepType = validKeys.includes(typeSelect.value) ? typeSelect.value : (validKeys[0] || '');
+      typeSelect.innerHTML = asTypeOptionsHTMLForBrand(newBrand, keepType);
+      const datalist = document.getElementById('asProductDatalist');
+      if (datalist) datalist.innerHTML = productDatalistOptionsHTML(newBrand);
+      const fluxoSelect = document.getElementById('asFFluxo');
+      if (fluxoSelect) {
+        try {
+          const fluxoRes = await api('/api/acoes-sazonais/actions/fluxos?brand=' + encodeURIComponent(newBrand));
+          fluxos = fluxoRes.fluxos || [];
+        } catch (e2) { fluxos = []; }
+        fluxoSelect.innerHTML = fluxoOptionsHTML('');
+      }
+      updateConditionalFields();
+    });
+
+    document.getElementById('asServicosList').addEventListener('input', (e) => {
+      const idx = e.target.dataset.idx;
+      const field = e.target.dataset.asServField;
+      if (field !== undefined && idx !== undefined) {
+        if (field === 'titulo') servicos[idx].titulo = e.target.value;
+        else if (field === 'valor') {
+          servicos[idx].valor = e.target.value;
+          renderServicosTotal();
+          const dpInput = document.querySelector(`[data-as-serv-field="dataPagamento"][data-idx="${idx}"]`);
+          if (dpInput) {
+            const feitaCb = document.getElementById('asFFeita');
+            const feitaMarcada = !feitaCb || feitaCb.checked;
+            dpInput.required = feitaMarcada && (parseFloat(servicos[idx].valor) || 0) > 0;
+          }
+        } else if (field === 'dataPagamento') servicos[idx].dataPagamento = e.target.value;
+        return;
+      }
+      const sIdx = e.target.dataset.servicoIdx, pField = e.target.dataset.asSparcField, pIdx = e.target.dataset.parcIdx;
+      if (pField !== undefined && sIdx !== undefined && pIdx !== undefined) {
+        servicos[sIdx].parcelas[pIdx][pField] = pField === 'valor' ? (parseFloat(e.target.value) || 0) : e.target.value;
+        const totalEl = document.querySelector(`.as-serv-parcelas-total[data-servico-idx="${sIdx}"]`);
+        if (totalEl) totalEl.textContent = servicoParcelasTotalText(servicos[sIdx]);
+        return;
+      }
+      const spKind = e.target.dataset.asServprodKind, spField = e.target.dataset.asServprodField, spServIdx = e.target.dataset.servicoIdx, spProdIdx = e.target.dataset.prodIdx;
+      if (spField !== undefined && spKind !== undefined && spServIdx !== undefined && spProdIdx !== undefined) {
+        servicos[spServIdx][spKind][spProdIdx][spField] = spField === 'quantidade' ? (parseInt(e.target.value, 10) || 0) : e.target.value;
+      }
+    });
+    document.getElementById('asServicosList').addEventListener('change', async (e) => {
+      const idx = e.target.dataset.idx;
+      const field = e.target.dataset.asServField;
+      if (field === 'formaPagamento' && idx !== undefined) {
+        servicos[idx].formaPagamento = e.target.value;
+        if (!AS_PARCELADO_FORMAS.includes(e.target.value)) servicos[idx].parcelado = false;
+        renderServicos();
+        return;
+      } else if (field === 'parcelado' && idx !== undefined) {
+        servicos[idx].parcelado = e.target.checked;
+        renderServicos();
+        return;
+      }
+      if (e.target.dataset.asServprodField === 'nome' && e.target.dataset.asServprodKind === 'produtos') {
+        await asEnsureProductInCatalog(document.getElementById('asFBrand').value, e.target.value);
+        const datalist = document.getElementById('asProductDatalist');
+        if (datalist) datalist.innerHTML = productDatalistOptionsHTML(document.getElementById('asFBrand').value);
+      }
+    });
+    document.getElementById('asServicosList').addEventListener('click', (e) => {
+      if (e.target.dataset.asRemoveServico !== undefined) {
+        servicos.splice(parseInt(e.target.dataset.asRemoveServico, 10), 1);
+        renderServicos();
+      } else if (e.target.dataset.asAddSparc !== undefined) {
+        const idx = parseInt(e.target.dataset.asAddSparc, 10);
+        servicos[idx].parcelas = servicos[idx].parcelas || [];
+        servicos[idx].parcelas.push({ data: '', valor: '' });
+        renderServicos();
+      } else if (e.target.dataset.asRemoveSparc !== undefined) {
+        const sIdx = parseInt(e.target.dataset.asRemoveSparc, 10);
+        const pIdx = parseInt(e.target.dataset.parcIdx, 10);
+        servicos[sIdx].parcelas.splice(pIdx, 1);
+        renderServicos();
+      } else if (e.target.dataset.asAddServprod !== undefined) {
+        const kind = e.target.dataset.asAddServprod;
+        const sIdx = parseInt(e.target.dataset.servicoIdx, 10);
+        servicos[sIdx][kind] = servicos[sIdx][kind] || [];
+        servicos[sIdx][kind].push({ nome: '', quantidade: '' });
+        renderServicos();
+      } else if (e.target.dataset.asRemoveServprod !== undefined) {
+        const kind = e.target.dataset.asRemoveServprod;
+        const sIdx = parseInt(e.target.dataset.servicoIdx, 10);
+        const pIdx = parseInt(e.target.dataset.prodIdx, 10);
+        servicos[sIdx][kind].splice(pIdx, 1);
+        renderServicos();
+      }
+    });
+    document.getElementById('asBtnAddServico').addEventListener('click', () => {
+      servicos.push({ titulo: '', valor: '', formaPagamento: '', parcelado: false, dataPagamento: '', parcelas: [], produtos: [], permutaServicos: [] });
+      renderServicos();
+    });
+
+    document.getElementById('asRegioesList').addEventListener('input', (e) => {
+      const idx = e.target.dataset.idx, field = e.target.dataset.asRegiaoField;
+      if (field === 'cidade' && idx !== undefined) regioes[idx].cidade = e.target.value;
+    });
+    document.getElementById('asRegioesList').addEventListener('change', (e) => {
+      const idx = e.target.dataset.idx, field = e.target.dataset.asRegiaoField;
+      if (field === 'estado' && idx !== undefined) {
+        regioes[idx].estado = e.target.value;
+        if (regioes[idx].estado === 'NACIONAL') regioes[idx].cidade = '';
+        renderRegioes();
+      }
+    });
+    document.getElementById('asRegioesList').addEventListener('click', (e) => {
+      if (e.target.dataset.asRemoveRegiao !== undefined) {
+        regioes.splice(parseInt(e.target.dataset.asRemoveRegiao, 10), 1);
+        renderRegioes();
+      }
+    });
+    document.getElementById('asBtnAddRegiao').addEventListener('click', () => {
+      regioes.push({ cidade: '', estado: '' });
+      renderRegioes();
+    });
+
+    document.getElementById('asMonthlyList').addEventListener('input', (e) => {
+      const prodField = e.target.dataset.asProdField;
+      if (prodField !== undefined) {
+        const mIdx = e.target.dataset.monthIdx, pIdx = e.target.dataset.prodIdx;
+        monthlyEntries[mIdx].vendasProdutos[pIdx][prodField] = prodField === 'quantidade' ? (parseInt(e.target.value, 10) || 0) : e.target.value;
+        return;
+      }
+      const field = e.target.dataset.asMonthField, idx = e.target.dataset.idx;
+      if (field === undefined || idx === undefined) return;
+      monthlyEntries[idx][field] = e.target.value;
+    });
+    document.getElementById('asMonthlyList').addEventListener('change', async (e) => {
+      if (e.target.dataset.asProdField !== 'nome') return;
+      await asEnsureProductInCatalog(document.getElementById('asFBrand').value, e.target.value);
+      const datalist = document.getElementById('asProductDatalist');
+      if (datalist) datalist.innerHTML = productDatalistOptionsHTML(document.getElementById('asFBrand').value);
+    });
+    document.getElementById('asMonthlyList').addEventListener('click', (e) => {
+      if (e.target.dataset.asRemoveMonth !== undefined) {
+        monthlyEntries.splice(parseInt(e.target.dataset.asRemoveMonth, 10), 1);
+        renderMonthlyEntries();
+        return;
+      }
+      if (e.target.dataset.asAddProdMonth !== undefined) {
+        const mIdx = parseInt(e.target.dataset.asAddProdMonth, 10);
+        monthlyEntries[mIdx].vendasProdutos.push({ nome: '', quantidade: '' });
+        renderMonthlyEntries();
+        return;
+      }
+      if (e.target.dataset.asRemoveProdMonth !== undefined) {
+        const mIdx = parseInt(e.target.dataset.asRemoveProdMonth, 10);
+        const pIdx = parseInt(e.target.dataset.prodIdx, 10);
+        monthlyEntries[mIdx].vendasProdutos.splice(pIdx, 1);
+        renderMonthlyEntries();
+      }
+    });
+    document.getElementById('asBtnAddMonth').addEventListener('click', () => {
+      monthlyEntries.push({ month: '', engajamentoRedes: '', seguidoresGanhos: '', vendasQuantidade: '', valorVendas: '', vendasProdutos: [], acessosSite: '', observacoes: '' });
+      renderMonthlyEntries();
+    });
+
+    document.getElementById('asReportProdutosList').addEventListener('input', (e) => {
+      const field = e.target.dataset.asRprodField, idx = e.target.dataset.idx;
+      if (field === undefined) return;
+      reportProdutos[idx][field] = field === 'quantidade' ? (parseInt(e.target.value, 10) || 0) : e.target.value;
+    });
+    document.getElementById('asReportProdutosList').addEventListener('change', async (e) => {
+      if (e.target.dataset.asRprodField !== 'nome') return;
+      await asEnsureProductInCatalog(document.getElementById('asFBrand').value, e.target.value);
+      const datalist = document.getElementById('asProductDatalist');
+      if (datalist) datalist.innerHTML = productDatalistOptionsHTML(document.getElementById('asFBrand').value);
+    });
+    document.getElementById('asReportProdutosList').addEventListener('click', (e) => {
+      if (e.target.dataset.asRemoveRprod === undefined) return;
+      reportProdutos.splice(parseInt(e.target.dataset.asRemoveRprod, 10), 1);
+      renderReportProdutos();
+    });
+    document.getElementById('asBtnAddReportProduto').addEventListener('click', () => {
+      reportProdutos.push({ nome: '', quantidade: '' });
+      renderReportProdutos();
+    });
+
+    document.getElementById('asModalCloseBtn').addEventListener('click', asCloseModal);
+    document.getElementById('asBtnCancel').addEventListener('click', asCloseModal);
+    document.getElementById('asBtnSubmit').addEventListener('click', async () => {
+      const title = document.getElementById('asFTitle').value.trim();
+      if (!title) { asToast('Nome da ação é obrigatório.', true); return; }
+      const brand = document.getElementById('asFBrand').value;
+      const type = document.getElementById('asFType').value;
+      const fluxoVal = document.getElementById('asFFluxo') ? document.getElementById('asFFluxo').value : '';
+      if (type !== 'nova_feira' && !fluxoVal) { asToast('Escolha o fluxo do orçamento para esta ação.', true); return; }
+      const payload = {
+        brand, type, fluxo: fluxoVal, title,
+        representante: document.getElementById('asFRepresentante').value,
+        gerente: document.getElementById('asFGerente').value,
+        setor: document.getElementById('asFSetor').value,
+        cliente: document.getElementById('asFCliente').value,
+        colaboradores: document.getElementById('asFColaboradores').value,
+        documentoLink: document.getElementById('asFDocumentoLink').value,
+        planejado: document.getElementById('asFPlanejado').value !== 'false',
+        servicos: servicos,
+        permutaLink: document.getElementById('asFPermutaLink') ? document.getElementById('asFPermutaLink').value : '',
+        regioes: regioes,
+        dataInicio: document.getElementById('asFDataInicio').value,
+        dataFim: document.getElementById('asFDataFim').value,
+        modalidade: document.getElementById('asFModalidade').value,
+        participantes: document.getElementById('asFParticipantes').value || 0,
+        participantesLink: document.getElementById('asFParticipantesLink') ? document.getElementById('asFParticipantesLink').value : '',
+        feita: document.getElementById('asFFeita').checked,
+        redesSociaisConteudo: document.getElementById('asFRedesSociais').checked,
+        campanhaTrafego: document.getElementById('asFCampanhaTrafego').checked,
+        oQueFoiFeito: document.getElementById('asFOQueFoiFeito').value,
+        metaTipo: document.getElementById('asFMetaTipo') ? document.getElementById('asFMetaTipo').value : '',
+        metaValor: document.getElementById('asFMetaValor') ? (document.getElementById('asFMetaValor').value || 0) : 0,
+        metaResultadoManual: document.getElementById('asFMetaResultadoManual') ? (document.getElementById('asFMetaResultadoManual').value || 0) : 0,
+        monthlyEntries: monthlyEntries,
+        report: {
+          engajamentoRedes: document.getElementById('asFEngajamento').value || 0,
+          seguidoresGanhos: document.getElementById('asFSeguidores').value || 0,
+          valorVendas: document.getElementById('asFVendasValor').value || 0,
+          vendasQuantidade: document.getElementById('asFVendasQtd').value || 0,
+          vendasProdutos: reportProdutos,
+          acessosSite: document.getElementById('asFAcessos').value || 0,
+          resultadosRegionais: document.getElementById('asFResultadosRegionais').value,
+          resultadosNacionais: document.getElementById('asFResultadosNacionais').value,
+          feedbackCliente: document.getElementById('asFFeedbackCliente').value,
+          mudancaVendas: document.getElementById('asFMudancaVendas').value,
+          observacoes: document.getElementById('asFObservacoes').value
+        }
+      };
+      try {
+        if (isEdit) {
+          const res = await api('/api/acoes-sazonais/actions/' + action.id, { method: 'PUT', body: JSON.stringify(payload) });
+          const idx = asData.actions.findIndex((x) => x.id === action.id);
+          if (idx >= 0) asData.actions[idx] = res.action;
+          asToast('Ação atualizada.');
+        } else {
+          const res = await api('/api/acoes-sazonais/actions', { method: 'POST', body: JSON.stringify(payload) });
+          asData.actions.push(res.action);
+          asToast('Ação criada.');
+        }
+        asCloseModal();
+        asRenderAcoes();
+      } catch (err) { asToast(err.message, true); }
+    });
+  }
+
+  function asOpenReportModal(action){
+    asEnsureOverlayWired();
+    const r = action.report || {};
+    const monthly = (action.monthlyEntries || []).filter((m) => m.month).sort((x, y) => x.month.localeCompare(y.month));
+    const hasMonthly = monthly.length > 0;
+    const isInfluencer = action.type === 'acao_influencer';
+    const isRelacionamento = action.type === 'relacionamento';
+    const totalVendas = hasMonthly ? monthly.reduce((s, m) => s + (m.vendasQuantidade || 0), 0) : (r.vendasQuantidade || 0);
+    const totalValorVendas = hasMonthly ? monthly.reduce((s, m) => s + (m.valorVendas || 0), 0) : (r.valorVendas || 0);
+    const totalAcessos = hasMonthly ? monthly.reduce((s, m) => s + (m.acessosSite || 0), 0) : (r.acessosSite || 0);
+    const totalPessoasCaptadas = monthly.reduce((s, m) => s + (m.pessoasCaptadas || 0), 0);
+    const totalEventos = monthly.reduce((s, m) => s + (m.numEventos || 0), 0);
+    const totalEngajamento = hasMonthly ? monthly.reduce((s, m) => s + (m.engajamentoRedes || 0), 0) : (r.engajamentoRedes || 0);
+    const totalSeguidores = hasMonthly ? monthly.reduce((s, m) => s + (m.seguidoresGanhos || 0), 0) : (r.seguidoresGanhos || 0);
+
+    let metaBlockHTML = '';
+    if (action.metaTipo && AS_META_TIPO_OPTIONS[action.metaTipo] && action.metaValor > 0) {
+      const resultado = asActionMetaResultado(action, action.metaTipo);
+      const pct = Math.min(999, Math.round((resultado / action.metaValor) * 100));
+      const opt = AS_META_TIPO_OPTIONS[action.metaTipo];
+      const fmtVal = (v) => opt.money ? asFmtMoney(v) : (opt.percent ? (asFmtNumber(v) + '%') : asFmtNumber(v));
+      metaBlockHTML = `
+        <div class="section-title" style="margin-top:18px;">Meta vs. Resultado · ${escapeHtml(opt.label)}</div>
+        <div style="margin:10px 0;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+            <span>${fmtVal(resultado)} de ${fmtVal(action.metaValor)}</span>
+            <strong style="color:${pct >= 100 ? 'var(--good)' : 'var(--amber)'};">${pct}%</strong>
+          </div>
+          <div style="height:14px;border-radius:7px;background:var(--line-soft);overflow:hidden;">
+            <div style="height:100%;width:${Math.min(100, pct)}%;background:${pct >= 100 ? 'var(--good)' : 'var(--amber)'};"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    let monthlyBlockHTML = '';
+    if (hasMonthly) {
+      if (isRelacionamento) {
+        monthlyBlockHTML = `
+          <div class="section-title" style="margin-top:18px;">Resultados mensais</div>
+          <table class="data-table" style="margin-top:10px;">
+            <thead><tr><th>Mês</th><th>Pessoas captadas</th><th>Região</th><th>Eventos</th><th>Observações</th></tr></thead>
+            <tbody>
+              ${monthly.map((m) => `<tr><td>${escapeHtml(m.month)}</td><td>${asFmtNumber(m.pessoasCaptadas)}</td><td>${escapeHtml(m.regiaoMes) || '—'}</td><td>${asFmtNumber(m.numEventos)}</td><td>${escapeHtml(m.observacoes) || '—'}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        `;
+      } else {
+        monthlyBlockHTML = `
+          <div class="section-title" style="margin-top:18px;">Resultados mensais</div>
+          <table class="data-table" style="margin-top:10px;">
+            <thead><tr><th>Mês</th><th>Engajamento</th><th>Seguidores</th><th>Vendas (R$)</th><th>Qtd. vendas</th><th>Acessos</th></tr></thead>
+            <tbody>
+              ${monthly.map((m) => `<tr><td>${escapeHtml(m.month)}</td><td>${asFmtNumber(m.engajamentoRedes)}</td><td>${asFmtNumber(m.seguidoresGanhos)}</td><td>${asFmtMoney(m.valorVendas)}</td><td>${asFmtNumber(m.vendasQuantidade)}</td><td>${asFmtNumber(m.acessosSite)}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+    }
+
+    const overlay = document.getElementById('asOverlay');
+    const modalBox = document.getElementById('asModalBox');
+    modalBox.className = 'modal';
+    modalBox.style.maxWidth = '720px';
+    modalBox.innerHTML = `
+      <div class="modal-head">
+        <div>
+          <h2>${escapeHtml(action.title)}</h2>
+          <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span class="tag-brand">${action.brand === 'debacco' ? 'De Bacco' : 'GhelPlus'}</span>
+            <span class="type-pill">${escapeHtml(AS_TYPE_LABELS[action.type] || action.type)}</span>
+            ${asPlanTagHTML(action)}
+            ${asFeitaTagHTML(action)}
+          </div>
+        </div>
+        <button class="close" id="asModalCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <dl class="as-report-dl">
+          <div><dt>Período</dt><dd>${asFmtDateRange(action.dataInicio, action.dataFim)}</dd></div>
+          ${action.fluxo ? `<div><dt>Fluxo do orçamento</dt><dd>${escapeHtml(action.fluxo)}</dd></div>` : ''}
+          <div><dt>Região</dt><dd>${escapeHtml(action.regiao) || '—'}</dd></div>
+          <div><dt>Setor responsável</dt><dd>${AS_SETOR_LABELS[action.setor] || '—'}</dd></div>
+          <div><dt>Formato</dt><dd>${action.modalidade === 'presencial' ? 'Presencial' : action.modalidade === 'online' ? 'Online' : 'Híbrido'}</dd></div>
+          <div><dt>Gerente responsável</dt><dd>${escapeHtml(action.gerente) || '—'}</dd></div>
+          <div><dt>Representante responsável</dt><dd>${escapeHtml(action.representante) || '—'}</dd></div>
+          <div><dt>Cliente</dt><dd>${escapeHtml(action.cliente) || '—'}</dd></div>
+          ${(action.servicos && action.servicos.length) ? `
+            <div class="full"><dt>Serviços / pagamentos</dt><dd>${escapeHtml(asFormatServicosList(action.servicos))}</dd></div>
+            <div><dt>Valor investido (total)</dt><dd>${asFmtMoney(action.valorInvestido)}</dd></div>
+          ` : ''}
+          ${action.permutaLink ? `<div class="full"><dt>Comprovante de permuta</dt><dd><a href="${escapeHtml(action.permutaLink)}" target="_blank" rel="noopener">${escapeHtml(action.permutaLink)}</a></dd></div>` : ''}
+          <div><dt>Participantes no evento</dt><dd>${asFmtNumber(action.participantes)}</dd></div>
+          ${action.participantesLink ? `<div class="full"><dt>Lista de participantes</dt><dd><a href="${escapeHtml(action.participantesLink)}" target="_blank" rel="noopener">${escapeHtml(action.participantesLink)}</a></dd></div>` : ''}
+          <div class="full"><dt>Colaboradores à frente</dt><dd>${(action.colaboradores || []).join(', ') || '—'}</dd></div>
+          ${action.documentoLink ? `<div class="full"><dt>Documentos da ação</dt><dd><a href="${escapeHtml(action.documentoLink)}" target="_blank" rel="noopener">${escapeHtml(action.documentoLink)}</a></dd></div>` : ''}
+          <div class="full"><dt>O que foi feito</dt><dd>${escapeHtml(action.oQueFoiFeito) || '—'}</dd></div>
+          <div><dt>Conteúdo em redes sociais</dt><dd>${action.redesSociaisConteudo ? 'Sim' : 'Não'}</dd></div>
+          <div><dt>Campanha de tráfego</dt><dd>${action.campanhaTrafego ? 'Sim' : 'Não'}</dd></div>
+        </dl>
+        <div class="section-title" style="margin-top:18px;">Resultados</div>
+        <dl class="as-report-dl" style="margin-top:10px;">
+          ${isRelacionamento ? `
+            <div><dt>Pessoas captadas</dt><dd>${asFmtNumber(totalPessoasCaptadas)}</dd></div>
+            <div><dt>Eventos realizados</dt><dd>${asFmtNumber(totalEventos)}</dd></div>
+          ` : `
+            <div><dt>Engajamento nas redes</dt><dd>${asFmtNumber(totalEngajamento)} interações</dd></div>
+            ${!isInfluencer ? `
+              <div><dt>Novos seguidores</dt><dd>${asFmtNumber(totalSeguidores)}</dd></div>
+              <div><dt>Valor de vendas</dt><dd>${asFmtMoney(totalValorVendas)}</dd></div>
+              <div><dt>Quantidade de vendas</dt><dd>${asFmtNumber(totalVendas)}</dd></div>
+              <div><dt>Acessos ao site</dt><dd>${asFmtNumber(totalAcessos)}</dd></div>
+              ${!hasMonthly && asNormalizeProdutos(r.vendasProdutos).length ? `<div class="full"><dt>Produto(s) vendido(s)</dt><dd>${escapeHtml(asFormatProdutosList(r.vendasProdutos))}</dd></div>` : ''}
+            ` : ''}
+          `}
+        </dl>
+        ${r.resultadosRegionais ? `<div style="margin-top:14px;"><strong style="font-size:12px;">Resultados regionais</strong><div style="font-size:13.5px;margin-top:4px;">${escapeHtml(r.resultadosRegionais)}</div></div>` : ''}
+        ${r.resultadosNacionais ? `<div style="margin-top:14px;"><strong style="font-size:12px;">Resultados nacionais</strong><div style="font-size:13.5px;margin-top:4px;">${escapeHtml(r.resultadosNacionais)}</div></div>` : ''}
+        ${r.feedbackCliente ? `<div style="margin-top:14px;"><strong style="font-size:12px;">Feedback do cliente</strong><div style="font-size:13.5px;margin-top:4px;">${escapeHtml(r.feedbackCliente)}</div></div>` : ''}
+        ${r.mudancaVendas ? `<div style="margin-top:14px;"><strong style="font-size:12px;">Mudança nas vendas da região</strong><div style="font-size:13.5px;margin-top:4px;">${escapeHtml(r.mudancaVendas)}</div></div>` : ''}
+        ${r.observacoes ? `<div style="margin-top:14px;"><strong style="font-size:12px;">Outras observações</strong><div style="font-size:13.5px;margin-top:4px;">${escapeHtml(r.observacoes)}</div></div>` : ''}
+        ${metaBlockHTML}
+        ${monthlyBlockHTML}
+      </div>
+      <div class="modal-foot">
+        <span></span>
+        <button type="button" class="btn-secondary" id="asReportCloseBtn">Fechar</button>
+      </div>
+    `;
+    overlay.classList.add('open');
+    document.getElementById('asModalCloseBtn').addEventListener('click', asCloseModal);
+    document.getElementById('asReportCloseBtn').addEventListener('click', asCloseModal);
   }
 
   function asRenderHistorico(){

@@ -6320,24 +6320,68 @@
   // aberto); este interval só soma +1 localmente em cima desse valor
   // até a próxima sincronização de verdade.
   let demTimerTickInterval = null;
+  // 158ª rodada, 2º ajuste (bug reportado pela Raquel: "o cronômetro não
+  // aparece na demanda... como havíamos combinado"): o card agora mostra
+  // o tempo rastreado de TODOS os marcados, não só o de quem está vendo
+  // -- os controles (checkbox/Iniciar/Pausar) continuam exclusivos de
+  // cada um pro PRÓPRIO relógio (igual já era), mas a leitura (quanto
+  // tempo cada um já registrou, e se está rodando agora) passa a ser
+  // visível a qualquer um que abrir o card, inclusive quem só está
+  // acompanhando sem estar marcado.
   function renderDemCardTimer(demanda) {
     if (demTimerTickInterval) { clearInterval(demTimerTickInterval); demTimerTickInterval = null; }
     const wrap = $('#demCardTimerWrap');
-    const isAssignee = !!(demanda && currentUser && (demanda.assigneeIds || []).includes(currentUser.id));
-    wrap.hidden = !isAssignee;
-    if (!isAssignee) return;
-    const tt = (demanda.timeTracking && demanda.timeTracking[currentUser.id]) || { enabled: false, startedAt: null, elapsedSeconds: 0 };
-    $('#demCardTimerEnabled').checked = !!tt.enabled;
-    $('#demCardTimerControls').hidden = !tt.enabled;
-    const running = !!tt.startedAt;
-    $('#demCardTimerStartBtn').hidden = running;
-    $('#demCardTimerStopBtn').hidden = !running;
-    let displaySeconds = tt.elapsedSeconds || 0;
-    $('#demCardTimerDisplay').textContent = fmtDuration(displaySeconds);
-    if (running) {
+    const assigneeIds = (demanda && demanda.assigneeIds) || [];
+    wrap.hidden = assigneeIds.length === 0;
+    if (assigneeIds.length === 0) return;
+
+    const isAssignee = !!(currentUser && assigneeIds.includes(currentUser.id));
+    const ownWrap = $('#demCardTimerOwn');
+    ownWrap.hidden = !isAssignee;
+    const liveDisplays = []; // { el, seconds } -- somados +1/s enquanto rodando
+
+    if (isAssignee) {
+      const tt = (demanda.timeTracking && demanda.timeTracking[currentUser.id]) || { enabled: false, startedAt: null, elapsedSeconds: 0 };
+      $('#demCardTimerEnabled').checked = !!tt.enabled;
+      $('#demCardTimerControls').hidden = !tt.enabled;
+      const running = !!tt.startedAt;
+      $('#demCardTimerStartBtn').hidden = running;
+      $('#demCardTimerStopBtn').hidden = !running;
+      const el = $('#demCardTimerDisplay');
+      el.textContent = fmtDuration(tt.elapsedSeconds || 0);
+      if (running) liveDisplays.push({ el, seconds: tt.elapsedSeconds || 0 });
+    }
+
+    // Lista somente-leitura dos DEMAIS marcados (quem tem algum registro
+    // -- ativado, rodando ou com tempo acumulado -- pra não poluir com
+    // gente que nunca usou o cronômetro nesse card).
+    const othersWrap = $('#demCardTimerOthers');
+    othersWrap.innerHTML = '';
+    assigneeIds
+      .filter((uid) => uid !== (currentUser && currentUser.id))
+      .forEach((uid) => {
+        const tt = (demanda.timeTracking && demanda.timeTracking[uid]) || null;
+        if (!tt || (!tt.enabled && !tt.startedAt && !(tt.elapsedSeconds > 0))) return;
+        const u = teamMembers.find((m) => m.id === uid);
+        const nome = u ? u.name : 'Alguém';
+        const running = !!tt.startedAt;
+        const row = document.createElement('div');
+        row.className = 'demCardTimerOtherRow' + (running ? ' running' : '');
+        const timeEl = document.createElement('span');
+        timeEl.className = 'demCardTimerOtherTime';
+        timeEl.textContent = fmtDuration(tt.elapsedSeconds || 0);
+        row.innerHTML = `<span class="demCardTimerOtherName">${escapeHtml(nome)}${running ? ' ⏱️ rodando' : ''}:</span> `;
+        row.appendChild(timeEl);
+        othersWrap.appendChild(row);
+        if (running) liveDisplays.push({ el: timeEl, seconds: tt.elapsedSeconds || 0 });
+      });
+
+    if (liveDisplays.length > 0) {
       demTimerTickInterval = setInterval(() => {
-        displaySeconds += 1;
-        $('#demCardTimerDisplay').textContent = fmtDuration(displaySeconds);
+        liveDisplays.forEach((entry) => {
+          entry.seconds += 1;
+          entry.el.textContent = fmtDuration(entry.seconds);
+        });
       }, 1000);
     }
   }

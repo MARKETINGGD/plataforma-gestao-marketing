@@ -615,6 +615,13 @@ button{font-weight:700;}
 
 /* Cronômetro de tempo dentro do card de Demanda (158ª rodada, item #122). */
 #demCardTimerWrap{margin:10px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-soft,rgba(0,0,0,.02));}
+.demCardTimerOthers{display:flex;flex-direction:column;gap:4px;}
+.demCardTimerOthers:not(:empty){margin-top:8px;padding-top:8px;border-top:1px solid var(--border);}
+.demCardTimerOtherRow{font-size:12px;color:var(--text-muted,#666);display:flex;align-items:center;gap:4px;}
+.demCardTimerOtherRow.running{color:var(--brand-orange-dark);font-weight:600;}
+.demCardTimerOtherName{font-weight:600;}
+.demCardTimerOtherRow:not(.running) .demCardTimerOtherName{font-weight:400;}
+.demCardTimerOtherTime{font-variant-numeric:tabular-nums;}
 .demCardTimerToggle{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;}
 .demCardTimerControls{display:flex;align-items:center;gap:10px;margin-top:8px;}
 .demCardTimerDisplay{font-variant-numeric:tabular-nums;font-size:18px;font-weight:700;color:var(--primary);}

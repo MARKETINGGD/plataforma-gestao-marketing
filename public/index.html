@@ -4216,17 +4216,22 @@
       <input id="demCardLink" type="text" placeholder="https://...">
 
       <!-- Cronômetro de tempo (158ª rodada, item #122, pedido da Raquel):
-           só aparece em card já salvo, pra quem está marcado nele -- é
-           um relógio PESSOAL (cada um só liga/inicia/para o próprio),
-           por isso nunca aparece pra quem só está vendo o card sem estar
-           marcado. -->
+           cada um só liga/inicia/para o PRÓPRIO relógio (por isso os
+           controles abaixo só aparecem pra quem está marcado no card) --
+           mas o tempo rastreado de TODOS os marcados é visível a quem
+           abrir o card (158ª rodada, 2º ajuste: antes ficava escondido
+           até de quem só estava acompanhando, bug reportado pela
+           Raquel). -->
       <div id="demCardTimerWrap" hidden>
-        <label class="demCardTimerToggle"><input type="checkbox" id="demCardTimerEnabled"> Rastrear meu tempo nesta demanda</label>
-        <div id="demCardTimerControls" class="demCardTimerControls" hidden>
-          <span id="demCardTimerDisplay" class="demCardTimerDisplay">00:00:00</span>
-          <button type="button" id="demCardTimerStartBtn" class="btn-secondary">▶ Iniciar</button>
-          <button type="button" id="demCardTimerStopBtn" class="btn-secondary" hidden>⏸ Pausar</button>
+        <div id="demCardTimerOwn" hidden>
+          <label class="demCardTimerToggle"><input type="checkbox" id="demCardTimerEnabled"> Rastrear meu tempo nesta demanda</label>
+          <div id="demCardTimerControls" class="demCardTimerControls" hidden>
+            <span id="demCardTimerDisplay" class="demCardTimerDisplay">00:00:00</span>
+            <button type="button" id="demCardTimerStartBtn" class="btn-secondary">▶ Iniciar</button>
+            <button type="button" id="demCardTimerStopBtn" class="btn-secondary" hidden>⏸ Pausar</button>
+          </div>
         </div>
+        <div id="demCardTimerOthers" class="demCardTimerOthers"></div>
       </div>
 
       <div class="checklist-title-row">

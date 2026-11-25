@@ -990,21 +990,42 @@ router.get('/trabalhando-agora', requireAuth, (req, res) => {
   // é só "quem está trabalhando agora", sem distinção de cargo -- por
   // isso NÃO reaproveita o filtro managementIds usado nos outros
   // endpoints deste arquivo.
+  //
+  // Correção (158ª rodada, 2º ajuste -- bug reportado pela Raquel: "tem
+  // um cronômetro rodando e aparece no relatório, mas ele não aparece
+  // ... na tela inicial, como havíamos combinado"): ligar o cronômetro
+  // (PUT/POST /:id/time-tracking*) NUNCA exigiu status === 'andamento'
+  // -- dá pra rastrear tempo numa demanda "A Fazer", "Em Aprovação" etc.
+  // Mas este endpoint só olhava pra demandas com status EXATAMENTE
+  // 'andamento', então um cronômetro rodando de verdade em qualquer
+  // outro status ficava invisível aqui (mesmo aparecendo certinho no
+  // tempo total do Acompanhamento da Equipe, que não tem esse filtro).
+  // Agora: cronômetro rodando é sinal suficiente de "trabalhando agora"
+  // por si só, em QUALQUER status (exceto demanda pessoal) -- o filtro
+  // por status 'andamento' continua existindo como critério de
+  // DESEMPATE/fallback pra quem não tem nenhum cronômetro rodando.
   const teamUsers = db.get('users').value();
-  const emAndamento = db.get('demandas').value()
-    .filter((d) => d.visibility !== 'pessoal' && d.status === 'andamento');
+  const minhasVisiveis = db.get('demandas').value().filter((d) => d.visibility !== 'pessoal');
+  const emAndamento = minhasVisiveis.filter((d) => d.status === 'andamento');
 
   const rows = [];
   teamUsers.forEach((u) => {
-    const minhas = emAndamento.filter((d) => (d.assigneeIds || []).includes(u.id));
-    if (minhas.length === 0) return;
-    const comCronometroRodando = minhas.find((d) => {
+    const comCronometroRodando = minhasVisiveis.find((d) => {
+      if (!(d.assigneeIds || []).includes(u.id)) return false;
       const tt = (d.timeTracking || {})[u.id];
       return !!(tt && tt.startedAt);
     });
-    const escolhida = comCronometroRodando || minhas.slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
+    const minhasAndamento = emAndamento.filter((d) => (d.assigneeIds || []).includes(u.id));
+    if (!comCronometroRodando && minhasAndamento.length === 0) return;
+    const escolhida = comCronometroRodando || minhasAndamento.slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
     const ttEscolhida = timeTrackingWithElapsed(escolhida)[u.id];
     const timerRunning = !!(ttEscolhida && ttEscolhida.startedAt);
+    // outrasCount conta as OUTRAS demandas 'Em Andamento' dela, sem contar
+    // a escolhida -- se a escolhida veio do cronômetro (e não estava no
+    // conjunto `emAndamento`, por ter outro status), nenhuma delas é "a
+    // mesma", então não subtrai 1.
+    const minhasAndamentoIds = new Set(minhasAndamento.map((d) => d.id));
+    const outrasCount = minhasAndamentoIds.size - (minhasAndamentoIds.has(escolhida.id) ? 1 : 0);
     rows.push({
       userId: u.id,
       userName: u.name || u.username,
@@ -1013,7 +1034,7 @@ router.get('/trabalhando-agora', requireAuth, (req, res) => {
       demandaTitle: escolhida.title,
       timerRunning,
       elapsedSeconds: timerRunning ? ttEscolhida.elapsedSeconds : null,
-      outrasCount: minhas.length - 1
+      outrasCount
     });
   });
   res.json({ rows });

@@ -2149,6 +2149,26 @@ router.put('/:id/time-tracking', requireAuth, (req, res) => {
   res.json({ demanda: serialize(db.get('demandas').find({ id: req.params.id }).value(), req.user.id) });
 });
 
+// 158ª rodada, 3º ajuste (pedido explícito da Raquel: "somente 1
+// cronômetro pode rodar por pessoa... sempre 1 rodando"): ao iniciar um
+// cronômetro NOVO, para (e acumula o tempo corrido) qualquer outro
+// cronômetro da MESMA pessoa que já estivesse rodando em OUTRA demanda
+// -- nunca mais de 1 rodando ao mesmo tempo. Reaproveita exatamente a
+// mesma conta de "tempo corrido" do stop manual (ver
+// POST /:id/time-tracking/stop logo abaixo), só que varrendo todas as
+// demandas em vez de uma só.
+function pausarOutrosCronometrosRodando(userId, exceptDemandaId) {
+  db.get('demandas').value().forEach((d) => {
+    if (d.id === exceptDemandaId) return;
+    const entry = (d.timeTracking || {})[userId];
+    if (!entry || !entry.startedAt) return;
+    const elapsed = Math.max(0, Math.floor((Date.now() - new Date(entry.startedAt).getTime()) / 1000));
+    const timeTracking = Object.assign({}, d.timeTracking || {});
+    timeTracking[userId] = Object.assign({}, entry, { startedAt: null, totalSeconds: (entry.totalSeconds || 0) + elapsed });
+    db.get('demandas').find({ id: d.id }).assign({ timeTracking, updatedAt: new Date().toISOString() }).write();
+  });
+}
+
 router.post('/:id/time-tracking/start', requireAuth, (req, res) => {
   const demanda = findOr404(req, res);
   if (!demanda) return;
@@ -2161,6 +2181,7 @@ router.post('/:id/time-tracking/start', requireAuth, (req, res) => {
   // Já rodando: idempotente, não reinicia startedAt (evitaria perder o
   // tempo já corrido se a pessoa clicar "iniciar" 2x por engano).
   if (!existing.startedAt) {
+    pausarOutrosCronometrosRodando(req.user.id, req.params.id);
     timeTracking[req.user.id] = Object.assign({}, existing, { startedAt: new Date().toISOString() });
     db.get('demandas').find({ id: req.params.id }).assign({ timeTracking, updatedAt: new Date().toISOString() }).write();
   }

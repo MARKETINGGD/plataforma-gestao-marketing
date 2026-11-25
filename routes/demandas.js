@@ -1005,7 +1005,13 @@ router.get('/trabalhando-agora', requireAuth, (req, res) => {
   // por status 'andamento' continua existindo como critério de
   // DESEMPATE/fallback pra quem não tem nenhum cronômetro rodando.
   const teamUsers = db.get('users').value();
-  const minhasVisiveis = db.get('demandas').value().filter((d) => d.visibility !== 'pessoal');
+  // 158ª rodada, item #122, 5º ajuste: exclui demanda arquivada daqui
+  // (defesa extra, além de pararCronometrosRodando() nos 4 pontos onde uma
+  // demanda vira arquivada/concluída, e da migração retroativa em
+  // utils/migratePararCronometrosArquivados158.js) -- assim, mesmo que
+  // algum caminho futuro esqueça de parar o cronômetro, uma demanda já
+  // arquivada NUNCA aparece aqui de novo.
+  const minhasVisiveis = db.get('demandas').value().filter((d) => d.visibility !== 'pessoal' && !d.archived);
   const emAndamento = minhasVisiveis.filter((d) => d.status === 'andamento');
 
   const rows = [];

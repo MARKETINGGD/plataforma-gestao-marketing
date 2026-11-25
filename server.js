@@ -152,6 +152,14 @@ require('./utils/migrateImportExpoRevestirFeiraItems140').migrateImportExpoReves
 // filtro corrigido (ver utils/migrateImportExpoRevestirFeiraItems141.js).
 require('./utils/migrateImportExpoRevestirFeiraItems141').migrateImportExpoRevestirFeiraItems141();
 
+// 158ª rodada, item #122, 5º ajuste: para retroativamente qualquer
+// cronômetro que tenha ficado preso rodando numa demanda que já estava
+// concluída/arquivada ANTES da correção de pararCronometrosRodando() subir
+// em produção (bug reportado pela Raquel -- cronômetro de pessoa continuava
+// contando em "Trabalhando agora" mesmo com a demanda já no histórico). Ver
+// utils/migratePararCronometrosArquivados158.js.
+require('./utils/migratePararCronometrosArquivados158').migratePararCronometrosArquivados158();
+
 // 47ª rodada: lembretes automáticos de bater o ponto (5 min antes/depois
 // de cada horário cadastrado por pessoa, só dias úteis) — primeiro recurso
 // da Plataforma que precisa de um temporizador de verdade rodando sozinho

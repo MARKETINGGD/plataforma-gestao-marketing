@@ -17803,11 +17803,195 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     if (chkMonthly) chkMonthly.addEventListener('change', (e) => { asCompareMonthly = e.target.checked; asRenderDashboard(); });
   }
 
+  // ---- 158ª rodada, #124, #127c: helpers pra Vendas e Meta (portados
+  // quase verbatim do app original -- actionVendasTotal/actionMonthlyBreakdown/
+  // normalizeProdutos/actionMetaResultado/META_TIPO_OPTIONS, ver
+  // claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md) ----
+  const AS_META_TIPO_OPTIONS = {
+    faturamento_valor: { label: 'Faturamento (R$)', auto: 'valorVendas', money: true },
+    faturamento_percentual: { label: 'Aumento de % no faturamento', auto: null, percent: true },
+    novos_clientes: { label: 'Conversão em novos clientes', auto: null },
+    conversao_leads: { label: 'Conversão em leads', auto: null },
+    engajamento: { label: 'Engajamento', auto: 'engajamentoRedes' },
+    alcance: { label: 'Alcance', auto: null },
+    seguidores: { label: 'Seguidores', auto: 'seguidoresGanhos' },
+    participantes: { label: 'Número de participantes', auto: 'participantes' },
+    novos_leads: { label: 'Novos leads', auto: null }
+  };
+  function asFmtNumber(v){ return (Number(v) || 0).toLocaleString('pt-BR'); }
+  function asNormalizeProdutos(val){
+    if (Array.isArray(val)) return val.map((p) => ({ nome: (p && p.nome) || '', quantidade: (p && p.quantidade) || 0 }));
+    if (typeof val === 'string' && val.trim()) return val.split(',').map((s) => s.trim()).filter(Boolean).map((nome) => ({ nome, quantidade: 0 }));
+    return [];
+  }
+  function asProdutoQtd(p){
+    const q = parseFloat(p.quantidade);
+    return (!isNaN(q) && q > 0) ? q : 1;
+  }
+  function asActionVendasTotal(a){
+    if (a.monthlyEntries && a.monthlyEntries.length) return a.monthlyEntries.reduce((s, m) => s + (m.vendasQuantidade || 0), 0);
+    return (a.report && a.report.vendasQuantidade) || 0;
+  }
+  function asActionEngajamentoTotal(a){
+    if (a.monthlyEntries && a.monthlyEntries.length) return a.monthlyEntries.reduce((s, m) => s + (m.engajamentoRedes || 0), 0);
+    return (a.report && a.report.engajamentoRedes) || 0;
+  }
+  function asActionSeguidoresTotal(a){
+    if (a.monthlyEntries && a.monthlyEntries.length) return a.monthlyEntries.reduce((s, m) => s + (m.seguidoresGanhos || 0), 0);
+    return (a.report && a.report.seguidoresGanhos) || 0;
+  }
+  // Retorna [{month, value}] com o detalhamento mensal de um campo (vendas,
+  // valor de vendas...) -- quando a ação não tem monthlyEntries, usa o
+  // relatório único (a.report) no mês de início/fim como aproximação.
+  function asActionMonthlyBreakdown(a, field){
+    if (a.monthlyEntries && a.monthlyEntries.length) {
+      return a.monthlyEntries.filter((m) => m.month).map((m) => ({ month: m.month, value: m[field] || 0 }));
+    }
+    const val = (a.report && a.report[field]) || 0;
+    if (!val) return [];
+    const mk = asMonthKey(a.dataInicio) || asMonthKey(a.dataFim);
+    return mk ? [{ month: mk, value: val }] : [];
+  }
+  function asActionProdutosBreakdown(a){
+    const totals = {};
+    if (a.monthlyEntries && a.monthlyEntries.length) {
+      a.monthlyEntries.forEach((m) => asNormalizeProdutos(m.vendasProdutos).forEach((p) => {
+        if (!p.nome) return;
+        totals[p.nome] = (totals[p.nome] || 0) + asProdutoQtd(p);
+      }));
+    } else {
+      asNormalizeProdutos(a.report && a.report.vendasProdutos).forEach((p) => {
+        if (!p.nome) return;
+        totals[p.nome] = (totals[p.nome] || 0) + asProdutoQtd(p);
+      });
+    }
+    return Object.entries(totals).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+  }
+  // Calcula o "resultado alcançado" de uma ação pra um tipo de meta -- puxa
+  // automaticamente de um campo já cadastrado quando possível, senão usa o
+  // valor manual informado especificamente pra meta.
+  function asActionMetaResultado(a, metaTipo){
+    const opt = AS_META_TIPO_OPTIONS[metaTipo];
+    if (!opt) return 0;
+    if (opt.auto === 'participantes') return Number(a.participantes) || 0;
+    if (opt.auto === 'valorVendas') {
+      const hasMonthly = a.monthlyEntries && a.monthlyEntries.length;
+      return hasMonthly ? a.monthlyEntries.reduce((s, m) => s + (m.valorVendas || 0), 0) : ((a.report && a.report.valorVendas) || 0);
+    }
+    if (opt.auto === 'engajamentoRedes') return asActionEngajamentoTotal(a);
+    if (opt.auto === 'seguidoresGanhos') return asActionSeguidoresTotal(a);
+    return Number(a.metaResultadoManual) || 0;
+  }
+  // Lista ranqueada genérica (funnel-row/-track/-fill) -- usada em Vendas por
+  // ação, Produtos mais vendidos e Meta vs. Resultado (cada uma com sua
+  // própria cor/formatação de valor via opts).
+  function asFunnelRowsHTML(items, opts){
+    opts = opts || {};
+    if (!items.length) return `<div class="empty-board" style="padding:20px 10px;">${opts.emptyMsg || 'Sem dados ainda.'}</div>`;
+    const top = Math.max(1, opts.maxValue || Math.max(...items.map((x) => x.value)));
+    return items.map((x) => `
+      <div class="funnel-row">
+        <div class="timeline-name">${escapeHtml(x.label.length > 32 ? x.label.slice(0, 32) + '…' : x.label)}</div>
+        <div class="funnel-track"><div class="funnel-fill" style="width:${Math.max(2, (x.value / top) * 100).toFixed(1)}%;background:${opts.colorFn ? opts.colorFn(x) : 'var(--accent)'};"></div><span style="font-size:13px;font-weight:700;white-space:nowrap;">${opts.fmtValue ? opts.fmtValue(x.value) : x.value}</span></div>
+      </div>`).join('');
+  }
+
+  // 158ª rodada, #124, #127c: Vendas e Meta de verdade -- 2a tela portada do
+  // app separado (a 1a foi a Visão Geral, #127b/#127b-2). 4 painéis: vendas
+  // por ação (cor por marca), vendas por mês (R$), produtos mais vendidos e
+  // meta vs. resultado por ação -- todos como lista ranqueada/barra, mesmo
+  // padrão HTML/CSS sem Chart.js da Visão Geral (achado crítico #4).
   function asRenderVendasMeta(){
-    const el = document.getElementById('asVendasMetaSummary');
-    if (!el) return;
-    const comMeta = asData.actions.filter((a) => a.metaTipo);
-    el.textContent = `${comMeta.length} de ${asData.actions.length} ação(ões) com meta definida.`;
+    const root = document.getElementById('asVendasMetaPage');
+    if (!root) return;
+
+    const filterYear = asDashboardYear !== 'all' ? parseInt(asDashboardYear, 10) : null;
+    const availableYears = asActionYearsAvailable();
+    const scopedList = filterYear ? asInYear(asData.actions, 'dataInicio', filterYear) : asData.actions;
+
+    const vendasData = scopedList
+      .map((a) => ({ label: a.title || '(sem título)', value: asActionVendasTotal(a), brand: a.brand }))
+      .filter((x) => x.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const vendasMesBuckets = {};
+    scopedList.forEach((a) => {
+      asActionMonthlyBreakdown(a, 'valorVendas').forEach(({ month, value }) => {
+        vendasMesBuckets[month] = (vendasMesBuckets[month] || 0) + value;
+      });
+    });
+    const vendasMesKeys = Object.keys(vendasMesBuckets).sort();
+    const vendasMesLabels = vendasMesKeys.map((k) => { const [y, m] = k.split('-'); return `${AS_MONTH_LABELS[parseInt(m, 10) - 1]}/${y.slice(2)}`; });
+    const vendasMesMax = Math.max(1, ...vendasMesKeys.map((k) => vendasMesBuckets[k]));
+
+    const produtoTotais = {};
+    scopedList.forEach((a) => {
+      asActionProdutosBreakdown(a).forEach(([nome, qtd]) => {
+        produtoTotais[nome] = (produtoTotais[nome] || 0) + qtd;
+      });
+    });
+    const produtoEntries = Object.entries(produtoTotais).filter((x) => x[1] > 0).sort((x, y) => y[1] - x[1]).slice(0, 10)
+      .map(([nome, qtd]) => ({ label: nome, value: qtd }));
+
+    const withMeta = scopedList.filter((a) => a.metaTipo && AS_META_TIPO_OPTIONS[a.metaTipo] && (Number(a.metaValor) || 0) > 0);
+    const metaRows = withMeta.map((a) => {
+      const resultado = asActionMetaResultado(a, a.metaTipo);
+      const pct = (Number(a.metaValor) || 0) > 0 ? (resultado / Number(a.metaValor)) * 100 : 0;
+      return { label: a.title || '(sem título)', value: pct };
+    }).sort((a, b) => b.value - a.value);
+
+    root.innerHTML = `
+      <div class="board-head">
+        <div>
+          <p class="board-eyebrow">Ações Sazonais</p>
+          <h1 class="board-title">Vendas e Meta</h1>
+        </div>
+        <select id="asVendasMetaYearSelect" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;">
+          <option value="all" ${asDashboardYear === 'all' ? 'selected' : ''}>Todos os anos</option>
+          ${availableYears.map((y) => `<option value="${y}" ${asDashboardYear === y ? 'selected' : ''}>${y}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="board-grid" style="grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+        <div class="board-card board-section">
+          <div class="board-section-head"><div><h2>Vendas por ação</h2><div class="board-sub">Quantidade de vendas registrada (total ou soma dos meses)</div></div></div>
+          ${asFunnelRowsHTML(vendasData, { emptyMsg: 'Nenhuma venda registrada ainda.', fmtValue: (v) => asFmtNumber(v), colorFn: (x) => x.brand === 'debacco' ? 'var(--series-2)' : 'var(--series-1)' })}
+        </div>
+        <div class="board-card board-section">
+          <div class="board-section-head"><div><h2>Vendas por mês (R\$)</h2><div class="board-sub">Valor de vendas informado, por mês</div></div></div>
+          ${vendasMesKeys.length ? `
+            <div class="qbar-grid" style="grid-template-columns:repeat(${vendasMesKeys.length},minmax(0,1fr));">
+              ${vendasMesKeys.map((k) => {
+                const h = Math.max(2, Math.round((vendasMesBuckets[k] / vendasMesMax) * 190));
+                return `<div class="qbar-pair"><div class="qbar-col"><div class="qbar-fill" style="height:${h}px;background:var(--good);"></div></div></div>`;
+              }).join('')}
+            </div>
+            <div class="qbar-labels" style="grid-template-columns:repeat(${vendasMesKeys.length},minmax(0,1fr));margin-top:8px;">
+              ${vendasMesLabels.map((l) => `<span style="font-size:11px;">${l}</span>`).join('')}
+            </div>
+          ` : '<div class="empty-board">Sem vendas registradas ainda.</div>'}
+        </div>
+      </div>
+
+      <div class="board-grid" style="grid-template-columns:1fr 1fr;gap:20px;align-items:start;margin-top:20px;">
+        <div class="board-card board-section">
+          <div class="board-section-head"><div><h2>Produtos mais vendidos</h2><div class="board-sub">Quantidade total vendida de cada produto</div></div></div>
+          <div style="max-height:320px;overflow-y:auto;overflow-x:hidden;">
+            ${asFunnelRowsHTML(produtoEntries, { emptyMsg: 'Nenhum produto vendido registrado ainda.', fmtValue: (v) => asFmtNumber(v), colorFn: () => 'var(--lilac)' })}
+          </div>
+        </div>
+        <div class="board-card board-section">
+          <div class="board-section-head"><div><h2>Meta vs. Resultado por ação</h2><div class="board-sub">% da meta atingido</div></div></div>
+          <div style="max-height:320px;overflow-y:auto;overflow-x:hidden;">
+            ${asFunnelRowsHTML(metaRows, { emptyMsg: 'Nenhuma ação com meta cadastrada ainda.', maxValue: Math.max(100, ...metaRows.map((x) => x.value)), fmtValue: (v) => `${v.toFixed(0)}%`, colorFn: (x) => x.value >= 100 ? 'var(--good)' : 'var(--amber)' })}
+          </div>
+        </div>
+      </div>
+    `;
+
+    const yearSelect = document.getElementById('asVendasMetaYearSelect');
+    if (yearSelect) yearSelect.addEventListener('change', (e) => { asDashboardYear = e.target.value; asRenderVendasMeta(); });
   }
 
   function asRenderAcoes(){

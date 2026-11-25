@@ -5538,11 +5538,15 @@
     dateStr = dateStr || todayStr();
     return ausenciasPublicas.find((a) => a.userId === userId && a.dataInicio <= dateStr && dateStr <= a.dataFim) || null;
   }
-  // 158ª rodada (2º pedido): tipos de ausência que significam "a pessoa
-  // não está trabalhando de verdade" -- usado no aviso de topo de CADA
-  // card de demanda (ver renderKanban abaixo). 'saida' fica de fora de
-  // propósito: é só um registro pontual de atraso/saída antecipada no
-  // MESMO dia de trabalho, não uma ausência real.
+  // 158ª rodada: tipos de ausência que significam "a pessoa não está
+  // trabalhando de verdade" -- usado no aviso de topo da COLUNA/lista da
+  // pessoa em Demandas (ver `ausenciaAgora` em renderKanban abaixo).
+  // Começou só com férias/licença médica (104ª/129ª rodada); licença
+  // maternidade e viagem a trabalho entraram depois, a pedido da Raquel
+  // (reportou que o aviso não aparecia pra quem estava de licença
+  // maternidade, ex.: Erika). 'saida' fica de fora de propósito: é só um
+  // registro pontual de atraso/saída antecipada no MESMO dia de trabalho,
+  // não uma ausência real.
   const AUSENCIA_TIPOS_FORA_DO_TRABALHO = ['ferias', 'afastamento', 'licenca_maternidade', 'viagem'];
 
   function ausenciaBadgeLabel(a) {
@@ -5739,7 +5743,19 @@
       // mais abaixo, que deve continuar considerando qualquer tipo) --
       // o filtro entra só aqui, no aviso do topo da lista.
       const ausenciaAgoraRaw = !isPessoal ? ausenciaEm(member.id) : null;
-      const ausenciaAgora = (ausenciaAgoraRaw && (ausenciaAgoraRaw.tipo === 'ferias' || ausenciaAgoraRaw.tipo === 'afastamento')) ? ausenciaAgoraRaw : null;
+      // 158ª rodada (correção pedida pela Raquel, depois de ver o aviso
+      // por CARD que eu tinha colocado): "eu n quero esse aviso em cima
+      // de cada demanda que a pessoa ausente tem, eu so quero que vc
+      // ajuste a questão da licença medica e maternidade, pq n estao
+      // aparecendo no topo da lista da pessoa ausente (...) o aviso q eu
+      // quero é igual a esse q esta na lista do Kaue" -- ou seja: o aviso
+      // certo é ESTE, no topo da COLUNA/lista da pessoa (como já era,
+      // 104ª/129ª rodada), não um aviso repetido em cada card. O bug de
+      // verdade era este `AUSENCIA_TIPOS_FORA_DO_TRABALHO` só cobrir
+      // férias/licença médica -- licença maternidade (caso da Erika) e
+      // viagem a trabalho nunca disparavam esse aviso aqui, mesmo sendo
+      // ausências "de verdade" iguais às outras.
+      const ausenciaAgora = (ausenciaAgoraRaw && AUSENCIA_TIPOS_FORA_DO_TRABALHO.includes(ausenciaAgoraRaw.tipo)) ? ausenciaAgoraRaw : null;
       const ausenciaBadgeHtml = ausenciaAgora
         ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaTipoLabel(ausenciaAgora.tipo) + (ausenciaAgora.tipo === 'saida' ? ' hoje' : ' até ' + fmtDate(ausenciaAgora.dataFim)))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
         : '';
@@ -5864,29 +5880,7 @@
         const doneCount = (d.checklist || []).filter((c) => c.done).length;
         const total = (d.checklist || []).length;
         const cardLabels = (d.labelIds || []).map(labelById).filter(Boolean);
-        // 158ª rodada (2º pedido), literal da Raquel: "FERIAS, LICENÇA
-        // MEDICA, LICENÇA MATERNIDADE, VIAGEM A TRABALHO, DEVEM APARECER
-        // no topo do card de demandas da pessoa, e deve vir aquele aviso
-        // de que a pessoa não esta trabalhando nesse período, caso ela
-        // receba demandas durante a ausência. o unico caso que n deve ter
-        // aviso é de saida ou chegada fora do horario." -- diferente do
-        // aviso que já existe no TOPO DA COLUNA (só férias/licença médica,
-        // ver `ausenciaAgora` acima, pedido antigo da 104ª/129ª rodada),
-        // este é por CARD/demanda -- qualquer pessoa marcada na demanda
-        // que esteja ausente HOJE, com um dos 4 tipos "de verdade" (não
-        // 'saida', que é só um registro pontual de atraso/saída
-        // antecipada no mesmo dia de trabalho, não uma ausência real).
-        const pessoasAusentesNoCard = (d.assigneeIds || [])
-          .map((id) => ({ id, ausencia: ausenciaEm(id) }))
-          .filter((x) => x.ausencia && AUSENCIA_TIPOS_FORA_DO_TRABALHO.includes(x.ausencia.tipo));
-        const avisoAusenciaCardHtml = pessoasAusentesNoCard.length > 0
-          ? `<div class="kanban-card-aviso-ausencia">⚠️ ${pessoasAusentesNoCard.map((x) => {
-              const nome = (teamMembers.find((m) => m.id === x.id) || {}).name || '';
-              return `${escapeHtml(nome)} não está trabalhando (${ausenciaTipoLabel(x.ausencia.tipo)} até ${fmtDate(x.ausencia.dataFim)})`;
-            }).join(' · ')}</div>`
-          : '';
         card.innerHTML = `
-          ${avisoAusenciaCardHtml}
           ${cardLabels.length > 0 ? `<div class="kanban-card-labels">${cardLabels.map((l) => `<span class="kanban-label-chip" title="${l.name}" style="background:${l.color}"></span>`).join('')}</div>` : ''}
           <div class="kanban-card-title-row">
             <button type="button" class="kanban-check-btn${d.status === 'concluida' ? ' checked' : ''}" title="${d.status === 'concluida' ? 'Marcar como não concluída' : 'Marcar como concluída'}"></button>

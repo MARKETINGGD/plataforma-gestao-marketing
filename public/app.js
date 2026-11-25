@@ -6541,7 +6541,14 @@
     // (some só da lista dela, o card continua pras demais pessoas).
     const isCardCreator = !!(demanda && currentUser && demanda.createdBy === currentUser.id);
     const isCardAssignee = !!(demanda && currentUser && (demanda.assigneeIds || []).includes(currentUser.id));
-    $('#demCardDelete').hidden = !demanda || !isCardCreator;
+    // 158ª rodada (3º pedido), pedido literal da Raquel: "A coordenadora,
+    // pode (...) excluir demandas (...) de qualquer pessoa e em qualquer
+    // card" -- gerente/coordenador(a)/admin também enxergam "Excluir",
+    // não só quem criou o card (mesma regra de acesso de `canChangeDueDate`,
+    // já usada pro campo de data de entrega acima -- ver comentário dela).
+    // A API (DELETE /api/demandas/:id) já recusa quem não tem essa
+    // permissão, então o botão nunca é a única trava.
+    $('#demCardDelete').hidden = !demanda || !(isCardCreator || canChangeDueDate());
     $('#demCardLeave').hidden = !demanda || !isCardAssignee;
     // 105ª rodada, pedido da Raquel: mover o card entre Quadro Geral <->
     // Área Pessoal a qualquer momento -- mesma regra de quem pode usar o

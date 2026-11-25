@@ -5759,7 +5759,15 @@
       const ausenciaBadgeHtml = ausenciaAgora
         ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaTipoLabel(ausenciaAgora.tipo) + (ausenciaAgora.tipo === 'saida' ? ' hoje' : ' até ' + fmtDate(ausenciaAgora.dataFim)))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
         : '';
-      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><span class="kanban-col-header-name">${escapeHtml(member.name)}</span>${ausenciaBadgeHtml}<button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button>${extraHeaderBtnsHtml}<span class="kanban-count">${items.length}</span></div>`;
+      // 158ª rodada, bug reportado pela Raquel ("agora aparece [o aviso],
+      // mas n aparece o nome da pessoa"): com o aviso de ausência tendo
+      // textos mais longos (ex.: "Licença Maternidade"), ele e o nome
+      // disputavam a mesma linha estreita da coluna e o nome, por ter
+      // `flex:1;min-width:0`, era espremido até sumir por completo. Fix:
+      // nome e aviso agora ficam em linhas separadas dentro da coluna
+      // (`.kanban-col-header-main`), então o aviso nunca mais "engole" o
+      // nome, não importa o tamanho do texto do tipo de ausência.
+      colEl.innerHTML = `<div class="kanban-col-header"><span class="kanban-col-drag-handle" title="Arrastar para reordenar as listas">⠿</span><div class="kanban-col-header-main"><span class="kanban-col-header-name">${escapeHtml(member.name)}</span>${ausenciaBadgeHtml}</div><button type="button" class="kanban-sort-date-btn" title="Organizar esta lista por data de entrega">📅</button>${extraHeaderBtnsHtml}<span class="kanban-count">${items.length}</span></div>`;
       colEl.querySelector('.kanban-sort-date-btn').onclick = (e) => {
         e.stopPropagation();
         sortColumnByDate(items);

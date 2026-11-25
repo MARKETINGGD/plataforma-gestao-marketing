@@ -733,7 +733,12 @@ button{font-weight:700;}
 .kanban{display:flex;gap:14px;margin-top:16px;overflow-x:auto;padding-bottom:8px;align-items:flex-start;}
 .kanban-col{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px;min-height:120px;width:250px;flex:0 0 250px;transition:opacity .15s,outline .1s;}
 .kanban-col-header{font-size:13px;font-weight:700;color:var(--muted);padding:4px 6px 10px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
-.kanban-col-header-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
+.kanban-col-header-main{display:flex;flex-direction:column;flex:1;min-width:0;gap:2px;}
+.kanban-col-header-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+/* 158ª rodada: aviso de ausência (ex.: "Licença Maternidade") ganhou linha própria
+   embaixo do nome (ver kanban-col-header-main em app.js) -- antes disputava espaço
+   com o nome na mesma linha e, com textos longos, o nome sumia por completo. */
+.kanban-col-header-main .badge{align-self:flex-start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .kanban-count{background:var(--card);border-radius:999px;padding:0 8px;font-weight:600;flex:0 0 auto;}
 /* Arrastar pra reordenar as listas (17ª rodada) — cada pessoa organiza do
    seu jeito; só a área da alça mostra a "mãozinha" de arrastar, pra não

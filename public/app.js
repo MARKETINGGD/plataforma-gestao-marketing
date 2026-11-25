@@ -1874,7 +1874,7 @@
           items.filter((a) => a.dataInicio <= cellDateStr && cellDateStr <= a.dataFim).forEach((a) => {
             const chip = document.createElement('div');
             chip.className = 'cal-post-chip';
-            chip.innerHTML = `<b>${ausenciaBadgeLabel(a)} ${escapeHtml(a.userName || '')}</b>${escapeHtml(ausenciaChipDetalhe(a))}`;
+            chip.innerHTML = `<b>${ausenciaBadgeLabel(a, cellDateStr)} ${escapeHtml(a.userName || '')}</b>${escapeHtml(ausenciaChipDetalhe(a))}`;
             cell.appendChild(chip);
           });
           grid.appendChild(cell);
@@ -5552,7 +5552,7 @@
   // não uma ausência real.
   const AUSENCIA_TIPOS_FORA_DO_TRABALHO = ['ferias', 'afastamento', 'licenca_maternidade', 'viagem'];
 
-  function ausenciaBadgeLabel(a) {
+  function ausenciaBadgeLabel(a, dateStr) {
     if (!a) return '';
     if (a.tipo === 'saida') return '🕐 Saída';
     // 158ª rodada: "Afastamento" virou "Licença Médica" (mesmo emoji de
@@ -5563,7 +5563,21 @@
     if (a.tipo === 'afastamento') return '😷 Licença Médica';
     if (a.tipo === 'licenca_maternidade') return '👶 Licença Maternidade';
     if (a.tipo === 'viagem') return '✈️ Viagem';
-    return '🏖️ Férias' + (a.meioDia ? ' (meio período)' : '');
+    // 158ª rodada (meioDiaDatas), bug reportado pela Raquel: o calendário
+    // mostrava "(meio período)" em TODOS os dias do período de férias,
+    // mesmo quando só 1 dia específico tinha sido marcado -- porque antes
+    // comparava só o booleano geral do registro (`meioDia`/`a.meioDia`),
+    // nunca o DIA daquela célula do calendário. Agora, quando quem chama
+    // sabe de qual dia se trata (calendário, aviso de ausência "hoje",
+    // aviso de conflito de entrega), passa `dateStr` e só mostra o
+    // "(meio período)" se aquele dia específico estiver em
+    // `meioDiaDatas`. Sem `dateStr` (ex.: tabela de administração, que
+    // lista o período inteiro numa linha só, sem dia específico), cai no
+    // resumo geral de sempre (tem pelo menos 1 dia de meio período no
+    // período inteiro).
+    const meioDiaDatas = Array.isArray(a.meioDiaDatas) ? a.meioDiaDatas : [];
+    const ehMeioDia = dateStr ? meioDiaDatas.includes(dateStr) : meioDiaDatas.length > 0;
+    return '🏖️ Férias' + (ehMeioDia ? ' (meio período)' : '');
   }
 
   function kanbanColumns() {
@@ -5760,7 +5774,7 @@
       // ausências "de verdade" iguais às outras.
       const ausenciaAgora = (ausenciaAgoraRaw && AUSENCIA_TIPOS_FORA_DO_TRABALHO.includes(ausenciaAgoraRaw.tipo)) ? ausenciaAgoraRaw : null;
       const ausenciaBadgeHtml = ausenciaAgora
-        ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaTipoLabel(ausenciaAgora.tipo) + (ausenciaAgora.tipo === 'saida' ? ' hoje' : ' até ' + fmtDate(ausenciaAgora.dataFim)))}">${ausenciaBadgeLabel(ausenciaAgora)}</span>`
+        ? `<span class="badge badge-danger" title="${escapeHtml(ausenciaTipoLabel(ausenciaAgora.tipo) + (ausenciaAgora.tipo === 'saida' ? ' hoje' : ' até ' + fmtDate(ausenciaAgora.dataFim)))}">${ausenciaBadgeLabel(ausenciaAgora, todayStr())}</span>`
         : '';
       // 158ª rodada, bug reportado pela Raquel ("agora aparece [o aviso],
       // mas n aparece o nome da pessoa"): com o aviso de ausência tendo
@@ -6678,7 +6692,7 @@
           const nome = u ? u.name : 'Essa pessoa';
           const a = x.ausencia;
           const periodo = (a.tipo === 'saida') ? `no dia ${fmtDate(a.dataInicio)}` : `de ${fmtDate(a.dataInicio)} a ${fmtDate(a.dataFim)}`;
-          return `${nome} (${ausenciaBadgeLabel(a)} ${periodo})`;
+          return `${nome} (${ausenciaBadgeLabel(a, payload.dueDate)} ${periodo})`;
         }).join('; ');
         if (!confirm(`Atenção: a data de entrega cai durante a ausência de ${nomes}. Deseja salvar mesmo assim?`)) {
           return;
@@ -13110,7 +13124,7 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'cal-post-chip';
-        chip.innerHTML = `<b>${ausenciaBadgeLabel(a)} ${escapeHtml(a.userName || '')}</b>${escapeHtml(ausenciaChipDetalhe(a))}`;
+        chip.innerHTML = `<b>${ausenciaBadgeLabel(a, cellDateStr)} ${escapeHtml(a.userName || '')}</b>${escapeHtml(ausenciaChipDetalhe(a))}`;
         chip.onclick = () => openAusenciaForm(a);
         cell.appendChild(chip);
       });

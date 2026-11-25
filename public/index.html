@@ -3874,7 +3874,11 @@
                  a opção de colocar meio dia apenas tbm" -- só aparece pro
                  tipo Férias (ver updateAusenciaFimVisibility em app.js). -->
             <div id="ausenciaFormMeioDiaWrap" class="form-row" hidden>
-              <label><input type="checkbox" id="ausenciaFormMeioDia"> Meio período (meio dia de férias)</label>
+              <label><input type="checkbox" id="ausenciaFormMeioDiaToggle"> Tem dia(s) de meio período</label>
+              <div id="ausenciaFormMeioDiaDiasWrap" hidden>
+                <p class="muted" style="font-size:12px;margin:4px 0;">Marque o(s) dia(s) do período que são meio período -- os demais dias ficam dia cheio de férias.</p>
+                <div id="ausenciaFormMeioDiaDias" class="chip-picker"></div>
+              </div>
             </div>
             <div id="ausenciaFormHorasWrap" class="form-row" hidden>
               <div>

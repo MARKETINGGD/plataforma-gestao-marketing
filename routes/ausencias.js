@@ -13,6 +13,7 @@ const { resolveUserName, resolveUserPhoto } = require('../utils/names');
 const { createAutoRecado } = require('./recados');
 const shareLinks = require('../utils/shareLinks');
 const { todaySaoPauloStr } = require('../utils/dateSaoPaulo');
+const { nowSaoPaulo } = require('../utils/pontoReminders');
 
 const router = express.Router();
 
@@ -98,6 +99,22 @@ function validDate(v) { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.te
 // Horário (106ª/107ª rodada): "HH:MM", 24h. Usado só por "Saída fora do
 // horário" -- os outros tipos nunca gravam nada aqui.
 function validTime(v) { return typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : null; }
+// 158ª rodada, ajuste pedido pela Raquel depois de testar: "meio período"
+// deixou de ser um booleano único pro período inteiro -- agora é uma
+// LISTA de dias específicos (dentro do próprio intervalo
+// dataInicio..dataFim) que são meio período; os demais dias do período
+// continuam dia cheio de férias. `meioDia` (booleano) continua existindo
+// no objeto serializado só como campo DERIVADO (tem pelo menos 1 dia
+// marcado?), pra não quebrar nada que já lia só esse booleano antes.
+function validMeioDiaDatas(raw, inicio, fim) {
+  if (!Array.isArray(raw)) return [];
+  const unicos = new Set();
+  raw.forEach((v) => {
+    const d = validDate(v);
+    if (d && d >= inicio && d <= fim) unicos.add(d);
+  });
+  return Array.from(unicos).sort();
+}
 function fmtDateBR(dateStr) {
   if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-');
@@ -112,9 +129,12 @@ function serialize(a) {
     horaSaida: a.horaSaida || null,
     horaRetorno: a.horaRetorno || null,
     // 158ª rodada: "em casos de ferias deve ter a opção de colocar meio
-    // dia apenas tbm" -- só faz sentido pra tipo 'ferias', sempre false
+    // dia apenas tbm" -- só faz sentido pra tipo 'ferias', sempre vazio
     // pros outros tipos (nunca gravado neles, ver POST/PUT abaixo).
-    meioDia: !!a.meioDia
+    // Ajuste (mesma rodada, depois do teste da Raquel): virou lista de
+    // dias específicos -- `meioDia` aqui é só um booleano DERIVADO.
+    meioDiaDatas: Array.isArray(a.meioDiaDatas) ? a.meioDiaDatas : [],
+    meioDia: Array.isArray(a.meioDiaDatas) && a.meioDiaDatas.length > 0
   });
 }
 
@@ -140,6 +160,33 @@ function jaAcabou(ausencia) {
   return (ausencia.dataFim || ausencia.dataInicio) < hoje;
 }
 
+// 158ª rodada, bug reportado pela Raquel depois de testar: um registro de
+// "saída fora do horário" DO PRÓPRIO DIA (ex.: cadastrado às 10h, pra uma
+// saída que já aconteceu às 09h17 da manhã) continuava usando o futuro
+// ("vai sair"), porque `jaAcabou()` acima só compara DATA (dia inteiro),
+// nunca horário -- "hoje" nunca é "< hoje", então nunca virava passado no
+// mesmo dia, mesmo com os horários (chegou/saiu/retornou) já preenchidos
+// de verdade (ou seja, já aconteceu). `jaAcabou()` continua intocada (e
+// correta) pros outros 3 tipos, que são só de DIA inteiro, sem horário --
+// esta função nova é só pro tipo 'saida', que tem horário de verdade pra
+// comparar contra "agora".
+function jaAcabouSaida(ausencia) {
+  const agora = nowSaoPaulo();
+  const dataRef = ausencia.dataInicio;
+  if (dataRef < agora.dateStr) return true;
+  if (dataRef > agora.dateStr) return false;
+  // Mesmo dia de hoje: só considera "já aconteceu" se o horário relevante
+  // (o mesmo que decide o verbo em `verboSaida()` -- chegada, se for só
+  // chegada tarde; senão a saída) já passou da hora atual. Sem nenhum
+  // horário preenchido (registro simples, sem detalhar), mantém o padrão
+  // de sempre: só pela data, então hoje ainda conta como futuro/presente
+  // ("vai sair"), igual já era antes desta correção.
+  const soChegada = !!ausencia.horaChegada && !ausencia.horaSaida;
+  const horaRelevante = soChegada ? ausencia.horaChegada : ausencia.horaSaida;
+  if (!horaRelevante) return false;
+  return horaRelevante <= agora.hhmm;
+}
+
 // Monta "(chegou às 10:00, saiu às 15:00 e retornou às 16:30)" com só os
 // horários que foram de fato preenchidos -- "Saída fora do horário" aceita
 // qualquer combinação (só saída cedo, só chegada tarde, ou os 2 + volta).
@@ -151,6 +198,19 @@ function horaDetalhes(ausencia) {
   if (partes.length === 0) return '';
   if (partes.length === 1) return ` (${partes[0]})`;
   return ` (${partes.slice(0, -1).join(', ')} e ${partes[partes.length - 1]})`;
+}
+
+// Monta "(meio período no dia 10/12)" / "(meio período nos dias 10/12 e
+// 12/12)" / "(meio período em 3 dias do período)" a partir de
+// `meioDiaDatas` -- só faz sentido pra férias. 3+ dias vira contagem (em
+// vez de listar todos) pra não deixar o comunicado gigante num período
+// longo com muitos dias de meio período marcados.
+function meioDiaDetalhes(ausencia) {
+  const datas = Array.isArray(ausencia.meioDiaDatas) ? ausencia.meioDiaDatas : [];
+  if (datas.length === 0) return '';
+  if (datas.length === 1) return ` (meio período no dia ${fmtDateBR(datas[0])})`;
+  if (datas.length === 2) return ` (meio período nos dias ${fmtDateBR(datas[0])} e ${fmtDateBR(datas[1])})`;
+  return ` (meio período em ${datas.length} dias do período)`;
 }
 
 // ---------- horas negativas (158ª rodada) ----------
@@ -217,7 +277,11 @@ function verboSaida(ausencia, acabou) {
 function anunciarAusencia(ausencia) {
   const nome = resolveUserName(ausencia.userId, ausencia.userName);
   const primeiroNome = String(nome || '').trim().split(/\s+/)[0] || nome;
-  const acabou = jaAcabou(ausencia);
+  // 158ª rodada, bug reportado pela Raquel: 'saida' tem horário de
+  // verdade pra comparar (ver jaAcabouSaida acima) -- os outros 3 tipos
+  // são só de dia inteiro, continuam usando a comparação por data
+  // (jaAcabou).
+  const acabou = ausencia.tipo === 'saida' ? jaAcabouSaida(ausencia) : jaAcabou(ausencia);
   let texto;
   if (ausencia.tipo === 'saida') {
     texto = `🕐 ${primeiroNome} ${verboSaida(ausencia, acabou)} no dia ${fmtDateBR(ausencia.dataInicio)}${horaDetalhes(ausencia)}.`;
@@ -230,7 +294,7 @@ function anunciarAusencia(ausencia) {
   } else if (ausencia.tipo === 'viagem') {
     texto = `✈️ ${primeiroNome} ${acabou ? 'esteve' : 'estará'} em viagem a trabalho de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
   } else {
-    texto = `🏖️ ${primeiroNome} ${acabou ? 'esteve' : 'estará'} de férias${ausencia.meioDia ? ' (meio período)' : ''} de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}.`;
+    texto = `🏖️ ${primeiroNome} ${acabou ? 'esteve' : 'estará'} de férias de ${fmtDateBR(ausencia.dataInicio)} a ${fmtDateBR(ausencia.dataFim)}${meioDiaDetalhes(ausencia)}.`;
   }
   // 107ª rodada, pedido literal da Raquel: "todas as saidas ou chegadas
   // fora do horário devem aparecer apenas para coordenadora, admim e
@@ -323,9 +387,12 @@ router.get('/publicas', requireAuth, (req, res) => {
       // meio-dia -- essa listagem enxuta não tinha esse campo (só a
       // completa, em `serialize` acima, tinha), então o aviso nunca
       // conseguia mostrar essa informação. Sem dado sensível nenhum aqui
-      // (não é observação/texto livre), então não fere o motivo de esta
-      // lista ser enxuta.
-      meioDia: !!a.meioDia
+      // (não é observação/texto livre, só datas), então não fere o
+      // motivo de esta lista ser enxuta. Ajuste (mesma rodada): virou
+      // lista de dias específicos -- manda a lista junto, não só o
+      // booleano derivado, pra quem precisar saber QUAL dia.
+      meioDiaDatas: Array.isArray(a.meioDiaDatas) ? a.meioDiaDatas : [],
+      meioDia: Array.isArray(a.meioDiaDatas) && a.meioDiaDatas.length > 0
     }));
   res.json({ ausencias: rows });
 });
@@ -474,8 +541,9 @@ router.post('/', requireAuth, requireSuperAdmin, (req, res) => {
   const horaRetorno = tipo === 'saida' ? validTime(b.horaRetorno) : null;
   // 158ª rodada: "meio dia" só existe pra férias -- nos outros tipos nunca
   // grava nada aqui, mesmo que venha algo no corpo (mesmo cuidado já usado
-  // pros horários de 'saida' acima).
-  const meioDia = tipo === 'ferias' ? !!b.meioDia : false;
+  // pros horários de 'saida' acima). Ajuste (mesma rodada, depois do
+  // teste da Raquel): virou lista de dias específicos dentro do período.
+  const meioDiaDatas = tipo === 'ferias' ? validMeioDiaDatas(b.meioDiaDatas, dataInicio, dataFim) : [];
   const now = new Date().toISOString();
   const ausencia = {
     id: nanoid(),
@@ -487,7 +555,7 @@ router.post('/', requireAuth, requireSuperAdmin, (req, res) => {
     horaChegada,
     horaSaida,
     horaRetorno,
-    meioDia,
+    meioDiaDatas,
     observacoes: str(b.observacoes),
     createdAt: now,
     createdBy: req.user.id,
@@ -544,10 +612,22 @@ router.put('/:id', requireAuth, requireSuperAdmin, (req, res) => {
   }
   // 158ª rodada: "meio dia" só pra férias -- virando outro tipo, qualquer
   // meio-dia que já existisse é limpo (mesmo padrão dos horários acima).
+  // Ajuste (mesma rodada): virou lista de dias específicos -- revalida
+  // contra o período EFETIVO (`effectiveInicio`/`effectiveFim`, já
+  // calculados acima), não contra o período antigo, senão editar a data
+  // do período junto com os dias de meio período na MESMA chamada podia
+  // acabar barrando ou perdendo um dia que seria válido no período novo.
   if (effectiveTipo === 'ferias') {
-    if (b.meioDia !== undefined) updates.meioDia = !!b.meioDia;
+    if (b.meioDiaDatas !== undefined) {
+      updates.meioDiaDatas = validMeioDiaDatas(b.meioDiaDatas, effectiveInicio, effectiveFim);
+    } else if (updates.dataInicio !== undefined || updates.dataFim !== undefined) {
+      // Só a data mudou (sem mandar meioDiaDatas junto) -- revalida os
+      // dias que já existiam contra o período novo, descartando os que
+      // ficaram fora dele.
+      updates.meioDiaDatas = validMeioDiaDatas(existing.meioDiaDatas, effectiveInicio, effectiveFim);
+    }
   } else if (updates.tipo !== undefined) {
-    updates.meioDia = false;
+    updates.meioDiaDatas = [];
   }
   if (b.observacoes !== undefined) updates.observacoes = str(b.observacoes);
   updates.updatedAt = new Date().toISOString();

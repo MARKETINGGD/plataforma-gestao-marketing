@@ -48,6 +48,9 @@
   let ausenciasAdmin = [];
   let ausenciasCalMonth = new Date();
   let editingAusenciaId = null;
+  // 158ª rodada, ajuste pedido pela Raquel depois de testar: dias
+  // específicos de meio período (ver ausenciaFormMeioDiaDias* abaixo).
+  let ausenciaFormMeioDiaSelecionadas = new Set();
   // 158ª rodada (2º pedido): linhas do resumo de "Horas negativas
   // acumuladas" (ver loadHorasNegativas/renderHorasNegativasTable) --
   // precisa ficar em estado pra reusar ao reconstruir a tabela depois de
@@ -13178,7 +13181,10 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     $('#ausenciaFormHoraChegada').value = ausencia ? (ausencia.horaChegada || '') : '';
     $('#ausenciaFormHoraSaida').value = ausencia ? (ausencia.horaSaida || '') : '';
     $('#ausenciaFormHoraRetorno').value = ausencia ? (ausencia.horaRetorno || '') : '';
-    $('#ausenciaFormMeioDia').checked = ausencia ? !!ausencia.meioDia : false;
+    ausenciaFormMeioDiaSelecionadas = new Set(ausencia && Array.isArray(ausencia.meioDiaDatas) ? ausencia.meioDiaDatas : []);
+    $('#ausenciaFormMeioDiaToggle').checked = ausenciaFormMeioDiaSelecionadas.size > 0;
+    $('#ausenciaFormMeioDiaDiasWrap').hidden = ausenciaFormMeioDiaSelecionadas.size === 0;
+    renderMeioDiaDiasPicker();
     $('#ausenciaFormObs').value = ausencia ? (ausencia.observacoes || '') : '';
     $('#ausenciaFormError').hidden = true;
     $('#ausenciaFormDelete').hidden = !ausencia || !currentUser.isSuperAdmin;
@@ -13200,12 +13206,79 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     $('#ausenciaFormHorasWrap').hidden = tipo !== 'saida';
     // 158ª rodada: "meio dia" só faz sentido pra férias.
     $('#ausenciaFormMeioDiaWrap').hidden = tipo !== 'ferias';
-    if (tipo !== 'ferias') $('#ausenciaFormMeioDia').checked = false;
+    if (tipo !== 'ferias') {
+      $('#ausenciaFormMeioDiaToggle').checked = false;
+      $('#ausenciaFormMeioDiaDiasWrap').hidden = true;
+      ausenciaFormMeioDiaSelecionadas = new Set();
+    }
   }
   $('#ausenciaFormTipo').onchange = updateAusenciaFimVisibility;
   $('#ausenciaFormInicio').onchange = () => {
     const tipo = $('#ausenciaFormTipo').value;
     if (tipo === 'saida') $('#ausenciaFormFim').value = $('#ausenciaFormInicio').value;
+    renderMeioDiaDiasPicker();
+  };
+  $('#ausenciaFormFim').onchange = () => renderMeioDiaDiasPicker();
+
+  // 158ª rodada, ajuste pedido pela Raquel depois de testar: "precisa
+  // apontar qual dia será apenas meio dia ou se serão todos" -- em vez de
+  // um booleano único pro período inteiro, mostra 1 checkbox por dia do
+  // período (dataInicio..dataFim), permitindo marcar QUALQUER quantidade
+  // de dias específicos como meio período (inclusive todos, se for o
+  // caso -- é só marcar todos).
+  function diasNoPeriodo(inicio, fim) {
+    if (!inicio || !fim || fim < inicio) return [];
+    const [y1, m1, d1] = inicio.split('-').map((n) => parseInt(n, 10));
+    const [y2, m2, d2] = fim.split('-').map((n) => parseInt(n, 10));
+    const cursor = new Date(y1, m1 - 1, d1);
+    const fimDate = new Date(y2, m2 - 1, d2);
+    const dias = [];
+    // Limite defensivo (62 dias, ~2 meses) -- período de férias normal é
+    // bem menor que isso; evita travar a tela com centenas de checkboxes
+    // se alguém digitar uma data final muito distante por engano.
+    let guard = 0;
+    while (cursor <= fimDate && guard < 62) {
+      const y = cursor.getFullYear();
+      const m = String(cursor.getMonth() + 1).padStart(2, '0');
+      const d = String(cursor.getDate()).padStart(2, '0');
+      dias.push(`${y}-${m}-${d}`);
+      cursor.setDate(cursor.getDate() + 1);
+      guard++;
+    }
+    return dias;
+  }
+  function renderMeioDiaDiasPicker() {
+    const wrap = $('#ausenciaFormMeioDiaDias');
+    const dias = diasNoPeriodo($('#ausenciaFormInicio').value, $('#ausenciaFormFim').value);
+    // Período mudou -- descarta da seleção qualquer dia que não existe
+    // mais no período novo (ex.: encurtou a data final).
+    ausenciaFormMeioDiaSelecionadas = new Set(Array.from(ausenciaFormMeioDiaSelecionadas).filter((d) => dias.includes(d)));
+    wrap.innerHTML = '';
+    if (dias.length === 0) {
+      wrap.innerHTML = '<span class="chip-empty">Escolha as datas de início e fim do período primeiro.</span>';
+      return;
+    }
+    dias.forEach((d) => {
+      const [y, m, dd] = d.split('-');
+      const [yy, mm, ddn] = [parseInt(y, 10), parseInt(m, 10), parseInt(dd, 10)];
+      const weekday = WEEKDAYS_SHORT[new Date(yy, mm - 1, ddn).getDay()];
+      const chip = document.createElement('label');
+      chip.className = 'chip-toggle' + (ausenciaFormMeioDiaSelecionadas.has(d) ? ' active' : '');
+      chip.innerHTML = `<input type="checkbox" ${ausenciaFormMeioDiaSelecionadas.has(d) ? 'checked' : ''}> ${dd}/${m} (${weekday})`;
+      chip.querySelector('input').onchange = (ev) => {
+        if (ev.target.checked) ausenciaFormMeioDiaSelecionadas.add(d);
+        else ausenciaFormMeioDiaSelecionadas.delete(d);
+        chip.classList.toggle('active', ev.target.checked);
+      };
+      wrap.appendChild(chip);
+    });
+  }
+  $('#ausenciaFormMeioDiaToggle').onchange = (e) => {
+    $('#ausenciaFormMeioDiaDiasWrap').hidden = !e.target.checked;
+    if (!e.target.checked) {
+      ausenciaFormMeioDiaSelecionadas = new Set();
+      renderMeioDiaDiasPicker();
+    }
   };
 
   $('#ausenciaNewBtn').onclick = () => openAusenciaForm(null);
@@ -13219,7 +13292,7 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
       horaChegada: $('#ausenciaFormHoraChegada').value || null,
       horaSaida: $('#ausenciaFormHoraSaida').value || null,
       horaRetorno: $('#ausenciaFormHoraRetorno').value || null,
-      meioDia: $('#ausenciaFormMeioDia').checked,
+      meioDiaDatas: ($('#ausenciaFormTipo').value === 'ferias' && $('#ausenciaFormMeioDiaToggle').checked) ? Array.from(ausenciaFormMeioDiaSelecionadas) : [],
       observacoes: $('#ausenciaFormObs').value.trim()
     };
     if (!payload.dataInicio) {

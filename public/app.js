@@ -1488,7 +1488,7 @@
   // endpoint público daquele recurso específico (cada um serializa do seu
   // jeito). A tabela é montada na hora, já que cada recurso tem colunas
   // diferentes.
-  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', expositoresTotalMensal: 'expositores/lancamentos-mensais/total-mensal', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias', trafegoPago: 'trafego-pago' };
+  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', expositoresTotalMensal: 'expositores/lancamentos-mensais/total-mensal', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias', trafegoPago: 'trafego-pago', lancamentos: 'produtos/lancamentos' };
   function publicTableHtml(headers, rows) {
     return `<table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '' : c}</td>`).join('')}</tr>`).join('')
@@ -1790,6 +1790,49 @@
               <td>${fmtDate(a.dataFim)}</td>
               <td>${escapeHtml(ausenciaHoraResumo(a))}</td>
               <td>${escapeHtml(a.observacoes || '')}</td>
+            </tr>
+          `).join('')}</tbody>
+        </table>
+      `;
+    } else if (resource === 'lancamentos') {
+      // 158ª rodada, bug reportado pela Raquel ("o link externo não
+      // funciona"): a rota de backend já existia (GET /api/produtos/
+      // lancamentos/public/:token) e o botão de gerar/revogar link
+      // também (setupPublicLinkPanel), mas faltavam DUAS peças do lado
+      // de quem ABRE o link: a entrada em SHARE_RESOURCE_API_PATH (sem
+      // ela, o fetch ia pra "/api/undefined/public/:token", 404 na
+      // certa) e este bloco de renderização -- sem nenhum dos dois, o
+      // link só mostrava "Link inválido ou desativado.", sem tabela
+      // nenhuma (e sem badge/cor nenhuma pra ver, claro).
+      const items = data.items || [];
+      empty = items.length === 0;
+      const rows = items.slice().sort((a, b) => {
+        if (!a.dataLancamento && !b.dataLancamento) return 0;
+        if (!a.dataLancamento) return 1;
+        if (!b.dataLancamento) return -1;
+        return a.dataLancamento.localeCompare(b.dataLancamento);
+      });
+      html = `
+        <table class="data-table">
+          <thead><tr><th>Marca</th><th>Produto</th><th>Nome</th><th>Código</th><th>Data de lançamento</th><th>Status</th><th>Arquivos</th><th>Links</th></tr></thead>
+          <tbody>${rows.map((it) => `
+            <tr>
+              <td>${BRAND_LABEL[it.brand] || it.brand}</td>
+              <td>${escapeHtml(it.produto || '—')}</td>
+              <td>${escapeHtml(it.nome || '')}</td>
+              <td>${escapeHtml(it.codigo || '—')}</td>
+              <td>${it.dataLancamento ? fmtDate(it.dataLancamento) : '—'}</td>
+              <td><span class="badge ${lancamentoStatusBadgeClass(it.status)}">${LANCAMENTO_STATUS_LABEL[it.status] || it.status}</span></td>
+              <td>${
+                (it.arquivos || []).length
+                  ? (it.arquivos || []).map((f) => `<a href="${f.url}" target="_blank" rel="noopener" download title="${escapeHtml(f.name)}">⬇️ ${escapeHtml(f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name)}</a>`).join('<br>')
+                  : '<span class="muted">—</span>'
+              }</td>
+              <td>${
+                (it.links || []).length
+                  ? (it.links || []).map((l) => `<a href="${l.url}" target="_blank" rel="noopener" title="${escapeHtml(l.url)}">🔗 ${escapeHtml(l.label ? (l.label.length > 22 ? l.label.slice(0, 20) + '…' : l.label) : 'Link')}</a>`).join('<br>')
+                  : '<span class="muted">—</span>'
+              }</td>
             </tr>
           `).join('')}</tbody>
         </table>
@@ -10512,7 +10555,12 @@
     comercial: 'Comercial',
     projeto_reprovado: 'Projeto Reprovado',
     projeto_em_stand_by: 'Projeto Em Stand By',
-    projeto_finalizado: 'Projeto Finalizado'
+    // 158ª rodada (correção pedida pela Raquel, depois de ver o
+    // print de novo): ela quer "Lançado" em vez de "Projeto
+    // Finalizado" como nome da etapa final -- chave interna
+    // `projeto_finalizado` mantida (só o texto exibido muda, nada de
+    // dado salvo precisa mudar).
+    projeto_finalizado: 'Lançado'
   };
   // Cor por grupo (158ª rodada) -- a Raquel mandou um print com cada
   // status colorido, mas essa imagem não ficou disponível nesta sessão

@@ -25,7 +25,12 @@ const RESOURCE_LABEL_PT = {
   concorrencia: 'Análise de Concorrência',
   concorrenciaItem: 'Análise de Concorrência',
   // 108ª rodada
-  ausencias: 'Ausências'
+  ausencias: 'Ausências',
+  // 158ª rodada -- faltava essa entrada (bug reportado pela Raquel: "o
+  // link externo não funciona"), o resolver nunca soube o rótulo nem
+  // (ver SHARE_RESOURCE_API_PATH em app.js) pra onde buscar os dados
+  // reais desse recurso.
+  lancamentos: 'Lançamentos de Produtos'
 };
 
 router.get('/resolve/:token', (req, res) => {

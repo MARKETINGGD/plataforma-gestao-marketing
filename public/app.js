@@ -5012,25 +5012,236 @@
     budgetPivotHeaderBuilt = true;
   }
 
+  // 158ª rodada, pedido da Raquel: edição inline tipo planilha na tabela
+  // pivotada (Planejado/Realizado) + reordenar colunas pra Fornecedor /
+  // Título da compra / Qtd. (igual à ordem da planilha real) + copiar/
+  // colar entre células. Clique simples só SELECIONA a célula (nunca
+  // edita nem abre nada direto -- evita ambiguidade com o duplo clique,
+  // que continua abrindo o formulário de sempre, igual antes, tanto pra
+  // célula preenchida quanto vazia). Shift+clique estende a seleção num
+  // retângulo (várias linhas/meses de uma vez). Com uma única célula
+  // selecionada: Enter, ou digitar um número/`-`/`,`/`.`, entra no modo
+  // de edição (some um <input> em cima da célula -- Enter confirma, Esc
+  // cancela, perder o foco confirma). Ctrl/Cmd+C copia o valor da célula
+  // de cima-esquerda da seleção; Ctrl/Cmd+V cola esse valor em TODAS as
+  // células da seleção atual (cada uma vira um PUT, se já tinha
+  // lançamento, ou um POST, se a célula tava vazia -- sem mexer em
+  // nenhum outro campo do lançamento). Delete/Backspace zera (põe null)
+  // o valor de todas as células selecionadas. Tudo isso (editar, colar,
+  // apagar) só funciona com permissão de edição (`canEdit`); seleção e
+  // cópia continuam liberadas mesmo só-leitura. O listener de teclado é
+  // global (document), amarrado uma única vez (budgetPivotKeydownWired),
+  // e sai de propósito sem fazer nada se o foco tiver em qualquer
+  // <input>/<textarea> (deixa o próprio <input> de edição da célula, ou
+  // os campos de busca/filtro, cuidarem do próprio Enter/Esc) ou se a
+  // tabela pivotada não tiver visível na tela agora.
+  let budgetPivotSelection = null; // { r1, c1, r2, c2 } -- r = linha (data-prow), c = mês 1..12 (data-pcol)
+  let budgetPivotCellIndex = {}; // chave "r:c" -> { entryId, fluxo, fornecedor, tituloCompra, quantidade, month, value }
+  let budgetPivotActiveField = null; // 'planejado' | 'realizado' -- a aba pivotada atual
+  let budgetPivotActiveYear = null;
+  let budgetPivotActiveCanEdit = false;
+  let budgetPivotClipboardValue = null;
+  let budgetPivotHasClipboard = false;
+  let budgetPivotKeydownWired = false;
+
+  function budgetPivotCellsInRect(r1, c1, r2, c2) {
+    const rowMin = Math.min(r1, r2), rowMax = Math.max(r1, r2);
+    const colMin = Math.min(c1, c2), colMax = Math.max(c1, c2);
+    const cells = [];
+    for (let r = rowMin; r <= rowMax; r++) {
+      for (let c = colMin; c <= colMax; c++) cells.push(`${r}:${c}`);
+    }
+    return cells;
+  }
+
+  function clearBudgetPivotSelectionHighlight() {
+    $all('.budget-pivot-cell-selected').forEach((td) => td.classList.remove('budget-pivot-cell-selected'));
+  }
+
+  function applyBudgetPivotSelectionHighlight() {
+    clearBudgetPivotSelectionHighlight();
+    if (!budgetPivotSelection) return;
+    const { r1, c1, r2, c2 } = budgetPivotSelection;
+    budgetPivotCellsInRect(r1, c1, r2, c2).forEach((key) => {
+      const td = $(`#budgetPivotBody [data-pcell="${key}"]`);
+      if (td) td.classList.add('budget-pivot-cell-selected');
+    });
+  }
+
+  function budgetPivotSingleSelectedCell() {
+    if (!budgetPivotSelection) return null;
+    const { r1, c1, r2, c2 } = budgetPivotSelection;
+    if (r1 !== r2 || c1 !== c2) return null;
+    return `${r1}:${c1}`;
+  }
+
+  function flashBudgetPivotCells(keys) {
+    keys.forEach((key) => {
+      const td = $(`#budgetPivotBody [data-pcell="${key}"]`);
+      if (!td) return;
+      td.classList.add('budget-pivot-cell-flash');
+      setTimeout(() => td.classList.remove('budget-pivot-cell-flash'), 400);
+    });
+  }
+
+  // Salva (ou cria) o lançamento de uma célula da pivotada. `newValue`
+  // null limpa o campo; só mexe no campo da aba atual
+  // (budgetPivotActiveField, planejado OU realizado, nunca os dois) --
+  // por isso um PUT manda só esse 1 campo (a rota PUT /api/budget/:id já
+  // é por-campo, ver routes/budget.js, então os outros campos do
+  // lançamento ficam intocados), e um POST (célula vazia, lançamento
+  // novo) manda o resto do contexto da linha (fluxo/fornecedor/título/
+  // qtd/ano/mês) + esse 1 campo, igual o formulário de sempre faria.
+  async function saveBudgetPivotCell(key, newValue) {
+    const meta = budgetPivotCellIndex[key];
+    if (!meta) return;
+    let num = null;
+    if (newValue !== null && newValue !== undefined && String(newValue).trim() !== '') {
+      const parsed = Number(String(newValue).trim().replace(',', '.'));
+      if (Number.isNaN(parsed)) return;
+      num = parsed;
+    }
+    try {
+      if (meta.entryId) {
+        await api('/api/budget/' + meta.entryId, {
+          method: 'PUT',
+          body: JSON.stringify({ [budgetPivotActiveField]: num === null ? '' : num })
+        });
+      } else {
+        if (num === null) return; // célula já vazia, nada pra limpar
+        await api('/api/budget', {
+          method: 'POST',
+          body: JSON.stringify({
+            brand: currentBudgetBrand,
+            category: meta.fluxo,
+            year: budgetPivotActiveYear,
+            month: meta.month,
+            fornecedor: meta.fornecedor || '',
+            tituloCompra: meta.tituloCompra || '',
+            quantidade: meta.quantidade === null || meta.quantidade === undefined ? '' : meta.quantidade,
+            [budgetPivotActiveField]: num
+          })
+        });
+      }
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  function enterBudgetPivotCellEdit(key, initialChar) {
+    const td = $(`#budgetPivotBody [data-pcell="${key}"]`);
+    const meta = budgetPivotCellIndex[key];
+    if (!td || !meta) return;
+    const currentValue = meta.value === null || meta.value === undefined ? '' : String(meta.value);
+    const originalHtml = td.innerHTML;
+    td.classList.add('budget-pivot-cell-editing');
+    td.innerHTML = '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.inputMode = 'decimal';
+    input.className = 'budget-pivot-cell-input';
+    input.value = initialChar || currentValue;
+    td.appendChild(input);
+    input.focus();
+    if (initialChar) input.setSelectionRange(input.value.length, input.value.length);
+    else input.select();
+    let finished = false;
+    const finish = async (commit) => {
+      if (finished) return;
+      finished = true;
+      td.classList.remove('budget-pivot-cell-editing');
+      if (!commit) { td.innerHTML = originalHtml; return; }
+      const raw = input.value.trim();
+      await saveBudgetPivotCell(key, raw === '' ? null : raw);
+      await loadBudget();
+    };
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); finish(true); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
+
+  function wireBudgetPivotKeyboard() {
+    if (budgetPivotKeydownWired) return;
+    budgetPivotKeydownWired = true;
+    document.addEventListener('keydown', async (ev) => {
+      const wrap = $('#budgetPivotWrap');
+      if (!wrap || wrap.hidden) return;
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      if (!budgetPivotSelection) return;
+
+      const isCopy = (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'c';
+      const isPaste = (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'v';
+      if (isCopy) {
+        ev.preventDefault();
+        const r = Math.min(budgetPivotSelection.r1, budgetPivotSelection.r2);
+        const c = Math.min(budgetPivotSelection.c1, budgetPivotSelection.c2);
+        const key = `${r}:${c}`;
+        const meta = budgetPivotCellIndex[key];
+        if (meta) {
+          budgetPivotClipboardValue = meta.value;
+          budgetPivotHasClipboard = true;
+          flashBudgetPivotCells([key]);
+        }
+        return;
+      }
+      if (isPaste) {
+        ev.preventDefault();
+        if (!budgetPivotActiveCanEdit || !budgetPivotHasClipboard) return;
+        const cells = budgetPivotCellsInRect(budgetPivotSelection.r1, budgetPivotSelection.c1, budgetPivotSelection.r2, budgetPivotSelection.c2);
+        for (const k of cells) await saveBudgetPivotCell(k, budgetPivotClipboardValue);
+        await loadBudget();
+        return;
+      }
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      if (ev.key === 'Delete' || ev.key === 'Backspace') {
+        ev.preventDefault();
+        if (!budgetPivotActiveCanEdit) return;
+        const cells = budgetPivotCellsInRect(budgetPivotSelection.r1, budgetPivotSelection.c1, budgetPivotSelection.r2, budgetPivotSelection.c2);
+        for (const k of cells) await saveBudgetPivotCell(k, null);
+        await loadBudget();
+        return;
+      }
+      if (ev.key === 'Enter' || /^[0-9,.\-]$/.test(ev.key)) {
+        if (!budgetPivotActiveCanEdit) return;
+        const single = budgetPivotSingleSelectedCell();
+        if (!single) return;
+        ev.preventDefault();
+        enterBudgetPivotCellEdit(single, ev.key === 'Enter' ? null : ev.key);
+      }
+    });
+  }
+
   // 96ª rodada, pedido da Raquel (com 2 prints da planilha real): "ajuste
   // as colunas conforme a planilha real, e coloque os fluxos assim, em
   // coluna tbm. qdo aparece o realizado no papoi, n coloque o planejado,
   // e a dferença. Fica confuso, o mesmo vale para o planejado." -- as
   // abas Planejado/Realizado (espelho das abas "PLANEJADO 2026"/
   // "REALIZADO 2026" da planilha oficial) viram esta tabela agrupada por
-  // Fluxo, com Quantidade/Fornecedor/Título da compra + os 12 meses em
+  // Fluxo, com Fornecedor/Título da compra/Quantidade (158ª rodada:
+  // ordem ajustada pra bater com a planilha real) + os 12 meses em
   // coluna (só o valor desta aba) + um subtotal por fluxo (igual aos
   // prints: "INSTITUCIONAL- FLUXO 2.5.2.3" somando o total do fluxo).
   // Cada "linha" funde, por (fluxo + fornecedor + título da compra), até
   // 12 lançamentos (1 por mês, mesmo modelo de dados de sempre -- nenhuma
-  // mudança no backend/formulário, só na MONTAGEM da tabela). Clicar num
-  // mês já preenchido abre o formulário de sempre pra editar aquele
-  // lançamento certo; clicar num mês vazio abre o mesmo formulário já com
-  // fluxo/fornecedor/título/ano/mês preenchidos, só falta digitar o
-  // valor -- sem precisar escolher tudo nos selects de novo.
+  // mudança no backend/formulário, só na MONTAGEM da tabela). Duplo
+  // clique num mês já preenchido abre o formulário de sempre pra editar
+  // aquele lançamento certo; duplo clique num mês vazio abre o mesmo
+  // formulário já com fluxo/fornecedor/título/ano/mês preenchidos, só
+  // falta digitar o valor -- sem precisar escolher tudo nos selects de
+  // novo. (158ª rodada: clique simples virou seleção de célula pra
+  // habilitar a edição/cópia/cola inline -- ver bloco de comentário logo
+  // acima desta função.)
   function renderBudgetPivot(field, canEdit) {
     ensureBudgetPivotHeader();
+    wireBudgetPivotKeyboard();
     const year = Number($('#budgetFilterYear').value) || new Date().getFullYear();
+    budgetPivotActiveField = field;
+    budgetPivotActiveYear = year;
+    budgetPivotActiveCanEdit = canEdit;
+    budgetPivotCellIndex = {};
     const search = {
       fluxo: $('#budgetSearchFluxo').value,
       month: $('#budgetSearchMonth').value ? Number($('#budgetSearchMonth').value) : null,
@@ -5073,6 +5284,7 @@
       ? budgetFluxosByBrand[currentBudgetBrand]
       : Object.keys(gruposPorFluxo).sort();
     let totalLinhas = 0;
+    let prowCounter = 0;
     ordemFluxos.forEach((fluxo) => {
       const linhas = gruposPorFluxo[fluxo];
       if (!linhas || linhas.length === 0) return;
@@ -5083,21 +5295,32 @@
       body.appendChild(headerTr);
       let fluxoTotal = 0;
       linhas.forEach((g) => {
+        const prow = prowCounter++;
         const tr = document.createElement('tr');
         let rowTotal = 0;
         const monthCells = [];
         for (let m = 1; m <= 12; m++) {
           const info = g.meses[m];
+          const pcell = `${prow}:${m}`;
           if (info) rowTotal += info.value;
+          budgetPivotCellIndex[pcell] = {
+            entryId: info ? info.entryId : null,
+            fluxo,
+            fornecedor: g.fornecedor,
+            tituloCompra: g.tituloCompra,
+            quantidade: g.quantidade,
+            month: m,
+            value: info ? info.value : null
+          };
           monthCells.push(info
-            ? `<td class="num budget-pivot-cell" data-edit-budget-entry="${info.entryId}">${fmtMoney(info.value)}</td>`
-            : `<td class="num budget-pivot-cell budget-pivot-cell-empty" data-add-budget-entry data-fluxo="${escapeHtml(fluxo)}" data-fornecedor="${escapeHtml(g.fornecedor)}" data-titulo="${escapeHtml(g.tituloCompra)}" data-quantidade="${g.quantidade === null ? '' : g.quantidade}" data-mes="${m}">${canEdit ? '+' : ''}</td>`);
+            ? `<td class="num budget-pivot-cell" data-pcell="${pcell}">${fmtMoney(info.value)}</td>`
+            : `<td class="num budget-pivot-cell budget-pivot-cell-empty" data-pcell="${pcell}">${canEdit ? '+' : ''}</td>`);
         }
         fluxoTotal += rowTotal;
         tr.innerHTML = `
-          <td class="num">${g.quantidade === null ? '' : g.quantidade}</td>
           <td>${escapeHtml(g.fornecedor)}</td>
           <td>${g.recorrente ? '🔁 ' : ''}${escapeHtml(g.tituloCompra)}</td>
+          <td class="num">${g.quantidade === null ? '' : g.quantidade}</td>
           ${monthCells.join('')}
           <td class="num"><strong>${fmtMoney(rowTotal)}</strong></td>
           <td></td>
@@ -5113,29 +5336,40 @@
     $('#budgetPivotEmpty').hidden = totalLinhas > 0;
     if (totalLinhas === 0) $('#budgetPivotEmpty').textContent = 'Nenhum lançamento encontrado.';
 
-    $all('[data-edit-budget-entry]').forEach((td) => {
-      td.onclick = () => {
+    $all('#budgetPivotBody [data-pcell]').forEach((td) => {
+      td.onclick = (ev) => {
+        const [r, c] = td.dataset.pcell.split(':').map(Number);
+        if (ev.shiftKey && budgetPivotSelection) {
+          budgetPivotSelection = Object.assign({}, budgetPivotSelection, { r2: r, c2: c });
+        } else {
+          budgetPivotSelection = { r1: r, c1: c, r2: r, c2: c };
+        }
+        applyBudgetPivotSelectionHighlight();
+      };
+      td.ondblclick = () => {
         if (!canEdit) return;
-        const entry = budgetEntries.find((e) => e.id === td.dataset.editBudgetEntry);
-        if (entry) openBudgetForm(entry);
+        const meta = budgetPivotCellIndex[td.dataset.pcell];
+        if (!meta) return;
+        if (meta.entryId) {
+          const entry = budgetEntries.find((e) => e.id === meta.entryId);
+          if (entry) openBudgetForm(entry);
+        } else {
+          openBudgetForm({
+            category: meta.fluxo,
+            year,
+            month: meta.month,
+            fornecedor: meta.fornecedor,
+            tituloCompra: meta.tituloCompra,
+            quantidade: meta.quantidade,
+            planejado: null,
+            realizado: null,
+            notes: ''
+          });
+        }
       };
     });
-    $all('[data-add-budget-entry]').forEach((td) => {
-      if (!canEdit) return;
-      td.onclick = () => {
-        openBudgetForm({
-          category: td.dataset.fluxo,
-          year,
-          month: Number(td.dataset.mes),
-          fornecedor: td.dataset.fornecedor,
-          tituloCompra: td.dataset.titulo,
-          quantidade: td.dataset.quantidade === '' ? null : Number(td.dataset.quantidade),
-          planejado: null,
-          realizado: null,
-          notes: ''
-        });
-      };
-    });
+
+    applyBudgetPivotSelectionHighlight();
   }
 
   function renderBudget() {

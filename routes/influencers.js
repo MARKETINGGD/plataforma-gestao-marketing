@@ -937,4 +937,10 @@ router.delete('/:id/entregas-produto/:entregaId/nota-fiscal', requireAuth, (req,
   res.json({ influencer: serializeInfluencer(db.get('influencers').find({ id: inf.id }).value()) });
 });
 
+// Exportado pra reaproveitar o vocabulário de forma de pagamento sem
+// duplicar a lista em outro arquivo (158ª rodada, item #117 -- Propostas
+// de Influencer usa a mesma lista, mesmo padrão de FLUXOS_BY_BRAND em
+// routes/budget.js).
+router.FORMAS_PAGAMENTO = FORMAS_PAGAMENTO;
+
 module.exports = router;

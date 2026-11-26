@@ -6,6 +6,11 @@ const db = require('../db');
 const { nanoid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
+// 158ª rodada, item #117: aprovar uma Análise não cria mais o influencer
+// direto -- cria uma Proposta (ver routes/influencerPropostas.js), etapa
+// nova inserida entre a Análise aprovada e o cadastro de verdade em
+// Gerenciamento de Influencers.
+const influencerPropostasRouter = require('./influencerPropostas');
 
 const router = express.Router();
 
@@ -26,9 +31,15 @@ const router = express.Router();
 // arquivos (midia kit)" — ver `arquivosMidiaKit` e as 2 rotas de upload no
 // fim deste arquivo, mesmo padrão exato já usado pros arquivos de
 // Lançamento de Produtos (39ª rodada, routes/produtos.js): 1 arquivo por
-// vez, lista acumulada no próprio registro, nunca substitui o anterior. O
-// fluxo de aprovar continua o mesmo de antes (ver POST /:id/aprovar
-// abaixo) — não mexido nesta rodada.
+// vez, lista acumulada no próprio registro, nunca substitui o anterior.
+//
+// 158ª rodada, item #117, MUDANÇA NO FLUXO DE APROVAR: antes, aprovar uma
+// Análise criava o cadastro em Gerenciamento de Influencers DIRETO (ver
+// POST /:id/aprovar abaixo). Agora insere uma etapa no meio: aprovar a
+// Análise cria uma "Proposta" (routes/influencerPropostas.js, aba
+// "Propostas em Análise") -- só quando a PRÓPRIA Proposta é aprovada o
+// influencer nasce de verdade em Gerenciamento. Reprovar a Análise
+// continua igual (nunca gerou influencer nem gera proposta).
 
 const BRANDS = ['debacco', 'ghelplus'];
 const STATUSES = ['em_analise', 'aprovada', 'reprovada'];
@@ -98,6 +109,11 @@ function serializeAnalise(a) {
     status: a.status,
     createdAt: a.createdAt,
     influencerId: a.influencerId || null,
+    // 158ª rodada, item #117: referência pra Proposta nascida desta
+    // Análise quando aprovada (o influencer, se chegar a existir, nasce
+    // só quando a PRÓPRIA Proposta for aprovada -- ver
+    // routes/influencerPropostas.js).
+    propostaId: a.propostaId || null,
     motivoReprovacao: a.motivoReprovacao || '',
     // Mídia kit (91ª rodada) — lista de arquivos, nunca undefined mesmo
     // pra análise antiga criada antes dessa rodada existir.
@@ -174,47 +190,26 @@ router.delete('/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Aprovar (pedido explícito da Raquel: "quando aprovada uma influencer da
-// aba analise, ja deve criar automaticamnete um cadastro e uma planilha p
-// ela no outra aba que ja existe") — cria direto um registro em
-// `influencers`, pulando a exigência de dados pessoais (CPF/RG/telefone/
-// email/data de nascimento/endereço) que só vale no cadastro MANUAL normal
-// (POST /api/influencers, 78ª rodada) — aqui ainda não tem esses dados (a
-// planilha de análise não pede isso), dá pra completar depois editando o
-// influencer já criado (PUT /api/influencers/:id não exige esses campos).
-// A "planilha" dela (tabela de ações, `influencerPosts`) já nasce vazia
-// sozinha, igual a qualquer influencer novo — não precisa criar nada à
-// parte pra isso.
+// Aprovar (158ª rodada, item #117, MUDANÇA): antes criava direto um
+// registro em `influencers` (ver comentário no topo do arquivo). Agora
+// cria uma PROPOSTA (routes/influencerPropostas.js), deixando a Análise
+// marcada como "aprovada" com uma referência pra Proposta nascida dela
+// (`propostaId`) -- o influencer só nasce quando essa Proposta, por sua
+// vez, for aprovada (aba "Propostas em Análise" -> "Propostas
+// Reprovadas"/Gerenciamento).
 router.post('/:id/aprovar', requireAuth, (req, res) => {
   const a = findAnaliseOr404(req, res);
   if (!a) return;
   if (a.status !== 'em_analise') return res.status(400).json({ error: 'Esta análise já foi decidida (aprovada ou reprovada).' });
-  const inf = {
-    id: nanoid(),
-    brand: a.brand,
-    name: a.nome,
-    // 91ª rodada: o e-mail já coletado na análise vem junto pro cadastro
-    // (os outros dados pessoais continuam em branco — a planilha de
-    // análise não pergunta CPF/RG/telefone/nascimento/endereço).
-    cpf: '', rg: '', telefone: '', email: a.email || '', dataNascimento: '', endereco: '',
-    publicToken: null,
-    contrato: null,
-    createdAt: new Date().toISOString(),
-    createdBy: req.user.id,
-    // Guarda referência de onde veio, pra quem olhar o cadastro depois
-    // entender a origem (não exibido no formulário normal, só auditoria).
-    origemAnaliseId: a.id
-  };
-  db.get('influencers').push(inf).write();
+  const proposta = influencerPropostasRouter.createPropostaFromAnalise(a, req);
   db.get('influencerAnalises').find({ id: a.id }).assign({
     status: 'aprovada',
-    influencerId: inf.id,
+    propostaId: proposta.id,
     approvedAt: new Date().toISOString(),
     approvedBy: req.user.id
   }).write();
-  logAudit({ user: req.user, entityType: 'influencerAnalise', entityId: a.id, entityLabel: a.nome, action: 'update', details: `Aprovada — criou cadastro em Gerenciamento de Influencers (${inf.id})` });
-  logAudit({ user: req.user, entityType: 'influencer', entityId: inf.id, entityLabel: inf.name, action: 'create', details: `Criado a partir da Análise de Influencer (${a.id})` });
-  res.json({ analise: serializeAnalise(db.get('influencerAnalises').find({ id: a.id }).value()), influencer: inf });
+  logAudit({ user: req.user, entityType: 'influencerAnalise', entityId: a.id, entityLabel: a.nome, action: 'update', details: `Aprovada — criou Proposta de Influencer (${proposta.id})` });
+  res.json({ analise: serializeAnalise(db.get('influencerAnalises').find({ id: a.id }).value()), proposta });
 });
 
 router.post('/:id/reprovar', requireAuth, (req, res) => {

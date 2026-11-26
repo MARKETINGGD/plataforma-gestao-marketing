@@ -264,7 +264,22 @@ db.defaults({
   // a 78ª rodada; dá pra completar depois editando o influencer já
   // criado) com a "planilha" (tabela de ações, `influencerPosts`) nascendo
   // vazia do jeito que já acontece hoje pra qualquer influencer novo.
+  // 158ª rodada, item #117: esse "cria direto" MUDOU — aprovar uma
+  // Análise agora cria uma Proposta (influencerPropostas, abaixo), NÃO
+  // mais o influencer direto; o influencer só nasce quando a PRÓPRIA
+  // Proposta é aprovada (ver routes/influencerPropostas.js).
   influencerAnalises: [],
+  // Propostas de Influencer (158ª rodada, item #117) — etapa nova
+  // inserida entre a Análise aprovada e o cadastro de verdade em
+  // Gerenciamento de Influencers (acima). Pedido da Raquel: Análise
+  // aprovada vira 1 Proposta na aba "Propostas em Análise" (links,
+  // arquivos, textos, datas de entrega, valor total, entregas, período
+  // de vigência, forma de pagamento) -- se reprovada, vai pra "Propostas
+  // Reprovadas"; só quando a PROPOSTA é aprovada o influencer entra em
+  // Gerenciamento de verdade (e fica disponível pro relatório Ações
+  // Sazonais, #116, e pro Budget via parcela/entrega, mesmo fluxo de
+  // sempre). Ver routes/influencerPropostas.js.
+  influencerPropostas: [],
   // Checklist de Processos do Lançamento de Produtos (96ª rodada, pedido
   // da Raquel: "em produtos- adicionar aba dentro de lançamento de
   // produtos, um check list de processos a serem seguidos... deixe de

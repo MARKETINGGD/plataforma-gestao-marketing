@@ -37,6 +37,8 @@ app.use('/api/retiradas-internas', require('./routes/retiradasInternas'));
 app.use('/api/influencers', require('./routes/influencers'));
 // Análise de Influencer (89ª rodada) — ver routes/influencerAnalises.js.
 app.use('/api/influencer-analises', require('./routes/influencerAnalises'));
+// Propostas de Influencer (158ª rodada, item #117) — ver routes/influencerPropostas.js.
+app.use('/api/influencer-propostas', require('./routes/influencerPropostas'));
 app.use('/api/produtos', require('./routes/produtos'));
 app.use('/api/expositores', require('./routes/expositores'));
 app.use('/api/feiras', require('./routes/feiras'));

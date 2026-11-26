@@ -14976,7 +14976,7 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
         approveBtn.textContent = '✔ Aprovar';
         approveBtn.className = 'btn-link';
         approveBtn.onclick = async () => {
-          if (!confirm(`Aprovar "${a.nome}"? Isso cria automaticamente o cadastro dela em Gerenciamento de Influencers, com a planilha de ações vazia.`)) return;
+          if (!confirm(`Aprovar "${a.nome}"? Isso cria uma Proposta na aba Propostas em Análise (158ª rodada, #117) -- o cadastro em Gerenciamento de Influencers só é criado quando a PRÓPRIA Proposta for aprovada.`)) return;
           try {
             await api(`/api/influencer-analises/${a.id}/aprovar`, { method: 'POST' });
             $('#analiseFormWrap').hidden = true;

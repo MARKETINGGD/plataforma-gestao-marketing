@@ -19127,17 +19127,627 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
       </tr>`).join('');
   }
 
+  // ================================================================
+  // ---------- #127e: Expositores Especiais (Dashboard + CRUD) ----------
+  // ================================================================
+  // Porta dashboard-acoes-sazonais/public/index.html:
+  // renderDashboardShowroomView (~1948), renderShowroomOrcamentoChart
+  // (~2047, achado critico #4: HTML/CSS em vez de Chart.js),
+  // renderShowroomBreakdownCharts (~2194), renderShowroomView (~4575),
+  // openShowroomModal (~4681), openShowroomDetailModal (~5050).
+  // Mesma reducao de escopo ja documentada no #127d: sem upload de
+  // arquivo nos 4 campos de anexo (so os campos de link ficam
+  // editaveis -- backend ja aceita os 4, upload pode ser ligado depois
+  // sem mexer no servidor), sem export PDF/Excel (fica pra #127g/#127h,
+  // igual ja previsto pra Acoes), e sem o toggle "cruzar as duas
+  // marcas" no grafico de orcamento (so 1 barra por vez, respeitando a
+  // marca selecionada no topo -- pode ser acrescentado depois se a
+  // Raquel sentir falta). Nao confundir com o modulo "Expositores" ja
+  // nativo da Papoi (routes/expositores.js, controle de estoque) --
+  // mesmo nome, coisa totalmente diferente.
+
+  const AS_SHOWROOM_FORMA_PAGAMENTO_OPTIONS = ['PIX', 'Boleto', 'Transferência', 'Cartão', 'Dinheiro', 'Parcelado', 'Produtos', 'Outro'];
+
+  function asShowroomsForBrand(){
+    return asBrand === 'all' ? asData.showrooms.slice() : asData.showrooms.filter((s) => s.brand === asBrand);
+  }
+  // Agrupa showrooms por categoria somando `valorInvestimento` (regiao/gerente) --
+  // igual a asAggValueBreakdown, mas pro campo de valor dos Expositores
+  // Especiais (nunca `valorInvestido`, que e so de Acoes).
+  function asAggShowroomValue(list, keyFn, multiValue){
+    const map = {};
+    list.forEach((s) => {
+      const raw = keyFn(s);
+      if (!raw) return;
+      const names = multiValue ? asSplitMultiValue(raw) : [String(raw).trim()].filter(Boolean);
+      names.forEach((name) => {
+        map[name] = map[name] || { value: 0 };
+        map[name].value += (Number(s.valorInvestimento) || 0);
+      });
+    });
+    return Object.entries(map).sort((a, b) => b[1].value - a[1].value);
+  }
+
+  function asRenderExpositoresDashboard(){
+    const root = document.getElementById('asExpositoresDashboardPage');
+    if (!root) return;
+    const list = asShowroomsForBrand();
+    const totalInvestido = list.reduce((s, x) => s + (Number(x.valorInvestimento) || 0), 0);
+    const comInvestimento = list.filter((x) => (Number(x.valorInvestimento) || 0) > 0);
+    const unplannedList = list.filter((x) => !asIsPlanned(x));
+    const year = asCurrentYear();
+    const yearList = asInYear(list, 'dataSolicitacao', year);
+    const budgetAprovado = asGetBudgetValue('showroom_total', asBrand, year);
+    const budgetInvestido = yearList.reduce((s, x) => s + (Number(x.valorInvestimento) || 0), 0);
+    const maxBarValue = Math.max(1, budgetAprovado, budgetInvestido);
+    const hA = Math.max(2, Math.round((budgetAprovado / maxBarValue) * 190));
+    const hB = Math.max(2, Math.round((budgetInvestido / maxBarValue) * 190));
+    const corInvestido = (budgetInvestido > budgetAprovado && budgetAprovado > 0) ? 'var(--danger)' : 'var(--good)';
+
+    const regioes = asFoldIntoOutros(asAggShowroomValue(list, (s) => s.regiao, true), 6, 'value');
+    const gerentes = asFoldIntoOutros(asAggShowroomValue(list, (s) => s.gerente, true), 6, 'value');
+    const representantes = asAggCategoryBreakdown(list, (s) => s.representante, true);
+    const lojistas = [...list].sort((a, b) => (Number(b.valorInvestimento) || 0) - (Number(a.valorInvestimento) || 0));
+
+    root.innerHTML = `
+      <div class="board-head">
+        <div>
+          <p class="board-eyebrow">Ações Sazonais</p>
+          <h1 class="board-title">Dashboard Expositores Especiais</h1>
+        </div>
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head"><h2>Resumo · todos os anos</h2></div>
+        <div class="board-grid">
+          <div class="kpi-tile"><div class="kpi-label">Total investido</div><div class="kpi-value">${asFmtMoney(totalInvestido)}</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Expositores cadastrados</div><div class="kpi-value">${list.length}</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Investimento médio</div><div class="kpi-value">${asFmtMoney(comInvestimento.length ? totalInvestido / comInvestimento.length : 0)}</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Fora do budget</div><div class="kpi-value" style="color:${unplannedList.length ? 'var(--danger)' : 'var(--ink)'};">${unplannedList.length}</div></div>
+          <div class="kpi-tile"><div class="kpi-label">Valor fora do budget</div><div class="kpi-value" style="color:${unplannedList.length ? 'var(--danger)' : 'var(--ink)'};">${asFmtMoney(unplannedList.reduce((s, x) => s + (Number(x.valorInvestimento) || 0), 0))}</div></div>
+        </div>
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head">
+          <div>
+            <h2>Aprovado × Investido · ${year}</h2>
+            <div class="board-sub">Comparação entre o valor aprovado (manual) e o investido no ano</div>
+          </div>
+          <div class="legend-row">
+            <span class="legend-dot"><span class="legend-swatch" style="background:#C9C4B4;"></span>Aprovado</span>
+            <span class="legend-dot"><span class="legend-swatch" style="background:var(--good);"></span>Investido (dentro)</span>
+            <span class="legend-dot"><span class="legend-swatch" style="background:var(--danger);"></span>Investido (acima)</span>
+          </div>
+        </div>
+        <div class="qbar-grid" style="grid-template-columns:repeat(1,minmax(0,1fr));max-width:220px;">
+          <div class="qbar-pair">
+            <div class="qbar-col"><span class="qbar-n">${asFmtMoneyShort(budgetAprovado)}</span><div class="qbar-fill" style="height:${hA}px;background:#C9C4B4;"></div></div>
+            <div class="qbar-col"><span class="qbar-n">${asFmtMoneyShort(budgetInvestido)}</span><div class="qbar-fill" style="height:${hB}px;background:${corInvestido};"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head"><h2>Investimento por região</h2></div>
+        ${asCatBarHTML(regioes, 'value', asFmtMoney)}
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head"><h2>Investimento por gerente</h2></div>
+        ${asCatBarHTML(gerentes, 'value', asFmtMoney)}
+      </div>
+
+      <div class="board-card board-section">
+        <div class="board-section-head"><h2>Representantes que mais solicitaram</h2></div>
+        <div style="max-height:360px;overflow-y:auto;overflow-x:hidden;">
+          ${asRankBarListHTML(representantes, 'Nenhum representante registrado ainda.')}
+        </div>
+      </div>
+
+      <div class="board-card board-section" style="padding:0;overflow-x:auto;">
+        <div class="board-section-head" style="padding:18px 20px 0;"><h2>Lojistas</h2></div>
+        ${lojistas.length ? `
+          <table class="data-table" style="margin-top:10px;">
+            <thead><tr><th>Lojista</th><th>Marca</th><th>Investimento</th><th>Solicitado em</th><th>Gerente</th></tr></thead>
+            <tbody>
+              ${lojistas.map((s) => `
+                <tr style="cursor:pointer;" data-open-showroom-row="${s.id}">
+                  <td><strong>${escapeHtml(s.lojista)}</strong></td>
+                  <td><span class="tag-brand">${s.brand === 'debacco' ? 'De Bacco' : 'GhelPlus'}</span></td>
+                  <td class="num">${asFmtMoney(s.valorInvestimento)}</td>
+                  <td class="num">${s.dataSolicitacao ? asFmtDate(s.dataSolicitacao) : '—'}</td>
+                  <td>${escapeHtml(s.gerente) || '—'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : `<div class="empty-board" style="margin:16px 0;">Nenhum expositor especial cadastrado ainda.</div>`}
+      </div>
+    `;
+
+    root.querySelectorAll('[data-open-showroom-row]').forEach((tr) => {
+      tr.addEventListener('click', () => {
+        const s = asData.showrooms.find((x) => x.id === tr.dataset.openShowroomRow);
+        if (s) asOpenShowroomDetailModal(s);
+      });
+    });
+  }
+
+  let asExpositoresFilterGerente = '';
+  let asExpositoresSearch = '';
+
+  function asRenderExpositores(){
+    const root = document.getElementById('asExpositoresPage');
+    if (!root) return;
+    const canEdit = asCanEdit();
+    let list = asShowroomsForBrand();
+    const gerentesDisponiveis = [...new Set(list.map((s) => (s.gerente || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    if (asExpositoresFilterGerente && !gerentesDisponiveis.includes(asExpositoresFilterGerente)) asExpositoresFilterGerente = '';
+    if (asExpositoresFilterGerente) list = list.filter((s) => (s.gerente || '').trim() === asExpositoresFilterGerente);
+    if (asExpositoresSearch) {
+      const q = asExpositoresSearch.toLowerCase();
+      list = list.filter((s) => (s.lojista || '').toLowerCase().includes(q) || (s.regiao || '').toLowerCase().includes(q) || (s.gerente || '').toLowerCase().includes(q) || (s.representante || '').toLowerCase().includes(q));
+    }
+    list = list.slice().sort((a, b) => (b.dataSolicitacao || b.createdAt || '').localeCompare(a.dataSolicitacao || a.createdAt || ''));
+
+    root.innerHTML = `
+      <div class="board-section-head">
+        <h2>Expositores Especiais <span class="muted" style="font-weight:400;font-size:13px;">(${list.length})</span></h2>
+        ${canEdit ? `<button class="btn-primary" id="asBtnNovoShowroom">+ Novo expositor especial</button>` : ''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">
+        <input type="search" id="asExpositoresFilterSearch" placeholder="Buscar por lojista, região, gerente..." value="${escapeHtml(asExpositoresSearch)}" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;font-family:inherit;" />
+        <select id="asExpositoresFilterGerente" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;">
+          <option value="">Todos os gerentes</option>
+          ${gerentesDisponiveis.map((g) => `<option value="${escapeHtml(g)}" ${asExpositoresFilterGerente === g ? 'selected' : ''}>${escapeHtml(g)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="overflow-x:auto;">
+      ${list.length ? `
+        <table class="data-table">
+          <thead><tr>
+            <th>Lojista</th><th>Marca</th><th>Região</th><th>Gerente</th><th>Representante</th>
+            <th>Solicitado em</th><th>Investimento</th><th>Pagamento</th><th>Budget</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${list.map((s) => `
+              <tr>
+                <td><strong>${escapeHtml(s.lojista)}</strong></td>
+                <td><span class="tag-brand">${s.brand === 'debacco' ? 'De Bacco' : 'GhelPlus'}</span></td>
+                <td>${escapeHtml(s.regiao) || '—'}</td>
+                <td>${escapeHtml(s.gerente) || '—'}</td>
+                <td>${escapeHtml(s.representante) || '—'}</td>
+                <td class="num">${s.dataSolicitacao ? asFmtDate(s.dataSolicitacao) : '—'}</td>
+                <td class="num">${asFmtMoney(s.valorInvestimento)}</td>
+                <td>${escapeHtml(s.formaPagamento) || '—'}</td>
+                <td>${asPlanTagHTML(s)}</td>
+                <td style="white-space:nowrap;">
+                  <button class="btn-link" data-as-showroom-act="view" data-id="${s.id}">Detalhes</button>
+                  ${canEdit ? `<button class="btn-link" data-as-showroom-act="edit" data-id="${s.id}">Editar</button><button class="btn-link danger" data-as-showroom-act="delete" data-id="${s.id}">Excluir</button>` : ''}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : `<div class="empty-board" style="padding:30px 10px;">Nenhum expositor especial cadastrado ainda.${canEdit ? ' Clique em "+ Novo expositor especial" para começar.' : ''}</div>`}
+      </div>
+    `;
+
+    const searchInput = document.getElementById('asExpositoresFilterSearch');
+    if (searchInput) searchInput.addEventListener('input', (e) => {
+      asExpositoresSearch = e.target.value;
+      const cursorPos = e.target.selectionStart;
+      asRenderExpositores();
+      const fresh = document.getElementById('asExpositoresFilterSearch');
+      if (fresh) { fresh.focus(); try { fresh.setSelectionRange(cursorPos, cursorPos); } catch (e2) {} }
+    });
+    const gerenteSel = document.getElementById('asExpositoresFilterGerente');
+    if (gerenteSel) gerenteSel.addEventListener('change', (e) => { asExpositoresFilterGerente = e.target.value; asRenderExpositores(); });
+    const btnNovo = document.getElementById('asBtnNovoShowroom');
+    if (btnNovo) btnNovo.addEventListener('click', () => asOpenShowroomModal(null));
+    root.querySelectorAll('[data-as-showroom-act]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const showroom = asData.showrooms.find((s) => s.id === id);
+        if (!showroom) return;
+        if (btn.dataset.asShowroomAct === 'view') asOpenShowroomDetailModal(showroom);
+        else if (btn.dataset.asShowroomAct === 'edit') asOpenShowroomModal(showroom);
+        else if (btn.dataset.asShowroomAct === 'delete') asDeleteShowroom(showroom);
+      });
+    });
+  }
+
+  async function asDeleteShowroom(showroom){
+    if (!confirm(`Excluir o expositor especial de "${showroom.lojista}"? Essa ação não pode ser desfeita.`)) return;
+    try {
+      await api('/api/acoes-sazonais/showrooms/' + showroom.id, { method: 'DELETE' });
+      asData.showrooms = asData.showrooms.filter((s) => s.id !== showroom.id);
+      asToast('Expositor especial excluído.');
+      asRenderExpositores();
+    } catch (e) { asToast(e.message, true); }
+  }
+
+  function asOpenShowroomModal(showroom){
+    asEnsureOverlayWired();
+    const isEdit = !!showroom;
+    const blank = {
+      brand: asBrand !== 'all' ? asBrand : 'ghelplus',
+      lojista: '', gerente: '', representante: '', regiao: '',
+      dataSolicitacao: '', dataEntregaProposta: '', linkProposta: '', dataAprovacaoProposta: '', observacoesProposta: '',
+      dataEntregaDetalhamento: '', linkDetalhamento: '', observacoesDetalhamento: '',
+      dataInicioObra: '', dataFinalizacao: '', linkImagens: '',
+      valorInvestimento: '', linkOrcamento: '', dataAprovacao: '', quemAprovou: '', formaPagamento: '', dataPagamento: '',
+      produtosAplicados: [], produtosPagamento: [], parcelas: [], planejado: true
+    };
+    const s = showroom ? Object.assign({}, blank, showroom) : blank;
+    let produtosAplicados = asNormalizeProdutos(s.produtosAplicados).map((p) => ({ ...p }));
+    let produtosPagamento = asNormalizeProdutos(s.produtosPagamento).map((p) => ({ ...p }));
+    let parcelas = (s.parcelas || []).map((p) => ({ ...p }));
+
+    function productDatalistOptionsHTML(brand){
+      return asData.products.filter((p) => p.brand === brand).map((p) => `<option value="${escapeHtml(p.nome)}">`).join('');
+    }
+
+    const overlay = document.getElementById('asOverlay');
+    const modalBox = document.getElementById('asModalBox');
+    modalBox.className = 'modal';
+    modalBox.innerHTML = `
+      <datalist id="asProductDatalist">${productDatalistOptionsHTML(s.brand)}</datalist>
+      <div class="modal-head"><h2>${isEdit ? 'Editar expositor especial' : 'Novo expositor especial'}</h2><button class="close" id="asModalCloseBtn">&times;</button></div>
+      <div class="modal-body">
+        <div class="section-title">Identificação</div>
+        <div class="formgrid">
+          <div class="field"><label>Marca *</label>
+            <select id="asSFBrand">
+              <option value="ghelplus" ${s.brand === 'ghelplus' ? 'selected' : ''}>GhelPlus</option>
+              <option value="debacco" ${s.brand === 'debacco' ? 'selected' : ''}>De Bacco</option>
+            </select>
+          </div>
+          <div class="field"><label>Lojista *</label><input type="text" id="asSFLojista" value="${escapeHtml(s.lojista)}" placeholder="Nome da loja/cliente" /></div>
+          <div class="field"><label>Região</label><input type="text" id="asSFRegiao" value="${escapeHtml(s.regiao)}" placeholder="Ex: São Paulo, Nordeste..." /></div>
+          <div class="field"><label>Gerente responsável</label><input type="text" id="asSFGerente" value="${escapeHtml(s.gerente)}" /></div>
+          <div class="field"><label>Representante responsável</label><input type="text" id="asSFRepresentante" value="${escapeHtml(s.representante)}" /></div>
+          <div class="field"><label>Estava dentro do budget?</label>
+            <select id="asSFPlanejado">
+              <option value="true" ${s.planejado !== false ? 'selected' : ''}>Sim</option>
+              <option value="false" ${s.planejado === false ? 'selected' : ''}>Não</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="section-title">Proposta</div>
+        <div class="formgrid">
+          <div class="field"><label>Data de solicitação</label><input type="date" id="asSFDataSolicitacao" value="${escapeHtml(s.dataSolicitacao)}" /></div>
+          <div class="field"><label>Data de entrega da proposta</label><input type="date" id="asSFDataEntregaProposta" value="${escapeHtml(s.dataEntregaProposta)}" /></div>
+          <div class="field"><label>Data de aprovação da proposta</label><input type="date" id="asSFDataAprovacaoProposta" value="${escapeHtml(s.dataAprovacaoProposta)}" /></div>
+          <div class="field full"><label>Link com a proposta</label><input type="text" id="asSFLinkProposta" value="${escapeHtml(s.linkProposta)}" placeholder="Cole aqui o link (Google Drive, PDF etc.)" /></div>
+          <div class="field full">
+            <label>Produtos aplicados</label>
+            <div id="asShowroomProdutosList"></div>
+            <button type="button" class="btn-secondary" id="asBtnAddShowroomProduto" style="margin-top:2px;">+ Adicionar produto</button>
+          </div>
+          <div class="field full"><label>Observações da proposta</label><textarea id="asSFObservacoesProposta" placeholder="Qualquer observação relevante sobre a proposta">${escapeHtml(s.observacoesProposta)}</textarea></div>
+        </div>
+
+        <div class="section-title">Detalhamento</div>
+        <div class="formgrid">
+          <div class="field"><label>Data de entrega do detalhamento</label><input type="date" id="asSFDataEntregaDetalhamento" value="${escapeHtml(s.dataEntregaDetalhamento)}" /></div>
+          <div class="field full"><label>Link com o detalhamento</label><input type="text" id="asSFLinkDetalhamento" value="${escapeHtml(s.linkDetalhamento)}" placeholder="Cole aqui o link" /></div>
+          <div class="field full"><label>Observações do detalhamento</label><textarea id="asSFObservacoesDetalhamento" placeholder="Qualquer observação relevante sobre o detalhamento">${escapeHtml(s.observacoesDetalhamento)}</textarea></div>
+        </div>
+
+        <div class="section-title">Obra</div>
+        <div class="formgrid">
+          <div class="field"><label>Data do início da reforma/obra</label><input type="date" id="asSFDataInicioObra" value="${escapeHtml(s.dataInicioObra)}" /></div>
+          <div class="field"><label>Data da finalização</label><input type="date" id="asSFDataFinalizacao" value="${escapeHtml(s.dataFinalizacao)}" /></div>
+          <div class="field full"><label>Link com imagens do ambiente pronto</label><input type="text" id="asSFLinkImagens" value="${escapeHtml(s.linkImagens)}" placeholder="Cole aqui o link" /></div>
+        </div>
+
+        <div class="section-title">Investimento e pagamento</div>
+        <div class="formgrid">
+          <div class="field"><label>Valor de investimento (R$)</label><input type="number" step="0.01" min="0" id="asSFValorInvestimento" value="${s.valorInvestimento !== undefined && s.valorInvestimento !== null ? s.valorInvestimento : ''}" placeholder="0,00" /></div>
+          <div class="field full"><label>Link com orçamento</label><input type="text" id="asSFLinkOrcamento" value="${escapeHtml(s.linkOrcamento)}" placeholder="Cole aqui o link" /></div>
+          <div class="field"><label>Data da aprovação</label><input type="date" id="asSFDataAprovacao" value="${escapeHtml(s.dataAprovacao)}" /></div>
+          <div class="field"><label>Quem aprovou</label><input type="text" id="asSFQuemAprovou" value="${escapeHtml(s.quemAprovou)}" /></div>
+          <div class="field"><label>Forma de pagamento</label>
+            <select id="asSFFormaPagamento">
+              <option value="" ${!s.formaPagamento ? 'selected' : ''}>Não informado</option>
+              ${AS_SHOWROOM_FORMA_PAGAMENTO_OPTIONS.map((f) => `<option value="${f}" ${s.formaPagamento === f ? 'selected' : ''}>${f}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field" id="asSFDataPagamentoField" style="${s.formaPagamento === 'Parcelado' ? 'display:none;' : ''}">
+            <label>Data de pagamento</label>
+            <input type="date" id="asSFDataPagamento" value="${escapeHtml(s.dataPagamento)}" />
+          </div>
+          <div class="field full" id="asSFParcelasField" style="display:none;">
+            <label>Parcelas</label>
+            <div class="muted" style="font-size:11px;margin:-2px 0 8px;text-transform:none;">Cadastre a data, a forma de pagamento (PIX, Boleto ou Cartão) e o valor de cada parcela.</div>
+            <div id="asShowroomParcelasList"></div>
+            <button type="button" class="btn-secondary" id="asBtnAddShowroomParcela" style="margin-top:2px;">+ Adicionar parcela</button>
+          </div>
+          <div class="field full" id="asSFProdutosPagamentoField" style="display:none;">
+            <label>Produtos usados no pagamento</label>
+            <div id="asShowroomProdutosPagamentoList"></div>
+            <button type="button" class="btn-secondary" id="asBtnAddShowroomProdutoPagamento" style="margin-top:2px;">+ Adicionar produto</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span></span>
+        <div>
+          <button type="button" class="btn-secondary" id="asShowroomCancelBtn" style="margin-right:8px;">Cancelar</button>
+          <button type="button" class="btn-primary" id="asShowroomSubmitBtn">${isEdit ? 'Salvar alterações' : 'Criar expositor'}</button>
+        </div>
+      </div>
+    `;
+    overlay.classList.add('open');
+
+    const brandSelectShowroom = document.getElementById('asSFBrand');
+    brandSelectShowroom.addEventListener('change', () => {
+      const datalist = document.getElementById('asProductDatalist');
+      if (datalist) datalist.innerHTML = productDatalistOptionsHTML(brandSelectShowroom.value);
+    });
+
+    // ---- Produtos aplicados (nome + quantidade) ----
+    function renderShowroomProdutos(){
+      const container = document.getElementById('asShowroomProdutosList');
+      if (!produtosAplicados.length) {
+        container.innerHTML = `<div class="muted" style="font-size:11.5px;padding:2px 0 6px;text-transform:none;">Nenhum produto adicionado ainda.</div>`;
+        return;
+      }
+      container.innerHTML = produtosAplicados.map((p, idx) => `
+        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+          <input type="text" data-as-sprod-field="nome" data-idx="${idx}" value="${escapeHtml(p.nome)}" placeholder="Nome do produto" list="asProductDatalist" style="flex:2;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <input type="number" min="0" data-as-sprod-field="quantidade" data-idx="${idx}" value="${p.quantidade || ''}" placeholder="Qtd" style="width:72px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <button type="button" data-as-remove-sprod="${idx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
+        </div>
+      `).join('');
+    }
+    renderShowroomProdutos();
+    document.getElementById('asShowroomProdutosList').addEventListener('input', (e) => {
+      const field = e.target.dataset.asSprodField, idx = e.target.dataset.idx;
+      if (field === undefined) return;
+      produtosAplicados[idx][field] = field === 'quantidade' ? (parseInt(e.target.value, 10) || 0) : e.target.value;
+    });
+    document.getElementById('asShowroomProdutosList').addEventListener('change', async (e) => {
+      if (e.target.dataset.asSprodField !== 'nome') return;
+      await asEnsureProductInCatalog(brandSelectShowroom.value, e.target.value);
+      const datalist = document.getElementById('asProductDatalist');
+      if (datalist) datalist.innerHTML = productDatalistOptionsHTML(brandSelectShowroom.value);
+    });
+    document.getElementById('asShowroomProdutosList').addEventListener('click', (e) => {
+      if (e.target.dataset.asRemoveSprod === undefined) return;
+      produtosAplicados.splice(parseInt(e.target.dataset.asRemoveSprod, 10), 1);
+      renderShowroomProdutos();
+    });
+    document.getElementById('asBtnAddShowroomProduto').addEventListener('click', () => {
+      produtosAplicados.push({ nome: '', quantidade: '' });
+      renderShowroomProdutos();
+    });
+
+    // ---- Produtos usados no pagamento (nome + quantidade), só quando forma = "Produtos" ----
+    function renderProdutosPagamento(){
+      const container = document.getElementById('asShowroomProdutosPagamentoList');
+      if (!produtosPagamento.length) {
+        container.innerHTML = `<div class="muted" style="font-size:11.5px;padding:2px 0 6px;text-transform:none;">Nenhum produto adicionado ainda.</div>`;
+        return;
+      }
+      container.innerHTML = produtosPagamento.map((p, idx) => `
+        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+          <input type="text" data-as-pgprod-field="nome" data-idx="${idx}" value="${escapeHtml(p.nome)}" placeholder="Nome do produto" list="asProductDatalist" style="flex:2;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <input type="number" min="0" data-as-pgprod-field="quantidade" data-idx="${idx}" value="${p.quantidade || ''}" placeholder="Qtd" style="width:72px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <button type="button" data-as-remove-pgprod="${idx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
+        </div>
+      `).join('');
+    }
+    renderProdutosPagamento();
+    document.getElementById('asShowroomProdutosPagamentoList').addEventListener('input', (e) => {
+      const field = e.target.dataset.asPgprodField, idx = e.target.dataset.idx;
+      if (field === undefined) return;
+      produtosPagamento[idx][field] = field === 'quantidade' ? (parseInt(e.target.value, 10) || 0) : e.target.value;
+    });
+    document.getElementById('asShowroomProdutosPagamentoList').addEventListener('change', async (e) => {
+      if (e.target.dataset.asPgprodField !== 'nome') return;
+      await asEnsureProductInCatalog(brandSelectShowroom.value, e.target.value);
+      const datalist = document.getElementById('asProductDatalist');
+      if (datalist) datalist.innerHTML = productDatalistOptionsHTML(brandSelectShowroom.value);
+    });
+    document.getElementById('asShowroomProdutosPagamentoList').addEventListener('click', (e) => {
+      if (e.target.dataset.asRemovePgprod === undefined) return;
+      produtosPagamento.splice(parseInt(e.target.dataset.asRemovePgprod, 10), 1);
+      renderProdutosPagamento();
+    });
+    document.getElementById('asBtnAddShowroomProdutoPagamento').addEventListener('click', () => {
+      produtosPagamento.push({ nome: '', quantidade: '' });
+      renderProdutosPagamento();
+    });
+
+    // ---- Parcelas (data + forma + valor), só quando forma de pagamento = "Parcelado" ----
+    function renderParcelas(){
+      const container = document.getElementById('asShowroomParcelasList');
+      if (!parcelas.length) {
+        container.innerHTML = `<div class="muted" style="font-size:11.5px;padding:2px 0 6px;text-transform:none;">Nenhuma parcela adicionada ainda.</div>`;
+        return;
+      }
+      container.innerHTML = parcelas.map((p, idx) => `
+        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+          <input type="date" data-as-sparc-field="data" data-idx="${idx}" value="${escapeHtml(p.data)}" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <select data-as-sparc-field="forma" data-idx="${idx}" style="width:110px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;">
+            ${AS_PARCELADO_FORMAS.map((f) => `<option value="${f}" ${p.forma === f ? 'selected' : ''}>${f}</option>`).join('')}
+          </select>
+          <input type="number" step="0.01" min="0" data-as-sparc-field="valor" data-idx="${idx}" value="${p.valor || ''}" placeholder="Valor (R$)" style="width:120px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;" />
+          <button type="button" data-as-remove-sparc="${idx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
+        </div>
+      `).join('');
+    }
+    renderParcelas();
+    document.getElementById('asShowroomParcelasList').addEventListener('input', (e) => {
+      const field = e.target.dataset.asSparcField, idx = e.target.dataset.idx;
+      if (field === undefined) return;
+      parcelas[idx][field] = field === 'valor' ? (parseFloat(e.target.value) || 0) : e.target.value;
+    });
+    document.getElementById('asShowroomParcelasList').addEventListener('change', (e) => {
+      const field = e.target.dataset.asSparcField, idx = e.target.dataset.idx;
+      if (field === undefined) return;
+      parcelas[idx][field] = e.target.value;
+    });
+    document.getElementById('asShowroomParcelasList').addEventListener('click', (e) => {
+      if (e.target.dataset.asRemoveSparc === undefined) return;
+      parcelas.splice(parseInt(e.target.dataset.asRemoveSparc, 10), 1);
+      renderParcelas();
+    });
+    document.getElementById('asBtnAddShowroomParcela').addEventListener('click', () => {
+      parcelas.push({ data: '', forma: 'PIX', valor: '' });
+      renderParcelas();
+    });
+
+    // ---- Mostra/esconde os blocos de parcelas/produtos conforme a forma de pagamento ----
+    function updatePagamentoFields(){
+      const forma = document.getElementById('asSFFormaPagamento').value;
+      document.getElementById('asSFParcelasField').style.display = forma === 'Parcelado' ? '' : 'none';
+      document.getElementById('asSFProdutosPagamentoField').style.display = forma === 'Produtos' ? '' : 'none';
+      document.getElementById('asSFDataPagamentoField').style.display = forma === 'Parcelado' ? 'none' : '';
+    }
+    document.getElementById('asSFFormaPagamento').addEventListener('change', updatePagamentoFields);
+    updatePagamentoFields();
+
+    document.getElementById('asModalCloseBtn').addEventListener('click', asCloseModal);
+    document.getElementById('asShowroomCancelBtn').addEventListener('click', asCloseModal);
+    document.getElementById('asShowroomSubmitBtn').addEventListener('click', async () => {
+      const lojista = document.getElementById('asSFLojista').value.trim();
+      if (!lojista) { asToast('Nome do lojista é obrigatório.', true); return; }
+      const payload = {
+        brand: brandSelectShowroom.value,
+        lojista,
+        gerente: document.getElementById('asSFGerente').value,
+        representante: document.getElementById('asSFRepresentante').value,
+        regiao: document.getElementById('asSFRegiao').value,
+        planejado: document.getElementById('asSFPlanejado').value !== 'false',
+        dataSolicitacao: document.getElementById('asSFDataSolicitacao').value,
+        dataEntregaProposta: document.getElementById('asSFDataEntregaProposta').value,
+        linkProposta: document.getElementById('asSFLinkProposta').value,
+        dataAprovacaoProposta: document.getElementById('asSFDataAprovacaoProposta').value,
+        observacoesProposta: document.getElementById('asSFObservacoesProposta').value,
+        produtosAplicados: produtosAplicados.filter((p) => p.nome && p.nome.trim()),
+        dataEntregaDetalhamento: document.getElementById('asSFDataEntregaDetalhamento').value,
+        linkDetalhamento: document.getElementById('asSFLinkDetalhamento').value,
+        observacoesDetalhamento: document.getElementById('asSFObservacoesDetalhamento').value,
+        dataInicioObra: document.getElementById('asSFDataInicioObra').value,
+        dataFinalizacao: document.getElementById('asSFDataFinalizacao').value,
+        linkImagens: document.getElementById('asSFLinkImagens').value,
+        valorInvestimento: document.getElementById('asSFValorInvestimento').value || 0,
+        linkOrcamento: document.getElementById('asSFLinkOrcamento').value,
+        dataAprovacao: document.getElementById('asSFDataAprovacao').value,
+        quemAprovou: document.getElementById('asSFQuemAprovou').value,
+        formaPagamento: document.getElementById('asSFFormaPagamento').value,
+        dataPagamento: document.getElementById('asSFDataPagamento').value,
+        produtosPagamento: produtosPagamento.filter((p) => p.nome && p.nome.trim()),
+        parcelas: parcelas.filter((p) => p.data)
+      };
+      try {
+        if (isEdit) {
+          const res = await api('/api/acoes-sazonais/showrooms/' + showroom.id, { method: 'PUT', body: JSON.stringify(payload) });
+          const idx = asData.showrooms.findIndex((x) => x.id === showroom.id);
+          if (idx >= 0) asData.showrooms[idx] = res.showroom;
+          asToast('Expositor especial atualizado.');
+        } else {
+          const res = await api('/api/acoes-sazonais/showrooms', { method: 'POST', body: JSON.stringify(payload) });
+          asData.showrooms.push(res.showroom);
+          asToast('Expositor especial criado.');
+        }
+        asCloseModal();
+        asRenderExpositores();
+      } catch (err) { asToast(err.message, true); }
+    });
+  }
+
+  function asOpenShowroomDetailModal(s){
+    asEnsureOverlayWired();
+    const overlay = document.getElementById('asOverlay');
+    const modalBox = document.getElementById('asModalBox');
+    modalBox.className = 'modal';
+    modalBox.style.maxWidth = '720px';
+    const parcelasTableHTML = (s.formaPagamento === 'Parcelado' && (s.parcelas || []).length) ? `
+      <div class="section-title" style="margin-top:18px;">Parcelas</div>
+      <table class="data-table" style="margin-top:10px;">
+        <thead><tr><th>Data</th><th>Forma</th><th>Valor</th></tr></thead>
+        <tbody>${s.parcelas.map((p) => `<tr><td>${asFmtDate(p.data)}</td><td>${escapeHtml(p.forma)}</td><td class="num">${asFmtMoney(p.valor)}</td></tr>`).join('')}</tbody>
+      </table>
+    ` : '';
+    modalBox.innerHTML = `
+      <div class="modal-head">
+        <div>
+          <h2>${escapeHtml(s.lojista)}</h2>
+          <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span class="tag-brand">${s.brand === 'debacco' ? 'De Bacco' : 'GhelPlus'}</span>
+            ${asPlanTagHTML(s)}
+          </div>
+        </div>
+        <button class="close" id="asModalCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <dl class="as-report-dl">
+          <div><dt>Região</dt><dd>${escapeHtml(s.regiao) || '—'}</dd></div>
+          <div><dt>Gerente responsável</dt><dd>${escapeHtml(s.gerente) || '—'}</dd></div>
+          <div><dt>Representante responsável</dt><dd>${escapeHtml(s.representante) || '—'}</dd></div>
+          <div><dt>Valor de investimento</dt><dd>${asFmtMoney(s.valorInvestimento)}</dd></div>
+          <div><dt>Forma de pagamento</dt><dd>${escapeHtml(s.formaPagamento) || '—'}</dd></div>
+          <div><dt>Quem aprovou</dt><dd>${escapeHtml(s.quemAprovou) || '—'}</dd></div>
+        </dl>
+        <div class="section-title" style="margin-top:18px;">Linha do tempo</div>
+        <dl class="as-report-dl" style="margin-top:10px;">
+          <div><dt>Data de solicitação</dt><dd>${s.dataSolicitacao ? asFmtDate(s.dataSolicitacao) : '—'}</dd></div>
+          <div><dt>Entrega da proposta</dt><dd>${s.dataEntregaProposta ? asFmtDate(s.dataEntregaProposta) : '—'}</dd></div>
+          <div><dt>Aprovação da proposta</dt><dd>${s.dataAprovacaoProposta ? asFmtDate(s.dataAprovacaoProposta) : '—'}</dd></div>
+          ${s.observacoesProposta ? `<div class="full"><dt>Observações da proposta</dt><dd>${escapeHtml(s.observacoesProposta)}</dd></div>` : ''}
+          <div><dt>Entrega do detalhamento</dt><dd>${s.dataEntregaDetalhamento ? asFmtDate(s.dataEntregaDetalhamento) : '—'}</dd></div>
+          ${s.observacoesDetalhamento ? `<div class="full"><dt>Observações do detalhamento</dt><dd>${escapeHtml(s.observacoesDetalhamento)}</dd></div>` : ''}
+          <div><dt>Início da obra</dt><dd>${s.dataInicioObra ? asFmtDate(s.dataInicioObra) : '—'}</dd></div>
+          <div><dt>Finalização</dt><dd>${s.dataFinalizacao ? asFmtDate(s.dataFinalizacao) : '—'}</dd></div>
+          <div><dt>Aprovação do orçamento</dt><dd>${s.dataAprovacao ? asFmtDate(s.dataAprovacao) : '—'}</dd></div>
+        </dl>
+        <div class="section-title" style="margin-top:18px;">Links</div>
+        <dl class="as-report-dl" style="margin-top:10px;">
+          <div class="full"><dt>Proposta</dt><dd>${s.linkProposta ? `<a href="${escapeHtml(s.linkProposta)}" target="_blank" rel="noopener">${escapeHtml(s.linkProposta)}</a>` : '—'}</dd></div>
+          <div class="full"><dt>Detalhamento</dt><dd>${s.linkDetalhamento ? `<a href="${escapeHtml(s.linkDetalhamento)}" target="_blank" rel="noopener">${escapeHtml(s.linkDetalhamento)}</a>` : '—'}</dd></div>
+          <div class="full"><dt>Imagens do ambiente pronto</dt><dd>${s.linkImagens ? `<a href="${escapeHtml(s.linkImagens)}" target="_blank" rel="noopener">${escapeHtml(s.linkImagens)}</a>` : '—'}</dd></div>
+          <div class="full"><dt>Orçamento</dt><dd>${s.linkOrcamento ? `<a href="${escapeHtml(s.linkOrcamento)}" target="_blank" rel="noopener">${escapeHtml(s.linkOrcamento)}</a>` : '—'}</dd></div>
+        </dl>
+        ${asNormalizeProdutos(s.produtosAplicados).length ? `
+          <div class="section-title" style="margin-top:18px;">Produtos aplicados</div>
+          <div style="margin-top:8px;font-size:13.5px;">${escapeHtml(asFormatProdutosList(s.produtosAplicados))}</div>
+        ` : ''}
+        ${parcelasTableHTML}
+        ${s.formaPagamento === 'Produtos' && asNormalizeProdutos(s.produtosPagamento).length ? `
+          <div class="section-title" style="margin-top:18px;">Produtos usados no pagamento</div>
+          <div style="margin-top:8px;font-size:13.5px;">${escapeHtml(asFormatProdutosList(s.produtosPagamento))}</div>
+        ` : ''}
+        <div class="muted" style="font-size:11px;margin-top:16px;text-transform:none;">Criado por ${escapeHtml(s.createdBy)} em ${s.createdAt ? new Date(s.createdAt).toLocaleString('pt-BR') : '—'} · Última atualização por ${escapeHtml(s.updatedBy)} em ${s.updatedAt ? new Date(s.updatedAt).toLocaleString('pt-BR') : '—'}</div>
+      </div>
+      <div class="modal-foot">
+        <span></span>
+        <button type="button" class="btn-secondary" id="asShowroomDetailCloseBtn">Fechar</button>
+      </div>
+    `;
+    overlay.classList.add('open');
+    document.getElementById('asModalCloseBtn').addEventListener('click', asCloseModal);
+    document.getElementById('asShowroomDetailCloseBtn').addEventListener('click', asCloseModal);
+  }
+
   function asRenderCurrentTab(){
     if (asTab === 'dashboard') asRenderDashboard();
     else if (asTab === 'vendas_meta') asRenderVendasMeta();
     else if (asTab === 'acoes') asRenderAcoes();
+    else if (asTab === 'expositores_dashboard') asRenderExpositoresDashboard();
+    else if (asTab === 'expositores') asRenderExpositores();
     else if (asTab === 'historico') asRenderHistorico();
     // 'usuarios' é só texto estático, nada pra renderizar.
   }
 
   function asSetTab(tab){
     asTab = tab;
-    ['dashboard', 'vendas_meta', 'acoes', 'historico', 'usuarios'].forEach((t) => {
+    ['dashboard', 'vendas_meta', 'acoes', 'expositores_dashboard', 'expositores', 'historico', 'usuarios'].forEach((t) => {
       const pageEl = document.getElementById('as' + t.replace(/(^|_)([a-z])/g, (m, p, c) => c.toUpperCase()) + 'Page');
       if (pageEl) pageEl.style.display = (t === tab) ? '' : 'none';
     });

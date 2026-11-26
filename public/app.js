@@ -2673,14 +2673,28 @@
     } catch (e) { /* ignora falha pontual */ }
 
     // Produtos próximo do lançamento (33ª rodada) -- os 6 lançamentos mais
-    // próximos (que ainda não foram marcados como "lançado"), sem data vai
+    // próximos (que ainda não foram marcados como lançados), sem data vai
     // pro fim da lista.
+    // 158ª rodada (#126), bug reportado pela Raquel com prints: o filtro
+    // antigo só excluía status === 'lancado', chave que existia no fluxo
+    // de status ORIGINAL do módulo (33ª rodada: planejado/em_andamento/
+    // lancado). O #120 (mais cedo nesta mesma rodada 158) trocou o fluxo
+    // inteiro pras 9 etapas novas (ver LANCAMENTO_STATUSES em
+    // routes/produtos.js) e o estado final "Lançado" virou a chave
+    // `projeto_finalizado` -- só que este filtro do widget da Início não
+    // foi atualizado junto, então deixou de excluir qualquer lançamento
+    // de verdade (nenhum lançamento novo usa mais a chave antiga
+    // 'lancado'), e produtos já lançados (com data já passada) ficavam
+    // aparecendo aqui como se fossem pendentes. Mantém também a exclusão
+    // da chave antiga 'lancado' pra lançamentos cadastrados ANTES do
+    // #120 e ainda não resalvos (não são migrados automaticamente, ver
+    // comentário em routes/produtos.js).
     try {
       const lanc = await api('/api/produtos/lancamentos');
       const wrap = $('#proximosLancamentosList');
       wrap.innerHTML = '';
       const proximos = (lanc.items || [])
-        .filter((p) => p.status !== 'lancado')
+        .filter((p) => p.status !== 'projeto_finalizado' && p.status !== 'lancado')
         .sort((a, b) => {
           if (!a.dataLancamento && !b.dataLancamento) return 0;
           if (!a.dataLancamento) return 1;

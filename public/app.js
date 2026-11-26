@@ -1488,7 +1488,7 @@
   // endpoint público daquele recurso específico (cada um serializa do seu
   // jeito). A tabela é montada na hora, já que cada recurso tem colunas
   // diferentes.
-  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', expositoresTotalMensal: 'expositores/lancamentos-mensais/total-mensal', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias', trafegoPago: 'trafego-pago', lancamentos: 'produtos/lancamentos' };
+  const SHARE_RESOURCE_API_PATH = { budget: 'budget', feiras: 'feiras', brindes: 'brindes', brindesSaidas: 'brindes/log', campanhaCooperada: 'campanha-cooperada', expositoresEstoque: 'expositores/estoque', expositoresTotalMensal: 'expositores/lancamentos-mensais/total-mensal', concorrencia: 'produtos/concorrencia', concorrenciaItem: 'produtos/concorrencia-item', ausencias: 'ausencias', trafegoPago: 'trafego-pago', acoesSazonais: 'acoes-sazonais', lancamentos: 'produtos/lancamentos' };
   function publicTableHtml(headers, rows) {
     return `<table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '' : c}</td>`).join('')}</tr>`).join('')
@@ -1945,6 +1945,10 @@
         await startTrafegoPublicMode(dataBody);
         return;
       }
+      if (resolveBody.resource === 'acoesSazonais') {
+        await startAcoesSazonaisPublicMode(dataBody);
+        return;
+      }
       renderSharePublicContent(resolveBody.resource, resolveBody.resourceLabel, dataBody, shareToken);
       showScreen('share-public');
     } catch (e) {
@@ -1969,6 +1973,24 @@
     $('#publicHubTopbarLabel').textContent = 'Tráfego Pago';
     showScreen('app');
     await openTrafegoHub();
+  }
+
+  // Link externo por MARCA de Ações Sazonais (158ª rodada, corte final
+  // #127i) -- `payload` é o retorno de GET /api/acoes-sazonais/public/:token
+  // ({brand, actions, showrooms, budgets}). Mesmo "modo público" já usado
+  // por Mídias/Tráfego Pago (barra lateral escondida, topo simples) --
+  // abre o hub de Ações Sazonais direto na marca do link, com a lista de
+  // abas do modo público incluindo também as 2 seções de Expositores
+  // Especiais (ver ACOES_PUBLIC_TABS).
+  async function startAcoesSazonaisPublicMode(payload) {
+    acoesSazonaisPublicBrand = payload.brand;
+    acoesSazonaisPublicPayload = payload;
+    acoesBrand = payload.brand;
+    $('.app-shell').classList.add('public-hub-mode');
+    $('#publicHubTopbar').hidden = false;
+    $('#publicHubTopbarLabel').textContent = 'Ações Sazonais';
+    showScreen('app');
+    await openAcoesSazonaisHub();
   }
 
   // Link externo por dashboard (28ª rodada) — mesmo espírito do link do
@@ -2002,12 +2024,16 @@
         // iframe), então avisa em vez de abrir uma tela quebrada.
         throw new Error('Este link externo do Tráfego Pago não é mais válido. Peça para gerar um novo link.');
       } else if (body.key === 'acoesSazonais') {
-        // 154ª rodada, pedido da Raquel: "esse link externo das ações, n esta
-        // funcionando" -- faltava este branch. O resto do fluxo pro hub de
-        // Ações Sazonais (openAcoesSazonaisHub/loadAcoesFrame/dashboardLaunch)
-        // já era 100% compatível com o modo público (mesmo padrão do Mídias e
-        // do Tráfego Pago) -- só faltava abrir o hub certo aqui.
-        openAcoesSazonaisHub();
+        // 158ª rodada, corte final (#127i): igual ao Tráfego Pago na 156ª
+        // rodada, o link externo de Ações Sazonais deixou de ser deste
+        // sistema genérico (1 token por dashboard inteiro) -- agora é um
+        // link por MARCA, via utils/shareLinks.js (ver
+        // startAcoesSazonaisPublicMode/setupAcoesSazonaisPublicLink, que
+        // geram links `?sharePublic=...`). Um link antigo deste tipo que
+        // ainda exista não tem mais como funcionar (o hub de Ações
+        // Sazonais não aceita mais SSO por iframe), então avisa em vez de
+        // abrir uma tela quebrada.
+        throw new Error('Este link externo de Ações Sazonais não é mais válido. Peça para gerar um novo link.');
       } else {
         throw new Error('Este link externo ainda não é compatível com esta tela.');
       }
@@ -4676,19 +4702,24 @@
   };
 
   // ---------- Ações Sazonais + Expositores Especiais (30ª rodada) ----------
-  // Mesmo tratamento de hub nativo dado a Mídias/Tráfego: uma central com
-  // um card por seção do painel de Ações Sazonais (dashboard-acoes-
-  // sazonais), abrindo o conteúdo daquela seção num iframe só, com a
-  // barra lateral do painel original escondida (ver .embedded-in-platform
-  // no index.html dele) e as cores/tipografia já ajustadas pra igualar à
-  // Papoi.
+  // 158ª rodada, item #124, corte final (task #127i): deixou de ser um
+  // iframe (SSO pra um app separado) e virou módulo nativo, mesmo
+  // tratamento já dado ao Tráfego Pago na 156ª rodada --
+  // `acoesSazonaisNative` é montado pelo próprio bloco de código do
+  // módulo nativo (função initAcoesSazonaisNative), mais abaixo neste
+  // arquivo, e expõe { initAuthenticated, initPublic, setBrand, setTab,
+  // canEdit }.
   //
-  // Pedido da Raquel: os Expositores Especiais (Dashboard + cadastro)
-  // SAEM do hub de Ações Sazonais e viram um item de menu PRÓPRIO — mesmo
-  // painel de origem (mesma chave de dashboard, mesmo SSO), só que os
-  // cards do hub mostram só essas 2 seções em vez das outras. Por isso os
-  // dois hubs abaixo reaproveitam o mesmo dashboardLaunch('acoesSazonais')
-  // e a mesma lista de marcas, mas com listas de seção diferentes.
+  // Pedido da Raquel (30ª rodada): os Expositores Especiais (Dashboard +
+  // cadastro) continuam com item de MENU PRÓPRIO, separado do hub de
+  // Ações Sazonais -- mas os dois reaproveitam o MESMO container de
+  // telas nativas (#acoesNativeScreens, com as mesmas 7 "páginas"
+  // internas), reparentado via JS pro hub que estiver aberto no momento
+  // (ver openAcoesSazonaisHub()/openExpositoresHub() abaixo) -- não dá
+  // pra duplicar o container (os ids internos, tipo #asDashboardPage,
+  // são únicos no documento), e os dois hubs nunca ficam abertos ao
+  // mesmo tempo (decisão arquitetural que ficou em aberto desde #127e,
+  // resolvida aqui).
   const ACOES_BRANDS = [
     { id: 'ghelplus', label: 'GhelPlus' },
     { id: 'debacco', label: 'De Bacco' },
@@ -4705,159 +4736,136 @@
     { id: 'historico', label: 'Histórico' },
     { id: 'usuarios', label: 'Usuários', adminOnly: true }
   ];
-  const EXPOSITORES_SECTIONS = [
-    { id: 'dashboard_showroom', label: 'Dashboard Expositores Especiais', desc: 'Visão geral dos expositores especiais e investimentos.' },
-    { id: 'showroom', label: 'Expositores Especiais', desc: 'Cadastro e acompanhamento de expositores especiais.' }
+  // Expositores Especiais (30ª rodada, pedido da Raquel: "quero que saia
+  // dele os expositores especiais, e fiquem em um botão separado no
+  // menu") -- próprio item de menu, mas as 2 abas abaixo usam os MESMOS
+  // ids de aba que o módulo nativo já espera (ver asSetTab em
+  // initAcoesSazonaisNative), sem nenhuma tradução no meio (antes do
+  // #127i essas seções tinham ids diferentes -- 'dashboard_showroom'/
+  // 'showroom' -- só porque apontavam pro iframe antigo).
+  const EXPOSITORES_TABS = [
+    { id: 'expositores_dashboard', label: 'Dashboard Expositores Especiais' },
+    { id: 'expositores', label: 'Expositores Especiais' }
   ];
+  // Link externo (corte final #127i): 1 link por marca dá acesso a TODAS
+  // as seções, Ações Sazonais E Expositores Especiais juntos -- mesmo
+  // combinado com a Raquel desde antes da migração nativa ("Qualquer
+  // pessoa com esse link acessa todas as seções... inclusive Expositores
+  // Especiais") -- por isso a lista de abas do modo público é a soma das
+  // duas, menos "Usuários" (não existe conta pra administrar nesse modo).
+  const ACOES_PUBLIC_TABS = [...ACOES_TABS.filter((t) => !t.adminOnly), ...EXPOSITORES_TABS];
   let acoesBrand = 'ghelplus';
   let acoesSection = ACOES_TABS[0].id;
-  let acoesFrameBase = null; // cache { baseUrl, platformParams } -- evita re-assinar o token a cada clique de aba/marca
   let expositoresBrand = 'ghelplus';
+  let expositoresSection = EXPOSITORES_TABS[0].id;
 
-  // 158ª rodada, item #124 (#127a) -- módulo nativo em construção,
-  // mesmo padrão de `trafegoNative` (declarado acima): montado numa IIFE
-  // própria lá embaixo (função initAcoesSazonaisNative), que no final
-  // expõe { initAuthenticated, initPublic, setBrand, setTab, canEdit }
-  // aqui. AINDA NÃO é chamado por `openAcoesSazonaisHub()` (que continua
-  // usando o iframe normalmente) -- isso só acontece no corte final
-  // (task #127i), depois de todas as telas portadas e testadas.
   let acoesSazonaisNative = null;
+  // Preenchidos só no modo de link público (ver startAcoesSazonaisPublicMode,
+  // mais abaixo) -- mesmo papel de trafegoPublicBrand/trafegoPublicPayload.
+  let acoesSazonaisPublicBrand = null;
+  let acoesSazonaisPublicPayload = null;
 
-  // Só mostra Usuários/Link Público do painel pra quem tem acesso admin
-  // NESSE dashboard (mesmo controle de acesso já usado pros outros 2
-  // dashboards) -- editor/visitante não vê esses cards no hub.
+  // Só mostra Usuários do painel pra quem tem acesso admin NESSE
+  // dashboard (mesmo controle de acesso já usado pros outros 2
+  // dashboards) -- editor/visitante não vê essa aba.
   function acoesSazonaisAccess() {
     return (dashboardsByKey.acoesSazonais || {}).access || 'none';
   }
 
-  function openAcoesSazonaisHub() {
+  async function openAcoesSazonaisHub() {
     showView('acoes-hub');
-    $('#acoesHubPublicLinkBtn').hidden = !!dashboardPublicToken;
-    if (dashboardPublicToken) $('#acoesPublicLinkPanel').hidden = true;
-    acoesFrameBase = null;
+    $('#acoesHubPublicLinkBtn').hidden = !!acoesSazonaisPublicBrand;
+    if (acoesSazonaisPublicBrand) { $('#acoesPublicLinkPanel').hidden = true; acoesBrand = acoesSazonaisPublicBrand; }
+    $('#view-acoes-hub').appendChild($('#acoesNativeScreens'));
     renderAcoesBrandSwitch();
     renderAcoesTabs();
-    loadAcoesFrame();
+    try {
+      if (acoesSazonaisPublicBrand) {
+        await acoesSazonaisNative.initPublic(acoesSazonaisPublicPayload, acoesSection);
+      } else {
+        await acoesSazonaisNative.initAuthenticated(acoesBrand, acoesSection);
+      }
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar Ações Sazonais.');
+    }
   }
 
   function renderAcoesBrandSwitch() {
     const wrap = $('#acoesBrandSwitch');
-    wrap.innerHTML = ACOES_BRANDS.map((b) => `<button class="btn-secondary${b.id === acoesBrand ? ' active' : ''}" data-acoes-brand="${b.id}">${b.label}</button>`).join('');
+    const brands = acoesSazonaisPublicBrand ? ACOES_BRANDS.filter((b) => b.id === acoesSazonaisPublicBrand) : ACOES_BRANDS;
+    wrap.innerHTML = brands.map((b) => `<button class="btn-secondary${b.id === acoesBrand ? ' active' : ''}" data-acoes-brand="${b.id}">${b.label}</button>`).join('');
     wrap.querySelectorAll('[data-acoes-brand]').forEach((btn) => {
       btn.onclick = () => {
         if (acoesBrand === btn.dataset.acoesBrand) return;
         acoesBrand = btn.dataset.acoesBrand;
         renderAcoesBrandSwitch();
-        loadAcoesFrame();
+        acoesSazonaisNative.setBrand(acoesBrand);
+        if (!$('#acoesPublicLinkPanel').hidden && acoesPublicLinkRefreshOnBrandChange) acoesPublicLinkRefreshOnBrandChange();
       };
     });
   }
 
   function renderAcoesTabs() {
     const access = acoesSazonaisAccess();
-    const tabs = ACOES_TABS.filter((t) => !t.adminOnly || access === 'admin');
+    const tabs = acoesSazonaisPublicBrand ? ACOES_PUBLIC_TABS : ACOES_TABS.filter((t) => !t.adminOnly || access === 'admin');
     $('#acoesTabs').innerHTML = tabs.map((t) => `<button class="tab-btn${t.id === acoesSection ? ' active' : ''}" data-acoes-tab="${t.id}">${t.label}</button>`).join('');
     $all('[data-acoes-tab]').forEach((btn) => {
       btn.onclick = () => {
         if (acoesSection === btn.dataset.acoesTab) return;
         acoesSection = btn.dataset.acoesTab;
         renderAcoesTabs();
-        loadAcoesFrame();
+        acoesSazonaisNative.setTab(acoesSection);
       };
     });
   }
 
-  // Monta (ou reaproveita, se já montada nesta visita ao hub) a URL de
-  // login único do painel de Ações Sazonais, e aponta o iframe pra marca +
-  // aba atuais -- chamada tanto ao abrir o hub quanto ao trocar de
-  // aba/marca. Mesmo padrão do loadTrafegoFrame() (28a/110a rodada).
-  async function loadAcoesFrame() {
-    try {
-      if (!acoesFrameBase) {
-        const data = await dashboardLaunch('acoesSazonais');
-        const url = new URL(data.url);
-        acoesFrameBase = { baseUrl: url.origin, platformParams: url.search };
-      }
-      const params = new URLSearchParams();
-      params.set('embedBrand', acoesBrand);
-      params.set('embedView', acoesSection);
-      const navSrc = acoesFrameBase.baseUrl.replace(/\/$/, '') + '/?' + params.toString();
-      $('#acoesTelaFrame').style.height = '';
-      $('#acoesTelaFrame').src = navSrc + '&' + acoesFrameBase.platformParams.slice(1);
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
-  function openExpositoresHub() {
+  async function openExpositoresHub() {
     showView('expositores-hub');
+    $('#view-expositores-hub').appendChild($('#acoesNativeScreens'));
     renderExpositoresBrandSwitch();
-    renderExpositoresHubBody();
+    renderExpositoresTabs();
+    try {
+      await acoesSazonaisNative.initAuthenticated(expositoresBrand, expositoresSection);
+    } catch (e) {
+      alert(e.message || 'Não foi possível carregar Expositores Especiais.');
+    }
   }
 
   function renderExpositoresBrandSwitch() {
     const wrap = $('#expositoresBrandSwitch');
     wrap.innerHTML = ACOES_BRANDS.map((b) => `<button class="btn-secondary${b.id === expositoresBrand ? ' active' : ''}" data-expositores-brand="${b.id}">${b.label}</button>`).join('');
     wrap.querySelectorAll('[data-expositores-brand]').forEach((btn) => {
-      btn.onclick = () => { expositoresBrand = btn.dataset.expositoresBrand; renderExpositoresBrandSwitch(); };
+      btn.onclick = () => {
+        if (expositoresBrand === btn.dataset.expositoresBrand) return;
+        expositoresBrand = btn.dataset.expositoresBrand;
+        renderExpositoresBrandSwitch();
+        acoesSazonaisNative.setBrand(expositoresBrand);
+      };
     });
   }
 
-  function renderExpositoresHubBody() {
-    $('#expositoresHubGroups').innerHTML = `
-      <div class="card-grid">
-        ${EXPOSITORES_SECTIONS.map((s) => `
-          <div class="dash-card" data-open-expositores-section="${s.id}">
-            <h3>${s.label}</h3>
-            <p>${s.desc}</p>
-            <button>Abrir →</button>
-          </div>`).join('')}
-      </div>`;
-    $all('[data-open-expositores-section]').forEach((card) => {
-      card.querySelector('button').onclick = () => openExpositoresSection(card.dataset.openExpositoresSection);
+  function renderExpositoresTabs() {
+    $('#expositoresTabs').innerHTML = EXPOSITORES_TABS.map((t) => `<button class="tab-btn${t.id === expositoresSection ? ' active' : ''}" data-expositores-tab="${t.id}">${t.label}</button>`).join('');
+    $all('[data-expositores-tab]').forEach((btn) => {
+      btn.onclick = () => {
+        if (expositoresSection === btn.dataset.expositoresTab) return;
+        expositoresSection = btn.dataset.expositoresTab;
+        renderExpositoresTabs();
+        acoesSazonaisNative.setTab(expositoresSection);
+      };
     });
   }
 
-  async function openExpositoresSection(sectionId) {
-    try {
-      const data = await dashboardLaunch('acoesSazonais');
-      const url = new URL(data.url);
-      const baseUrl = url.origin;
-      const platformParams = url.search;
-      const params = new URLSearchParams();
-      params.set('embedBrand', expositoresBrand);
-      params.set('embedView', sectionId);
-      const navSrc = baseUrl.replace(/\/$/, '') + '/?' + params.toString();
-      $('#expositoresTelaFrame').style.height = '';
-      $('#expositoresTelaFrame').src = navSrc + '&' + platformParams.slice(1);
-      const section = EXPOSITORES_SECTIONS.find((s) => s.id === sectionId) || {};
-      const brandLabel = (ACOES_BRANDS.find((b) => b.id === expositoresBrand) || {}).label || expositoresBrand;
-      $('#expositoresTelaTitle').textContent = `${section.label || ''} — ${brandLabel}`;
-      showView('expositores-tela');
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-  $('#expositoresTelaBack').onclick = () => openExpositoresHub();
-
-  // Recebe a altura real do conteúdo embutido (Mídias/Tráfego/Ações
-  // Sazonais/Expositores Especiais, 28ª/30ª rodada) e ajusta o iframe pra
-  // caber tudo, sem scroll interno próprio -- quem rola a página é só o
-  // scroll normal da Papoi (ver .iframe-wrap no style.css). Os painéis de
-  // destino mandam essa mensagem sozinhos, sempre que a altura do
-  // conteúdo deles muda.
+  // Recebe a altura real do conteúdo embutido (Mídias, 28ª rodada --
+  // Tráfego Pago, 156ª rodada, e Ações Sazonais/Expositores Especiais,
+  // 158ª rodada #127i, deixaram de mandar essa mensagem desde que viraram
+  // módulos nativos).
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data || data.type !== 'papoi-embed-height') return;
     const h = Math.max(300, Math.ceil(data.height));
     if ($('#midiasCanalFrame') && event.source === $('#midiasCanalFrame').contentWindow) {
       $('#midiasCanalFrame').style.height = h + 'px';
-    // Tráfego Pago não manda mais essa mensagem (156ª rodada: deixou de ser
-    // iframe, é módulo nativo) -- branch removido.
-    } else if ($('#acoesTelaFrame') && event.source === $('#acoesTelaFrame').contentWindow) {
-      $('#acoesTelaFrame').style.height = h + 'px';
-    } else if ($('#expositoresTelaFrame') && event.source === $('#expositoresTelaFrame').contentWindow) {
-      $('#expositoresTelaFrame').style.height = h + 'px';
     }
   });
 
@@ -15154,7 +15162,10 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     };
   }
   setupDashboardPublicLink('redesSociais', 'midias');
-  setupDashboardPublicLink('acoesSazonais', 'acoes');
+  // Ações Sazonais (corte final #127i): não usa mais
+  // setupDashboardPublicLink/dashboardPublicLinks (1 link por dashboard
+  // inteiro) -- virou 1 link por MARCA, mesmo padrão do Tráfego Pago (ver
+  // setupAcoesSazonaisPublicLink() logo abaixo de setupTrafegoPublicLink()).
 
   // Link externo do Tráfego Pago (156ª rodada) -- NÃO usa mais
   // setupDashboardPublicLink/dashboardPublicLinks (1 link por dashboard
@@ -15208,6 +15219,55 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
   }
   let trafegoPublicLinkRefreshOnBrandChange = null;
   setupTrafegoPublicLink();
+
+  // Link externo de Ações Sazonais (158ª rodada, corte final #127i) --
+  // mesmo padrão exato do Tráfego Pago acima (1 link por marca, via
+  // /api/acoes-sazonais/public-link*, consumido pela rota genérica
+  // `?sharePublic=token`). Os ids de botão em index.html usam o padrão
+  // "Hub" (acoesHubPublicLinkBtn) herdado da versão em iframe -- mesmos
+  // ids de sempre, só a lógica de wiring muda.
+  function setupAcoesSazonaisPublicLink() {
+    function currentKey() { return acoesBrand; }
+    async function refresh() {
+      try {
+        const data = await api('/api/acoes-sazonais/public-link?brand=' + encodeURIComponent(currentKey()));
+        setUI(data.publicToken);
+      } catch (e) { /* ignora falha pontual */ }
+    }
+    function setUI(pubToken) {
+      const active = !!pubToken;
+      $('#acoesPublicLinkActive').hidden = !active;
+      $('#acoesGenLinkBtn').hidden = active;
+      if (active) $('#acoesPublicLinkField').value = `${window.location.origin}/?sharePublic=${pubToken}`;
+    }
+    $('#acoesHubPublicLinkBtn').onclick = async () => {
+      const panel = $('#acoesPublicLinkPanel');
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) await refresh();
+    };
+    $('#acoesGenLinkBtn').onclick = $('#acoesRegenLinkBtn').onclick = async () => {
+      try {
+        const data = await api('/api/acoes-sazonais/public-link/generate', { method: 'POST', body: JSON.stringify({ brand: currentKey() }) });
+        setUI(data.publicToken);
+      } catch (e) { alert(e.message); }
+    };
+    $('#acoesRevokeLinkBtn').onclick = async () => {
+      if (!confirm('Desativar o link externo? Quem tiver o link atual deixa de conseguir acessar.')) return;
+      try {
+        await api('/api/acoes-sazonais/public-link?brand=' + encodeURIComponent(currentKey()), { method: 'DELETE' });
+        setUI(null);
+      } catch (e) { alert(e.message); }
+    };
+    $('#acoesCopyLinkBtn').onclick = () => {
+      const field = $('#acoesPublicLinkField');
+      field.select();
+      navigator.clipboard && navigator.clipboard.writeText(field.value).catch(() => {});
+    };
+    // Reabre o estado do link ao trocar de marca, se o painel já estiver aberto.
+    acoesPublicLinkRefreshOnBrandChange = refresh;
+  }
+  let acoesPublicLinkRefreshOnBrandChange = null;
+  setupAcoesSazonaisPublicLink();
 
   // ====================================================================
   // TRÁFEGO PAGO — módulo nativo (migração 156ª rodada / tarefa #104)

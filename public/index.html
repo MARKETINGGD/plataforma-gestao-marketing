@@ -1340,17 +1340,13 @@
 
         <div class="tabs" id="acoesTabs"></div>
 
-        <div class="iframe-wrap">
-          <iframe id="acoesTelaFrame" title="Gerenciamento de Ações Sazonais"></iframe>
-        </div>
-
-        <!-- 158ª rodada, item #124 (#127a) -- módulo nativo de Ações
-             Sazonais em construção, substituindo o iframe acima aos
-             poucos (ver claude/PLANO-MIGRACAO-ACOES-SAZONAIS-124.md).
-             Fica OCULTO e sem nenhuma chamada até o corte final
-             (task #127i) -- o iframe acima continua sendo o que a
-             Raquel usa no dia a dia até lá, sem nenhum risco. -->
-        <div id="acoesNativeScreens" hidden>
+        <!-- 158ª rodada, item #124, corte final (#127i): o iframe antigo
+             foi removido -- esta é a tela de verdade agora. O mesmo
+             container é reaproveitado (reparented via JS) pelo hub de
+             Expositores Especiais (view-expositores-hub, logo abaixo)
+             quando esse menu é aberto -- ver
+             openAcoesSazonaisHub()/openExpositoresHub() em app.js. -->
+        <div id="acoesNativeScreens">
           <div class="toast" id="asToastEl"></div>
           <div class="overlay" id="asOverlay"><div class="modal" id="asModalBox"></div></div>
           <!-- 158ª rodada, #124, #127b: conteúdo de verdade da Visão Geral --
@@ -1450,10 +1446,13 @@
 
       <!-- Expositores Especiais (30ª rodada, pedido da Raquel: "quero que
            saia dele os expositores especiais, e fiquem em um botão
-           separado no menu") -- mesmo painel de origem do Ações Sazonais
-           (dashboard-acoes-sazonais), só que aqui só entram as duas seções
-           de Expositores Especiais (Dashboard + cadastro), num hub próprio
-           e independente do hub de Ações Sazonais acima. -->
+           separado no menu") -- mesmo painel de origem do Ações Sazonais,
+           só que aqui só entram as duas seções de Expositores Especiais
+           (Dashboard + cadastro), num hub próprio e independente do hub
+           de Ações Sazonais acima. 158ª rodada, corte final (#127i):
+           virou abas de verdade (mesmo #acoesNativeScreens reaproveitado
+           via JS), igual ao hub de Ações Sazonais -- sem card-grid nem
+           iframe próprio mais. -->
       <section id="view-expositores-hub" class="view" hidden>
         <div class="view-toolbar">
           <h2>Expositores Especiais</h2>
@@ -1461,20 +1460,7 @@
             <div id="expositoresBrandSwitch" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
         </div>
-        <p class="muted">Escolha uma seção pra abrir.</p>
-        <div id="expositoresHubGroups"></div>
-      </section>
-
-      <section id="view-expositores-tela" class="view" hidden>
-        <div class="view-toolbar">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <button class="btn-secondary" id="expositoresTelaBack">◀ Voltar</button>
-            <h2 id="expositoresTelaTitle"></h2>
-          </div>
-        </div>
-        <div class="iframe-wrap">
-          <iframe id="expositoresTelaFrame" title="Expositores Especiais"></iframe>
-        </div>
+        <div class="tabs" id="expositoresTabs"></div>
       </section>
 
       <section id="view-influencers" class="view" hidden>

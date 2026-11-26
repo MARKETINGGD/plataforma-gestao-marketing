@@ -271,6 +271,24 @@ function sanitizeAction(body, existing) {
     a.pagamentoPermuta = per;
   }
 
+  // 158ª rodada, #116 (sincronia Influencers -> Ações Sazonais, confirmado
+  // com a Raquel: direção Influencer->Ação): referência estruturada pro
+  // registro em Gerenciamento de Influencers, só relevante pro tipo
+  // 'acao_influencer'. Guardado como ID (nunca copia dados pessoais/
+  // financeiros do influencer pra dentro da Ação) -- nome/contato são só
+  // lidos ao vivo (ver enrichAction abaixo) pra nunca dessincronizar.
+  if (body.influencerId !== undefined) {
+    const val = String(body.influencerId || '').trim();
+    if (val) {
+      const inf = db.get('influencers').find({ id: val }).value();
+      if (!inf) throw new Error('Influencer não encontrado.');
+      if (a.brand && inf.brand !== a.brand) {
+        throw new Error('Esse influencer pertence a outra marca.');
+      }
+    }
+    a.influencerId = val || null;
+  }
+
   if (body.colaboradores !== undefined) {
     a.colaboradores = Array.isArray(body.colaboradores)
       ? body.colaboradores.map((c) => String(c).trim()).filter(Boolean)
@@ -359,6 +377,31 @@ function sanitizeAction(body, existing) {
   return a;
 }
 
+// 158ª rodada, #116: enriquece uma Ação com o nome do influencer vinculado
+// (ao vivo, nunca copiado/duplicado) -- pra EXIBIÇÃO apenas, nunca gravado
+// de volta na coleção. `enrichAction` é pra tela AUTENTICADA (inclui aviso
+// se o influencer foi excluído depois do vínculo); `enrichActionPublic` é
+// pra view do LINK PÚBLICO -- nunca inclui o `influencerId` cru nem
+// qualquer dado pessoal/financeiro do influencer (mesmo cuidado de sempre
+// com dados pessoais desde a 21ª rodada), só o nome (igual
+// serializeInfluencerPublic de routes/influencers.js).
+function enrichAction(action) {
+  if (action.type !== 'acao_influencer' || !action.influencerId) return action;
+  const inf = db.get('influencers').find({ id: action.influencerId }).value();
+  return {
+    ...action,
+    influencerNome: inf ? inf.name : '',
+    influencerRemovido: !inf
+  };
+}
+
+function enrichActionPublic(action) {
+  if (action.type !== 'acao_influencer' || !action.influencerId) return action;
+  const inf = db.get('influencers').find({ id: action.influencerId }).value();
+  const { influencerId, ...rest } = action;
+  return { ...rest, influencerNome: inf ? inf.name : '' };
+}
+
 // Sincronia com o Budget — antes era uma chamada HTTP pro outro serviço
 // (utils/plataformaSync.js do app separado); agora é uma gravação direta
 // em processo na MESMA coleção `budgetEntries` que o resto da Papoi usa
@@ -417,7 +460,7 @@ router.get('/actions', requireAuth, (req, res) => {
   let list = db.get('acoesSazonaisActions').value();
   if (req.query.brand) list = list.filter((a) => a.brand === req.query.brand);
   if (req.query.type) list = list.filter((a) => a.type === req.query.type);
-  res.json({ actions: list });
+  res.json({ actions: list.map(enrichAction) });
 });
 
 router.get('/actions/fluxos', requireAuth, (req, res) => {
@@ -427,7 +470,7 @@ router.get('/actions/fluxos', requireAuth, (req, res) => {
 router.get('/actions/:id', requireAuth, (req, res) => {
   const action = db.get('acoesSazonaisActions').find({ id: req.params.id }).value();
   if (!action) return res.status(404).json({ error: 'Ação não encontrada' });
-  res.json({ action });
+  res.json({ action: enrichAction(action) });
 });
 
 router.post('/actions', requireAuth, requireAcoesSazonaisEdit, (req, res) => {
@@ -502,7 +545,7 @@ router.post('/actions', requireAuth, requireAcoesSazonaisEdit, (req, res) => {
       entityLabel: base.title, action: 'create', details: `Tipo: ${base.type}`
     });
     syncActionToBudget(base);
-    res.status(201).json({ action: base });
+    res.status(201).json({ action: enrichAction(base) });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -529,7 +572,7 @@ router.put('/actions/:id', requireAuth, requireAcoesSazonaisEdit, (req, res) => 
       entityLabel: updated.title, action: 'update', details: 'Dados ou relatório atualizados'
     });
     syncActionToBudget(updated);
-    res.json({ action: updated });
+    res.json({ action: enrichAction(updated) });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -878,7 +921,7 @@ router.get('/public/:token', (req, res) => {
   const link = shareLinks.findByToken(req.params.token);
   if (!link || link.resource !== 'acoesSazonais') return res.status(404).json({ error: 'Link inválido ou desativado.' });
   const brand = link.scopeKey;
-  const actions = db.get('acoesSazonaisActions').filter({ brand }).value();
+  const actions = db.get('acoesSazonaisActions').filter({ brand }).value().map(enrichActionPublic);
   const showrooms = db.get('acoesSazonaisShowrooms').filter({ brand }).value();
   const budgets = db.get('acoesSazonaisBudgets').filter({ brand }).value();
   res.json({ brand, actions, showrooms, budgets });

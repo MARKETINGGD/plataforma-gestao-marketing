@@ -18413,6 +18413,26 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
       fluxos = fluxoRes.fluxos || [];
     } catch (e) { fluxos = []; }
 
+    // 158ª rodada, #116 (sincronia Influencers -> Ações Sazonais, direção
+    // Influencer->Ação confirmada com a Raquel): lista de influencers da
+    // marca atual, só usada pro select de Identificação quando o tipo é
+    // 'acao_influencer'. Nunca duplica dado do influencer na Ação -- só
+    // guarda o ID (ver sanitizeAction/enrichAction em routes/acoesSazonais.js).
+    let influencers = [];
+    try {
+      const infRes = await api('/api/influencers?brand=' + encodeURIComponent(a.brand));
+      influencers = infRes.influencers || [];
+    } catch (e) { influencers = []; }
+
+    function influencerOptionsHTML(current){
+      let html = '<option value="">— nenhum (texto livre) —</option>' + influencers.map((i) => `<option value="${i.id}" ${i.id === current ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('');
+      if (current && !influencers.some((i) => i.id === current)) {
+        const label = a.influencerRemovido ? '(influencer excluído)' : (a.influencerNome || current);
+        html += `<option value="${current}" selected>${escapeHtml(label)} (fora da lista atual)</option>`;
+      }
+      return html;
+    }
+
     function fluxoOptionsHTML(current){
       let html = '<option value="">Selecione...</option>' + fluxos.map((f) => `<option value="${escapeHtml(f)}" ${f === current ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('');
       if (current && !fluxos.includes(current)) html += `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} (fora da lista atual)</option>`;
@@ -18440,6 +18460,7 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
           <div class="field"><label>Tipo de ação *</label><select id="asFType">${asTypeOptionsHTMLForBrand(a.brand, a.type)}</select></div>
           <div class="field" id="asFieldFluxo"><label>Fluxo do orçamento *</label><select id="asFFluxo">${fluxoOptionsHTML(a.fluxo)}</select></div>
           <div class="field full"><label>Nome da ação *</label><input type="text" id="asFTitle" value="${escapeHtml(a.title)}" placeholder="Ex: Feira de Verão SP" /></div>
+          <div class="field full" id="asFieldInfluencer"><label>Influencer vinculado</label><select id="asFInfluencer">${influencerOptionsHTML(a.influencerId)}</select></div>
         </div>
 
         <div class="section-title">Responsáveis</div>
@@ -18753,6 +18774,9 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
       const fieldFluxo = document.getElementById('asFieldFluxo');
       if (fieldFluxo) fieldFluxo.style.display = (type === 'nova_feira') ? 'none' : '';
 
+      const fieldInfluencer = document.getElementById('asFieldInfluencer');
+      if (fieldInfluencer) fieldInfluencer.style.display = isInfluencer ? '' : 'none';
+
       const showParticipantes = asShouldShowParticipantes(type, modalidade);
       document.getElementById('asFieldParticipantes').style.display = showParticipantes ? '' : 'none';
       document.getElementById('asFieldParticipantesLink').style.display = AS_PARTICIPANTS_LIST_TYPES.includes(type) ? '' : 'none';
@@ -18804,6 +18828,14 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
 
     document.getElementById('asFType').addEventListener('change', updateConditionalFields);
     document.getElementById('asFModalidade').addEventListener('change', updateConditionalFields);
+    const asFInfluencerEl = document.getElementById('asFInfluencer');
+    if (asFInfluencerEl) asFInfluencerEl.addEventListener('change', () => {
+      const titleInput = document.getElementById('asFTitle');
+      if (titleInput && !titleInput.value.trim() && asFInfluencerEl.value) {
+        const inf = influencers.find((i) => i.id === asFInfluencerEl.value);
+        if (inf) titleInput.value = inf.name;
+      }
+    });
     document.getElementById('asFRedesSociais').addEventListener('change', updateConditionalFields);
     document.getElementById('asFCampanhaTrafego').addEventListener('change', updateConditionalFields);
     document.getElementById('asFFeita').addEventListener('change', () => { renderServicos(); });
@@ -18825,6 +18857,12 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
         } catch (e2) { fluxos = []; }
         fluxoSelect.innerHTML = fluxoOptionsHTML('');
       }
+      try {
+        const infRes2 = await api('/api/influencers?brand=' + encodeURIComponent(newBrand));
+        influencers = infRes2.influencers || [];
+      } catch (e3) { influencers = []; }
+      const infSelect2 = document.getElementById('asFInfluencer');
+      if (infSelect2) infSelect2.innerHTML = influencerOptionsHTML('');
       updateConditionalFields();
     });
 
@@ -19003,8 +19041,10 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
       const type = document.getElementById('asFType').value;
       const fluxoVal = document.getElementById('asFFluxo') ? document.getElementById('asFFluxo').value : '';
       if (type !== 'nova_feira' && !fluxoVal) { asToast('Escolha o fluxo do orçamento para esta ação.', true); return; }
+      const infSelectVal = document.getElementById('asFInfluencer') ? document.getElementById('asFInfluencer').value : '';
       const payload = {
         brand, type, fluxo: fluxoVal, title,
+        influencerId: type === 'acao_influencer' ? infSelectVal : '',
         representante: document.getElementById('asFRepresentante').value,
         gerente: document.getElementById('asFGerente').value,
         setor: document.getElementById('asFSetor').value,
@@ -19138,6 +19178,7 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
       </div>
       <div class="modal-body">
         <dl class="as-report-dl">
+          ${isInfluencer ? `<div><dt>Influencer</dt><dd>${action.influencerId ? (action.influencerRemovido ? 'Influencer excluído de Gerenciamento' : escapeHtml(action.influencerNome || '—')) : '—'}</dd></div>` : ''}
           <div><dt>Período</dt><dd>${asFmtDateRange(action.dataInicio, action.dataFim)}</dd></div>
           ${action.fluxo ? `<div><dt>Fluxo do orçamento</dt><dd>${escapeHtml(action.fluxo)}</dd></div>` : ''}
           <div><dt>Região</dt><dd>${escapeHtml(action.regiao) || '—'}</dd></div>

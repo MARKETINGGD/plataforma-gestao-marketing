@@ -17643,10 +17643,13 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
           <p class="board-eyebrow">Ações Sazonais</p>
           <h1 class="board-title">Visão Geral</h1>
         </div>
-        <select id="asDashboardYearSelect" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;">
-          <option value="all" ${asDashboardYear === 'all' ? 'selected' : ''}>Todos os anos</option>
-          ${availableYears.map((y) => `<option value="${y}" ${asDashboardYear === y ? 'selected' : ''}>${y}</option>`).join('')}
-        </select>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <select id="asDashboardYearSelect" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;">
+            <option value="all" ${asDashboardYear === 'all' ? 'selected' : ''}>Todos os anos</option>
+            ${availableYears.map((y) => `<option value="${y}" ${asDashboardYear === y ? 'selected' : ''}>${y}</option>`).join('')}
+          </select>
+          <button class="btn-secondary no-print" id="asDashboardExportPdfBtn">Baixar PDF</button>
+        </div>
       </div>
 
       <div class="board-card board-section" style="border-left:4px solid ${statusColor};">
@@ -17801,6 +17804,8 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     if (yearSelect) yearSelect.addEventListener('change', (e) => { asDashboardYear = e.target.value; asRenderDashboard(); });
     const chkMonthly = document.getElementById('asChkCompareMonthly');
     if (chkMonthly) chkMonthly.addEventListener('change', (e) => { asCompareMonthly = e.target.checked; asRenderDashboard(); });
+    const exportPdfBtn = document.getElementById('asDashboardExportPdfBtn');
+    if (exportPdfBtn) exportPdfBtn.onclick = exportViewToPdf;
   }
 
   // ---- 158ª rodada, #124, #127c: helpers pra Vendas e Meta (portados
@@ -18163,7 +18168,11 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     root.innerHTML = `
       <div class="board-section-head">
         <h2>Ações <span class="muted" style="font-weight:400;font-size:13px;">(${list.length})</span></h2>
-        ${canEdit ? `<button class="btn-primary" id="asBtnNovaAcao">+ Nova ação</button>` : ''}
+        <div style="display:flex;gap:8px;">
+          <button class="btn-secondary no-print" id="asAcoesExportExcelBtn">Baixar Excel</button>
+          <button class="btn-secondary no-print" id="asAcoesExportPdfBtn">Baixar PDF</button>
+          ${canEdit ? `<button class="btn-primary" id="asBtnNovaAcao">+ Nova ação</button>` : ''}
+        </div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">
         <select id="asAcoesFilterType" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;">
@@ -18240,6 +18249,19 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
         cb.addEventListener('change', () => asToggleActionFeita(cb));
       });
     }
+    const exportPdfBtn = document.getElementById('asAcoesExportPdfBtn');
+    if (exportPdfBtn) exportPdfBtn.onclick = exportViewToPdf;
+    const exportExcelBtn = document.getElementById('asAcoesExportExcelBtn');
+    if (exportExcelBtn) exportExcelBtn.onclick = () => {
+      const headers = ['Ação', 'Feita', 'Marca', 'Tipo', 'Setor', 'Região', 'Início', 'Fim', 'Investido', 'Cliente', 'Budget', 'Gerente', 'Representante'];
+      const rows = list.map((a) => [
+        a.title || '', asIsActionFeita(a) ? 'Sim' : 'Não', a.brand === 'debacco' ? 'De Bacco' : 'GhelPlus',
+        AS_TYPE_LABELS[a.type] || a.type || '', AS_SETOR_LABELS[a.setor] || '', a.regiao || '',
+        a.dataInicio || '', a.dataFim || '', Number(a.valorInvestido) || 0, a.cliente || '',
+        asIsPlanned(a) ? 'Dentro do budget' : 'Fora do budget', a.gerente || '', a.representante || ''
+      ]);
+      exportRowsToExcel(`Papoi - Acoes Sazonais ${asBrand === 'all' ? 'todas as marcas' : (asBrand === 'debacco' ? 'De Bacco' : 'GhelPlus')}.xlsx`, 'Ações', headers, rows);
+    };
   }
 
   async function asToggleActionFeita(checkbox){
@@ -19195,6 +19217,7 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
           <p class="board-eyebrow">Ações Sazonais</p>
           <h1 class="board-title">Dashboard Expositores Especiais</h1>
         </div>
+        <button class="btn-secondary no-print" id="asExpositoresDashboardExportPdfBtn">Baixar PDF</button>
       </div>
 
       <div class="board-card board-section">
@@ -19272,6 +19295,8 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
         if (s) asOpenShowroomDetailModal(s);
       });
     });
+    const exportPdfBtn = document.getElementById('asExpositoresDashboardExportPdfBtn');
+    if (exportPdfBtn) exportPdfBtn.onclick = exportViewToPdf;
   }
 
   let asExpositoresFilterGerente = '';
@@ -19294,7 +19319,11 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     root.innerHTML = `
       <div class="board-section-head">
         <h2>Expositores Especiais <span class="muted" style="font-weight:400;font-size:13px;">(${list.length})</span></h2>
-        ${canEdit ? `<button class="btn-primary" id="asBtnNovoShowroom">+ Novo expositor especial</button>` : ''}
+        <div style="display:flex;gap:8px;">
+          <button class="btn-secondary no-print" id="asExpositoresExportExcelBtn">Baixar Excel</button>
+          <button class="btn-secondary no-print" id="asExpositoresExportPdfBtn">Baixar PDF</button>
+          ${canEdit ? `<button class="btn-primary" id="asBtnNovoShowroom">+ Novo expositor especial</button>` : ''}
+        </div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">
         <input type="search" id="asExpositoresFilterSearch" placeholder="Buscar por lojista, região, gerente..." value="${escapeHtml(asExpositoresSearch)}" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;font-family:inherit;" />
@@ -19356,6 +19385,18 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
         else if (btn.dataset.asShowroomAct === 'delete') asDeleteShowroom(showroom);
       });
     });
+    const exportPdfBtn = document.getElementById('asExpositoresExportPdfBtn');
+    if (exportPdfBtn) exportPdfBtn.onclick = exportViewToPdf;
+    const exportExcelBtn = document.getElementById('asExpositoresExportExcelBtn');
+    if (exportExcelBtn) exportExcelBtn.onclick = () => {
+      const headers = ['Lojista', 'Marca', 'Região', 'Gerente', 'Representante', 'Solicitado em', 'Investimento', 'Pagamento', 'Budget'];
+      const rows = list.map((s) => [
+        s.lojista || '', s.brand === 'debacco' ? 'De Bacco' : 'GhelPlus', s.regiao || '', s.gerente || '', s.representante || '',
+        s.dataSolicitacao || '', Number(s.valorInvestimento) || 0, s.formaPagamento || '',
+        asIsPlanned(s) ? 'Dentro do budget' : 'Fora do budget'
+      ]);
+      exportRowsToExcel(`Papoi - Expositores Especiais ${asBrand === 'all' ? 'todas as marcas' : (asBrand === 'debacco' ? 'De Bacco' : 'GhelPlus')}.xlsx`, 'Expositores', headers, rows);
+    };
   }
 
   async function asDeleteShowroom(showroom){

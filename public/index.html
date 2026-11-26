@@ -234,6 +234,7 @@
           <div class="navlink-submenu" id="navInfluencersSubmenu" hidden>
             <button class="navlink navlink-sub" id="navInfluencersGerenciamento" data-view="influencers">Gerenciamento de Influencers</button>
             <button class="navlink navlink-sub" id="navInfluencersAnalise" data-view="influencer-analises">Análise de Influencer</button>
+            <button class="navlink navlink-sub" id="navInfluencersPropostas" data-view="influencer-propostas">Propostas de Influencer</button>
           </div>
         </div>
         <!-- 33ª rodada, pedido da Raquel: "no botão produtos deve ter um sub
@@ -1938,6 +1939,89 @@
           <div class="form-actions">
             <button class="btn-primary" id="analiseFormSave">Salvar</button>
             <button class="btn-secondary" id="analiseFormCancel">Cancelar</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 158ª rodada, item #117: Propostas de Influencer -- etapa nova
+           entre Análise de Influencer aprovada e o cadastro definitivo em
+           Gerenciamento de Influencers (ver routes/influencerPropostas.js).
+           Uma Proposta nasce automaticamente quando uma Análise é aprovada
+           -- nunca criada manualmente aqui. Aprovar a Proposta cria o
+           influencer de verdade em Gerenciamento; reprovar só marca o
+           motivo (o influencer nunca chega a ser criado). Depois de
+           decidida (aprovada ou reprovada) a Proposta não pode mais ser
+           editada -- só as "em análise" ficam abertas pra edição. -->
+      <section id="view-influencer-propostas" class="view" hidden>
+        <div class="view-toolbar">
+          <h2>Propostas de Influencer</h2>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-proposta-brand="debacco">De Bacco</button>
+          <button class="tab-btn" data-proposta-brand="ghelplus">GhelPlus</button>
+        </div>
+
+        <div class="tabs" style="margin-top:8px;">
+          <button class="tab-btn active" data-proposta-status="em_analise">Propostas em Análise</button>
+          <button class="tab-btn" data-proposta-status="reprovada">Propostas Reprovadas</button>
+        </div>
+
+        <div id="propostaList" class="card-grid"></div>
+        <p id="propostaEmpty" class="muted" hidden>Nenhuma proposta nessa aba.</p>
+
+        <div id="propostaFormWrap" class="form-card" hidden>
+          <h3 id="propostaFormTitle">Proposta</h3>
+          <input type="hidden" id="propostaFormId">
+
+          <p class="muted" style="margin:4px 0;font-size:12px;">Influencer: <strong id="propostaFormNome"></strong> <span id="propostaFormEmail" class="muted"></span></p>
+          <div id="propostaFormMotivoWrap" class="muted" style="font-size:12px;margin:0 0 8px;" hidden>Motivo da reprovação: <span id="propostaFormMotivo"></span></div>
+
+          <div class="form-row">
+            <div>
+              <label>Forma de pagamento</label>
+              <select id="propostaFormFormaPagamento">
+                <option value="">Selecione...</option>
+                <option value="produto">Produto</option>
+                <option value="pix">Pix</option>
+                <option value="transferencia">Transferência</option>
+              </select>
+            </div>
+            <div><label>Fluxo (Budget)</label><select id="propostaFormFluxo"><option value="">Sem fluxo ainda</option></select></div>
+          </div>
+          <div class="form-row">
+            <div><label>Valor total (R$)</label><input id="propostaFormValorTotal" type="number" step="0.01"></div>
+            <div><label>Data de entrega da proposta</label><input id="propostaFormDataEntregaProposta" type="date"></div>
+          </div>
+          <div class="form-row">
+            <div><label>Vigência início</label><input id="propostaFormVigenciaInicio" type="date"></div>
+            <div><label>Vigência fim</label><input id="propostaFormVigenciaFim" type="date"></div>
+          </div>
+          <div><label>Entregas (descrição livre)</label><textarea id="propostaFormEntregas" rows="2" placeholder="Ex: 3 posts + 1 reels"></textarea></div>
+          <div><label>Observações</label><textarea id="propostaFormObservacoes" rows="2"></textarea></div>
+
+          <div id="propostaLinksSection">
+            <p class="muted" style="margin:16px 0 4px;font-size:12px;">Links</p>
+            <div id="propostaLinksList"></div>
+            <div class="form-row">
+              <div><label>URL</label><input id="propostaLinkNovoUrl" type="text" placeholder="https://..."></div>
+              <div><label>Descrição</label><input id="propostaLinkNovoLabel" type="text" placeholder="Ex: Instagram"></div>
+            </div>
+            <button type="button" class="btn-secondary" id="propostaLinkAddBtn">+ Adicionar link</button>
+          </div>
+
+          <div id="propostaArquivosSection">
+            <p class="muted" style="margin:16px 0 4px;font-size:12px;">Arquivos</p>
+            <div id="propostaArquivos"></div>
+            <input type="file" id="propostaArquivoInput">
+          </div>
+
+          <div id="propostaFormError" class="error" hidden></div>
+          <div class="form-actions">
+            <button class="btn-primary" id="propostaFormSave">Salvar</button>
+            <button class="btn-primary" id="propostaFormAprovar">✔ Aprovar</button>
+            <button class="btn-secondary" id="propostaFormReprovar" style="color:var(--danger);">✖ Reprovar</button>
+            <button class="btn-secondary" id="propostaFormCancel">Fechar</button>
           </div>
         </div>
       </section>

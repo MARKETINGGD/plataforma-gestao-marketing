@@ -289,6 +289,11 @@
   let analisesTab = 'debacco'; // 'debacco' | 'ghelplus'
   let analisesList = [];
   let editingAnaliseId = null;
+  // 158ª rodada, item #117
+  let propostasBrand = 'debacco'; // 'debacco' | 'ghelplus'
+  let propostasStatusTab = 'em_analise'; // 'em_analise' | 'reprovada'
+  let propostasList = [];
+  let editingPropostaId = null;
   // Campos do formulário, na mesma ordem/nome da planilha "MAPEAMENTO DE
   // INFLUENCIADORES" (abas "Mapeamento" e "Informações importantes") que a
   // Raquel compartilhou -- usado tanto pra ler quanto pra montar o payload
@@ -1322,7 +1327,7 @@
     // Influencers (89ª rodada: virou submenu com Gerenciamento de
     // Influencers + Análise de Influencer) -- mesmo padrão do Budget/
     // Produtos acima.
-    if (id === 'navInfluencersGerenciamento' || id === 'navInfluencersAnalise') {
+    if (id === 'navInfluencersGerenciamento' || id === 'navInfluencersAnalise' || id === 'navInfluencersPropostas') {
       $('#navInfluencersParent').classList.add('active');
       $('#navInfluencersSubmenu').hidden = false;
     }
@@ -2452,6 +2457,7 @@
         if (b.dataset.view === 'cronograma') loadCronograma();
         if (b.dataset.view === 'influencers') loadInfluencers();
         if (b.dataset.view === 'influencer-analises') { $('#analiseFormWrap').hidden = true; loadInfluencerAnalises(); }
+        if (b.dataset.view === 'influencer-propostas') { $('#propostaFormWrap').hidden = true; loadInfluencerPropostas(); }
         if (b.dataset.view === 'chat') { loadChatConversations(); loadChat(); }
         if (b.dataset.view === 'feiras') loadFeiras();
         if (b.dataset.view === 'campanha-cooperada') loadCampanhasCooperadas();
@@ -15114,6 +15120,248 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     } catch (e) {
       $('#analiseFormError').textContent = e.message;
       $('#analiseFormError').hidden = false;
+    }
+  };
+
+  // ---------- Propostas de Influencer (158ª rodada, item #117) ----------
+  // Etapa nova entre Análise de Influencer aprovada e o cadastro
+  // definitivo em Gerenciamento de Influencers (ver
+  // routes/influencerPropostas.js). Uma Proposta nasce automaticamente
+  // quando uma Análise é aprovada -- nunca criada manualmente aqui, por
+  // isso não tem botão "+ Nova proposta" (diferente da tela de Análise).
+  // Só existem 2 abas de status nesta tela: "Propostas em Análise"
+  // (em_analise) e "Propostas Reprovadas" (reprovada) -- uma Proposta
+  // aprovada já virou influencer de verdade e sai daqui, aparecendo em
+  // Gerenciamento de Influencers.
+  const PROPOSTA_STATUS_TAB_LABEL = { em_analise: 'Em análise', reprovada: 'Reprovada' };
+  const PROPOSTA_FORMA_PAGAMENTO_LABEL = { produto: 'Produto', pix: 'Pix', transferencia: 'Transferência' };
+
+  async function loadInfluencerPropostas() {
+    try {
+      const data = await api('/api/influencer-propostas');
+      propostasList = data.propostas;
+      renderPropostaList();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  function renderPropostaList() {
+    const wrap = $('#propostaList');
+    wrap.innerHTML = '';
+    const list = propostasList.filter((p) => p.brand === propostasBrand && p.status === propostasStatusTab);
+    $('#propostaEmpty').hidden = list.length > 0;
+    list.forEach((p) => {
+      const card = document.createElement('div');
+      card.className = 'dash-card';
+      card.innerHTML = `
+        <h3>${escapeHtml(p.nome || '(sem nome)')}</h3>
+        <p class="muted" style="font-size:12px;margin-top:-4px;">${p.formaPagamento ? PROPOSTA_FORMA_PAGAMENTO_LABEL[p.formaPagamento] || p.formaPagamento : 'Forma de pagamento não definida'}${p.valorTotal ? ' · R$ ' + Number(p.valorTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}</p>
+        ${p.fluxo ? `<p class="muted" style="font-size:12px;margin-top:-4px;">Fluxo: ${escapeHtml(p.fluxo)}</p>` : ''}
+        ${p.status === 'reprovada' && p.motivoReprovacao ? `<p class="muted" style="font-size:12px;margin-top:-4px;">Motivo: ${escapeHtml(p.motivoReprovacao)}</p>` : ''}
+      `;
+      const actionsRow = document.createElement('div');
+      actionsRow.style.cssText = 'display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;';
+      const openBtn = document.createElement('button');
+      openBtn.textContent = p.status === 'em_analise' ? 'Editar / Decidir' : 'Ver';
+      openBtn.className = 'btn-link';
+      openBtn.onclick = () => openPropostaForm(p);
+      actionsRow.appendChild(openBtn);
+      card.appendChild(actionsRow);
+      wrap.appendChild(card);
+    });
+  }
+
+  $all('[data-proposta-brand]').forEach((b) => {
+    b.onclick = () => {
+      propostasBrand = b.dataset.propostaBrand;
+      $all('[data-proposta-brand]').forEach((x) => x.classList.toggle('active', x.dataset.propostaBrand === propostasBrand));
+      $('#propostaFormWrap').hidden = true;
+      renderPropostaList();
+    };
+  });
+  $all('[data-proposta-status]').forEach((b) => {
+    b.onclick = () => {
+      propostasStatusTab = b.dataset.propostaStatus;
+      $all('[data-proposta-status]').forEach((x) => x.classList.toggle('active', x.dataset.propostaStatus === propostasStatusTab));
+      $('#propostaFormWrap').hidden = true;
+      renderPropostaList();
+    };
+  });
+
+  async function fillPropostaFluxoSelect(brand, selected) {
+    const sel = $('#propostaFormFluxo');
+    if (!budgetFluxosByBrand[brand]) {
+      try {
+        const meta = await api('/api/budget/meta?brand=' + encodeURIComponent(brand));
+        budgetFluxosByBrand[brand] = meta.fluxos;
+      } catch (e) { /* sem acesso ao Budget dessa marca */ }
+    }
+    const fluxos = budgetFluxosByBrand[brand] || [];
+    sel.innerHTML = '<option value="">Sem fluxo ainda</option>' + fluxos.map((f) => `<option value="${escapeHtml(f)}"${f === selected ? ' selected' : ''}>${escapeHtml(f)}</option>`).join('');
+  }
+
+  function renderPropostaLinks(p) {
+    const wrap = $('#propostaLinksList');
+    wrap.innerHTML = '';
+    (p.links || []).forEach((l) => {
+      const row = document.createElement('div');
+      row.className = 'file-item';
+      row.innerHTML = `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.label || l.url)}</a>`;
+      if (p.status === 'em_analise') {
+        const delBtn = document.createElement('button');
+        delBtn.textContent = '✕';
+        delBtn.className = 'btn-link';
+        delBtn.onclick = async () => {
+          try {
+            await api(`/api/influencer-propostas/${p.id}/links/${l.id}`, { method: 'DELETE' });
+            await loadInfluencerPropostas();
+            renderPropostaLinks((propostasList.find((it) => it.id === p.id)) || p);
+          } catch (err) { alert(err.message); }
+        };
+        row.appendChild(delBtn);
+      }
+      wrap.appendChild(row);
+    });
+  }
+
+  function renderPropostaArquivos(p) {
+    const wrap = $('#propostaArquivos');
+    wrap.innerHTML = '';
+    (p.arquivos || []).forEach((f) => {
+      const row = document.createElement('div');
+      row.className = 'file-item';
+      row.innerHTML = `<a href="${f.url}" target="_blank" rel="noopener">${escapeHtml(f.name)}</a> <span class="muted">(${fmtBytes(f.size)})</span>`;
+      if (p.status === 'em_analise') {
+        const delBtn = document.createElement('button');
+        delBtn.textContent = '✕';
+        delBtn.className = 'btn-link';
+        delBtn.onclick = async () => {
+          try {
+            await api(`/api/influencer-propostas/${p.id}/arquivos/${f.id}`, { method: 'DELETE' });
+            await loadInfluencerPropostas();
+            renderPropostaArquivos((propostasList.find((it) => it.id === p.id)) || p);
+          } catch (err) { alert(err.message); }
+        };
+        row.appendChild(delBtn);
+      }
+      wrap.appendChild(row);
+    });
+  }
+
+  async function openPropostaForm(p) {
+    editingPropostaId = p.id;
+    const editable = p.status === 'em_analise';
+    $('#propostaFormTitle').textContent = p.nome || 'Proposta';
+    $('#propostaFormNome').textContent = p.nome || '';
+    $('#propostaFormEmail').textContent = p.email ? '(' + p.email + ')' : '';
+    $('#propostaFormMotivoWrap').hidden = !(p.status === 'reprovada' && p.motivoReprovacao);
+    $('#propostaFormMotivo').textContent = p.motivoReprovacao || '';
+    $('#propostaFormFormaPagamento').value = p.formaPagamento || '';
+    $('#propostaFormValorTotal').value = p.valorTotal === null || p.valorTotal === undefined ? '' : p.valorTotal;
+    $('#propostaFormDataEntregaProposta').value = p.dataEntregaProposta || '';
+    $('#propostaFormVigenciaInicio').value = p.vigenciaInicio || '';
+    $('#propostaFormVigenciaFim').value = p.vigenciaFim || '';
+    $('#propostaFormEntregas').value = p.entregas || '';
+    $('#propostaFormObservacoes').value = p.observacoes || '';
+    await fillPropostaFluxoSelect(p.brand, p.fluxo || '');
+    // Campos só editáveis enquanto a proposta ainda está "em análise" --
+    // depois de decidida (aprovada ou reprovada) o backend rejeita
+    // qualquer PUT, então a tela também bloqueia pra não confundir.
+    ['propostaFormFormaPagamento', 'propostaFormFluxo', 'propostaFormValorTotal', 'propostaFormDataEntregaProposta',
+      'propostaFormVigenciaInicio', 'propostaFormVigenciaFim', 'propostaFormEntregas', 'propostaFormObservacoes'].forEach((id) => {
+      $('#' + id).disabled = !editable;
+    });
+    $('#propostaLinksSection').style.display = editable ? '' : 'none';
+    $('#propostaArquivosSection').style.display = '';
+    $('#propostaArquivoInput').style.display = editable ? '' : 'none';
+    $('#propostaFormSave').hidden = !editable;
+    $('#propostaFormAprovar').hidden = !editable;
+    $('#propostaFormReprovar').hidden = !editable;
+    $('#propostaFormError').hidden = true;
+    renderPropostaLinks(p);
+    renderPropostaArquivos(p);
+    $('#propostaFormWrap').hidden = false;
+  }
+
+  $('#propostaFormCancel').onclick = () => { $('#propostaFormWrap').hidden = true; };
+
+  $('#propostaLinkAddBtn').onclick = async () => {
+    const url = $('#propostaLinkNovoUrl').value.trim();
+    const label = $('#propostaLinkNovoLabel').value.trim();
+    if (!url || !editingPropostaId) return;
+    try {
+      await api(`/api/influencer-propostas/${editingPropostaId}/links`, { method: 'POST', body: JSON.stringify({ url, label }) });
+      $('#propostaLinkNovoUrl').value = '';
+      $('#propostaLinkNovoLabel').value = '';
+      await loadInfluencerPropostas();
+      renderPropostaLinks(propostasList.find((it) => it.id === editingPropostaId));
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $('#propostaArquivoInput').onchange = async () => {
+    const file = $('#propostaArquivoInput').files[0];
+    if (!file || !editingPropostaId) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api(`/api/influencer-propostas/${editingPropostaId}/arquivos`, { method: 'POST', body: fd });
+      $('#propostaArquivoInput').value = '';
+      await loadInfluencerPropostas();
+      renderPropostaArquivos(propostasList.find((it) => it.id === editingPropostaId));
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $('#propostaFormSave').onclick = async () => {
+    if (!editingPropostaId) return;
+    const payload = {
+      formaPagamento: $('#propostaFormFormaPagamento').value,
+      fluxo: $('#propostaFormFluxo').value,
+      valorTotal: $('#propostaFormValorTotal').value === '' ? null : $('#propostaFormValorTotal').value,
+      dataEntregaProposta: $('#propostaFormDataEntregaProposta').value || null,
+      vigenciaInicio: $('#propostaFormVigenciaInicio').value || null,
+      vigenciaFim: $('#propostaFormVigenciaFim').value || null,
+      entregas: $('#propostaFormEntregas').value,
+      observacoes: $('#propostaFormObservacoes').value
+    };
+    try {
+      await api('/api/influencer-propostas/' + editingPropostaId, { method: 'PUT', body: JSON.stringify(payload) });
+      await loadInfluencerPropostas();
+      $('#propostaFormError').hidden = true;
+    } catch (e) {
+      $('#propostaFormError').textContent = e.message;
+      $('#propostaFormError').hidden = false;
+    }
+  };
+
+  $('#propostaFormAprovar').onclick = async () => {
+    if (!editingPropostaId) return;
+    const p = propostasList.find((it) => it.id === editingPropostaId);
+    if (!confirm(`Aprovar a proposta de "${p ? p.nome : ''}"? Isso cria o cadastro definitivo em Gerenciamento de Influencers.`)) return;
+    try {
+      await api(`/api/influencer-propostas/${editingPropostaId}/aprovar`, { method: 'POST' });
+      $('#propostaFormWrap').hidden = true;
+      await loadInfluencerPropostas();
+    } catch (e) {
+      $('#propostaFormError').textContent = e.message;
+      $('#propostaFormError').hidden = false;
+    }
+  };
+
+  $('#propostaFormReprovar').onclick = async () => {
+    if (!editingPropostaId) return;
+    const motivo = prompt('Motivo da reprovação (opcional):') || '';
+    try {
+      await api(`/api/influencer-propostas/${editingPropostaId}/reprovar`, { method: 'POST', body: JSON.stringify({ motivo }) });
+      $('#propostaFormWrap').hidden = true;
+      await loadInfluencerPropostas();
+    } catch (e) {
+      $('#propostaFormError').textContent = e.message;
+      $('#propostaFormError').hidden = false;
     }
   };
 

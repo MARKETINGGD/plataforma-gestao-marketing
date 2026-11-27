@@ -181,6 +181,14 @@ require('./utils/metaPublisher').startMetaPublisherScheduler();
 require('./utils/trafegoPagoMetaAdsSync').startTrafegoPagoMetaAdsSyncScheduler();
 require('./utils/seedTrafegoPagoMigration156').seedTrafegoPagoMigration156();
 
+// 158ª rodada, item #129, pedido da Raquel ("eu preciso que vc migre ao
+// papoi, tudo que ja estava cadastrado nas ações sazonais" + "quero pegar
+// os arquivos anexados tbm") -- importação única (idempotente) do
+// histórico real de Ações Sazonais do app separado (Railway), exportado
+// via railway ssh pela própria Raquel -- ver
+// utils/migrateAcoesSazonaisHistorico129.js.
+require('./utils/migrateAcoesSazonaisHistorico129').migrateAcoesSazonaisHistorico129();
+
 // 67ª rodada: mesma ideia, agora pra LinkedIn -- checa a cada 2 minutos se
 // tem post de LinkedIn com a data/hora batendo e conta conectada (ver
 // utils/linkedinPublisher.js). Ainda sem nenhum teste real -- depende da

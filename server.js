@@ -189,6 +189,15 @@ require('./utils/seedTrafegoPagoMigration156').seedTrafegoPagoMigration156();
 // utils/migrateAcoesSazonaisHistorico129.js.
 require('./utils/migrateAcoesSazonaisHistorico129').migrateAcoesSazonaisHistorico129();
 
+// 158ª rodada, item #130, pedido da Raquel ("agora revise cada lançamento
+// do budget da GhelPlus... compare com essa planilha do drive" + "o
+// budget GhelPlus do drive, deve ficar exatamente igual aos lançamentos
+// do papoi") -- 3 ajustes pontuais confirmados por ela depois da
+// auditoria linha a linha dos 490 lançamentos (ver
+// RELATORIO-AUDITORIA-BUDGET-GHELPLUS.md e
+// utils/migrateBudgetGhelplusReconciliacao130.js).
+require('./utils/migrateBudgetGhelplusReconciliacao130').migrateBudgetGhelplusReconciliacao130();
+
 // 67ª rodada: mesma ideia, agora pra LinkedIn -- checa a cada 2 minutos se
 // tem post de LinkedIn com a data/hora batendo e conta conectada (ver
 // utils/linkedinPublisher.js). Ainda sem nenhum teste real -- depende da

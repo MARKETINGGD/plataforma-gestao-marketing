@@ -4753,8 +4753,7 @@
     { id: 'dashboard', label: 'Visão Geral' },
     { id: 'vendas_meta', label: 'Resultados de Vendas e Meta' },
     { id: 'acoes', label: 'Ações' },
-    { id: 'historico', label: 'Histórico' },
-    { id: 'usuarios', label: 'Usuários', adminOnly: true }
+    { id: 'historico', label: 'Histórico' }
   ];
   // Expositores Especiais (30ª rodada, pedido da Raquel: "quero que saia
   // dele os expositores especiais, e fiquem em um botão separado no
@@ -20380,12 +20379,11 @@ Total atual: ${totalAtualTexto}. Automático (calculado pelos registros de saíd
     else if (asTab === 'expositores_dashboard') asRenderExpositoresDashboard();
     else if (asTab === 'expositores') asRenderExpositores();
     else if (asTab === 'historico') asRenderHistorico();
-    // 'usuarios' é só texto estático, nada pra renderizar.
   }
 
   function asSetTab(tab){
     asTab = tab;
-    ['dashboard', 'vendas_meta', 'acoes', 'expositores_dashboard', 'expositores', 'historico', 'usuarios'].forEach((t) => {
+    ['dashboard', 'vendas_meta', 'acoes', 'expositores_dashboard', 'expositores', 'historico'].forEach((t) => {
       const pageEl = document.getElementById('as' + t.replace(/(^|_)([a-z])/g, (m, p, c) => c.toUpperCase()) + 'Page');
       if (pageEl) pageEl.style.display = (t === tab) ? '' : 'none';
     });

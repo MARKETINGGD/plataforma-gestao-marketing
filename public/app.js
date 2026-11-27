@@ -5175,6 +5175,101 @@
     input.addEventListener('blur', () => finish(true));
   }
 
+  // 158ª rodada, pedido da Raquel: "toda a planilha de budget, alem de
+  // valores, deve ter a opção de editar direto nela... quero poder editar
+  // alem de valores a quantidade e nome tbm" -- fornecedor/título da
+  // compra/quantidade são os mesmos pra TODOS os meses de uma linha
+  // pivotada (ela agrupa por fluxo+fornecedor+título, ver
+  // renderBudgetPivot acima), por isso editar esses 3 campos aqui aplica
+  // o mesmo valor em TODOS os lançamentos (1 por mês) que já existirem
+  // nessa linha -- sem isso a linha ficaria com fornecedor/título
+  // diferente em cada mês, o que não faz sentido (é a mesma compra).
+  function budgetPivotRowEntries(prow) {
+    const ids = new Set();
+    for (let m = 1; m <= 12; m++) {
+      const meta = budgetPivotCellIndex[`${prow}:${m}`];
+      if (meta && meta.entryId) ids.add(meta.entryId);
+    }
+    return [...ids];
+  }
+
+  function enterBudgetPivotRowFieldEdit(td, prow, field) {
+    const meta = budgetPivotCellIndex[`${prow}:1`];
+    if (!meta) return;
+    const entryIds = budgetPivotRowEntries(prow);
+    // Linha sem nenhum lançamento ainda (só apareceria com "+" nos meses,
+    // o que nem deveria acontecer pra uma linha já agrupada) -- nada pra
+    // editar.
+    if (entryIds.length === 0) return;
+    const currentValue = field === 'quantidade'
+      ? (meta.quantidade === null || meta.quantidade === undefined ? '' : meta.quantidade)
+      : (meta[field] || '');
+    const originalHtml = td.innerHTML;
+    td.classList.add('budget-pivot-cell-editing');
+    td.innerHTML = '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    if (field === 'quantidade') input.inputMode = 'decimal';
+    input.className = 'budget-pivot-cell-input' + (field === 'quantidade' ? '' : ' budget-pivot-cell-input-text');
+    input.value = String(currentValue);
+    td.appendChild(input);
+    input.focus();
+    input.select();
+    let finished = false;
+    const finish = async (commit) => {
+      if (finished) return;
+      finished = true;
+      td.classList.remove('budget-pivot-cell-editing');
+      if (!commit) { td.innerHTML = originalHtml; return; }
+      const raw = input.value.trim();
+      try {
+        for (const id of entryIds) {
+          await api('/api/budget/' + id, { method: 'PUT', body: JSON.stringify({ [field]: raw }) });
+        }
+      } catch (e) {
+        alert(e.message || 'Não foi possível salvar.');
+      }
+      await loadBudget();
+    };
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); finish(true); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
+
+  // 158ª rodada, pedido da Raquel: "adicione tbm no papoi a opção de
+  // exluir lançamento, direto ali linha" -- apaga TODOS os lançamentos
+  // (1 por mês) dessa linha pivotada de uma vez. Avisa quantos meses tem
+  // dado, e avisa também se algum desses lançamentos tem o OUTRO campo
+  // (planejado/realizado, o que não está sendo visto nesta aba) também
+  // preenchido -- apagar o lançamento apaga o registro inteiro, os 2
+  // campos juntos, não só o que aparece na aba atual.
+  async function deleteBudgetPivotRow(prow) {
+    const entryIds = budgetPivotRowEntries(prow);
+    if (entryIds.length === 0) return;
+    const meta = budgetPivotCellIndex[`${prow}:1`];
+    const outroCampo = budgetPivotActiveField === 'planejado' ? 'realizado' : 'planejado';
+    const outroCampoLabel = outroCampo === 'planejado' ? 'Planejado' : 'Realizado';
+    const temOutroCampo = entryIds.some((id) => {
+      const entry = budgetEntries.find((e) => e.id === id);
+      return entry && entry[outroCampo] !== null && entry[outroCampo] !== undefined;
+    });
+    let msg = `Excluir "${meta.tituloCompra || '(sem título)'}" (${meta.fluxo})? Isso vai apagar ${entryIds.length} lançamento(s) (1 por mês já preenchido).`;
+    if (temOutroCampo) {
+      msg += ` Atenção: pelo menos 1 desses lançamentos também tem valor de ${outroCampoLabel} preenchido -- isso também será apagado junto.`;
+    }
+    if (!confirm(msg)) return;
+    try {
+      for (const id of entryIds) {
+        await api('/api/budget/' + id, { method: 'DELETE' });
+      }
+      await loadBudget();
+    } catch (e) {
+      alert(e.message || 'Não foi possível excluir.');
+    }
+  }
+
   function wireBudgetPivotKeyboard() {
     if (budgetPivotKeydownWired) return;
     budgetPivotKeydownWired = true;
@@ -5331,12 +5426,12 @@
         }
         fluxoTotal += rowTotal;
         tr.innerHTML = `
-          <td>${escapeHtml(g.fornecedor)}</td>
-          <td>${g.recorrente ? '🔁 ' : ''}${escapeHtml(g.tituloCompra)}</td>
-          <td class="num">${g.quantidade === null ? '' : g.quantidade}</td>
+          <td class="${canEdit ? 'budget-pivot-rowfield' : ''}" ${canEdit ? `data-prow="${prow}" data-rfield="fornecedor"` : ''}>${escapeHtml(g.fornecedor)}</td>
+          <td class="${canEdit ? 'budget-pivot-rowfield' : ''}" ${canEdit ? `data-prow="${prow}" data-rfield="tituloCompra"` : ''}>${g.recorrente ? '🔁 ' : ''}${escapeHtml(g.tituloCompra)}</td>
+          <td class="num ${canEdit ? 'budget-pivot-rowfield' : ''}" ${canEdit ? `data-prow="${prow}" data-rfield="quantidade"` : ''}>${g.quantidade === null ? '' : g.quantidade}</td>
           ${monthCells.join('')}
           <td class="num"><strong>${fmtMoney(rowTotal)}</strong></td>
-          <td></td>
+          <td class="budget-pivot-row-actions">${canEdit ? `<button type="button" class="budget-pivot-row-delete" data-prow="${prow}" title="Excluir este lançamento">🗑</button>` : ''}</td>
         `;
         body.appendChild(tr);
       });
@@ -5380,6 +5475,13 @@
           });
         }
       };
+    });
+
+    $all('#budgetPivotBody [data-rfield]').forEach((td) => {
+      td.onclick = () => enterBudgetPivotRowFieldEdit(td, Number(td.dataset.prow), td.dataset.rfield);
+    });
+    $all('#budgetPivotBody .budget-pivot-row-delete').forEach((btn) => {
+      btn.onclick = (ev) => { ev.stopPropagation(); deleteBudgetPivotRow(Number(btn.dataset.prow)); };
     });
 
     applyBudgetPivotSelectionHighlight();
